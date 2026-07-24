@@ -17,6 +17,7 @@ import (
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
+	"github.com/pragun/brain/internal/voice"
 )
 
 const (
@@ -35,6 +36,7 @@ USAGE
     brain business [read|analyze|verify <file> | forecast <file> <col> | agent <goal> | ...]
     brain brief                       what the secretary thinks you should know now
     brain weekly                      Sunday executive briefing: your week in review
+    brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
     brain jot <thought>               braindump: capture and auto-file a thought\n    brain memory [add <fact>|forget <id>|log|history <id>|graph]   persistent memory\n    brain projects | project <name>   auto-detected projects and their dossiers\n    brain mcp serve                   serve local memory to MCP hosts (Claude Desktop, Cursor…)\n    brain record [--name X] [--no-video]   record a study session into notes\n    brain graph [focus] [--hops N] [--similar]   memory graph around a note\n    brain loop [add|done|drop]        manage open loops (commitments)
     brain doctor [--probe]            list runtimes and tiers; --probe loads each model
     brain key set|rm <ref>            manage API keys in the macOS keychain
@@ -80,6 +82,12 @@ func main() {
 		err = search(rest)
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
+	case cmd == "say" && rest != "":
+		err = runSay(rest)
+	case cmd == "listen":
+		err = runListen(flagInt(args, "--seconds", 15))
+	case cmd == "voice":
+		err = runVoiceChat(flagInt(args, "--seconds", 15))
 	case cmd == "capture":
 		err = runCapture(hasFlag(args, "--daemon"), flagInt(args, "--backfill-days", defaultBackfillDays))
 	case cmd == "timeline":
@@ -267,6 +275,11 @@ func doctor(probe bool) error {
 
 	fmt.Println("\n─── tiers ───")
 	for _, line := range rt.Available() {
+		fmt.Println(" ", line)
+	}
+
+	fmt.Println("\n─── voice ───")
+	for _, line := range voice.New().Status() {
 		fmt.Println(" ", line)
 	}
 

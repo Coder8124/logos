@@ -13,3 +13,10 @@ vault/recordings/
 vault/sources/
 vault/.brain/scratch/
 vault/business/
+
+# Bundled voice engines (fetched at build time via scripts/fetch-voice.sh)
+resources/voice/whisper/*
+resources/voice/piper/*
+!resources/voice/whisper/.gitkeep
+!resources/voice/piper/.gitkeep
+!resources/voice/README.md
