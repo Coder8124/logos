@@ -30,6 +30,8 @@ type Commitment struct {
 	// so a surfaced loop can always be traced back — same discipline as
 	// proposal evidence.
 	SourceRef string
+	// ResolvedAt is when the loop was closed (done or dropped), 0 while open.
+	ResolvedAt int64
 }
 
 type Status string
@@ -51,14 +53,20 @@ CREATE TABLE IF NOT EXISTS commitments (
     due_hint   TEXT,
     status     TEXT NOT NULL DEFAULT 'open',
     source_ref TEXT,
-    fingerprint TEXT UNIQUE
+    fingerprint TEXT UNIQUE,
+    resolved_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS commitments_status ON commitments(status, created);
 `
 
 func Init(db *sql.DB) error {
-	_, err := db.Exec(Schema)
-	return err
+	if _, err := db.Exec(Schema); err != nil {
+		return err
+	}
+	// Migration for stores created before the weekly review needed to know when
+	// a loop was closed.
+	db.Exec("ALTER TABLE commitments ADD COLUMN resolved_at INTEGER NOT NULL DEFAULT 0")
+	return nil
 }
 
 // fingerprint dedupes a loop across re-extractions. Normalised text plus the
@@ -118,7 +126,13 @@ func list(db *sql.DB, status Status) ([]Commitment, error) {
 }
 
 func SetStatus(db *sql.DB, id int64, s Status) error {
-	_, err := db.Exec("UPDATE commitments SET status = ? WHERE id = ?", string(s), id)
+	// Stamp the resolution time when a loop closes (done or dropped), and clear
+	// it if a loop is reopened, so the weekly review can report what got closed.
+	resolved := int64(0)
+	if s != Open {
+		resolved = time.Now().Unix()
+	}
+	_, err := db.Exec("UPDATE commitments SET status = ?, resolved_at = ? WHERE id = ?", string(s), resolved, id)
 	return err
 }
 
@@ -126,6 +140,31 @@ func OpenCount(db *sql.DB) (int, error) {
 	var n int
 	err := db.QueryRow("SELECT COUNT(*) FROM commitments WHERE status = 'open'").Scan(&n)
 	return n, err
+}
+
+// ResolvedSince lists commitments marked done in [since, until], newest first —
+// the accomplishments half of the weekly review.
+func ResolvedSince(db *sql.DB, since, until int64) ([]Commitment, error) {
+	rows, err := db.Query(
+		`SELECT id, text, who, created, due_hint, status, source_ref, resolved_at
+		 FROM commitments WHERE status = 'done' AND resolved_at >= ? AND resolved_at <= ?
+		 ORDER BY resolved_at DESC`, since, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Commitment
+	for rows.Next() {
+		var c Commitment
+		var who, due, src sql.NullString
+		var st string
+		if err := rows.Scan(&c.ID, &c.Text, &who, &c.Created, &due, &st, &src, &c.ResolvedAt); err != nil {
+			return nil, err
+		}
+		c.Who, c.DueHint, c.SourceRef, c.Status = who.String, due.String, src.String, Status(st)
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // Age is how long a loop has been open, for surfacing the stalest first.
