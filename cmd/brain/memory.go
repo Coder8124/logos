@@ -2,7 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,6 +58,8 @@ func memoryCmd(args []string) error {
 			return fmt.Errorf("usage: brain memory history <id>")
 		}
 		return memoryHistory(ix.DB, id)
+	case "graph":
+		return memoryGraph(ix.DB, args)
 	case "add":
 		text := strings.TrimSpace(strings.Join(args[1:], " "))
 		if text == "" {
@@ -152,6 +156,88 @@ func memoryHistory(db *sql.DB, id int64) error {
 		fmt.Printf("  %s  %-11s %s%s\n", when, e.Event, truncateLine(e.Detail, 70), ref)
 	}
 	return nil
+}
+
+// memoryGraph builds and renders the memory relationship graph — memories, the
+// .md notes they mention, and how they relate.
+func memoryGraph(db *sql.DB, args []string) error {
+	g, err := memory.BuildGraph(db, hasFlag(args, "--similar"))
+	if err != nil {
+		return err
+	}
+	if hasFlag(args, "--mermaid") {
+		fmt.Print(g.Mermaid())
+		return nil
+	}
+	if hasFlag(args, "--json") {
+		b, _ := json.MarshalIndent(g, "", "  ")
+		fmt.Println(string(b))
+		return nil
+	}
+	if len(g.Nodes) == 0 {
+		fmt.Println("the memory graph is empty — add memories and index your vault to connect them.")
+		return nil
+	}
+
+	var mems, notes int
+	for _, n := range g.Nodes {
+		if n.Type == "note" {
+			notes++
+		} else {
+			mems++
+		}
+	}
+	rel := map[string]int{}
+	for _, e := range g.Edges {
+		rel[e.Rel]++
+	}
+	fmt.Printf("memory graph · %d memories, %d linked notes · %d edges (%d mentions, %d supersedes, %d similar)\n\n",
+		mems, notes, len(g.Edges), rel["mentions"], rel["supersedes"], rel["similar"])
+
+	// Hubs: the best-connected nodes are where knowledge concentrates.
+	hubs := append([]memory.GraphNode(nil), g.Nodes...)
+	sort.Slice(hubs, func(a, b int) bool { return hubs[a].Degree > hubs[b].Degree })
+	fmt.Println("most connected")
+	shown := 0
+	for _, n := range hubs {
+		if n.Degree == 0 || shown >= 6 {
+			continue
+		}
+		tag := n.Kind
+		if n.Type == "note" {
+			tag = "note:" + n.Kind
+		}
+		fmt.Printf("  %2d links  (%-12s) %s\n", n.Degree, tag, truncateLine(n.Label, 52))
+		shown++
+	}
+
+	fmt.Println("\nlinks to the vault")
+	links := 0
+	for _, e := range g.Edges {
+		if e.Rel != "mentions" {
+			continue
+		}
+		if links >= 12 {
+			fmt.Println("  …")
+			break
+		}
+		fmt.Printf("  %s → %s\n", truncateLine(nodeLabel(g, e.Src), 40), nodeLabel(g, e.Dst))
+		links++
+	}
+	if links == 0 {
+		fmt.Println("  (none yet — memories will link to people/project/topic notes as they mention them)")
+	}
+	fmt.Println("\ntip: --similar adds meaning-based edges · --mermaid emits a diagram · --json for the widget")
+	return nil
+}
+
+func nodeLabel(g memory.MemGraph, id string) string {
+	for _, n := range g.Nodes {
+		if n.ID == id {
+			return n.Label
+		}
+	}
+	return id
 }
 
 func truncateLine(s string, n int) string {
