@@ -44,37 +44,69 @@ type Memory struct {
 	Text     string  `json:"text"`
 	Kind     Kind    `json:"kind"`
 	Salience float64 `json:"salience"` // 0..1, how much it matters
-	Source   string  `json:"source"`   // where it was learned (conversation, manual)
-	Created  int64   `json:"created"`
-	LastUsed int64   `json:"last_used"`
-	Uses     int     `json:"uses"`
-	Score    float64 `json:"score"` // set on recall: relevance to the query
-	vec      []byte  // embedding, loaded only for consolidation; not serialised
+	// Confidence is how sure we are the fact is true and current, as distinct
+	// from salience (how much it matters). A preference you stated by hand is
+	// near-certain; one the model inferred from a passing remark is not.
+	// Corroboration raises it; being superseded or going stale lowers it.
+	Confidence float64 `json:"confidence"` // 0..1
+	// Project scopes a memory to one piece of work, so an assistant helping with
+	// ÉlyséeBot recalls ÉlyséeBot's context and not the whole life. Empty means
+	// global — it applies everywhere.
+	Project      string  `json:"project,omitempty"`
+	Source       string  `json:"source"` // where it was learned (conversation, manual, mcp)
+	Created      int64   `json:"created"`
+	LastUsed     int64   `json:"last_used"`
+	Uses         int     `json:"uses"`
+	SupersededBy int64   `json:"superseded_by,omitempty"` // id of the memory that replaced this one
+	Score        float64 `json:"score"`                   // set on recall: relevance to the query
+	vec          []byte  // embedding, loaded only for consolidation; not serialised
 }
 
 const Schema = `
 CREATE TABLE IF NOT EXISTS memories (
-    id          INTEGER PRIMARY KEY,
-    text        TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    salience    REAL NOT NULL DEFAULT 0.5,
-    source      TEXT,
-    created     INTEGER NOT NULL,
-    last_used   INTEGER NOT NULL DEFAULT 0,
-    uses        INTEGER NOT NULL DEFAULT 0,
-    vec         BLOB,
-    fingerprint TEXT UNIQUE,
-    superseded  INTEGER NOT NULL DEFAULT 0
+    id            INTEGER PRIMARY KEY,
+    text          TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    salience      REAL NOT NULL DEFAULT 0.5,
+    confidence    REAL NOT NULL DEFAULT 0.7,
+    project       TEXT NOT NULL DEFAULT '',
+    source        TEXT,
+    created       INTEGER NOT NULL,
+    last_used     INTEGER NOT NULL DEFAULT 0,
+    uses          INTEGER NOT NULL DEFAULT 0,
+    vec           BLOB,
+    fingerprint   TEXT UNIQUE,
+    superseded    INTEGER NOT NULL DEFAULT 0,
+    superseded_by INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
+CREATE INDEX IF NOT EXISTS memories_project ON memories(project);
+
+-- memory_log is the git history of memory: an append-only record of every
+-- lifecycle event (created, reinforced, superseded, merged, forgotten). The
+-- detail column snapshots the memory's text at the time, so the history stays
+-- legible even after the memory itself is deleted.
+CREATE TABLE IF NOT EXISTS memory_log (
+    id     INTEGER PRIMARY KEY,
+    ts     INTEGER NOT NULL,
+    mem_id INTEGER NOT NULL,
+    event  TEXT NOT NULL,
+    detail TEXT,
+    ref_id INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS memory_log_ts ON memory_log(ts);
 `
 
 func Init(db *sql.DB) error {
 	if _, err := db.Exec(Schema); err != nil {
 		return err
 	}
-	// Migration for stores created before superseding existed.
+	// Migrations for stores created before these columns existed. Each is a
+	// no-op once applied; errors (column already present) are ignored.
 	db.Exec("ALTER TABLE memories ADD COLUMN superseded INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7")
+	db.Exec("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE memories ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0")
 	return nil
 }
 
@@ -94,6 +126,9 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (bool
 	if m.Salience == 0 {
 		m.Salience = 0.5
 	}
+	if m.Confidence == 0 {
+		m.Confidence = defaultConfidence(m.Source)
+	}
 
 	var vec []byte
 	var qvec []float32
@@ -109,25 +144,44 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (bool
 	// it re-extracts it, so exact-text dedup lets re-learning bloat the store.
 	// If an existing memory is near-identical in meaning, reinforce it instead of
 	// adding a twin — this is what keeps the store from growing on repetition.
+	// A re-statement is corroboration, so it also lifts confidence.
 	if qvec != nil {
 		if id, ok := nearestMemory(db, qvec, DedupThreshold); ok {
-			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), uses = uses + 1 WHERE id = ?", id)
+			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
+			logEvent(db, id, EvReinforced, m.Text, 0)
 			return false, nil
 		}
 	}
 
 	res, err := db.Exec(
-		`INSERT OR IGNORE INTO memories (text, kind, salience, source, created, vec, fingerprint)
-		 VALUES (?,?,?,?,?,?,?)`,
-		m.Text, string(m.Kind), m.Salience, m.Source, m.Created, vec, fingerprint(m.Text))
+		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, created, vec, fingerprint)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Created, vec, fingerprint(m.Text))
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
 	if n > 0 {
 		m.ID, _ = res.LastInsertId()
+		logEvent(db, m.ID, EvCreated, m.Text, 0)
 	}
 	return n > 0, nil
+}
+
+// defaultConfidence seeds a memory's confidence from how it was learned. A fact
+// the user typed or a tool asserted is near-certain; one inferred from the drift
+// of a conversation is a hypothesis that corroboration must earn up.
+func defaultConfidence(source string) float64 {
+	switch source {
+	case "manual":
+		return 0.9
+	case "mcp":
+		return 0.85
+	case "conversation", "":
+		return 0.6
+	default:
+		return 0.7
+	}
 }
 
 // DedupThreshold is how close a new memory must be to an existing one to be
@@ -187,7 +241,20 @@ func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) (
 // fall back to pure vector. The +8.9-point lift this gave on LongMemEval is why
 // live recall runs it too, not just the benchmark.
 func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`)
+	return recallScoped(db, query, k, queryText, "")
+}
+
+// recallScoped is recallByVec with an optional project filter. An empty project
+// recalls everything (global view); a named project narrows to that work's own
+// memory plus global memories, which is what project-scoped recall wants.
+func recallScoped(db *sql.DB, query []float32, k int, queryText, project string) ([]Memory, error) {
+	q := `SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`
+	var args []any
+	if project != "" {
+		q += " AND (project = ? OR project = '')"
+		args = append(args, project)
+	}
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +266,7 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &vec); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &vec); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -221,8 +288,9 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 			rel = fused[i]
 		}
 		// Relevance dominates; effective salience (decay + reinforcement) breaks
-		// ties toward what currently matters.
-		mems[i].Score = rel*0.85 + EffectiveSalience(mems[i], now)*0.15
+		// ties toward what currently matters, scaled by how much we trust the
+		// memory so a shaky fact does not outrank a certain one at equal relevance.
+		mems[i].Score = rel*0.85 + EffectiveSalience(mems[i], now)*mems[i].Confidence*0.15
 	}
 	sortByScore(mems)
 	if len(mems) > k {
@@ -231,10 +299,31 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 	return mems, nil
 }
 
-// All returns every memory, most salient first — the fallback and the CLI view.
+// RecallInProject is Recall narrowed to a project's memory (plus global memory).
+func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, project string, k int) ([]Memory, error) {
+	if p == nil {
+		return All(db)
+	}
+	vecs, err := p.Embed(embedModel, []string{query})
+	if err != nil || len(vecs) == 0 {
+		return All(db)
+	}
+	mems, err := recallScoped(db, vecs[0], k, query, project)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Unix()
+	for _, m := range mems {
+		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
+	}
+	return mems, nil
+}
+
+// All returns every active memory, most salient first — the fallback and the
+// CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, source, created, last_used, uses FROM memories ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +332,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Source, &m.Created, &m.LastUsed, &m.Uses); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -259,7 +348,14 @@ func Count(db *sql.DB) (int, error) {
 }
 
 func Forget(db *sql.DB, id int64) error {
+	// Snapshot the text into the log first, so the timeline records what was
+	// forgotten even though the row is about to vanish.
+	var text string
+	db.QueryRow("SELECT text FROM memories WHERE id = ?", id).Scan(&text)
 	_, err := db.Exec("DELETE FROM memories WHERE id = ?", id)
+	if err == nil {
+		logEvent(db, id, EvForgotten, text, 0)
+	}
 	return err
 }
 

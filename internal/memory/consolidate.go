@@ -179,19 +179,24 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 			rel := classify(rt, model, older.Text, newer.Text)
 			switch rel {
 			case "duplicate":
-				// Keep the more salient; fold salience in; drop the other.
+				// Keep the more salient; fold salience in, and lift confidence —
+				// two independent statements of a fact are stronger than one.
 				keep, drop := newer, older
 				if older.Salience >= newer.Salience {
 					keep, drop = older, newer
 				}
-				db.Exec("UPDATE memories SET salience = ?, uses = uses + ? WHERE id = ?",
+				db.Exec("UPDATE memories SET salience = ?, confidence = MIN(1.0, confidence + 0.05), uses = uses + ? WHERE id = ?",
 					math.Min(1, keep.Salience+0.1), drop.Uses, keep.ID)
-				db.Exec("UPDATE memories SET superseded = 1 WHERE id = ?", drop.ID)
+				db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", keep.ID, drop.ID)
+				logEvent(db, keep.ID, EvMerged, keep.Text, drop.ID)
+				logEvent(db, drop.ID, EvSuperseded, drop.Text, keep.ID)
 				gone[drop.ID] = true
 				merged++
 			case "update":
-				// The newer fact wins; the older is superseded but retained.
-				db.Exec("UPDATE memories SET superseded = 1 WHERE id = ?", older.ID)
+				// The newer fact wins; the older is superseded but retained, with a
+				// pointer to what replaced it so the timeline can show the change.
+				db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", newer.ID, older.ID)
+				logEvent(db, older.ID, EvSuperseded, older.Text, newer.ID)
 				gone[older.ID] = true
 				superseded++
 			}
