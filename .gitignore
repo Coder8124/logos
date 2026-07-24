@@ -6,6 +6,11 @@ vault/.brain/
 *.db-shm
 node_modules/
 dist/
+# Exception: the Wails app frontend under app/frontend/dist is hand-authored
+# source embedded into the binary (frontend:build is empty — it is not generated),
+# so it must be tracked despite the generic dist/ rule above.
+!app/frontend/dist/
+!app/frontend/dist/**
 build/bin/
 app/build/bin/
 app/vault/
