@@ -35,9 +35,11 @@ USAGE
     brain tutor [diagnostic <subject> | study|quiz <topic> | cards|review | screen on|off | help]
     brain business [read|analyze|verify <file> | forecast <file> <col> | agent <goal> | ...]
     brain brief                       what the secretary thinks you should know now
+    brain replay [--peek]             catch up on what changed since you were last here
+    brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
     brain weekly                      Sunday executive briefing: your week in review
     brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
-    brain jot <thought>               braindump: capture and auto-file a thought\n    brain memory [add <fact>|forget <id>|log|history <id>|graph]   persistent memory\n    brain projects | project <name>   auto-detected projects and their dossiers\n    brain mcp serve                   serve local memory to MCP hosts (Claude Desktop, Cursor…)\n    brain record [--name X] [--no-video]   record a study session into notes\n    brain graph [focus] [--hops N] [--similar]   memory graph around a note\n    brain loop [add|done|drop]        manage open loops (commitments)
+    brain jot <thought>               braindump: capture and auto-file a thought\n    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory\n    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline\n    brain projects | project <name>   auto-detected projects and their dossiers\n    brain context <file|project|topic>   assemble a context pack for an AI tool (also an MCP tool)\n    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)\n    brain record [--name X] [--no-video]   record a study session into notes\n    brain graph [focus] [--hops N] [--similar]   memory graph around a note\n    brain loop [add|done|drop]        manage open loops (commitments)
     brain doctor [--probe]            list runtimes and tiers; --probe loads each model
     brain key set|rm <ref>            manage API keys in the macOS keychain
     brain index [--watch]             sync vault into the cache and embed
@@ -49,6 +51,10 @@ USAGE
     brain rollup [--date YYYY-MM-DD] [--dry-run]
                                       distil a day into a note and proposals
     brain review [--all]              accept or reject queued proposals
+    brain dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
+                                      nightly consolidation: replay, gist, downscale, recombine
+    brain dream review | accept|reject <id>
+                                      review the connections REM proposed overnight
     brain routines [--days N] [--propose]
                                       mine recurring patterns from the timeline
     brain prune [days]                drop raw events past the retention window
@@ -82,6 +88,8 @@ func main() {
 		err = search(rest)
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
+	case cmd == "context" && rest != "":
+		err = runContext(rest)
 	case cmd == "say" && rest != "":
 		err = runSay(rest)
 	case cmd == "listen":
@@ -96,6 +104,12 @@ func main() {
 		err = runRollup(flagStr(args, "--date", ""), hasFlag(args, "--dry-run"))
 	case cmd == "review":
 		err = runReview(hasFlag(args, "--all"))
+	case cmd == "dream":
+		err = dreamCmd(args)
+	case cmd == "replay":
+		err = runReplay(hasFlag(args, "--peek"))
+	case cmd == "reflect":
+		err = runReflect()
 	case cmd == "mode":
 		err = modeCmd(args)
 	case cmd == "tutor":
@@ -497,6 +511,15 @@ func runCapture(daemon bool, backfillDays int) error {
 	screenTicker := time.NewTicker(3 * time.Minute)
 	defer screenTicker.Stop()
 
+	// The nightly dream. Checked hourly and run at most once per calendar day,
+	// past dreamHour, over the day that just ended. lastDream lives in memory, so
+	// a restart may re-run a day once — the pass is deterministic in NREM and
+	// dedups its gists, and REM is capped, so a re-run is cheap rather than
+	// harmful. (Persisting the last-dream date is a follow-up.)
+	dreamTicker := time.NewTicker(time.Hour)
+	defer dreamTicker.Stop()
+	var lastDream string
+
 	for {
 		select {
 		case <-stop:
@@ -529,6 +552,15 @@ func runCapture(daemon bool, backfillDays int) error {
 			if screenErr == nil {
 				if msg := screen.tick(); msg != "" {
 					fmt.Printf("· %s — `brain review`\n", msg)
+				}
+			}
+
+		case <-dreamTicker.C:
+			today := time.Now().Format("2006-01-02")
+			if time.Now().Hour() >= dreamHour && lastDream != today {
+				lastDream = today
+				if err := dreamNightly(ix.DB, ix.Vault); err != nil {
+					fmt.Fprintln(os.Stderr, "· dream error:", err)
 				}
 			}
 		}

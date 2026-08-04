@@ -1,11 +1,16 @@
-// Package mcpserver exposes brain's persistent memory as an MCP server.
+// Package mcpserver exposes brain's memory layer as an MCP server.
 //
-// This is the "memory is the product" thesis made real: any MCP host — Claude
-// Desktop, Claude Code, Cursor — connects to this over stdio and gains one
-// local, private memory that follows the user across every tool and every
-// session. The memory lives in the user's own vault; nothing is uploaded. The
-// same store the brain app reads is the store an external agent writes to, so
-// what you tell one, the others know.
+// This is the "memory is the platform" thesis made real: any MCP host — Claude
+// Desktop, Claude Code, Cursor, or someone's own application — connects over
+// stdio and can build on one local, private memory that follows the user across
+// every tool and session. The memory lives in the user's own vault; nothing is
+// uploaded. The same store the brain app reads is the store an external agent
+// reads and writes, so what you tell one, the others know.
+//
+// The surface is deliberately more than remember/recall: an application should be
+// able to write memory, read it back, ask what changed, pull a ready-made context
+// pack for a file or project, and enumerate the projects it detected — enough to
+// sit *underneath* another product as its memory backend, not just beside a chat.
 //
 // It speaks MCP over newline-delimited JSON-RPC 2.0 on stdio — the transport
 // every MCP host supports — mirroring the client in internal/business.
@@ -19,8 +24,10 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pragun/brain/internal/memory"
+	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
 )
@@ -134,6 +141,12 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 		return s.listMemories()
 	case "forget":
 		return s.forget(argStr(args, "id"))
+	case "context_pack":
+		return s.contextPack(argStr(args, "hint"))
+	case "memory_diff":
+		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7))
+	case "list_projects":
+		return s.listProjects()
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
@@ -207,6 +220,68 @@ func (s *Server) forget(idStr string) (string, error) {
 		return "", err
 	}
 	return "Forgotten.", nil
+}
+
+// --- memory-layer operations: the surface other applications build on ---
+
+// contextPack assembles everything relevant to a file, project, or topic — the
+// project dossier, standing preferences, and related memories — as one markdown
+// bundle a host can drop straight into its model's context.
+func (s *Server) contextPack(hint string) (string, error) {
+	if strings.TrimSpace(hint) == "" {
+		return "", fmt.Errorf("context_pack needs a hint (a file path, project, or topic)")
+	}
+	pack, err := project.BuildContext(s.DB, s.embed, s.embedModel, hint)
+	if err != nil {
+		return "", err
+	}
+	return pack.Render(), nil
+}
+
+// memoryDiff reports what the memory learned, dropped, or corroborated over the
+// last `days`, optionally about one subject. Instant and offline — it reads the
+// append-only memory log, no model.
+func (s *Server) memoryDiff(subject string, days int) (string, error) {
+	if days <= 0 {
+		days = 7
+	}
+	until := time.Now()
+	since := until.AddDate(0, 0, -days)
+	res, err := memory.Diff(s.DB, subject, since.Unix(), until.Unix())
+	if err != nil {
+		return "", err
+	}
+	if res.Empty() {
+		return "Nothing changed in that window.", nil
+	}
+	var b strings.Builder
+	for _, e := range res.Added {
+		fmt.Fprintf(&b, "+ %s\n", e.Text)
+	}
+	for _, e := range res.Removed {
+		fmt.Fprintf(&b, "- %s\n", e.Text)
+	}
+	for _, e := range res.Corroborated {
+		fmt.Fprintf(&b, "~ %s\n", e.Text)
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// listProjects enumerates the projects brain detected, most-recently-active
+// first, so a host can navigate the memory by the work it is organised around.
+func (s *Server) listProjects() (string, error) {
+	ps, err := project.Detect(s.DB)
+	if err != nil {
+		return "", err
+	}
+	if len(ps) == 0 {
+		return "No projects detected yet.", nil
+	}
+	var b strings.Builder
+	for _, p := range ps {
+		fmt.Fprintf(&b, "- %s (last active %s)\n", p.Name, project.Age(p.LastActive))
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 // --- json-rpc plumbing ---

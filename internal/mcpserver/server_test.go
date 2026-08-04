@@ -171,7 +171,10 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 	if err := json.Unmarshal(raw, &res); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"remember": true, "recall": true, "list_memories": true, "forget": true}
+	want := map[string]bool{
+		"remember": true, "recall": true, "list_memories": true, "forget": true,
+		"context_pack": true, "memory_diff": true, "list_projects": true,
+	}
 	if len(res.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(res.Tools), len(want))
 	}
@@ -182,6 +185,27 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 		if tool.Description == "" || len(tool.InputSchema) == 0 {
 			t.Errorf("tool %q missing description or schema", tool.Name)
 		}
+	}
+}
+
+// The broadened memory-layer surface: what an external app writes via remember
+// shows up when it asks memory_diff what changed.
+func TestMemoryDiffTool(t *testing.T) {
+	c, _ := startServer(t)
+	handshake(t, c)
+
+	if _, isErr := c.callText(t, "remember", map[string]any{
+		"text": "The user switched to Neovim.",
+		"kind": "preference",
+	}); isErr {
+		t.Fatal("remember failed")
+	}
+	out, isErr := c.callText(t, "memory_diff", map[string]any{"days": 1})
+	if isErr {
+		t.Fatalf("memory_diff errored: %s", out)
+	}
+	if !strings.Contains(out, "Neovim") {
+		t.Errorf("diff should surface the newly remembered fact, got: %q", out)
 	}
 }
 

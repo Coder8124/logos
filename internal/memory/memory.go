@@ -179,6 +179,11 @@ func defaultConfidence(source string) float64 {
 		return 0.85
 	case "conversation", "":
 		return 0.6
+	case "dream":
+		// Synthesised offline by the nightly consolidation pass — a hypothesis,
+		// not something the user said. It must earn belief through corroboration
+		// and never outranks a stated fact at equal relevance.
+		return 0.5
 	default:
 		return 0.7
 	}

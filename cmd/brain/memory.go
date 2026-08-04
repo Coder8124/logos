@@ -60,6 +60,8 @@ func memoryCmd(args []string) error {
 		return memoryHistory(ix.DB, id)
 	case "graph":
 		return memoryGraph(ix.DB, args)
+	case "diff":
+		return memoryDiff(ix.DB, args)
 	case "add":
 		text := strings.TrimSpace(strings.Join(args[1:], " "))
 		if text == "" {
@@ -99,9 +101,85 @@ func memoryCmd(args []string) error {
 		}
 		fmt.Println("forgotten.")
 	default:
-		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | consolidate]")
+		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | diff | consolidate]")
 	}
 	return nil
+}
+
+// memoryDiff answers "what changed?" over a window, optionally about a subject.
+//
+//	brain memory diff [subject…] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--days N]
+//
+// Instant and offline — it reads the memory timeline, no model.
+func memoryDiff(db *sql.DB, args []string) error {
+	// Everything that isn't a flag or a flag value is the subject.
+	subject := strings.TrimSpace(strings.Join(nonFlagArgs(args[1:]), " "))
+
+	days := flagInt(args, "--days", 7)
+	until := time.Now()
+	since := until.AddDate(0, 0, -days)
+	if v := flagStr(args, "--since", ""); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err != nil {
+			return fmt.Errorf("bad --since %q, want YYYY-MM-DD", v)
+		}
+		since = t
+	}
+	if v := flagStr(args, "--until", ""); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, time.Local)
+		if err != nil {
+			return fmt.Errorf("bad --until %q, want YYYY-MM-DD", v)
+		}
+		until = t.AddDate(0, 0, 1) // inclusive of the named day
+	}
+
+	res, err := memory.Diff(db, subject, since.Unix(), until.Unix())
+	if err != nil {
+		return err
+	}
+
+	head := fmt.Sprintf("what changed · %s → %s", since.Format("Jan 02"), until.Format("Jan 02"))
+	if subject != "" {
+		head = fmt.Sprintf("what changed about %q · %s → %s", subject, since.Format("Jan 02"), until.Format("Jan 02"))
+	}
+	fmt.Println(head)
+
+	if res.Empty() {
+		fmt.Println("\n  nothing changed in that window.")
+		return nil
+	}
+	fmt.Println()
+
+	printDiffBucket("+", res.Added)
+	printDiffBucket("-", res.Removed)
+	printDiffBucket("~", res.Corroborated) // corroborated / firmed up
+	return nil
+}
+
+func printDiffBucket(sign string, entries []memory.DiffEntry) {
+	for _, e := range entries {
+		when := time.Unix(e.TS, 0).Format("Jan 02")
+		fmt.Printf("  %s %s  %s\n", sign, when, truncateLine(e.Text, 64))
+	}
+}
+
+// nonFlagArgs drops flags and their values, leaving the positional words. It
+// knows the value-taking flags the diff command accepts.
+func nonFlagArgs(args []string) []string {
+	valueFlags := map[string]bool{"--since": true, "--until": true, "--days": true}
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if valueFlags[a] {
+			i++ // skip this flag's value
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // confBar renders a confidence as a short 5-cell bar plus the number, so the
