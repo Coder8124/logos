@@ -62,6 +62,8 @@ func memoryCmd(args []string) error {
 		return memoryGraph(ix.DB, args)
 	case "diff":
 		return memoryDiff(ix.DB, args)
+	case "health":
+		return memoryHealth(ix.DB)
 	case "add":
 		text := strings.TrimSpace(strings.Join(args[1:], " "))
 		if text == "" {
@@ -101,7 +103,7 @@ func memoryCmd(args []string) error {
 		}
 		fmt.Println("forgotten.")
 	default:
-		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | diff | consolidate]")
+		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | diff | health | consolidate]")
 	}
 	return nil
 }
@@ -161,6 +163,48 @@ func printDiffBucket(sign string, entries []memory.DiffEntry) {
 		when := time.Unix(e.TS, 0).Format("Jan 02")
 		fmt.Printf("  %s %s  %s\n", sign, when, truncateLine(e.Text, 64))
 	}
+}
+
+// memoryHealth prints the store's diagnostic — git status for what it knows.
+func memoryHealth(db *sql.DB) error {
+	rep, err := memory.Health(db)
+	if err != nil {
+		return err
+	}
+	if rep.Total == 0 {
+		fmt.Println("no memories yet — nothing to diagnose.")
+		return nil
+	}
+
+	fmt.Printf("Memory health · %.0f%%  %s\n\n", rep.Score*100, confBar(rep.Score))
+	fmt.Printf("  %d memories\n", rep.Total)
+
+	clean := rep.Total - flaggedCount(rep)
+	fmt.Printf("  ✓ %d clean\n", clean)
+	if rep.Duplicates > 0 {
+		fmt.Printf("  ⚠ %d duplicate memories\n", rep.Duplicates)
+	}
+	if rep.Stale > 0 {
+		fmt.Printf("  ⚠ %d stale facts\n", rep.Stale)
+	}
+	if rep.LowConfidence > 0 {
+		fmt.Printf("  ⚠ %d low-confidence hunches\n", rep.LowConfidence)
+	}
+	if rep.Orphans > 0 {
+		fmt.Printf("  · %d orphans (linked to no note)\n", rep.Orphans)
+	}
+
+	if rep.Duplicates > 0 {
+		fmt.Println("\ntip: `brain memory consolidate` folds duplicates and retires stale facts")
+	}
+	return nil
+}
+
+// flaggedCount is how many memories carry a score-affecting defect (dupes, stale,
+// low-confidence). Orphans are informational and excluded, matching Health's score.
+func flaggedCount(rep memory.HealthReport) int {
+	// Score = 1 - flagged/total, so flagged = round((1-score)*total).
+	return int(float64(rep.Total)*(1-rep.Score) + 0.5)
 }
 
 // nonFlagArgs drops flags and their values, leaving the positional words. It
