@@ -71,6 +71,37 @@ type Config struct {
 	ScreenNotes bool `json:"screen_notes"`
 	// MCP servers business mode may reach. Empty until the user adds one.
 	MCP []MCPServer `json:"mcp,omitempty"`
+	// Name is what the user calls the assistant — how they address it and, when a
+	// wake-word model is present, the word that wakes it. Empty means unnamed.
+	Name string `json:"name,omitempty"`
+	// Presence tunes the ambient secretary.
+	Presence Presence `json:"presence"`
+}
+
+// Presence tunes the ambient, conversational secretary: whether it interjects at
+// all, how far ahead it flags a meeting, the minimum quiet gap between non-urgent
+// nudges, and hours it stays silent in. Zero values mean "use the defaults" —
+// see PresenceDefaults.
+type Presence struct {
+	Interjections      bool     `json:"interjections"`
+	WakeWord           bool     `json:"wake_word"`
+	MeetingLeadMinutes int      `json:"meeting_lead_minutes"`
+	MinGapMinutes      int      `json:"min_gap_minutes"`
+	QuietHours         []string `json:"quiet_hours,omitempty"` // ["22:00", "08:00"]
+}
+
+// PresenceDefaults fills unset fields with sensible defaults, so an old config
+// (or one that never configured presence) still behaves reasonably. Interjections
+// default on and non-urgent nudges are spaced an hour apart — spacing, not a
+// per-hour quota, so an imminent meeting is never counted against a tally.
+func (p Presence) WithDefaults() Presence {
+	if p.MeetingLeadMinutes == 0 {
+		p.MeetingLeadMinutes = 10
+	}
+	if p.MinGapMinutes == 0 {
+		p.MinGapMinutes = 60
+	}
+	return p
 }
 
 // MCPServer is a stdio MCP server brain can launch and talk to.

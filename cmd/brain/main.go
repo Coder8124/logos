@@ -39,6 +39,8 @@ USAGE
     brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
     brain weekly                      Sunday executive briefing: your week in review
     brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
+    brain name [<name>]               name the assistant — how you address it and its wake word
+    brain presence [--wake]           the ambient secretary: greets, answers, and speaks up (--wake to talk by name)
     brain jot <thought>               braindump: capture and auto-file a thought\n    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory\n    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline\n    brain projects | project <name>   auto-detected projects and their dossiers\n    brain context <file|project|topic>   assemble a context pack for an AI tool (also an MCP tool)\n    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)\n    brain record [--name X] [--no-video]   record a study session into notes\n    brain graph [focus] [--hops N] [--similar]   memory graph around a note\n    brain loop [add|done|drop]        manage open loops (commitments)
     brain doctor [--probe]            list runtimes and tiers; --probe loads each model
     brain key set|rm <ref>            manage API keys in the macOS keychain
@@ -96,6 +98,10 @@ func main() {
 		err = runListen(flagInt(args, "--seconds", 15))
 	case cmd == "voice":
 		err = runVoiceChat(flagInt(args, "--seconds", 15))
+	case cmd == "presence":
+		err = runPresence(hasFlag(args, "--wake"))
+	case cmd == "name":
+		err = runName(rest)
 	case cmd == "capture":
 		err = runCapture(hasFlag(args, "--daemon"), flagInt(args, "--backfill-days", defaultBackfillDays))
 	case cmd == "timeline":
