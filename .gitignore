@@ -13,6 +13,9 @@ dist/
 !app/frontend/dist/**
 build/bin/
 app/build/bin/
+# Wails regenerates these TypeScript bindings on every build; the frontend is
+# vanilla JS and calls window.go.* directly, so they are not used at runtime.
+app/frontend/wailsjs/
 app/vault/
 vault/recordings/
 vault/sources/
