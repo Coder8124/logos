@@ -380,13 +380,67 @@ async function loadRoutines() {
 // keeps the thread, and knows your current context.
 let streamingBubble = null;
 
+function escapeHtml(s) {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// citeSpans turns [slug] into a styled citation. Applied after links so a real
+// [text](url) isn't caught.
+function citeSpans(s) {
+  return s.replace(/\[([^\]\n]+)\]/g, '<span class="cite">[$1]</span>');
+}
+
+// streamRender is the light pass used while tokens are still arriving: escape,
+// citations, and line breaks. Full markdown is applied once the answer is done,
+// so half-written syntax never flickers mid-stream.
+function streamRender(raw) {
+  return citeSpans(escapeHtml(raw)).replace(/\n/g, "<br>");
+}
+
+// mdToHtml is a small dependency-free markdown renderer for the model's answers —
+// the assistant replies in markdown and the panel should read it as such, not show
+// the asterisks and hashes raw. Covers what an LLM actually emits: code, headers,
+// bold/italic, lists, links, and citations.
+function mdToHtml(src) {
+  if (!src) return "";
+  let s = escapeHtml(src);
+
+  // Fenced code blocks, stashed so nothing else rewrites their insides.
+  const blocks = [];
+  s = s.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => {
+    blocks.push('<pre class="code"><code>' + code.replace(/\n$/, "") + "</code></pre>");
+    return "\u0000" + (blocks.length - 1) + "\u0000";
+  });
+
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/^###\s+(.*)$/gm, "<h4>$1</h4>")
+       .replace(/^##\s+(.*)$/gm, "<h3>$1</h3>")
+       .replace(/^#\s+(.*)$/gm, "<h2>$1</h2>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+       .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2">$1</a>');
+  s = citeSpans(s);
+
+  // Group consecutive bullet / numbered lines into a single list.
+  s = s.replace(/(?:^[-*]\s+.*(?:\n|$))+/gm, (m) =>
+    "<ul>" + m.trim().split(/\n/).map((l) => "<li>" + l.replace(/^[-*]\s+/, "") + "</li>").join("") + "</ul>");
+  s = s.replace(/(?:^\d+\.\s+.*(?:\n|$))+/gm, (m) =>
+    "<ol>" + m.trim().split(/\n/).map((l) => "<li>" + l.replace(/^\d+\.\s+/, "") + "</li>").join("") + "</ol>");
+
+  // Paragraphs on blank lines; single newlines become <br>. Block elements pass
+  // through unwrapped.
+  s = s.split(/\n{2,}/).map((chunk) =>
+    /^\s*<(h\d|ul|ol|pre)/.test(chunk) ? chunk : "<p>" + chunk.replace(/\n/g, "<br>") + "</p>"
+  ).join("");
+
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[+i]);
+}
+
 function addBubble(role, text) {
   const wrap = $("chat-log");
   const b = el("div", "bubble " + role);
-  b.innerHTML = role === "assistant"
-    ? (text || "").replace(/\[([^\]]+)\]/g, '<span class="cite">[$1]</span>')
-    : "";
   if (role === "user") b.textContent = text;
+  else b.innerHTML = mdToHtml(text);
   wrap.append(b);
   wrap.scrollTop = wrap.scrollHeight;
   return b;
@@ -450,18 +504,50 @@ function toast(msg) {
   setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 300); }, 3200);
 }
 
+// wireVoice enables speak-to-type: a mic button that records a turn, transcribes
+// it locally, and drops the text into the chat input. Shown only when the local
+// STT toolchain is present, so it never advertises a capability that isn't there.
+async function wireVoice() {
+  const btn = $("mic-btn");
+  if (!btn) return;
+  let ok = false;
+  try { ok = await go().VoiceAvailable(); } catch (_) {}
+  if (!ok) return; // no STT: leave the button hidden
+  btn.hidden = false;
+  btn.onclick = async () => {
+    btn.classList.add("listening");
+    btn.textContent = "…";
+    try {
+      const text = await go().VoiceInput();
+      if (text) {
+        const inp = $("ask");
+        inp.value = text;
+        inp.focus();
+      }
+    } catch (e) {
+      toast("⚠ " + e);
+    }
+    btn.classList.remove("listening");
+    btn.textContent = "🎤";
+  };
+}
+
 function wireChat() {
   const rt = window.runtime;
   if (!rt || !rt.EventsOn) return;
   rt.EventsOn("chat:token", (tok) => {
     if (!streamingBubble) return;
     streamingBubble.dataset.raw += tok;
-    streamingBubble.innerHTML = streamingBubble.dataset.raw
-      .replace(/\[([^\]]+)\]/g, '<span class="cite">[$1]</span>');
+    // Light render while tokens arrive, so half-written markdown never flickers.
+    streamingBubble.innerHTML = streamRender(streamingBubble.dataset.raw);
     $("chat-log").scrollTop = $("chat-log").scrollHeight;
   });
   rt.EventsOn("chat:done", () => {
-    if (streamingBubble) streamingBubble.classList.remove("streaming");
+    if (streamingBubble) {
+      // Full markdown render once the answer is complete.
+      streamingBubble.innerHTML = mdToHtml(streamingBubble.dataset.raw);
+      streamingBubble.classList.remove("streaming");
+    }
     streamingBubble = null;
     thinking(false);
   });
@@ -759,6 +845,7 @@ window.addEventListener("DOMContentLoaded", () => {
   loadFlavors();
   wireChat();
   wireRecording();
+  wireVoice();
   wireBusiness();
   wireMemory();
   restoreHistory();

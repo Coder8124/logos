@@ -297,6 +297,12 @@
       border-radius: 10px; padding: 8px 12px; user-select: text;
     }
     .ask input::placeholder { color: var(--fg-dim); }
+    .mic-btn {
+      flex-shrink: 0; width: 32px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--surface); color: var(--fg); cursor: pointer; font-size: 14px;
+    }
+    .mic-btn:hover { border-color: var(--border-strong); }
+    .mic-btn.listening { border-color: var(--bad); background: rgba(239,68,68,0.10); }
     .answer {
       padding: 10px 12px; font-size: 12px; line-height: 1.55; color: var(--fg-muted);
       user-select: text; white-space: pre-wrap;
@@ -325,6 +331,21 @@
       border: 1px solid var(--border); border-bottom-left-radius: 4px;
     }
     .bubble .cite { color: var(--accent-2); font-weight: 550; }
+    /* Rendered-markdown answers: HTML flow, not preformatted text. */
+    .bubble.assistant { white-space: normal; }
+    .bubble p { margin: 0 0 6px; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble h2, .bubble h3, .bubble h4 { margin: 8px 0 4px; line-height: 1.25; font-weight: 680; }
+    .bubble h2 { font-size: 15px; } .bubble h3 { font-size: 13.5px; }
+    .bubble h4 { font-size: 12.5px; color: var(--fg-dim); }
+    .bubble ul, .bubble ol { margin: 4px 0 6px; padding-left: 18px; }
+    .bubble li { margin: 2px 0; }
+    .bubble strong { font-weight: 680; }
+    .bubble em { font-style: italic; }
+    .bubble a { color: var(--accent); text-decoration: underline; }
+    .bubble code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: rgba(127,127,127,0.14); padding: 1px 4px; border-radius: 4px; }
+    .bubble pre.code { background: rgba(127,127,127,0.10); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; }
+    .bubble pre.code code { background: none; padding: 0; }
     /* A soft caret while tokens stream in, so it reads as actively thinking. */
     .bubble.streaming::after {
       content: "▍"; color: var(--accent); animation: blink 1s steps(2) infinite; margin-left: 1px;
@@ -646,6 +667,7 @@
     <div class="answer" id="answer" hidden></div>
     <div class="chat-log" id="chat-log"></div>
     <form class="ask" id="ask-form">
+      <button type="button" id="mic-btn" class="mic-btn" title="speak instead of type" hidden>🎤</button>
       <input id="ask" type="text" placeholder="message your assistant…" autocomplete="off" />
     </form>
   </div>
