@@ -201,3 +201,58 @@ func ack(ctx context.Context, v *voice.Config, name string, canSpeak bool) {
 		v.Speak(ctx, "Mm?")
 	}
 }
+
+// deepFocusMinutes is how long you can stay in one app before the presence treats
+// it as deep focus and holds its non-urgent nudges (only a meeting still breaks
+// through).
+const deepFocusMinutes = 10
+
+// daemonPresence lets the capture daemon speak up while you work — the ambient
+// half of the presence. It carries the restraint state and a cheap focus signal
+// (how long you've been in one app), so it can defer to concentration.
+type daemonPresence struct {
+	prefs presence.Prefs
+	name  string
+	v     *voice.Config
+	speak bool
+
+	focusApp   string
+	focusSince time.Time
+}
+
+func newDaemonPresence(db *sql.DB, vault string) *daemonPresence {
+	cfg, err := flavor.Load(vault)
+	if err != nil {
+		return &daemonPresence{}
+	}
+	presence.Init(db)
+	v := voice.New()
+	return &daemonPresence{prefs: presencePrefs(cfg), name: cfg.Name, v: v, speak: v.CanSpeak()}
+}
+
+// track updates the focus signal from the daemon's frontmost samples. A change of
+// app resets the clock, so "deep focus" means sustained time in one place.
+func (d *daemonPresence) track(app string, now time.Time) {
+	if d == nil || app == "" || app == d.focusApp {
+		return
+	}
+	d.focusApp = app
+	d.focusSince = now
+}
+
+// tick raises at most one due interjection, deferring to deep focus. Called on a
+// slow ticker from the daemon loop.
+func (d *daemonPresence) tick(db *sql.DB, now time.Time) {
+	if d == nil || !d.prefs.Interjections {
+		return
+	}
+	focused := d.focusApp != "" && now.Sub(d.focusSince) > deepFocusMinutes*time.Minute
+	it, err := presence.Next(db, now, d.prefs, focused)
+	if err != nil || it == nil {
+		return
+	}
+	fmt.Printf("· %s: %s\n", speakerName(d.name), it.Text)
+	if d.speak {
+		d.v.Speak(context.Background(), it.Text)
+	}
+}

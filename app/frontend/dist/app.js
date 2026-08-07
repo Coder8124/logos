@@ -60,10 +60,23 @@ function thinking(on) {
 
 async function loadBrief() {
   const b = await go().Brief();
+  let pres = null;
+  try { pres = await go().Presence(); } catch {}
   const box = $("brief");
   box.innerHTML = "";
 
-  box.append(el("div", "greeting", b.greeting + "."));
+  const greet = el("div", "greeting", b.greeting + ".");
+  if (pres && pres.name) greet.append(el("span", "presence-name", " — " + pres.name));
+  box.append(greet);
+
+  // The presence's single most pressing nudge, surfaced as a banner. A critical
+  // one (an imminent meeting) reads red; everything else is a gentle prompt.
+  if (pres && pres.nudge) {
+    const n = el("div", "presence-banner" + (pres.nudge.critical ? " critical" : ""));
+    n.append(el("div", "main", pres.nudge.text));
+    if (pres.nudge.detail) n.append(el("div", "detail", pres.nudge.detail));
+    box.append(n);
+  }
 
   const quiet = (!b.loops || !b.loops.length) &&
     (!b.dormant || !b.dormant.length) &&

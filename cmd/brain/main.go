@@ -526,6 +526,14 @@ func runCapture(daemon bool, backfillDays int) error {
 	defer dreamTicker.Stop()
 	var lastDream string
 
+	// The ambient presence: speaks up about a meeting, a slipping loop, or an
+	// overnight insight while you work — restrained (cooldown-spaced, focus-aware)
+	// and never overriding your attention. Focus is tracked from the same
+	// frontmost samples capture already takes.
+	dp := newDaemonPresence(ix.DB, ix.Vault)
+	presenceTicker := time.NewTicker(time.Minute)
+	defer presenceTicker.Stop()
+
 	for {
 		select {
 		case <-stop:
@@ -540,6 +548,7 @@ func runCapture(daemon bool, backfillDays int) error {
 			if err != nil || policy.ShouldDrop(sample) {
 				continue
 			}
+			dp.track(sample.App, time.Now())
 			if done := coalescer.Push(sample); done != nil {
 				if err := capture.Insert(ix.DB, *done); err != nil {
 					fmt.Fprintln(os.Stderr, "· write error:", err)
@@ -569,6 +578,9 @@ func runCapture(daemon bool, backfillDays int) error {
 					fmt.Fprintln(os.Stderr, "· dream error:", err)
 				}
 			}
+
+		case <-presenceTicker.C:
+			dp.tick(ix.DB, time.Now())
 		}
 	}
 }
