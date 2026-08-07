@@ -74,6 +74,12 @@ type Config struct {
 	// Name is what the user calls the assistant — how they address it and, when a
 	// wake-word model is present, the word that wakes it. Empty means unnamed.
 	Name string `json:"name,omitempty"`
+	// UserName is what the assistant calls the user — used to warm the greeting
+	// ("Morning, Pragun"). Empty means it stays impersonal.
+	UserName string `json:"user_name,omitempty"`
+	// Onboarded records that the first-run setup has been completed, so the
+	// welcome screen only ever appears once. Absent (false) on a fresh vault.
+	Onboarded bool `json:"onboarded,omitempty"`
 	// Presence tunes the ambient secretary.
 	Presence Presence `json:"presence"`
 }

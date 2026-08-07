@@ -65,7 +65,7 @@ async function loadBrief() {
   const box = $("brief");
   box.innerHTML = "";
 
-  const greet = el("div", "greeting", b.greeting + ".");
+  const greet = el("div", "greeting", userName ? `${b.greeting}, ${userName}.` : b.greeting + ".");
   if (pres && pres.name) greet.append(el("span", "presence-name", " — " + pres.name));
   box.append(greet);
 
@@ -564,6 +564,9 @@ function wireChat() {
 // ---- flavors ----
 
 let activeFlavor = "secretary";
+// What the assistant calls the user, for a warmer greeting. Set on boot from
+// the saved identity; empty keeps the greeting impersonal.
+let userName = "";
 
 async function loadFlavors() {
   const f = await go().Flavor();
@@ -593,6 +596,96 @@ async function switchFlavor(name) {
   if (name === "tutor") { show("tutor"); loadTutorHeader(); }
   else if (name === "business") show("business");
   else show("brief");
+}
+
+// ---- setup / settings: name yourself, name the assistant, pick a use ----
+
+// Friendly copy for the use-case picker, keyed by flavor name. Any flavor the
+// edition offers but isn't listed here still renders with its raw name.
+const USE_LABELS = {
+  secretary: { name: "Personal assistant", desc: "Your day: meetings, open loops, reminders." },
+  tutor: { name: "Studying & learning", desc: "Turns your notes into recall practice." },
+  business: { name: "Business & data", desc: "Summarises spreadsheets and trends." },
+};
+
+let pickedUse = "secretary";
+
+// openSetup fills the sheet from the saved identity and shows it. editing=false
+// is the first-run welcome (no cancel, "Get started"); editing=true is the gear
+// (cancellable, "Save").
+async function openSetup(editing) {
+  const id = await go().Identity();
+  $("setup-user").value = id.userName || "";
+  $("setup-agent").value = id.agentName || "";
+  pickedUse = id.usecase || "secretary";
+  const f = await go().Flavor();
+  renderUses(f.all);
+  $("setup-title").textContent = editing ? "Settings" : "Welcome";
+  $("setup-sub").textContent = editing
+    ? "Change what you're called, rename your assistant, or switch its focus."
+    : "Let's get your assistant set up — this only takes a moment.";
+  $("setup-save").textContent = editing ? "Save" : "Get started";
+  $("setup-cancel").hidden = !editing;
+  $("setup").hidden = false;
+  $("setup-user").focus();
+}
+
+function renderUses(all) {
+  const box = $("setup-uses");
+  box.innerHTML = "";
+  for (const name of all) {
+    const meta = USE_LABELS[name] || { name, desc: "" };
+    const opt = el("button", "use-opt" + (name === pickedUse ? " on" : ""));
+    opt.type = "button";
+    opt.append(el("div", "use-name", meta.name));
+    if (meta.desc) opt.append(el("div", "use-desc", meta.desc));
+    opt.onclick = () => {
+      pickedUse = name;
+      box.querySelectorAll(".use-opt").forEach((o) => o.classList.remove("on"));
+      opt.classList.add("on");
+    };
+    box.append(opt);
+  }
+}
+
+function closeSetup() { $("setup").hidden = true; }
+
+async function saveSetup() {
+  const user = $("setup-user").value;
+  const agent = $("setup-agent").value;
+  try {
+    await go().SaveIdentity(user, agent, pickedUse);
+  } catch (err) {
+    toast("⚠ " + err);
+    return;
+  }
+  userName = (user || "").trim();
+  closeSetup();
+  await loadFlavors(); // use case may have changed the active persona
+  loadBrief();
+  refreshStatus();
+}
+
+function wireSetup() {
+  $("gear-btn").onclick = () => openSetup(true);
+  $("setup-save").onclick = saveSetup;
+  $("setup-cancel").onclick = closeSetup;
+  // Enter anywhere in the sheet commits it — it's small and every field is
+  // optional but the use case, which always has a selection.
+  $("setup").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveSetup(); }
+  });
+}
+
+// On boot: greet a first-time user with the setup screen before anything else,
+// and learn their name so the greeting can use it.
+async function maybeOnboard() {
+  try {
+    const id = await go().Identity();
+    userName = (id.userName || "").trim();
+    if (!id.onboarded) { await openSetup(false); return; }
+    loadBrief(); // repaint the greeting now that we know the name
+  } catch (_) {}
 }
 
 // ---- tutor panel ----
@@ -830,7 +923,17 @@ document.querySelectorAll(".tab").forEach((t) =>
 document.addEventListener("keydown", (e) => {
   // Esc dismisses the panel — the frameless window has no close button, so this
   // is how it gets out of the way. Relaunching brings it back (single instance).
-  if (e.key === "Escape") { go()?.Hide?.(); return; }
+  if (e.key === "Escape") {
+    const setup = $("setup");
+    if (setup && !setup.hidden) {
+      // The welcome screen (no Cancel) ignores Esc; the editable settings sheet
+      // dismisses on it rather than closing the whole panel.
+      if (!$("setup-cancel").hidden) closeSetup();
+      return;
+    }
+    go()?.Hide?.();
+    return;
+  }
   if (document.activeElement.tagName === "INPUT") return;
   if (e.key === "1") show("brief");
   if (e.key === "2") show("today");
@@ -848,8 +951,12 @@ window.addEventListener("DOMContentLoaded", () => {
   wireVoice();
   wireBusiness();
   wireMemory();
+  wireSetup();
   restoreHistory();
   show("brief");
+  // First run shows the welcome screen; a returning user just gets their name
+  // folded into the greeting.
+  maybeOnboard();
   // The idle-help offer only ever appears in tutor mode; the poller checks that
   // itself, so it is safe to run always.
   setInterval(pollIdleHelp, 5000);

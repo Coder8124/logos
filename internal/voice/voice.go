@@ -132,16 +132,28 @@ func resourcesDir() string {
 	return filepath.Join(dir, "resources")
 }
 
-// resolveBin finds an executable: env override, then resources/voice/<sub>/<name>,
-// then PATH.
+// voiceDirs is where bundled/installed voice assets are searched, in order: the
+// app's resources dir (bundle or beside the binary) and a stable user-level
+// home (~/.brain/voice). The user dir survives rebuilds and app-bundle
+// repackaging, so a model dropped there is found by both the CLI and the app.
+func voiceDirs(res, sub string) []string {
+	dirs := []string{filepath.Join(res, "voice", sub)}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".brain", "voice", sub))
+	}
+	return dirs
+}
+
+// resolveBin finds an executable: env override, then the voice dirs, then PATH.
 func resolveBin(env, res, sub string, names []string) string {
 	if v := os.Getenv(env); v != "" {
 		return v
 	}
-	for _, n := range names {
-		p := filepath.Join(res, "voice", sub, n)
-		if isExec(p) {
-			return p
+	for _, dir := range voiceDirs(res, sub) {
+		for _, n := range names {
+			if p := filepath.Join(dir, n); isExec(p) {
+				return p
+			}
 		}
 	}
 	for _, n := range names {
@@ -153,27 +165,31 @@ func resolveBin(env, res, sub string, names []string) string {
 }
 
 // resolveFile finds a data file (a model): env override, then the first of the
-// candidate names present in resources/voice/<sub>.
+// candidate names present in any voice dir, then any file of the right
+// extension dropped in one.
 func resolveFile(env, res, sub string, names []string) string {
 	if v := os.Getenv(env); v != "" {
 		return v
 	}
-	dir := filepath.Join(res, "voice", sub)
-	for _, n := range names {
-		p := filepath.Join(dir, n)
-		if fileExists(p) {
-			return p
+	// Prefer an exact, named model in the earliest dir that has one.
+	for _, dir := range voiceDirs(res, sub) {
+		for _, n := range names {
+			if p := filepath.Join(dir, n); fileExists(p) {
+				return p
+			}
 		}
 	}
-	// Last resort: any .bin (whisper) / .onnx (piper) dropped in the dir.
+	// Last resort: any .bin (whisper) / .onnx (piper) dropped in a voice dir.
 	ext := ".bin"
 	if sub == "piper" {
 		ext = ".onnx"
 	}
-	if entries, err := os.ReadDir(dir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ext) {
-				return filepath.Join(dir, e.Name())
+	for _, dir := range voiceDirs(res, sub) {
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ext) {
+					return filepath.Join(dir, e.Name())
+				}
 			}
 		}
 	}
