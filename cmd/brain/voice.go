@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pragun/brain/internal/agent"
+	"github.com/pragun/brain/internal/flavor"
 	"github.com/pragun/brain/internal/voice"
 )
 
@@ -95,14 +97,20 @@ func voiceAnswer(question string) (string, error) {
 		return "", err
 	}
 	defer ix.Close()
-	p, err := findProvider()
+
+	rt, err := openRouter()
 	if err != nil {
 		return "", err
 	}
-	answer, _, err := ix.Ask(p,
-		env("BRAIN_EMBED", defaultEmbedModel),
-		env("BRAIN_MODEL", defaultChatModel),
-		question, 6, 6000)
+
+	// Answer with the same grounding the agent uses — persona + vault retrieval +
+	// persistent memory + what's on your plate — so the presence recalls what it
+	// has learned about you, not only what happens to be written in the vault.
+	fl := "secretary"
+	if cfg, err := flavor.Load(ix.Vault); err == nil && cfg.Active != "" {
+		fl = string(cfg.Active)
+	}
+	answer, err := agent.Reply(ix.DB, ix, rt, fl, &agent.Conversation{}, question, func(string) {})
 	if err != nil {
 		return "", err
 	}

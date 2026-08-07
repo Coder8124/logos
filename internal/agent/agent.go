@@ -111,11 +111,14 @@ func Reply(
 
 	// --- build the message list ---
 	system := persona(flavor) + "\n\n" +
-		"Answer from the notes below when they are relevant, and cite the note slug in " +
-		"square brackets. If the notes do not cover it, say so and answer from general " +
-		"knowledge, clearly. Be brief unless asked to go deep."
+		"You have up to three sources below. Treat 'what you know about the user' as " +
+		"established facts about them — use them directly and never claim you have no " +
+		"information about something that is listed there. Answer from the vault notes " +
+		"when relevant, citing the note slug in square brackets. If nothing below covers " +
+		"the question, say so and answer from general knowledge, clearly. Be brief unless " +
+		"asked to go deep."
 	if remembered != "" {
-		system += "\n\n--- " + remembered
+		system += "\n\n--- what you know about the user ---\n" + remembered
 	}
 	if grounding.Len() > 0 {
 		system += "\n--- relevant notes ---\n" + grounding.String()

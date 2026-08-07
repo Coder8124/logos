@@ -39,7 +39,14 @@ type Provider struct {
 	Name    string
 	BaseURL string
 	APIKey  string
-	http    *http.Client
+	// Think controls how much a reasoning model reasons before answering:
+	// "off", "low", "medium", "high" (empty = "low"). It matters because the
+	// OpenAI-compatible /v1 endpoint gives a reasoning model no way to bound its
+	// thinking, so it spends the whole token budget thinking and returns an empty
+	// answer. When set (Ollama only), chat routes through the native /api/chat
+	// endpoint, which honours it. "default" forces the plain /v1 path.
+	Think string
+	http  *http.Client
 }
 
 func New(name, baseURL, apiKey string) *Provider {
@@ -189,6 +196,17 @@ func (p *Provider) Chat(model, system, user string, schema map[string]any) (stri
 //
 // Returns the full assembled text so callers can persist the turn.
 func (p *Provider) ChatStream(model string, messages []Msg, onToken func(string)) (string, error) {
+	// Reasoning models on Ollama need the native endpoint to bound their thinking;
+	// otherwise /v1 truncates on thinking and returns nothing. Fall back to /v1 if
+	// the native path errors (e.g. a non-thinking model that rejects `think`) — but
+	// only when it produced no text, so a usable partial answer is never re-run.
+	if tv, ok := p.thinkValue(); ok {
+		full, err := p.nativeChatStream(model, messages, tv, onToken)
+		if err == nil || full != "" {
+			return full, nil
+		}
+	}
+
 	body := map[string]any{
 		"model":       model,
 		"messages":    messages,
@@ -248,6 +266,94 @@ func (p *Provider) ChatStream(model string, messages []Msg, onToken func(string)
 		if tok := chunk.Choices[0].Delta.Content; tok != "" {
 			full.WriteString(tok)
 			onToken(tok)
+		}
+	}
+	return full.String(), sc.Err()
+}
+
+// thinkValue resolves the Think setting to the value Ollama's native /api/chat
+// expects, and whether the native path should be used at all. Only Ollama honours
+// it; empty defaults to "low" so reasoning models return answers instead of
+// nothing; "default" opts back out to the plain /v1 path.
+func (p *Provider) thinkValue() (any, bool) {
+	if p.Name != "Ollama" {
+		return nil, false
+	}
+	level := p.Think
+	if level == "" {
+		level = "low"
+	}
+	switch level {
+	case "off", "false", "none":
+		return false, true
+	case "low", "medium", "high":
+		return level, true
+	default: // "default" or anything unrecognised: use /v1 unchanged
+		return nil, false
+	}
+}
+
+// nativeChatStream streams a completion from Ollama's native /api/chat, which —
+// unlike /v1 — lets a reasoning model's thinking be bounded by `think`. Only the
+// answer (message.content) is streamed; the model's thinking is discarded.
+func (p *Provider) nativeChatStream(model string, messages []Msg, think any, onToken func(string)) (string, error) {
+	url := strings.TrimSuffix(p.BaseURL, "/v1") + "/api/chat"
+	body := map[string]any{
+		"model":    model,
+		"messages": messages,
+		"stream":   true,
+		"think":    think,
+		"options":  map[string]any{"temperature": 0.4},
+	}
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(buf))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if p.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+
+	res, err := p.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%s unreachable at %s: %w", p.Name, url, err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		var detail bytes.Buffer
+		detail.ReadFrom(res.Body)
+		return "", fmt.Errorf("%s /api/chat returned %s: %s", p.Name, res.Status, strings.TrimSpace(detail.String()))
+	}
+
+	// Native streaming is newline-delimited JSON, one object per line.
+	sc := bufio.NewScanner(res.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	var full strings.Builder
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var chunk struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Done bool `json:"done"`
+		}
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
+		if tok := chunk.Message.Content; tok != "" {
+			full.WriteString(tok)
+			onToken(tok)
+		}
+		if chunk.Done {
+			break
 		}
 	}
 	return full.String(), sc.Err()

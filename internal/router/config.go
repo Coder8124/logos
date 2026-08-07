@@ -63,6 +63,11 @@ type Config struct {
 	Tiers map[string]TierConfig `json:"tiers"`
 	// ExtraBlocked apps appended to the capture blocklist.
 	ExtraBlocked []string `json:"extra_blocked,omitempty"`
+	// Think is how much a reasoning model reasons before answering: "off", "low",
+	// "medium", or "high". Empty means "low". This is the knob that keeps a
+	// thinking model from spending its whole budget thinking and returning an
+	// empty answer over the /v1 endpoint.
+	Think string `json:"think,omitempty"`
 }
 
 // Defaults match what a stock Ollama install tends to have. Anything missing is
@@ -75,6 +80,7 @@ func Defaults() *Config {
 			"T2": {Model: "qwen3.6"},
 			"T3": {Model: "claude-opus-4-8", BaseURL: "https://api.anthropic.com/v1", KeyRef: "brain-anthropic"},
 		},
+		Think: "low",
 	}
 }
 
@@ -102,6 +108,9 @@ func Load(vault string) (*Config, error) {
 		cfg.Tiers[name] = tc
 	}
 	cfg.ExtraBlocked = onDisk.ExtraBlocked
+	if onDisk.Think != "" {
+		cfg.Think = onDisk.Think
+	}
 	return cfg, nil
 }
 

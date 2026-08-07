@@ -37,6 +37,10 @@ func New(cfg *Config, vault string) (*Router, error) {
 	if len(found) == 0 {
 		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
 	}
+	// Carry the thinking-budget setting onto the local provider, so a reasoning
+	// model is bounded and returns an answer rather than thinking until it runs
+	// out of tokens.
+	found[0].Provider.Think = cfg.Think
 
 	models := make(map[string]bool, len(found[0].Models))
 	for _, m := range found[0].Models {
