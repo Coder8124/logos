@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,11 @@ import (
 // Speech-to-text via whisper.cpp. The bundled `whisper-cli` transcribes a
 // 16 kHz mono WAV; we ask it for plain text (no timestamps, no progress) and
 // return the cleaned transcript.
+
+// ErrNoAudio is returned when a capture contained no sound at all — almost
+// always because the OS has not granted microphone access. Callers show it
+// verbatim, so it names the fix rather than the symptom.
+var errNoAudio = errors.New("no sound reached the microphone — grant mic access in System Settings › Privacy & Security › Microphone, then try again")
 
 // Transcribe converts a 16 kHz mono WAV file to text.
 func (c *Config) Transcribe(ctx context.Context, wavPath string) (string, error) {
@@ -42,6 +48,11 @@ func (c *Config) Listen(ctx context.Context, maxDur time.Duration) (string, erro
 
 	if err := c.Record(ctx, tmp.Name(), maxDur); err != nil {
 		return "", err
+	}
+	// Dead air means the OS denied the mic (it hands us zeros rather than an
+	// error). Say so, instead of letting whisper invent words from silence.
+	if ok, err := HasSignal(tmp.Name()); err == nil && !ok {
+		return "", errNoAudio
 	}
 	return c.Transcribe(ctx, tmp.Name())
 }

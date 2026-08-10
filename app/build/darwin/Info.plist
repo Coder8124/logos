@@ -21,6 +21,13 @@
         <string>10.13.0</string>
         <key>NSHighResolutionCapable</key>
         <string>true</string>
+        <!-- Speak-to-type shells out to ffmpeg for mic capture, and a subprocess
+             inherits this bundle's TCC identity. Without this key macOS never
+             prompts for microphone access, and AVFoundation hands the capture a
+             silent stream instead of failing — so recording "succeeds" and
+             transcribes nothing. -->
+        <key>NSMicrophoneUsageDescription</key>
+        <string>brain transcribes what you say on this machine, so you can talk to it instead of typing. Audio never leaves your Mac.</string>
         <key>NSHumanReadableCopyright</key>
         <string>{{.Info.Copyright}}</string>
         {{if .Info.FileAssociations}}

@@ -523,6 +523,10 @@ async function wireVoice() {
         const inp = $("ask");
         inp.value = text;
         inp.focus();
+      } else {
+        // Heard nothing intelligible. Say so — a button that quietly does
+        // nothing reads as broken.
+        toast("Didn't catch that — try again.");
       }
     } catch (e) {
       toast("⚠ " + e);

@@ -2,7 +2,9 @@ package voice
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -35,6 +37,56 @@ func (c *Config) Record(ctx context.Context, dst string, dur time.Duration) erro
 	}
 	if _, err := c.run(ctx, c.FFmpeg, args, nil); err != nil {
 		return fmt.Errorf("ffmpeg mic capture: %w", err)
+	}
+	return nil
+}
+
+// silenceFloor is the peak sample below which a capture is treated as dead air.
+// A microphone denied by the OS does not error — it yields a stream of zeros, so
+// even a whisper-quiet room clears this bar by a wide margin.
+const silenceFloor = 100
+
+// HasSignal reports whether a captured WAV contains any audio at all. It exists
+// because the interesting failure is silent: when macOS has not granted mic
+// access, AVFoundation feeds ffmpeg zeros rather than failing, ffmpeg exits 0
+// with a perfectly valid WAV, and whisper hallucinates a filler word ("you",
+// "Thank you.") out of the silence — which then lands in the user's input box as
+// if they had said it. Checking the samples is the only honest signal we get.
+func HasSignal(wavPath string) (bool, error) {
+	b, err := os.ReadFile(wavPath)
+	if err != nil {
+		return false, err
+	}
+	pcm := pcmData(b)
+	for i := 0; i+1 < len(pcm); i += 2 {
+		s := int16(binary.LittleEndian.Uint16(pcm[i : i+2]))
+		if s < 0 {
+			s = -s
+		}
+		if s > silenceFloor {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// pcmData returns the contents of a RIFF/WAVE "data" chunk, or nil. We write
+// these files ourselves (16 kHz mono s16le), so this only needs to walk the
+// chunk list far enough to find the samples.
+func pcmData(b []byte) []byte {
+	if len(b) < 12 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WAVE" {
+		return nil
+	}
+	for p := 12; p+8 <= len(b); {
+		size := int(binary.LittleEndian.Uint32(b[p+4 : p+8]))
+		body := p + 8
+		if string(b[p:p+4]) == "data" {
+			if end := body + size; size > 0 && end <= len(b) {
+				return b[body:end]
+			}
+			return b[body:]
+		}
+		p = body + size + size%2 // chunks are word-aligned
 	}
 	return nil
 }
