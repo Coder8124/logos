@@ -436,6 +436,13 @@
 
     /* ---- memory graph ---- */
     .graph-panel { padding: 0; position: relative; height: 100%; display: flex; flex-direction: column; }
+    /* `.panel.active` above is (0,2,0) and outranks `.graph-panel` (0,1,0), so
+       the panel stayed display:block and never became the flex column this
+       layout assumes. The canvas then had no height to fill and fell back to
+       sizing itself from its own bitmap's aspect ratio — circular, since JS sets
+       that bitmap from the canvas's own clientHeight. It settled at 75px tall:
+       a sliver of graph above a tall dead area, immune to resizing. */
+    .graph-panel.active { display: flex; }
     .graph-controls {
       display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3);
       border-bottom: 1px solid var(--border); flex-shrink: 0;
@@ -453,7 +460,10 @@
       border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--fg-dim);
     }
     .hopbtn.on { background: var(--accent); border-color: transparent; color: #fff; }
-    #graph-canvas { flex: 1; width: 100%; display: block; cursor: grab; }
+    /* min-height:0 so the canvas can shrink below its bitmap's intrinsic size —
+       without it a flex item is floored at its content height, which for a
+       canvas is the bitmap JS just sized from the element. */
+    #graph-canvas { flex: 1; width: 100%; min-height: 0; display: block; cursor: grab; }
     #graph-canvas:active { cursor: grabbing; }
     .graph-node-card {
       position: absolute; left: 12px; bottom: 12px; z-index: 5;
