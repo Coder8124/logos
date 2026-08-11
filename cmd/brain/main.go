@@ -31,17 +31,21 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `brain — local-first second brain
 
 USAGE
-    brain mode [secretary|tutor|business]   switch or show the active flavor
-    brain tutor [diagnostic <subject> | study|quiz <topic> | cards|review | screen on|off | help]
-    brain business [read|analyze|verify <file> | forecast <file> <col> | agent <goal> | ...]
     brain brief                       what the secretary thinks you should know now
     brain replay [--peek]             catch up on what changed since you were last here
     brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
     brain weekly                      Sunday executive briefing: your week in review
     brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
-    brain name [<name>]               name the assistant — how you address it and its wake word
+    brain name [<name>]               name the assistant — how you address it
     brain presence [--wake]           the ambient secretary: greets, answers, and speaks up (--wake to talk by name)
-    brain jot <thought>               braindump: capture and auto-file a thought\n    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory\n    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline\n    brain projects | project <name>   auto-detected projects and their dossiers\n    brain context <file|project|topic>   assemble a context pack for an AI tool (also an MCP tool)\n    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)\n    brain record [--name X] [--no-video]   record a study session into notes\n    brain graph [focus] [--hops N] [--similar]   memory graph around a note\n    brain loop [add|done|drop]        manage open loops (commitments)
+    brain jot <thought>               braindump: capture and auto-file a thought
+    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
+    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
+    brain projects | project <name>   auto-detected projects and their dossiers
+    brain context <file|project|topic>   assemble a context pack for an AI tool (also an MCP tool)
+    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
+    brain graph [focus] [--hops N] [--similar]   memory graph around a note
+    brain loop [add|done|drop]        manage open loops (commitments)
     brain think [off|low|medium|high]  how much the model reasons before answering
     brain doctor [--probe]            list runtimes and tiers; --probe loads each model
     brain key set|rm <ref>            manage API keys in the macOS keychain
@@ -119,12 +123,6 @@ func main() {
 		err = runReplay(hasFlag(args, "--peek"))
 	case cmd == "reflect":
 		err = runReflect()
-	case cmd == "mode":
-		err = modeCmd(args)
-	case cmd == "tutor":
-		err = tutorCmd(args)
-	case cmd == "business":
-		err = businessCmd(args)
 	case cmd == "brief":
 		err = runBrief()
 	case cmd == "loop":
@@ -145,8 +143,6 @@ func main() {
 		err = runBench(args[1], flagInt(args, "--n", 100), !hasFlag(args, "--vector"))
 	case cmd == "bench" && len(args) >= 1 && args[0] == "pipeline":
 		err = runPipelineBench()
-	case cmd == "record":
-		err = runRecord(flagStr(args, "--name", ""), hasFlag(args, "--no-video"))
 	case cmd == "graph":
 		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
 	case cmd == "routines":
@@ -510,16 +506,6 @@ func runCapture(daemon bool, backfillDays int) error {
 	pullTicker := time.NewTicker(5 * time.Minute)
 	defer pullTicker.Stop()
 
-	// The tutor screen watcher runs on its own slow cadence and only does
-	// anything in tutor mode with screen notes on — it re-checks each tick, so
-	// switching flavors mid-run just works.
-	screen, screenErr := newScreenWatcher(ix, ix.Vault, scratchDir(ix.Vault))
-	if screenErr == nil && screen.enabled() {
-		fmt.Println("· tutor screen notes active")
-	}
-	screenTicker := time.NewTicker(3 * time.Minute)
-	defer screenTicker.Stop()
-
 	// The nightly dream. Checked hourly and run at most once per calendar day,
 	// past dreamHour, over the day that just ended. lastDream lives in memory, so
 	// a restart may re-run a day once — the pass is deterministic in NREM and
@@ -566,13 +552,6 @@ func runCapture(daemon bool, backfillDays int) error {
 				fmt.Printf("+%d events\n", n)
 			}
 
-		case <-screenTicker.C:
-			if screenErr == nil {
-				if msg := screen.tick(); msg != "" {
-					fmt.Printf("· %s — `brain review`\n", msg)
-				}
-			}
-
 		case <-dreamTicker.C:
 			today := time.Now().Format("2006-01-02")
 			if time.Now().Hour() >= dreamHour && lastDream != today {
@@ -586,36 +565,6 @@ func runCapture(daemon bool, backfillDays int) error {
 			dp.tick(ix.DB, time.Now())
 		}
 	}
-}
-
-// tutorHelp captures the screen and gives coaching for whatever the student is
-// stuck on. The CLI counterpart to the app's idle-help overlay.
-func tutorHelp() error {
-	ix, err := openIndex()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-	rt, err := openRouter()
-	if err != nil {
-		return err
-	}
-
-	text, err := sources.CaptureScreenText(scratchDir(ix.Vault))
-	if err != nil {
-		return fmt.Errorf("couldn't read the screen (Screen Recording permission?): %w", err)
-	}
-	if !tutorLooksStudious(text) {
-		fmt.Println("nothing studious on screen to help with right now.")
-		return nil
-	}
-
-	guidance, err := tutorHelpText(rt, text)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("\n%s\n", strings.TrimSpace(guidance))
-	return nil
 }
 
 func timeline(verbose bool) error {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/pragun/brain/internal/agent"
-	"github.com/pragun/brain/internal/flavor"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -35,12 +34,7 @@ func (a *App) Send(message string) {
 			return
 		}
 
-		active := "secretary"
-		if cfg, err := flavor.Load(a.vault); err == nil {
-			active = string(cfg.Active)
-		}
-
-		_, err = agent.Reply(ix.DB, ix, rt, active, conversation, message,
+		_, err = agent.Reply(ix.DB, ix, rt, conversation, message,
 			func(tok string) { runtime.EventsEmit(a.ctx, "chat:token", tok) })
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "chat:error", err.Error())

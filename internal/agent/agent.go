@@ -37,31 +37,22 @@ type Conversation struct {
 // short enough to leave room for retrieved context on a small local model.
 const maxHistory = 8
 
-// Persona shapes the assistant's voice per flavor, so the same engine answers
-// like a secretary, a tutor, or an analyst depending on the mode you're in.
-func persona(flavor string) string {
-	switch flavor {
-	case "tutor":
-		return "You are a patient study tutor. Explain clearly, check understanding, " +
-			"and prefer guiding questions over just handing over answers."
-	case "business":
-		return "You are a sharp business analyst. Be concise, lead with the point, " +
-			"and ground claims in specifics."
-	default:
-		return "You are a calm, capable personal assistant — a second brain. " +
-			"You are proactive and concrete, and you speak plainly."
-	}
+// persona is the assistant's voice. There was one of these per vertical; there
+// is one assistant now, so there is one voice.
+func persona() string {
+	return "You are a calm, capable personal assistant — a second brain. " +
+		"You are proactive and concrete, and you speak plainly."
 }
 
 // Reply streams the assistant's response to the latest user message.
 //
-// It assembles three things into the prompt: who it should be (persona), what it
+// It assembles three things into the prompt: who it should be, what it
 // already knows that is relevant (vault retrieval), and what is currently on the
 // user's plate (the brief). Then the conversation history, then the question.
 // onToken receives text as it generates, so the UI fills in live.
 func Reply(
 	db *sql.DB, ix *index.Index, rt *router.Router,
-	flavor string, conv *Conversation, userMsg string,
+	conv *Conversation, userMsg string,
 	onToken func(string),
 ) (string, error) {
 	conv.Turns = append(conv.Turns, Turn{Role: "user", Content: userMsg})
@@ -110,7 +101,7 @@ func Reply(
 	}
 
 	// --- build the message list ---
-	system := persona(flavor) + "\n\n" +
+	system := persona() + "\n\n" +
 		"You have up to three sources below. Treat 'what you know about the user' as " +
 		"established facts about them — use them directly and never claim you have no " +
 		"information about something that is listed there. Answer from the vault notes " +

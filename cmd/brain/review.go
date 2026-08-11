@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/action"
-	"github.com/pragun/brain/internal/bizagent"
 	"github.com/pragun/brain/internal/capture"
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/rollup"
@@ -78,12 +76,6 @@ func runReview(all bool) error {
 	defer ix.Close()
 
 	if err := rollup.InitQueue(ix.DB); err != nil {
-		return err
-	}
-
-	// Outbound actions are reviewed first — they are the higher-stakes half of
-	// the trust loop (they touch the outside world, not just the vault).
-	if err := reviewActions(ix); err != nil {
 		return err
 	}
 
@@ -183,51 +175,4 @@ func printEvidence(ix *index.Index, p rollup.Proposal) {
 	if len(events) > len(shown) {
 		fmt.Printf("        … %d more\n", len(events)-len(shown))
 	}
-}
-
-// reviewActions is the outbound half of the trust loop: pending actions that
-// would touch the world, shown with their full preview, approved or rejected
-// one by one. Approval is the only path that runs an executor.
-func reviewActions(ix *index.Index) error {
-	if err := action.Init(ix.DB); err != nil {
-		return err
-	}
-	bizagent.RegisterDefaultExecutors(ix.Vault)
-
-	pending, err := action.List(ix.DB, action.Pending)
-	if err != nil {
-		return err
-	}
-	if len(pending) == 0 {
-		return nil
-	}
-
-	fmt.Printf("⚡ %d outbound action(s) awaiting confirmation — [a]pprove  [r]eject  [s]kip\n\n", len(pending))
-	in := bufio.NewReader(os.Stdin)
-
-	for i, a := range pending {
-		fmt.Printf("[%d/%d] %s  (%s)\n", i+1, len(pending), a.Title, a.Kind)
-		for _, line := range strings.Split(a.Preview, "\n") {
-			fmt.Printf("      | %s\n", line)
-		}
-		fmt.Print("      approve? [a/r/s]: ")
-		line, err := in.ReadString('\n')
-		if err != nil {
-			return nil
-		}
-		switch strings.TrimSpace(strings.ToLower(line)) {
-		case "a", "y":
-			res, err := action.Approve(ix.DB, a.ID)
-			if err != nil {
-				fmt.Printf("      ! failed: %v\n", err)
-			} else {
-				fmt.Printf("      ✓ %s\n", res)
-			}
-		case "r", "n":
-			action.Reject(ix.DB, a.ID)
-			fmt.Println("      ✗ rejected — not performed")
-		}
-		fmt.Println()
-	}
-	return nil
 }

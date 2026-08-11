@@ -11,7 +11,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pragun/brain/internal/action"
 	"github.com/pragun/brain/internal/capture"
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/memory"
@@ -21,7 +20,6 @@ import (
 	"github.com/pragun/brain/internal/secretary"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-	"golang.design/x/hotkey"
 )
 
 type App struct {
@@ -33,24 +31,6 @@ func NewApp(vault string) *App { return &App{vault: vault} }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	go a.registerHotkeys()
-}
-
-// registerHotkeys binds the global shortcuts that work even while the frameless
-// panel is hidden. ⌘⇧R toggles screen recording — the "assign a hotkey to start
-// recording, press again to stop" flow. Registration failure is non-fatal: the
-// in-panel button still works.
-func (a *App) registerHotkeys() {
-	hk := hotkey.New([]hotkey.Modifier{hotkey.ModCmd, hotkey.ModShift}, hotkey.KeyR)
-	if err := hk.Register(); err != nil {
-		return
-	}
-	for range hk.Keydown() {
-		state := a.ToggleRecording("")
-		// Surface the state change so the user gets feedback even with the panel
-		// hidden; the frontend also shows it when open.
-		runtime.EventsEmit(a.ctx, "record:hotkey", state)
-	}
 }
 
 // Hide dismisses the panel. With no traffic lights, this is how the window is
@@ -160,7 +140,6 @@ type Status struct {
 	Pending   int    `json:"pending"`
 	Runtime   string `json:"runtime"`
 	Recording bool   `json:"recording"`
-	Actions   int    `json:"actions"`
 	Memories  int    `json:"memories"`
 }
 
@@ -194,9 +173,6 @@ func (a *App) Status() (Status, error) {
 	s.Edges, _ = ix.EdgeCount()
 	s.Events, _ = capture.Count(ix.DB)
 	s.Pending, _ = rollup.PendingCount(ix.DB)
-	if action.Init(ix.DB) == nil {
-		s.Actions, _ = action.PendingCount(ix.DB)
-	}
 	if memory.Init(ix.DB) == nil {
 		s.Memories, _ = memory.Count(ix.DB)
 	}
