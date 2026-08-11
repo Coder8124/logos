@@ -181,20 +181,6 @@
       50% { box-shadow: 0 0 0 7px transparent; }
     }
     .title { font-weight: 650; letter-spacing: -0.02em; font-size: 13.5px; }
-    .rec-btn {
-      -webkit-app-region: no-drag; margin-left: auto;
-      font: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer;
-      padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border);
-      background: transparent; color: var(--fg-dim);
-      transition: color 0.15s var(--ease), background 0.15s var(--ease), border-color 0.15s var(--ease);
-    }
-    .rec-btn:hover { color: var(--bad); border-color: rgba(248,113,113,0.4); }
-    .rec-btn.recording {
-      color: #fff; background: var(--bad); border-color: transparent;
-      animation: recpulse 1.6s var(--ease) infinite;
-    }
-    .rec-btn.processing { color: var(--accent-2); border-color: rgba(139,108,240,0.4); }
-    @keyframes recpulse { 50% { box-shadow: 0 0 0 4px rgba(248,113,113,0.18); } }
     .runtime { font-size: 10.5px; color: var(--fg-dim); font-family: var(--mono); margin-left: 10px; }
     .toast {
       position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -406,21 +392,6 @@
     .clear { text-align: center; color: var(--fg-muted); padding: 48px 20px; }
     .clear .big { font-size: 26px; opacity: 0.5; margin-bottom: 10px; }
 
-    /* ---- flavor pills ---- */
-    .flavors { display: flex; gap: 3px; margin-left: 12px; -webkit-app-region: no-drag; }
-    .flavor-pill {
-      font: inherit; font-size: 10.5px; font-weight: 550; cursor: pointer; padding: 3px 10px;
-      border-radius: 20px; border: 1px solid var(--border); background: transparent;
-      color: var(--fg-dim); transition: color 0.15s var(--ease), background 0.15s var(--ease), border-color 0.15s var(--ease);
-      text-transform: capitalize;
-    }
-    .flavor-pill:hover { color: var(--fg-muted); border-color: var(--border-strong); }
-    .flavor-pill.on {
-      background: linear-gradient(180deg, var(--accent-2), var(--accent));
-      border-color: transparent; color: #fff; box-shadow: 0 2px 10px var(--accent-glow);
-    }
-
-    .study-ask { border-top: none; border-bottom: 1px solid var(--border); }
     .qcard {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 12px; margin-bottom: 8px;
@@ -488,33 +459,12 @@
     }
     .graph-tip .k { color: var(--fg-dim); font-size: 10px; font-family: var(--mono); }
 
-    /* ---- business tools ---- */
-    .biz-tools { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; }
-    .biz-file { font-size: 11px; color: var(--fg-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .biz-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: var(--s2); }
-    .biz-actions .btn { font-size: 11px; padding: 5px 11px; }
-    #biz-out .answer, #biz-out pre { white-space: pre-wrap; user-select: text; }
-
-    /* ---- outbound action approval (the trust loop) ---- */
+    /* ---- memory chip ---- */
     .mem-chip {
       font-size: 10px; color: var(--accent-2); background: rgba(139,108,240,0.12);
       border: 1px solid rgba(139,108,240,0.3); border-radius: 20px; padding: 2px 8px;
       font-family: var(--mono);
     }
-    .action-card {
-      background: rgba(248,113,113,0.06); border: 1px solid rgba(248,113,113,0.35);
-      border-radius: var(--radius); padding: 12px; margin-bottom: 10px;
-    }
-    .action-card .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--bad); font-weight: 650; }
-    .action-card .s { margin: 3px 0 8px; font-size: 13px; font-weight: 550; }
-    .action-card .prev {
-      font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted);
-      background: var(--bg-deep); border-radius: 8px; padding: 8px; margin-bottom: 10px;
-      white-space: pre-wrap; max-height: 140px; overflow-y: auto;
-    }
-    .action-card .btn.danger { border-color: transparent; background: var(--bad); color: #fff; }
-    .actions-head { font-size: 11px; color: var(--bad); font-weight: 600; margin-bottom: 8px; }
-
     /* ---- memory view ---- */
     .mem-row {
       display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px;
@@ -524,66 +474,6 @@
     .mem-row .txt { flex: 1; font-size: 12px; }
     .mem-row .x { cursor: pointer; color: var(--fg-dim); opacity: 0; }
     .mem-row:hover .x { opacity: 1; }
-
-    /* ---- idle-help overlay ---- */
-    .help-offer {
-      position: fixed; right: 14px; bottom: 14px; z-index: 50;
-      animation: slidein 0.3s var(--ease);
-    }
-    @keyframes slidein { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-    .help-card {
-      background: var(--elevated); border: 1px solid var(--accent-line);
-      border-radius: var(--radius); padding: 14px; width: 300px;
-      box-shadow: var(--shadow), 0 0 0 1px var(--accent-glow);
-    }
-    .help-msg { font-size: 13px; margin-bottom: 10px; }
-    .help-actions { display: flex; gap: 8px; }
-    .help-body {
-      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
-      font-size: 12px; line-height: 1.55; color: var(--fg-muted); user-select: text;
-      max-height: 260px; overflow-y: auto;
-    }
-
-    /* ---- theme picker ---- */
-    .theme { position: relative; -webkit-app-region: no-drag; display: flex; }
-    .theme-btn {
-      font: inherit; cursor: pointer; width: 24px; height: 24px; line-height: 1;
-      display: grid; place-items: center; border-radius: 7px;
-      border: 1px solid var(--border); background: transparent; color: var(--fg-muted);
-      transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease);
-    }
-    .theme-btn:hover { color: var(--fg); border-color: var(--border-strong); background: var(--surface); }
-    .theme-menu {
-      position: absolute; top: 30px; right: 0; z-index: 70; min-width: 168px;
-      background: var(--elevated); border: 1px solid var(--border-strong);
-      border-radius: var(--radius); padding: 5px; box-shadow: var(--shadow);
-      display: none; flex-direction: column; gap: 1px;
-      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
-      animation: fade 0.16s var(--ease);
-    }
-    .theme-menu.open { display: flex; }
-    .theme-opt {
-      font: inherit; font-size: 12px; cursor: pointer; text-align: left;
-      display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-      border: none; border-radius: 8px; background: none; color: var(--fg-muted);
-      transition: background 0.12s var(--ease), color 0.12s var(--ease);
-    }
-    .theme-opt:hover { background: var(--surface-hover); color: var(--fg); }
-    .theme-opt[aria-checked="true"] { color: var(--fg); }
-    .theme-opt[aria-checked="true"] .tk-check { opacity: 1; }
-    .tk-check { margin-left: auto; opacity: 0; color: var(--accent); font-size: 12px; }
-    .tk-sw { width: 13px; height: 13px; border-radius: 4px; flex-shrink: 0; border: 1px solid var(--border-strong); }
-    .theme-sep { height: 1px; background: var(--border); margin: 4px 2px; }
-
-    /* ---- settings gear ---- */
-    .gear-btn {
-      -webkit-app-region: no-drag; margin-left: 8px;
-      font: inherit; cursor: pointer; width: 24px; height: 24px; line-height: 1;
-      display: grid; place-items: center; border-radius: 7px;
-      border: 1px solid var(--border); background: transparent; color: var(--fg-muted);
-      transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease), transform 0.3s var(--ease);
-    }
-    .gear-btn:hover { color: var(--fg); border-color: var(--border-strong); background: var(--surface); transform: rotate(45deg); }
 
     /* ---- setup / settings sheet ---- */
     /* `display: flex` below would otherwise beat the UA [hidden] rule (equal
@@ -614,16 +504,6 @@
     .setup-field input:focus { outline: none; border-color: var(--accent-line); }
     .setup-field input::placeholder { color: var(--fg-dim); }
     .setup-hint { display: block; font-size: 10.5px; color: var(--fg-dim); margin-top: 5px; }
-    .setup-uses { display: flex; flex-direction: column; gap: 6px; }
-    .use-opt {
-      text-align: left; font: inherit; cursor: pointer; padding: 10px 12px;
-      border-radius: 11px; border: 1px solid var(--border); background: var(--surface);
-      color: var(--fg); transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
-    }
-    .use-opt:hover { border-color: var(--border-strong); background: var(--surface-hover); }
-    .use-opt.on { border-color: transparent; background: var(--accent-wash); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
-    .use-opt .use-name { font-size: 12.5px; font-weight: 600; text-transform: capitalize; }
-    .use-opt .use-desc { font-size: 11px; color: var(--fg-muted); margin-top: 2px; line-height: 1.4; }
     .setup-actions { display: flex; gap: 8px; margin-top: var(--s5); }
     .setup-actions .btn { flex: 1; justify-content: center; text-align: center; padding: 10px; font-size: 13px; }
     .setup-actions .btn.accept { flex: 2; }
@@ -634,8 +514,6 @@
     <header>
       <div class="orb idle" id="orb" title="idle"></div>
       <span class="title">brain</span>
-      <div class="flavors" id="flavors" role="tablist" aria-label="mode"></div>
-      <button class="rec-btn" id="rec-btn" title="Record a study session (⌘⇧R)">● Rec</button>
       <span class="mem-chip" id="mem-chip" title="what the assistant remembers about you" hidden></span>
       <span class="runtime" id="runtime"></span>
       <button class="gear-btn" id="gear-btn" title="Settings — rename your assistant">⚙</button>
@@ -647,8 +525,6 @@
       <button class="tab" role="tab" data-tab="review">Review<span class="badge" id="pending-badge" hidden>0</span></button>
       <button class="tab" role="tab" data-tab="routines">Routines</button>
       <button class="tab" role="tab" data-tab="graph">Graph</button>
-      <button class="tab" role="tab" data-tab="tutor" hidden>Study</button>
-      <button class="tab" role="tab" data-tab="business" hidden>Data</button>
     </nav>
 
     <main>
@@ -661,7 +537,6 @@
       </section>
 
       <section class="panel" id="panel-review" role="tabpanel">
-        <div id="actions-queue"></div>
         <div id="queue"><div class="empty"><div class="big">✓</div>queue is empty</div></div>
       </section>
 
@@ -691,43 +566,6 @@
         </div>
       </section>
 
-      <section class="panel" id="panel-tutor" role="tabpanel">
-        <form class="ask study-ask" id="study-form">
-          <input id="study-topic" type="text" placeholder="a topic to study or quiz…" autocomplete="off" />
-        </form>
-        <div id="tutor-out"><div class="empty"><div class="big">✎</div>enter a topic to generate recall questions from your vault</div></div>
-      </section>
-
-      <section class="panel" id="panel-business" role="tabpanel">
-        <div class="biz-tools">
-          <button class="btn" id="biz-pick">Choose spreadsheet…</button>
-          <span class="biz-file" id="biz-file"></span>
-        </div>
-        <div class="biz-actions" id="biz-actions" hidden>
-          <button class="btn" data-op="read">Read</button>
-          <button class="btn" data-op="verify">Verify finances</button>
-          <button class="btn" data-op="analyze">Analyze trends</button>
-          <button class="btn" data-op="expense">Expense report</button>
-        </div>
-        <form class="ask study-ask" id="biz-form">
-          <input id="biz-q" type="text" placeholder="…or give the agent a goal" autocomplete="off" />
-        </form>
-        <div id="biz-out"><div class="empty"><div class="big">📊</div>choose a spreadsheet, or give the agent a goal</div></div>
-      </section>
-    </main>
-
-    <!-- idle-help overlay: appears only when the tutor thinks you're stuck -->
-    <div id="help-offer" class="help-offer" hidden>
-      <div class="help-card">
-        <div class="help-msg" id="help-msg">Stuck on this? Want a hand?</div>
-        <div class="help-actions">
-          <button class="btn accept" id="help-yes">Yes, help</button>
-          <button class="btn" id="help-no">No thanks</button>
-        </div>
-        <div class="help-body" id="help-body" hidden></div>
-      </div>
-    </div>
-
     <div class="answer" id="answer" hidden></div>
     <div class="chat-log" id="chat-log"></div>
     <form class="ask" id="ask-form">
@@ -752,10 +590,6 @@
           <input id="setup-agent" type="text" placeholder="e.g. Friday" autocomplete="off" />
           <span class="setup-hint">What you'll call it.</span>
         </label>
-        <div class="setup-field">
-          <span class="setup-label">Primary use</span>
-          <div class="setup-uses" id="setup-uses"></div>
-        </div>
         <div class="setup-actions">
           <button class="btn" id="setup-cancel" hidden>Cancel</button>
           <button class="btn accept" id="setup-save">Get started</button>

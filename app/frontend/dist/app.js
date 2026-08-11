@@ -21,21 +21,12 @@ async function refreshStatus() {
     $("runtime").textContent = s.runtime || "";
 
     const orb = $("orb");
-    // Recording wins over every other state: it is a safety signal.
-    orb.className = "orb " + (s.recording ? "recording" : "idle");
-    orb.title = s.recording ? "recording" : "idle";
+    orb.className = "orb idle";
 
-    // The review badge counts note proposals AND outbound actions awaiting you.
     const badge = $("pending-badge");
-    const waiting = (s.pending || 0) + (s.actions || 0);
-    if (waiting > 0) {
-      badge.textContent = waiting;
-      badge.hidden = false;
-      // Actions are higher-stakes; tint the badge red when any are pending.
-      badge.style.background = s.actions > 0 ? "var(--bad)" : "var(--accent)";
-    } else {
-      badge.hidden = true;
-    }
+    const waiting = s.pending || 0;
+    badge.textContent = waiting;
+    badge.hidden = waiting === 0;
 
     // Memory chip: what the assistant has learned about you.
     const chip = $("mem-chip");
@@ -199,7 +190,6 @@ async function loadTimeline() {
 // ---- review queue ----
 
 async function loadQueue() {
-  await loadActions();
   const items = await go().Proposals();
   const box = $("queue");
   if (!items || items.length === 0) {
@@ -209,84 +199,6 @@ async function loadQueue() {
   box.innerHTML = "";
   items.forEach((p, i) => box.append(renderProposal(p, i === 0)));
   box.querySelector(".card")?.focus();
-}
-
-// Outbound actions are the higher-stakes half of the trust loop: they touch the
-// world, so they lead the review queue and are styled as a warning.
-async function loadActions() {
-  const box = $("actions-queue");
-  box.innerHTML = "";
-  let actions = [];
-  try { actions = await go().PendingActions(); } catch (_) {}
-  if (!actions || !actions.length) return;
-
-  box.append(el("div", "actions-head", "⚡ Awaiting your confirmation — these act on the outside world"));
-  for (const act of actions) box.append(renderAction(act));
-}
-
-function renderAction(act) {
-  const card = el("div", "action-card");
-  card.append(el("div", "k", act.kind.replace("_", " ")));
-  card.append(el("div", "s", act.title));
-  if (act.preview) card.append(el("div", "prev", act.preview));
-
-  const actions = el("div", "actions");
-  const approve = el("button", "btn danger", "Approve & run");
-  approve.onclick = async () => {
-    approve.textContent = "…";
-    try {
-      const res = await go().ApproveAction(act.id);
-      toast("✓ " + res);
-    } catch (e) {
-      toast("⚠ " + e);
-    }
-    loadActions();
-    refreshStatus();
-  };
-  const reject = el("button", "btn", "Reject");
-  reject.onclick = async () => { await go().RejectAction(act.id); loadActions(); refreshStatus(); };
-  actions.append(approve, reject);
-  card.append(actions);
-  return card;
-}
-
-// ---- business panel ----
-
-let bizFile = "";
-
-function wireBusiness() {
-  $("biz-pick").onclick = async () => {
-    const path = await go().PickSpreadsheet();
-    if (!path) return;
-    bizFile = path;
-    $("biz-file").textContent = path.split("/").pop();
-    $("biz-actions").hidden = false;
-  };
-  document.querySelectorAll("#biz-actions .btn").forEach((b) =>
-    b.addEventListener("click", () => runBizOp(b.dataset.op)));
-}
-
-async function runBizOp(op) {
-  if (!bizFile) return;
-  const out = $("biz-out");
-  out.innerHTML = '<div class="empty">working…</div>';
-  thinking(true);
-  try {
-    let text;
-    if (op === "read") text = await go().BizRead(bizFile);
-    else if (op === "verify") text = await go().BizVerify(bizFile);
-    else if (op === "analyze") text = await go().BizAnalyze(bizFile, "");
-    else if (op === "expense") text = await go().BizExpenseReport(bizFile);
-    out.innerHTML = "";
-    const pre = el("pre", "answer");
-    pre.style.padding = "12px";
-    pre.textContent = text;
-    out.append(pre);
-  } catch (e) {
-    out.innerHTML = '<div class="empty">' + e + "</div>";
-  } finally {
-    thinking(false);
-  }
 }
 
 function renderProposal(p, focusable) {
@@ -473,31 +385,6 @@ async function restoreHistory() {
   } catch (_) {}
 }
 
-function wireRecording() {
-  const btn = $("rec-btn");
-  btn.onclick = async () => {
-    const state = await go().ToggleRecording("");
-    setRecState(state);
-  };
-  const rt = window.runtime;
-  if (rt && rt.EventsOn) {
-    rt.EventsOn("record:started", () => setRecState("recording"));
-    rt.EventsOn("record:processing", () => setRecState("processing"));
-    rt.EventsOn("record:hotkey", (s) => setRecState(s));
-    rt.EventsOn("record:done", (r) => {
-      setRecState("idle");
-      toast(`✓ saved "${r.title}" — ${r.cards} cards`);
-    });
-    rt.EventsOn("record:error", (m) => { setRecState("idle"); toast("⚠ " + m); });
-  }
-}
-
-function setRecState(state) {
-  const btn = $("rec-btn");
-  btn.className = "rec-btn" + (state === "recording" ? " recording" : state === "processing" ? " processing" : "");
-  btn.textContent = state === "recording" ? "● Stop" : state === "processing" ? "…" : "● Rec";
-}
-
 function toast(msg) {
   const t = el("div", "toast", msg);
   document.body.append(t);
@@ -565,54 +452,11 @@ function wireChat() {
   });
 }
 
-// ---- flavors ----
+// ---- setup / settings: name yourself, name the assistant ----
 
-let activeFlavor = "secretary";
 // What the assistant calls the user, for a warmer greeting. Set on boot from
 // the saved identity; empty keeps the greeting impersonal.
 let userName = "";
-
-async function loadFlavors() {
-  const f = await go().Flavor();
-  activeFlavor = f.active;
-  const box = $("flavors");
-  box.innerHTML = "";
-  for (const name of f.all) {
-    const pill = el("button", "flavor-pill" + (name === f.active ? " on" : ""), name);
-    pill.onclick = () => switchFlavor(name);
-    box.append(pill);
-  }
-  // Tutor and business get their own tabs; show them only in that flavor so the
-  // panel stays focused on the persona you're in.
-  showTabFor("tutor", f.active === "tutor");
-  showTabFor("business", f.active === "business");
-}
-
-function showTabFor(name, on) {
-  const tab = document.querySelector(`.tab[data-tab="${name}"]`);
-  if (tab) tab.hidden = !on;
-}
-
-async function switchFlavor(name) {
-  await go().SetFlavor(name);
-  await loadFlavors();
-  // Land on the persona's home surface.
-  if (name === "tutor") { show("tutor"); loadTutorHeader(); }
-  else if (name === "business") show("business");
-  else show("brief");
-}
-
-// ---- setup / settings: name yourself, name the assistant, pick a use ----
-
-// Friendly copy for the use-case picker, keyed by flavor name. Any flavor the
-// edition offers but isn't listed here still renders with its raw name.
-const USE_LABELS = {
-  secretary: { name: "Personal assistant", desc: "Your day: meetings, open loops, reminders." },
-  tutor: { name: "Studying & learning", desc: "Turns your notes into recall practice." },
-  business: { name: "Business & data", desc: "Summarises spreadsheets and trends." },
-};
-
-let pickedUse = "secretary";
 
 // openSetup fills the sheet from the saved identity and shows it. editing=false
 // is the first-run welcome (no cancel, "Get started"); editing=true is the gear
@@ -621,35 +465,14 @@ async function openSetup(editing) {
   const id = await go().Identity();
   $("setup-user").value = id.userName || "";
   $("setup-agent").value = id.agentName || "";
-  pickedUse = id.usecase || "secretary";
-  const f = await go().Flavor();
-  renderUses(f.all);
   $("setup-title").textContent = editing ? "Settings" : "Welcome";
   $("setup-sub").textContent = editing
-    ? "Change what you're called, rename your assistant, or switch its focus."
+    ? "Change what you're called, or rename your assistant."
     : "Let's get your assistant set up — this only takes a moment.";
   $("setup-save").textContent = editing ? "Save" : "Get started";
   $("setup-cancel").hidden = !editing;
   $("setup").hidden = false;
   $("setup-user").focus();
-}
-
-function renderUses(all) {
-  const box = $("setup-uses");
-  box.innerHTML = "";
-  for (const name of all) {
-    const meta = USE_LABELS[name] || { name, desc: "" };
-    const opt = el("button", "use-opt" + (name === pickedUse ? " on" : ""));
-    opt.type = "button";
-    opt.append(el("div", "use-name", meta.name));
-    if (meta.desc) opt.append(el("div", "use-desc", meta.desc));
-    opt.onclick = () => {
-      pickedUse = name;
-      box.querySelectorAll(".use-opt").forEach((o) => o.classList.remove("on"));
-      opt.classList.add("on");
-    };
-    box.append(opt);
-  }
 }
 
 function closeSetup() { $("setup").hidden = true; }
@@ -658,14 +481,13 @@ async function saveSetup() {
   const user = $("setup-user").value;
   const agent = $("setup-agent").value;
   try {
-    await go().SaveIdentity(user, agent, pickedUse);
+    await go().SaveIdentity(user, agent);
   } catch (err) {
     toast("⚠ " + err);
     return;
   }
   userName = (user || "").trim();
   closeSetup();
-  await loadFlavors(); // use case may have changed the active persona
   loadBrief();
   refreshStatus();
 }
@@ -674,8 +496,8 @@ function wireSetup() {
   $("gear-btn").onclick = () => openSetup(true);
   $("setup-save").onclick = saveSetup;
   $("setup-cancel").onclick = closeSetup;
-  // Enter anywhere in the sheet commits it — it's small and every field is
-  // optional but the use case, which always has a selection.
+  // Enter anywhere in the sheet commits it — it is small and every field is
+  // optional.
   $("setup").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); saveSetup(); }
   });
@@ -691,144 +513,6 @@ async function maybeOnboard() {
     loadBrief(); // repaint the greeting now that we know the name
   } catch (_) {}
 }
-
-// ---- tutor panel ----
-
-$("study-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const topic = $("study-topic").value.trim();
-  if (!topic) return;
-  const out = $("tutor-out");
-  out.innerHTML = '<div class="empty">thinking…</div>';
-  thinking(true);
-  try {
-    const cards = await go().Quiz(topic);
-    out.innerHTML = "";
-    const save = el("button", "btn accept", "＋ Save as flashcards");
-    save.style.marginBottom = "10px";
-    save.onclick = async () => {
-      const n = await go().AddCards(topic);
-      save.textContent = `added ${n} to your deck`;
-      save.disabled = true;
-      loadTutorHeader();
-    };
-    out.append(save);
-    cards.forEach((c) => out.append(renderQCard(c)));
-  } catch (err) {
-    out.innerHTML = '<div class="empty">' + err + "</div>";
-  } finally {
-    thinking(false);
-  }
-});
-
-function renderQCard(c) {
-  const card = el("div", "qcard");
-  card.append(el("div", "q", c.q));
-  const reveal = el("button", "reveal", "show answer");
-  const ans = el("div", "a", c.a);
-  reveal.onclick = () => {
-    ans.classList.toggle("shown");
-    reveal.textContent = ans.classList.contains("shown") ? "hide answer" : "show answer";
-  };
-  card.append(reveal, ans);
-  if (c.source) card.append(el("div", "src", c.source));
-  return card;
-}
-
-// Spaced-repetition review of due cards (TurboLearn-inspired; see CREDITS).
-let reviewQueue = [];
-async function startReview() {
-  reviewQueue = await go().DueCards();
-  const out = $("tutor-out");
-  if (!reviewQueue.length) {
-    out.innerHTML = '<div class="empty">no cards due — make some with a topic above</div>';
-    return;
-  }
-  showNextCard();
-}
-
-function showNextCard() {
-  const out = $("tutor-out");
-  if (!reviewQueue.length) {
-    out.innerHTML = '<div class="clear"><div class="big">✓</div>all reviewed for now</div>';
-    loadTutorHeader();
-    return;
-  }
-  const c = reviewQueue[0];
-  out.innerHTML = "";
-  const card = el("div", "qcard");
-  card.append(el("div", "q", c.Q || c.q));
-  const ans = el("div", "a", c.A || c.a);
-  const reveal = el("button", "reveal", "show answer");
-  reveal.onclick = () => {
-    ans.classList.add("shown");
-    reveal.remove();
-    const rate = el("div", "actions");
-    rate.style.marginTop = "10px";
-    [["Again", 1], ["Good", 2], ["Easy", 3]].forEach(([label, g]) => {
-      const b = el("button", "btn" + (g === 2 ? " accept" : ""), label);
-      b.onclick = async () => {
-        await go().GradeCard(c.ID || c.id, g);
-        reviewQueue.shift();
-        showNextCard();
-      };
-      rate.append(b);
-    });
-    card.append(rate);
-  };
-  card.append(reveal, ans);
-  out.append(card);
-}
-
-async function loadTutorHeader() {
-  // Show a "review N due" affordance when cards are waiting.
-  try {
-    const due = await go().DueCards();
-    let btn = $("review-btn");
-    if (due.length && !btn) {
-      btn = el("button", "btn accept", `Review ${due.length} due`);
-      btn.id = "review-btn";
-      btn.style.margin = "0 12px 8px";
-      btn.onclick = startReview;
-      $("panel-tutor").insertBefore(btn, $("tutor-out"));
-    } else if (btn) {
-      if (due.length) btn.textContent = `Review ${due.length} due`;
-      else btn.remove();
-    }
-  } catch (_) {}
-}
-
-// ---- business panel ----
-
-$("biz-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const q = $("biz-q").value.trim();
-  if (!q) return;
-  const out = $("biz-out");
-  // The goal box runs the agent harness — it orchestrates the tools, and any
-  // outbound action it decides on queues for approval in Review.
-  out.innerHTML = '<div class="empty">on it…</div>';
-  const steps = el("div", "meta");
-  steps.style.padding = "0 12px 8px";
-  thinking(true);
-  go().RunAgent(q);
-  const rt = window.runtime;
-  if (rt && rt.EventsOn) {
-    out.innerHTML = "";
-    out.append(steps);
-    rt.EventsOff && rt.EventsOff("agent:step", "agent:done", "agent:error");
-    rt.EventsOn("agent:step", (tool) => { steps.textContent += "→ " + tool + "  "; });
-    rt.EventsOn("agent:done", (answer) => {
-      const div = el("div", "answer");
-      div.style.padding = "12px";
-      div.textContent = answer;
-      out.append(div);
-      thinking(false);
-      refreshStatus();
-    });
-    rt.EventsOn("agent:error", (m) => { out.innerHTML = '<div class="empty">' + m + "</div>"; thinking(false); });
-  }
-});
 
 // ---- memory: the assistant's persistent knowledge of you ----
 
@@ -864,44 +548,6 @@ async function showMemories() {
   }
   box.append(sec);
 }
-
-// ---- idle help: offer a hand when the tutor thinks you're stuck ----
-
-let helpDismissedUntil = 0;
-
-async function pollIdleHelp() {
-  if (activeFlavor !== "tutor") return;
-  if (Date.now() < helpDismissedUntil) return;
-  if (!$("help-offer").hidden) return; // already showing
-
-  try {
-    if (await go().ShouldOfferHelp()) {
-      $("help-body").hidden = true;
-      $("help-body").textContent = "";
-      $("help-offer").hidden = false;
-    }
-  } catch (_) {}
-}
-
-$("help-yes").onclick = async () => {
-  const body = $("help-body");
-  body.hidden = false;
-  body.textContent = "reading your screen…";
-  thinking(true);
-  try {
-    body.textContent = await go().HelpNow();
-  } catch (err) {
-    body.textContent = "couldn't help: " + err;
-  } finally {
-    thinking(false);
-  }
-};
-
-$("help-no").onclick = () => {
-  $("help-offer").hidden = true;
-  // Don't nag: stay quiet for a few minutes after a decline.
-  helpDismissedUntil = Date.now() + 5 * 60 * 1000;
-};
 
 // ---- tabs ----
 
@@ -949,11 +595,8 @@ document.addEventListener("keydown", (e) => {
 
 window.addEventListener("DOMContentLoaded", () => {
   refreshStatus();
-  loadFlavors();
   wireChat();
-  wireRecording();
   wireVoice();
-  wireBusiness();
   wireMemory();
   wireSetup();
   restoreHistory();
@@ -961,10 +604,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // First run shows the welcome screen; a returning user just gets their name
   // folded into the greeting.
   maybeOnboard();
-  // The idle-help offer only ever appears in tutor mode; the poller checks that
-  // itself, so it is safe to run always.
-  setInterval(pollIdleHelp, 5000);
-  // Poll status so the pending badge and recording orb stay live while the
-  // panel is open. Cheap; the queries are indexed counts.
+  // Poll status so the pending badge stays live while the panel is open.
+  // Cheap; the queries are indexed counts.
   setInterval(refreshStatus, 4000);
 });
