@@ -16,7 +16,7 @@ Almost every organ already exists. This step is mostly wiring them into one voic
   speaks a reply sentence-by-sentence as it generates.
 - **Continuity** → the whole memory platform. The thing a stateless assistant
   (Siri, Alexa, a movie AI) structurally cannot do: it actually knows you.
-- **A persona** → `internal/flavor` (`.brain/flavor.json`), where the name will live.
+- **An identity** → `internal/flavor` (`.brain/flavor.json`), where the name lives.
 - **Hands** → the `action` confirmation gate.
 
 ## The governing law: augment, never override
@@ -50,11 +50,10 @@ belong in the presence.
 
 You give it a name; that name is how you address it and how you wake it.
 
-- **Storage.** Add `Name string` to `flavor.Config` (`.brain/flavor.json`), beside
-  `Active`/`ScreenNotes` — persona settings, kept out of the model/key config.
-  `brain name <X>` sets it; empty means unnamed (push-to-talk still works, it just
-  has no spoken wake word yet). The name also personalises the flavor's greeting
-  and self-reference.
+- **Storage.** `Name string` on `flavor.Config` (`.brain/flavor.json`) — identity
+  settings, kept out of the model/key config. `brain name <X>` sets it; empty
+  means unnamed. There is no wake word: nothing listens for the name, and the
+  name is only how the assistant greets and refers to itself.
 - **Detection is pluggable, and honest about limits.** whisper.cpp is a
   transcriber, not a wake-word engine, so a true always-listening wake word needs a
   small dedicated model (openWakeWord / porcupine-class). Resolve it the same way
@@ -158,8 +157,7 @@ meetings are exempt.
 |---|---|
 | `secretary.Compose` (brief), `routine`, `dream` insights | the interjection watcher + its restraint/rate-limit state |
 | `voice` STT/TTS/`SpeakStream`, capability checks | the ambient loop states; an optional wake-word matcher |
-| `flavor` persona config | `Name` (= wake word) + presence prefs |
-| `action` gate | nothing — the gate is used exactly as-is, on purpose |
+| `flavor` identity config | `Name` + presence prefs |
 
 ## Decisions (resolved)
 

@@ -140,9 +140,11 @@ scrubber over `first_seen`, and click-through opens the note in Obsidian.
 5. Routine mining, proactive nudges. ✓
 
 All five steps implemented, plus a secretary layer, calendar capture, model
-router/BYOK, tutor and (dormant) business flavors, a diagnostic placement quiz,
-spaced-repetition flashcards, screen recording → notes, and a conversational
-streaming agent.
+router/BYOK, a conversational streaming agent, and an MCP server that lends the
+memory to other tools.
+
+The vertical personas (tutor, business) and the outbound-action agent harness
+were removed: brain is memory that agents query, and neither was that.
 
 ## Known failure modes
 
