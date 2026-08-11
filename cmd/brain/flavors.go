@@ -10,9 +10,7 @@ import (
 	"github.com/pragun/brain/internal/bizagent"
 	"github.com/pragun/brain/internal/business"
 	"github.com/pragun/brain/internal/flavor"
-	"github.com/pragun/brain/internal/rollup"
 	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
 	"github.com/pragun/brain/internal/tutor"
 )
 
@@ -48,14 +46,6 @@ func modeCmd(args []string) error {
 		fmt.Println("note: screen notes are off. `brain tutor screen on` to let it take notes off your screen.")
 	}
 	return nil
-}
-
-func openRouter() (*router.Router, error) {
-	cfg, err := router.Load(vaultPath())
-	if err != nil {
-		return nil, err
-	}
-	return router.New(cfg, vaultPath())
 }
 
 // tutorCmd drives study features: questions, summaries, screen toggle.
@@ -346,44 +336,6 @@ func tutorReview() error {
 }
 
 // jotCmd is braindump: capture a raw thought and let the system file it.
-func jotCmd(text string) error {
-	if text == "" {
-		return fmt.Errorf("usage: brain jot <thought>")
-	}
-	ix, err := openEvents()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-	if err := rollup.InitQueue(ix.DB); err != nil {
-		return err
-	}
-	if err := secretary.Init(ix.DB); err != nil {
-		return err
-	}
-	rt, err := openRouter()
-	if err != nil {
-		return err
-	}
-
-	prop, kind, err := rollup.Braindump(ix.DB, rt, text)
-	if err != nil {
-		return err
-	}
-	if kind == "task" {
-		// A task becomes an open loop directly — that is where the secretary
-		// looks, and it is exactly the "thing I need to do" case.
-		secretary.Add(ix.DB, &secretary.Commitment{Text: strings.TrimSpace(text)})
-		fmt.Println("filed as an open loop — see `brain brief`")
-		return nil
-	}
-	fmt.Printf("filed as %s → %s — `brain review` to confirm\n", kind, prop.Target)
-	return nil
-}
-
-// tutorDiagnostic runs a Khan-style placement quiz: break the subject into
-// subskills, quiz across them, map what the student knows, and seed the deck
-// with their gaps.
 func tutorDiagnostic(subject string) error {
 	if subject == "" {
 		fmt.Println("pick a subject to place into:")
