@@ -28,3 +28,6 @@ resources/voice/piper/*
 !resources/voice/whisper/.gitkeep
 !resources/voice/piper/.gitkeep
 !resources/voice/README.md
+
+# Regenerable icon review strip (scripts/make-icon.py --preview)
+app/build/appicon-preview.png
