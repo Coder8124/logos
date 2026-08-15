@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pragun/brain/internal/contextpack"
 	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/provider"
@@ -231,7 +232,7 @@ func (s *Server) contextPack(hint string) (string, error) {
 	if strings.TrimSpace(hint) == "" {
 		return "", fmt.Errorf("context_pack needs a hint (a file path, project, or topic)")
 	}
-	pack, err := project.BuildContext(s.DB, s.embed, s.embedModel, hint)
+	pack, err := contextpack.Build(s.DB, s.embed, s.embedModel, hint)
 	if err != nil {
 		return "", err
 	}

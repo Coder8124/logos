@@ -1,4 +1,15 @@
-package project
+// Package contextpack assembles everything needed to work on something into
+// one bundle.
+//
+// It sits above the retrieval systems rather than beside them. memory, index,
+// graph, and secretary each already answer one question well; what was missing
+// was the thing that decides *which* of them to ask for a given task, in what
+// proportion, and how to spend a fixed token budget across the answers. That
+// judgement does not belong in the MCP server — which should stay an adapter —
+// nor in internal/project, which would have to import half the repo to do it.
+//
+// The output is markdown, because the consumer is a language model.
+package contextpack
 
 import (
 	"database/sql"
@@ -7,22 +18,21 @@ import (
 	"strings"
 
 	"github.com/pragun/brain/internal/memory"
+	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/provider"
 )
 
-// A context pack is the coherent bundle an external tool needs to work on
-// something: the project a file belongs to, its goals and recent progress, the
-// people involved, what the assistant knows about it, and the user's standing
+// A Pack is the coherent bundle an external tool needs to work on something:
+// the project a file belongs to, its goals and recent progress, the people
+// involved, what the assistant knows about it, and the user's standing
 // preferences. It turns "here is a file" into "here is everything relevant to
 // this file" — assembled locally and handed to Cursor or Claude in one shot,
-// instead of re-explained every session. This is the developer-facing face of
-// the memory layer.
-
-type ContextPack struct {
-	Hint        string          `json:"hint"`
-	Project     *Project        `json:"project,omitempty"`
-	Preferences []memory.Memory `json:"preferences"`
-	Related     []memory.Memory `json:"related"`
+// instead of re-explained every session.
+type Pack struct {
+	Hint        string           `json:"hint"`
+	Project     *project.Project `json:"project,omitempty"`
+	Preferences []memory.Memory  `json:"preferences"`
+	Related     []memory.Memory  `json:"related"`
 }
 
 const (
@@ -31,16 +41,16 @@ const (
 	maxListed  = 8
 )
 
-// BuildContext resolves a hint — a file path, a project name, or a free topic —
-// to a context pack. embed may be nil, in which case the semantically-related
-// memories are skipped; the project dossier and standing preferences still work.
+// Build resolves a hint — a file path, a project name, or a free topic — to a
+// pack. embed may be nil, in which case the semantically-related memories are
+// skipped; the project dossier and standing preferences still work.
 //
 // Project resolution is best-effort enrichment: if the vault has no project notes
 // yet (or the tables aren't built), the pack degrades to standing preferences
 // plus related memories rather than failing — a memory layer shouldn't error just
 // because a caller asked about an unknown thing.
-func BuildContext(db *sql.DB, embed *provider.Provider, embedModel, hint string) (ContextPack, error) {
-	pack := ContextPack{Hint: hint}
+func Build(db *sql.DB, embed *provider.Provider, embedModel, hint string) (Pack, error) {
+	pack := Pack{Hint: hint}
 	pack.Project = resolveProject(db, hint)
 
 	// Standing preferences apply everywhere — exactly what a tool should honour
@@ -70,12 +80,12 @@ func BuildContext(db *sql.DB, embed *provider.Provider, embedModel, hint string)
 // project has touched (so `context README.md` finds the project that edits it),
 // then by the file's parent directory. Returns nil when nothing matches — a topic
 // with no project is still a valid pack.
-func resolveProject(db *sql.DB, hint string) *Project {
-	if p, ok, err := Get(db, hint); err == nil && ok {
+func resolveProject(db *sql.DB, hint string) *project.Project {
+	if p, ok, err := project.Get(db, hint); err == nil && ok {
 		return &p
 	}
 
-	projects, err := Detect(db)
+	projects, err := project.Detect(db)
 	if err != nil {
 		return nil // no project layer available: degrade gracefully
 	}
@@ -89,7 +99,7 @@ func resolveProject(db *sql.DB, hint string) *Project {
 		}
 	}
 	if dir := filepath.Base(filepath.Dir(hint)); dir != "" && dir != "." && dir != string(filepath.Separator) {
-		if p, ok, err := Get(db, dir); err == nil && ok {
+		if p, ok, err := project.Get(db, dir); err == nil && ok {
 			return &p
 		}
 	}
@@ -97,12 +107,12 @@ func resolveProject(db *sql.DB, hint string) *Project {
 }
 
 // Render writes the pack as clean markdown — the format an AI tool ingests.
-func (c ContextPack) Render() string {
+func (c Pack) Render() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Context for %s\n", c.Hint)
 
 	if p := c.Project; p != nil {
-		fmt.Fprintf(&b, "\n## Project: %s  (last active %s)\n", p.Name, Age(p.LastActive))
+		fmt.Fprintf(&b, "\n## Project: %s  (last active %s)\n", p.Name, project.Age(p.LastActive))
 
 		if len(p.Goals) > 0 {
 			b.WriteString("\n**Goals**\n")
@@ -116,7 +126,7 @@ func (c ContextPack) Render() string {
 				if i >= maxListed {
 					break
 				}
-				fmt.Fprintf(&b, "- %s: %s\n", Age(pr.TS), oneLine(pr.Text))
+				fmt.Fprintf(&b, "- %s: %s\n", project.Age(pr.TS), oneLine(pr.Text))
 			}
 		}
 		if len(p.People) > 0 {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pragun/brain/internal/contextpack"
 	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/router"
 )
 
@@ -34,7 +34,7 @@ func runContext(hint string) error {
 	}
 	embedModel, _ := rt.Model(router.T0)
 
-	pack, err := project.BuildContext(ix.DB, rt.Local(), embedModel, hint)
+	pack, err := contextpack.Build(ix.DB, rt.Local(), embedModel, hint)
 	if err != nil {
 		return err
 	}
