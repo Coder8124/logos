@@ -1,7 +1,9 @@
-// Package vault reads notes from the Obsidian vault.
+// Package vault reads and writes notes in the Obsidian vault.
 //
-// The markdown file is the source of truth; this package is a reader, never a
-// writer. Anything it cannot parse is preserved by simply not touching it.
+// The markdown file is the source of truth. Reading is forgiving — anything it
+// cannot parse is preserved by simply not touching it. Writing is rare and
+// deliberate: see WriteAtomic, the single door through which anything enters
+// the vault.
 package vault
 
 import (

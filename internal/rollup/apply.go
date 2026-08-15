@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/pragun/brain/internal/vault"
 )
 
 // Writing to the vault.
@@ -44,34 +46,9 @@ func notePath(vaultDir, slug string) string {
 	return filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
 }
 
-// writeAtomic writes via a temp file in the same directory then renames, so a
-// crash mid-write cannot leave a truncated note and Obsidian never observes a
-// partial file.
-func writeAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".brain-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename succeeds
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
-}
+// writeAtomic delegates to the vault's single writer, so proposals and agent
+// checkpoints land with identical crash guarantees.
+func writeAtomic(path string, data []byte) error { return vault.WriteAtomic(path, data) }
 
 func applyNewNote(vaultDir string, p Proposal) error {
 	path := notePath(vaultDir, p.Target)
