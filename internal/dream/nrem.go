@@ -61,7 +61,7 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 			continue
 		}
 		m := &memory.Memory{Text: g, Kind: memory.Context, Salience: 0.4, Source: "dream"}
-		if stored, _ := memory.Store(db, p, embedModel, m); stored {
+		if r, _ := memory.Store(db, p, embedModel, m); r.Created() {
 			res.Gists++
 		}
 	}

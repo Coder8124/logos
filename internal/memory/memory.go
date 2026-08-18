@@ -114,11 +114,34 @@ func fingerprint(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(text), " "))
 }
 
+// A Receipt says what actually happened to a memory that was stored.
+//
+// "Saved" is not one outcome. The same call can create a memory, corroborate
+// one that already existed, or do nothing — and a caller that cannot tell those
+// apart will report all three as success. That matters most across MCP, where
+// an agent tells the user it remembered something: it should be able to say
+// whether it learned a new fact or confirmed an old one.
+type Receipt struct {
+	Outcome string `json:"outcome"` // EvCreated, EvReinforced, or OutcomeNoop
+	ID      int64  `json:"id"`
+	// Ref is the memory that was reinforced, when the store folded into an
+	// existing one instead of adding a twin.
+	Ref int64 `json:"ref,omitempty"`
+}
+
+// OutcomeNoop means nothing was stored — there was nothing to store.
+const OutcomeNoop = "noop"
+
+// Created reports whether the store added a new memory, which is what most
+// callers actually want to branch on.
+func (r Receipt) Created() bool { return r.Outcome == EvCreated }
+
 // Store embeds a memory and saves it, deduplicated on its normalised text so
-// the same fact learned twice does not accumulate.
-func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (bool, error) {
+// the same fact learned twice does not accumulate. The receipt distinguishes a
+// new memory from a corroborated one.
+func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Receipt, error) {
 	if strings.TrimSpace(m.Text) == "" {
-		return false, nil
+		return Receipt{Outcome: OutcomeNoop}, nil
 	}
 	if m.Created == 0 {
 		m.Created = time.Now().Unix()
@@ -149,7 +172,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (bool
 		if id, ok := nearestMemory(db, qvec, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			return false, nil
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, nil
 		}
 	}
 
@@ -158,14 +181,25 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (bool
 		 VALUES (?,?,?,?,?,?,?,?,?)`,
 		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Created, vec, fingerprint(m.Text))
 	if err != nil {
-		return false, err
+		return Receipt{}, err
 	}
-	n, _ := res.RowsAffected()
-	if n > 0 {
+	if n, _ := res.RowsAffected(); n > 0 {
 		m.ID, _ = res.LastInsertId()
 		logEvent(db, m.ID, EvCreated, m.Text, 0)
+		return Receipt{Outcome: EvCreated, ID: m.ID}, nil
 	}
-	return n > 0, nil
+
+	// The fingerprint already existed — the same sentence, word for word. That
+	// is corroboration too, and reporting it as a silent no-op is how a caller
+	// ends up telling the user it saved something that was already there.
+	var id int64
+	if db.QueryRow("SELECT id FROM memories WHERE fingerprint = ?", fingerprint(m.Text)).Scan(&id) == nil && id > 0 {
+		db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", id)
+		logEvent(db, id, EvReinforced, m.Text, 0)
+		m.ID = id
+		return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, nil
+	}
+	return Receipt{Outcome: OutcomeNoop}, nil
 }
 
 // defaultConfidence seeds a memory's confidence from how it was learned. A fact

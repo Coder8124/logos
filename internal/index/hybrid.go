@@ -101,7 +101,7 @@ func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) 
 		if _, ok := info[slug]; !ok {
 			// A lexical-only hit has no vector Hit yet; fetch its fields so it
 			// can still be returned and cited.
-			if h, ok := ix.hitBySlug(slug); ok {
+			if h, ok := ix.HitBySlug(slug); ok {
 				info[slug] = h
 			}
 		}
@@ -126,7 +126,7 @@ func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) 
 	return fused, nil
 }
 
-func (ix *Index) hitBySlug(slug string) (Hit, bool) {
+func (ix *Index) HitBySlug(slug string) (Hit, bool) {
 	var h Hit
 	err := ix.DB.QueryRow("SELECT slug, title, kind, body FROM notes WHERE slug = ?", slug).
 		Scan(&h.Slug, &h.Title, &h.Kind, &h.Body)

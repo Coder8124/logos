@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,11 +94,14 @@ func send(t *testing.T, w io.Writer, v any) {
 	}
 }
 
-// startServer wires a Server (nil embedder, temp SQLite) to a client over two
-// pipes and runs Serve in the background. Returns the client and the DB.
-func startServer(t *testing.T) (*testClient, *sql.DB) {
+// startServer wires a Server (nil embedder, temp SQLite, temp vault) to a
+// client over two pipes and runs Serve in the background. Returns the client,
+// the DB, and the vault directory — checkpoints are files, so tests need to be
+// able to look at them.
+func startServer(t *testing.T) (*testClient, *sql.DB, string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "mem.db"))
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +111,7 @@ func startServer(t *testing.T) (*testClient, *sql.DB) {
 	// client → server and server → client.
 	toSrv, fromClient := io.Pipe()
 	toClient, fromSrv := io.Pipe()
-	srv := &Server{DB: db}
+	srv := &Server{DB: db, vault: dir}
 
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(toSrv, fromSrv) }()
@@ -122,7 +126,7 @@ func startServer(t *testing.T) (*testClient, *sql.DB) {
 
 	sc := bufio.NewScanner(toClient)
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	return &testClient{t: t, w: fromClient, sc: sc}, db
+	return &testClient{t: t, w: fromClient, sc: sc}, db, dir
 }
 
 func handshake(t *testing.T, c *testClient) {
@@ -157,7 +161,7 @@ func handshake(t *testing.T, c *testClient) {
 }
 
 func TestHandshakeAndToolDiscovery(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	raw := c.req("tools/list", nil)
@@ -172,8 +176,12 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
+		// memory: what do you know about X
 		"remember": true, "recall": true, "list_memories": true, "forget": true,
-		"context_pack": true, "memory_diff": true, "list_projects": true,
+		"memory_diff": true, "list_projects": true,
+		// continuity: where were we
+		"context": true, "resume": true, "note_progress": true,
+		"checkpoint": true, "handoff": true,
 	}
 	if len(res.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(res.Tools), len(want))
@@ -191,7 +199,7 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 // The broadened memory-layer surface: what an external app writes via remember
 // shows up when it asks memory_diff what changed.
 func TestMemoryDiffTool(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	if _, isErr := c.callText(t, "remember", map[string]any{
@@ -210,7 +218,7 @@ func TestMemoryDiffTool(t *testing.T) {
 }
 
 func TestRememberRecallRoundTrip(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	if out, isErr := c.callText(t, "remember", map[string]any{
@@ -238,7 +246,7 @@ func TestRememberRecallRoundTrip(t *testing.T) {
 }
 
 func TestForgetRemovesMemory(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	c.callText(t, "remember", map[string]any{"text": "Temporary note to be deleted.", "kind": "fact"})
@@ -255,7 +263,7 @@ func TestForgetRemovesMemory(t *testing.T) {
 }
 
 func TestToolErrorsAreResultsNotProtocolErrors(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	// Unknown tool → an isError result (so the host's model can react), never a
@@ -273,7 +281,7 @@ func TestToolErrorsAreResultsNotProtocolErrors(t *testing.T) {
 }
 
 func TestUnknownMethodReturnsProtocolError(t *testing.T) {
-	c, _ := startServer(t)
+	c, _, _ := startServer(t)
 	handshake(t, c)
 
 	// A genuinely unknown *method* (not a tool) is a real JSON-RPC error, so we
@@ -312,4 +320,120 @@ func firstID(t *testing.T, list string) string {
 		t.Fatalf("could not find id in list:\n%s", list)
 	}
 	return list[i+1 : j]
+}
+
+// The handoff, end to end over the wire.
+//
+// This is the claim the product rests on — the AI can change, the context does
+// not — so it is tested at the protocol boundary rather than against the Go
+// API. One agent works and hands off; a second agent, which has never seen the
+// conversation, asks to resume and receives what it needs to continue.
+func TestHandoffBetweenTwoAgents(t *testing.T) {
+	c, _, vaultDir := startServer(t)
+	handshake(t, c)
+
+	// --- Agent A works. ---
+	if _, isErr := c.callText(t, "note_progress", map[string]any{
+		"project": "kestrel-one", "agent": "claude",
+		"text": "re-quoted the waveguide at volume",
+	}); isErr {
+		t.Fatal("note_progress failed")
+	}
+
+	out, isErr := c.callText(t, "handoff", map[string]any{
+		"project": "kestrel-one", "to": "cursor", "agent": "claude",
+		"task":   "cut the BOM from $141.20 to the $118 target",
+		"failed": []any{"re-quoting the waveguide — no movement under 10k units"},
+		"next":   "get a firm quote on the single-mic line",
+	})
+	if isErr {
+		t.Fatalf("handoff failed: %s", out)
+	}
+	if !strings.Contains(out, "cursor") {
+		t.Errorf("handoff should name the recipient: %s", out)
+	}
+
+	// The record is a file in the vault, not a row — that is what lets it
+	// outlive the index and be read by a human.
+	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "kestrel-one", "*.md"))
+	if len(matches) != 1 {
+		t.Fatalf("want one checkpoint note in the vault, got %v", matches)
+	}
+
+	// --- Agent B arrives cold. ---
+	got, isErr := c.callText(t, "resume", map[string]any{
+		"project": "kestrel-one", "agent": "cursor",
+	})
+	if isErr {
+		t.Fatalf("resume failed: %s", got)
+	}
+	for _, want := range []string{
+		"cut the BOM",     // what they were doing
+		"no movement",     // what was already ruled out — the expensive part
+		"single-mic line", // the next step
+		"claude",          // who left it
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("resume output missing %q — a cold agent cannot continue from this:\n%s", want, got)
+		}
+	}
+}
+
+// A resume with no prior checkpoint must say so. An agent that assumes there
+// was one will narrate continuity that never happened.
+func TestResumeWithoutACheckpointSaysSo(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	got, isErr := c.callText(t, "resume", map[string]any{"project": "kestrel-one"})
+	if isErr {
+		t.Fatalf("resume errored: %s", got)
+	}
+	if !strings.Contains(got, "No checkpoint") {
+		t.Errorf("want an explicit no-checkpoint notice, got:\n%s", got)
+	}
+}
+
+// remember returns a receipt, so the host can tell the user whether it learned
+// something new or confirmed something it already had.
+func TestRememberReturnsAReceipt(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	first, _ := c.callText(t, "remember", map[string]any{
+		"text": "The BOM target is $118.", "kind": "fact",
+	})
+	if !strings.Contains(first, "Created memory #") {
+		t.Errorf("first store should report creation, got %q", first)
+	}
+	second, _ := c.callText(t, "remember", map[string]any{
+		"text": "The BOM target is $118.", "kind": "fact",
+	})
+	if !strings.Contains(second, "Already knew that") {
+		t.Errorf("restating a known fact should report reinforcement, got %q", second)
+	}
+}
+
+// Models are inconsistent about emitting arrays for list-shaped arguments.
+// Losing a checkpoint's hardest-won field to a formatting mismatch would be the
+// worst possible failure here, so both shapes are accepted.
+func TestCheckpointAcceptsListsAsStrings(t *testing.T) {
+	c, _, vaultDir := startServer(t)
+	handshake(t, c)
+
+	if _, isErr := c.callText(t, "checkpoint", map[string]any{
+		"project": "brain", "task": "wire the MCP tools",
+		"failed": "- tried the table-backed store\n- tried caching the parse",
+		"next":   "verify against the demo vault",
+	}); isErr {
+		t.Fatal("checkpoint rejected a string-shaped list")
+	}
+	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "brain", "*.md"))
+	if len(matches) != 1 {
+		t.Fatalf("want one checkpoint, got %v", matches)
+	}
+	raw, _ := os.ReadFile(matches[0])
+	if !strings.Contains(string(raw), "- tried the table-backed store") {
+		t.Errorf("string-shaped list was not split into bullets:\n%s", raw)
+	}
 }

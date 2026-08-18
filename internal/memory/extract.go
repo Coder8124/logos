@@ -78,13 +78,13 @@ func Learn(db *sql.DB, rt *router.Router, exchange, source string) (int, error) 
 		if sal <= 0 || sal > 1 {
 			sal = 0.5
 		}
-		ok, err := Store(db, rt.Local(), embed, &Memory{
+		r, err := Store(db, rt.Local(), embed, &Memory{
 			Text: strings.TrimSpace(m.Text), Kind: Kind(m.Kind), Salience: sal, Source: source,
 		})
 		if err != nil {
 			return stored, err
 		}
-		if ok {
+		if r.Created() {
 			stored++
 		}
 	}

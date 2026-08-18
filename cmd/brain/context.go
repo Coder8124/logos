@@ -2,21 +2,45 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pragun/brain/internal/contextpack"
 	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/router"
+	"github.com/pragun/brain/internal/secretary"
+	"github.com/pragun/brain/internal/session"
 )
 
-// runContext assembles a context pack for a file, project, or topic and prints it
-// as markdown — the same bundle the MCP `context_pack` tool serves to an external
-// AI. "Here is a file" becomes "here is everything the assistant knows that bears
-// on it," in one shot.
-func runContext(hint string) error {
-	hint = strings.TrimSpace(hint)
-	if hint == "" {
-		return fmt.Errorf("usage: brain context <file | project | topic>")
+// runContext assembles everything bearing on a task and prints it as markdown —
+// the same bundle the MCP `context` tool serves to an external AI. Having it on
+// the command line is not a convenience: it is the only way to see what an agent
+// will actually receive, and therefore the only way to tell whether the
+// retrieval is any good.
+//
+//	brain context "cut the BOM to target" --project kestrel-one --budget 4000
+func runContext(args []string) error {
+	var task, hint string
+	budget := 0
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--project", "-p":
+			if i+1 < len(args) {
+				i++
+				hint = args[i]
+			}
+		case "--budget", "-b":
+			if i+1 < len(args) {
+				i++
+				budget, _ = strconv.Atoi(args[i])
+			}
+		default:
+			task = strings.TrimSpace(task + " " + args[i])
+		}
+	}
+	if task == "" && hint == "" {
+		return fmt.Errorf("usage: brain context <task> [--project <name>] [--budget <tokens>]")
 	}
 
 	ix, err := openEvents()
@@ -27,6 +51,12 @@ func runContext(hint string) error {
 	if err := memory.Init(ix.DB); err != nil {
 		return err
 	}
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+	if err := secretary.Init(ix.DB); err != nil {
+		return err
+	}
 
 	rt, err := openRouter()
 	if err != nil {
@@ -34,7 +64,8 @@ func runContext(hint string) error {
 	}
 	embedModel, _ := rt.Model(router.T0)
 
-	pack, err := contextpack.Build(ix.DB, rt.Local(), embedModel, hint)
+	pack, err := contextpack.Build(ix, rt.Local(), embedModel,
+		contextpack.Request{Task: task, Hint: hint, Budget: budget})
 	if err != nil {
 		return err
 	}

@@ -193,12 +193,12 @@ func Accept(db *sql.DB, p *provider.Provider, embedModel string, in Insight) (bo
 		Salience: 0.4,
 		Source:   "dream",
 	}
-	stored, err := memory.Store(db, p, embedModel, m)
+	r, err := memory.Store(db, p, embedModel, m)
 	if err != nil {
 		return false, err
 	}
 	if err := SetStatus(db, in.ID, Accepted); err != nil {
-		return stored, err
+		return r.Created(), err
 	}
-	return stored, nil
+	return r.Created(), nil
 }

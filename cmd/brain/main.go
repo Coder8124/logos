@@ -42,7 +42,14 @@ USAGE
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     brain projects | project <name>   auto-detected projects and their dossiers
-    brain context <file|project|topic>   assemble a context pack for an AI tool (also an MCP tool)
+    brain context <task> [--project <p>] [--budget <n>]
+                                      everything bearing on a task, budgeted (also an MCP tool)
+    brain note <project> <what you did>
+                                      record progress; uncommitted until you checkpoint
+    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+                                      commit where you stopped, as a note in the vault
+    brain resume <project>            pick up where the last agent left off
+    brain sessions <project>          checkpoint history for a project
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
     brain loop [add|done|drop]        manage open loops (commitments)
@@ -96,7 +103,15 @@ func main() {
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
 	case cmd == "context" && rest != "":
-		err = runContext(rest)
+		err = runContext(args)
+	case cmd == "note":
+		err = runNote(args)
+	case cmd == "checkpoint":
+		err = runCheckpoint(args)
+	case cmd == "resume":
+		err = runResume(args)
+	case cmd == "sessions":
+		err = runSessionLog(args)
 	case cmd == "say" && rest != "":
 		err = runSay(rest)
 	case cmd == "listen":

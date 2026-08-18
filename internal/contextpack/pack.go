@@ -2,188 +2,292 @@
 // one bundle.
 //
 // It sits above the retrieval systems rather than beside them. memory, index,
-// graph, and secretary each already answer one question well; what was missing
-// was the thing that decides *which* of them to ask for a given task, in what
-// proportion, and how to spend a fixed token budget across the answers. That
-// judgement does not belong in the MCP server — which should stay an adapter —
-// nor in internal/project, which would have to import half the repo to do it.
+// graph, secretary, and session each already answer one question well; what was
+// missing was the thing that decides *which* of them to ask for a given task, in
+// what proportion, and how to spend a fixed token budget across the answers.
+// That judgement does not belong in the MCP server — which should stay an
+// adapter — nor in internal/project, which would have to import half the repo.
 //
-// The output is markdown, because the consumer is a language model.
+// The distinction that matters: recall answers "what do you know about X", and
+// this answers "give me what I need to do X". The second is not a longer version
+// of the first. It includes where the last agent stopped, what they ruled out,
+// what is still open, and the actual text of the notes involved — and it leaves
+// things out on purpose, because the consumer has a finite context window.
 package contextpack
 
 import (
 	"database/sql"
-	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/pragun/brain/internal/graph"
+	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/provider"
+	"github.com/pragun/brain/internal/secretary"
+	"github.com/pragun/brain/internal/session"
 )
 
-// A Pack is the coherent bundle an external tool needs to work on something:
-// the project a file belongs to, its goals and recent progress, the people
-// involved, what the assistant knows about it, and the user's standing
-// preferences. It turns "here is a file" into "here is everything relevant to
-// this file" — assembled locally and handed to Cursor or Claude in one shot,
-// instead of re-explained every session.
+// A Request is what the caller is trying to do. Task is the important field:
+// "continue the MCP implementation" retrieves differently from the project name
+// alone, because it says which corner of the project matters right now.
+type Request struct {
+	Task string
+	// Hint narrows the scope: a project name, a file path, or a topic. Optional
+	// — if empty, the task text is matched against known projects.
+	Hint string
+	// Budget is the approximate token ceiling for the rendered pack. 0 means
+	// DefaultBudget.
+	Budget int
+}
+
+// A Pack is everything relevant to one task, gathered from every store, ready to
+// be rendered into a model's context window.
 type Pack struct {
-	Hint        string           `json:"hint"`
-	Project     *project.Project `json:"project,omitempty"`
-	Preferences []memory.Memory  `json:"preferences"`
-	Related     []memory.Memory  `json:"related"`
+	Task    string           `json:"task"`
+	Hint    string           `json:"hint"`
+	Project *project.Project `json:"project,omitempty"`
+
+	// Checkpoint is where the last agent stopped on this project, and Working is
+	// what has been recorded since without being committed. Together they are the
+	// answer to "where were we", which no amount of semantic recall provides.
+	Checkpoint *session.Checkpoint `json:"checkpoint,omitempty"`
+	Working    []session.Note      `json:"working,omitempty"`
+
+	// Notes is vault content — the actual prose, not just titles. Hits reached
+	// through the graph rather than matched directly carry Via.
+	Notes []index.Hit `json:"notes"`
+
+	Preferences []memory.Memory        `json:"preferences"`
+	Related     []memory.Memory        `json:"related"`
+	OpenLoops   []secretary.Commitment `json:"open_loops"`
+
+	// Sources lists what actually made it into the render, so the consumer can
+	// cite rather than paraphrase.
+	Sources []string `json:"sources"`
+	// Excluded names what the budget dropped. An agent that can see what it did
+	// not get can ask for more, which is strictly better than not knowing.
+	Excluded []string `json:"excluded"`
+	Budget   Budget   `json:"budget"`
 }
 
 const (
 	maxPrefs   = 8
-	maxRelated = 8
+	maxRelated = 10
+	maxNotes   = 12
 	maxListed  = 8
 )
 
-// Build resolves a hint — a file path, a project name, or a free topic — to a
-// pack. embed may be nil, in which case the semantically-related memories are
-// skipped; the project dossier and standing preferences still work.
+// Build gathers candidates from every store. It deliberately over-gathers: what
+// survives is decided at render time by the budget, because how much fits
+// depends on how long each piece turns out to be.
 //
-// Project resolution is best-effort enrichment: if the vault has no project notes
-// yet (or the tables aren't built), the pack degrades to standing preferences
-// plus related memories rather than failing — a memory layer shouldn't error just
-// because a caller asked about an unknown thing.
-func Build(db *sql.DB, embed *provider.Provider, embedModel, hint string) (Pack, error) {
-	pack := Pack{Hint: hint}
-	pack.Project = resolveProject(db, hint)
+// Everything here degrades rather than fails. A vault with no project notes, no
+// embedding model, or no checkpoints still produces a useful pack — a memory
+// layer that errors because you asked about something it doesn't know is worse
+// than useless, it is untrustworthy.
+func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Request) (Pack, error) {
+	db := ix.DB
+	p := Pack{Task: req.Task, Hint: req.Hint}
+	p.Budget.Limit = req.Budget
+	if p.Budget.Limit <= 0 {
+		p.Budget.Limit = DefaultBudget
+	}
 
-	// Standing preferences apply everywhere — exactly what a tool should honour
-	// regardless of which file it happens to be touching.
+	p.Project = resolve(db, req)
+
+	// The query both retrieval arms see. Task first: it carries the intent, and
+	// the project name alone would pull the project's centre of mass rather than
+	// the corner being worked on.
+	query := strings.TrimSpace(req.Task + " " + req.Hint)
+	if p.Project != nil {
+		query = strings.TrimSpace(query + " " + p.Project.Name)
+	}
+
+	// Where the last agent stopped. Read from the vault, so it works even on a
+	// freshly rebuilt index.
+	//
+	// Scoped by the hint when no project note resolved, because continuity must
+	// not depend on the vault having been curated. An agent working through MCP
+	// may leave checkpoints on a project that never got a note of its own — and
+	// the checkpoint is itself the evidence that the project exists.
+	if scope := p.scope(); scope != "" && ix.Vault != "" {
+		if c, err := session.Latest(ix.Vault, scope); err == nil && c != nil {
+			p.Checkpoint = c
+		}
+	}
+	if scope := p.scope(); scope != "" {
+		if notes, err := session.Uncommitted(db, scope); err == nil {
+			p.Working = notes
+		}
+	}
+
+	// Vault prose. This is the piece context_pack never had: it listed a
+	// project's files but never the content, so an agent still had to go read
+	// them one by one.
+	if embed != nil && query != "" {
+		if hits, err := ix.HybridSearch(embed, embedModel, query, maxNotes); err == nil {
+			p.Notes = hits
+		}
+	}
+	p.Notes = append(p.Notes, p.graphReach(db)...)
+
 	if prefs, err := memory.Surface(db, []memory.Kind{memory.Preference}, maxPrefs); err == nil {
 		for _, m := range prefs {
-			if m.Project == "" { // global preferences only
-				pack.Preferences = append(pack.Preferences, m)
+			if m.Project == "" { // global preferences apply everywhere
+				p.Preferences = append(p.Preferences, m)
 			}
 		}
 	}
-
-	// Related memories: semantic recall against the hint, biased by the project.
-	if embed != nil {
-		q := hint
-		if pack.Project != nil {
-			q = pack.Project.Name + " " + hint
-		}
-		if mems, err := memory.Recall(db, embed, embedModel, q, maxRelated); err == nil {
-			pack.Related = mems
+	if embed != nil && query != "" {
+		if mems, err := memory.Recall(db, embed, embedModel, query, maxRelated); err == nil {
+			p.Related = mems
 		}
 	}
-	return pack, nil
+	p.OpenLoops = openLoops(db, p.Project)
+
+	return p, nil
 }
 
-// resolveProject maps a hint to a project: by name/slug first, then by a file the
-// project has touched (so `context README.md` finds the project that edits it),
-// then by the file's parent directory. Returns nil when nothing matches — a topic
-// with no project is still a valid pack.
-func resolveProject(db *sql.DB, hint string) *project.Project {
-	if p, ok, err := project.Get(db, hint); err == nil && ok {
-		return &p
+// scope is the name continuity is filed under.
+//
+// It is the project's trailing segment ("kestrel-one"), not its full slug
+// ("projects/kestrel-one"), because that is the name an agent passes to
+// checkpoint and the name edges resolve against. Filing work under the folder
+// path would mean a checkpoint written before the project note existed could
+// never be found after it did.
+func (p Pack) scope() string {
+	if p.Project != nil {
+		slug := p.Project.Slug
+		if i := strings.LastIndex(slug, "/"); i >= 0 {
+			return slug[i+1:]
+		}
+		return slug
+	}
+	return strings.TrimSpace(p.Hint)
+}
+
+// graphReach pulls in notes one hop from the project that retrieval did not
+// already find.
+//
+// This is the case ranked retrieval structurally misses: a note that never
+// mentions the query's words but that the project explicitly depends on. On the
+// demo vault, asking about the bill of materials would not surface the yield
+// note, even though the yield is what the cost hinges on — the vault says so in
+// an edge, and an edge is a fact the user asserted.
+func (p Pack) graphReach(db *sql.DB) []index.Hit {
+	if p.Project == nil {
+		return nil
+	}
+	g, err := graph.Ego(db, p.Project.Slug, 1, false)
+	if err != nil {
+		return nil
+	}
+	have := map[string]bool{p.Project.Slug: true}
+	for _, h := range p.Notes {
+		have[h.Slug] = true
+	}
+
+	ix := &index.Index{DB: db}
+	var out []index.Hit
+	for _, n := range g.Nodes {
+		if n.Hops == 0 || have[n.Slug] {
+			continue
+		}
+		// Checkpoints arrive through their own section; pulling them in here
+		// would print the same work twice.
+		if n.Kind == "checkpoint" {
+			continue
+		}
+		h, ok := ix.HitBySlug(n.Slug)
+		if !ok {
+			continue
+		}
+		h.Via = p.Project.Slug
+		out = append(out, h)
+		have[n.Slug] = true
+	}
+	// Deterministic order; the budget decides how many survive.
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out
+}
+
+// openLoops returns commitments still outstanding, those touching this project
+// first. An agent picking up work should know what was promised before it
+// decides what to do next.
+func openLoops(db *sql.DB, p *project.Project) []secretary.Commitment {
+	loops, err := secretary.Open_(db)
+	if err != nil {
+		return nil
+	}
+	if p == nil {
+		return loops
+	}
+	terms := append([]string{p.Name, p.Slug}, p.Aliases...)
+	var mine, rest []secretary.Commitment
+	for _, c := range loops {
+		if mentionsAny(c.Text, terms) {
+			mine = append(mine, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return append(mine, rest...)
+}
+
+func mentionsAny(text string, terms []string) bool {
+	lower := strings.ToLower(text)
+	for _, t := range terms {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t != "" && strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolve maps a request to a project: the explicit hint first, then a file the
+// project has touched, then the file's parent directory, and finally the task
+// text itself — an agent that says "continue the MCP server work" has named its
+// project without knowing it.
+func resolve(db *sql.DB, req Request) *project.Project {
+	if h := strings.TrimSpace(req.Hint); h != "" {
+		if p, ok, err := project.Get(db, h); err == nil && ok {
+			return &p
+		}
 	}
 
 	projects, err := project.Detect(db)
 	if err != nil {
 		return nil // no project layer available: degrade gracefully
 	}
-	base := strings.ToLower(filepath.Base(hint))
-	for _, p := range projects { // most-recently-active first
-		for _, f := range p.Files {
-			if strings.EqualFold(f.Path, hint) || strings.ToLower(filepath.Base(f.Path)) == base {
+
+	if h := strings.TrimSpace(req.Hint); h != "" {
+		base := strings.ToLower(filepath.Base(h))
+		for _, p := range projects { // most-recently-active first
+			for _, f := range p.Files {
+				if strings.EqualFold(f.Path, h) || strings.ToLower(filepath.Base(f.Path)) == base {
+					pp := p
+					return &pp
+				}
+			}
+		}
+		if dir := filepath.Base(filepath.Dir(h)); dir != "" && dir != "." && dir != string(filepath.Separator) {
+			if p, ok, err := project.Get(db, dir); err == nil && ok {
+				return &p
+			}
+		}
+	}
+
+	if task := strings.TrimSpace(req.Task); task != "" {
+		for _, p := range projects {
+			if mentionsAny(task, append([]string{p.Name, p.Slug}, p.Aliases...)) {
 				pp := p
 				return &pp
 			}
 		}
 	}
-	if dir := filepath.Base(filepath.Dir(hint)); dir != "" && dir != "." && dir != string(filepath.Separator) {
-		if p, ok, err := project.Get(db, dir); err == nil && ok {
-			return &p
-		}
-	}
 	return nil
-}
-
-// Render writes the pack as clean markdown — the format an AI tool ingests.
-func (c Pack) Render() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Context for %s\n", c.Hint)
-
-	if p := c.Project; p != nil {
-		fmt.Fprintf(&b, "\n## Project: %s  (last active %s)\n", p.Name, project.Age(p.LastActive))
-
-		if len(p.Goals) > 0 {
-			b.WriteString("\n**Goals**\n")
-			for _, g := range clip(p.Goals, 6) {
-				fmt.Fprintf(&b, "- %s\n", oneLine(g))
-			}
-		}
-		if len(p.Progress) > 0 {
-			b.WriteString("\n**Recent progress**\n")
-			for i, pr := range p.Progress {
-				if i >= maxListed {
-					break
-				}
-				fmt.Fprintf(&b, "- %s: %s\n", project.Age(pr.TS), oneLine(pr.Text))
-			}
-		}
-		if len(p.People) > 0 {
-			var names []string
-			for _, r := range p.People {
-				names = append(names, r.Title)
-			}
-			fmt.Fprintf(&b, "\n**People**: %s\n", strings.Join(names, ", "))
-		}
-		if len(p.Files) > 0 {
-			b.WriteString("\n**Files**\n")
-			for i, f := range p.Files {
-				if i >= maxListed {
-					break
-				}
-				fmt.Fprintf(&b, "- %s\n", f.Path)
-			}
-		}
-		if len(p.Memories) > 0 {
-			b.WriteString("\n**What the assistant knows about this project**\n")
-			for i, m := range p.Memories {
-				if i >= maxListed {
-					break
-				}
-				fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, oneLine(m.Text))
-			}
-		}
-	} else {
-		fmt.Fprintf(&b, "\n_No project matched %q — standing context only._\n", c.Hint)
-	}
-
-	if len(c.Preferences) > 0 {
-		b.WriteString("\n## Standing preferences\n")
-		for _, m := range c.Preferences {
-			fmt.Fprintf(&b, "- %s\n", oneLine(m.Text))
-		}
-	}
-	if len(c.Related) > 0 {
-		b.WriteString("\n## Related memories\n")
-		for _, m := range c.Related {
-			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, oneLine(m.Text))
-		}
-	}
-	return b.String()
-}
-
-func oneLine(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
-	if len(s) > 100 {
-		s = s[:99] + "…"
-	}
-	return s
-}
-
-func clip(s []string, n int) []string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }

@@ -28,6 +28,6 @@ func runMCPServe() error {
 	db.SetMaxOpenConns(1)
 	defer db.Close()
 
-	srv := mcpserver.New(db, rt)
+	srv := mcpserver.New(db, rt, vault)
 	return srv.Serve(os.Stdin, os.Stdout)
 }

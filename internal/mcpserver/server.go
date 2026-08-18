@@ -7,13 +7,19 @@
 // uploaded. The same store the brain app reads is the store an external agent
 // reads and writes, so what you tell one, the others know.
 //
-// The surface is deliberately more than remember/recall: an application should be
-// able to write memory, read it back, ask what changed, pull a ready-made context
-// pack for a file or project, and enumerate the projects it detected — enough to
-// sit *underneath* another product as its memory backend, not just beside a chat.
+// The surface is deliberately more than remember/recall. Beyond reading and
+// writing memory, an agent can assemble everything bearing on a task, record
+// what it is doing as it works, and commit where it stopped — so a *different*
+// agent, in a different application, can resume the same project without the
+// user re-explaining anything. That is the point: the AI is replaceable, the
+// context is not.
+//
+// This package is an adapter and nothing more. Argument coercion, dispatch, and
+// rendering live here; the judgement about what belongs in a context window
+// lives in internal/contextpack, and continuity lives in internal/session.
 //
 // It speaks MCP over newline-delimited JSON-RPC 2.0 on stdio — the transport
-// every MCP host supports — mirroring the client in internal/business.
+// every MCP host supports.
 package mcpserver
 
 import (
@@ -27,10 +33,12 @@ import (
 	"time"
 
 	"github.com/pragun/brain/internal/contextpack"
+	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
+	"github.com/pragun/brain/internal/session"
 )
 
 const protocolVersion = "2024-11-05"
@@ -40,15 +48,26 @@ const protocolVersion = "2024-11-05"
 // salience order), which is what keeps the transport testable without a live
 // model.
 type Server struct {
-	DB         *sql.DB
+	DB *sql.DB
+	// vault is needed because checkpoints are markdown files, not rows — see
+	// internal/session. Without it the server can read memory but cannot record
+	// or recover where an agent left off.
+	vault      string
 	embed      *provider.Provider
 	embedModel string
 	out        *json.Encoder
 }
 
-func New(db *sql.DB, rt *router.Router) *Server {
+func New(db *sql.DB, rt *router.Router, vault string) *Server {
 	embed, _ := rt.Model(router.T0)
-	return &Server{DB: db, embed: rt.Local(), embedModel: embed}
+	return &Server{DB: db, vault: vault, embed: rt.Local(), embedModel: embed}
+}
+
+// index wraps the open database as an Index so the context builder can search
+// vault prose. The struct is just a vault path and a handle; constructing it
+// here avoids a second connection to a single-connection SQLite file.
+func (s *Server) index() *index.Index {
+	return &index.Index{Vault: s.vault, DB: s.DB}
 }
 
 type request struct {
@@ -142,8 +161,20 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 		return s.listMemories()
 	case "forget":
 		return s.forget(argStr(args, "id"))
-	case "context_pack":
-		return s.contextPack(argStr(args, "hint"))
+	case "context":
+		return s.context(contextpack.Request{
+			Task:   argStr(args, "task"),
+			Hint:   argStr(args, "project"),
+			Budget: argInt(args, "budget", 0),
+		})
+	case "resume":
+		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
+	case "note_progress":
+		return s.noteProgress(argStr(args, "project"), argStr(args, "agent"), argStr(args, "text"))
+	case "checkpoint":
+		return s.checkpoint(args, "")
+	case "handoff":
+		return s.checkpoint(args, argStr(args, "to"))
 	case "memory_diff":
 		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7))
 	case "list_projects":
@@ -167,16 +198,22 @@ func (s *Server) remember(text, kindStr string) (string, error) {
 	case memory.Context:
 		kind = memory.Context
 	}
-	added, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
+	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
 		Text: text, Kind: kind, Salience: 0.7, Source: "mcp",
 	})
 	if err != nil {
 		return "", err
 	}
-	if !added {
-		return "Already knew that (reinforced the existing memory).", nil
+	// A receipt rather than "Remembered." — the host is about to tell the user
+	// what happened, and creating a fact is not the same as confirming one it
+	// already had.
+	switch r.Outcome {
+	case memory.EvReinforced:
+		return fmt.Sprintf("Already knew that — reinforced memory #%d (%s).", r.Ref, kind), nil
+	case memory.EvCreated:
+		return fmt.Sprintf("Created memory #%d (%s).", r.ID, kind), nil
 	}
-	return "Remembered.", nil
+	return "Nothing stored.", nil
 }
 
 func (s *Server) recall(query string, k int) (string, error) {
@@ -228,15 +265,91 @@ func (s *Server) forget(idStr string) (string, error) {
 // contextPack assembles everything relevant to a file, project, or topic — the
 // project dossier, standing preferences, and related memories — as one markdown
 // bundle a host can drop straight into its model's context.
-func (s *Server) contextPack(hint string) (string, error) {
-	if strings.TrimSpace(hint) == "" {
-		return "", fmt.Errorf("context_pack needs a hint (a file path, project, or topic)")
+func (s *Server) context(req contextpack.Request) (string, error) {
+	if strings.TrimSpace(req.Task) == "" && strings.TrimSpace(req.Hint) == "" {
+		return "", fmt.Errorf("context needs a task (what you are trying to do) or a project")
 	}
-	pack, err := contextpack.Build(s.DB, s.embed, s.embedModel, hint)
+	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, req)
 	if err != nil {
 		return "", err
 	}
 	return pack.Render(), nil
+}
+
+// --- continuity ---
+
+// resume is context aimed at one question: where did the last agent stop. It is
+// the same assembly as context, told to lead with the checkpoint, so an agent
+// that has just been handed a project can start with one call.
+func (s *Server) resume(project, agent string, budget int) (string, error) {
+	if strings.TrimSpace(project) == "" {
+		return "", fmt.Errorf("resume needs a project")
+	}
+	if err := session.Init(s.DB); err != nil {
+		return "", err
+	}
+	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
+		Task: "resume work on " + project, Hint: project, Budget: budget,
+	})
+	if err != nil {
+		return "", err
+	}
+	out := pack.Render()
+	if pack.Checkpoint == nil {
+		// Say so plainly. An agent that assumes there was a checkpoint and
+		// finds none will invent continuity that never existed.
+		out += "\n_No checkpoint has been written for this project yet — " +
+			"this is context, not a handoff. Call checkpoint before you stop._\n"
+	}
+	if strings.TrimSpace(agent) != "" && pack.Project != nil {
+		session.AddNote(s.DB, pack.Project.Slug, agent, "resumed the project")
+	}
+	return out, nil
+}
+
+func (s *Server) noteProgress(project, agent, text string) (string, error) {
+	if strings.TrimSpace(project) == "" || strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("note_progress needs a project and some text")
+	}
+	if err := session.Init(s.DB); err != nil {
+		return "", err
+	}
+	if _, err := session.AddNote(s.DB, project, agent, text); err != nil {
+		return "", err
+	}
+	return "Noted. It stays uncommitted until you call checkpoint.", nil
+}
+
+// checkpoint commits the session to the vault. handoffTo is set when the caller
+// came in through the handoff tool — same mechanism, stated intent.
+func (s *Server) checkpoint(args map[string]any, handoffTo string) (string, error) {
+	proj := argStr(args, "project")
+	if strings.TrimSpace(proj) == "" {
+		return "", fmt.Errorf("checkpoint needs a project")
+	}
+	if err := session.Init(s.DB); err != nil {
+		return "", err
+	}
+	c := &session.Checkpoint{
+		Project:   proj,
+		Agent:     argStr(args, "agent"),
+		Task:      argStr(args, "task"),
+		State:     argStr(args, "state"),
+		Decisions: argList(args, "decisions"),
+		Failed:    argList(args, "failed"),
+		Questions: argList(args, "questions"),
+		Files:     argList(args, "files"),
+		Next:      argStr(args, "next"),
+		HandoffTo: handoffTo,
+	}
+	if err := session.Commit(s.DB, s.vault, c); err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("Checkpoint written to %s.md in the vault.", c.Slug)
+	if handoffTo != "" {
+		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
+	}
+	return msg + " Run `brain index` to make it searchable.", nil
 }
 
 // memoryDiff reports what the memory learned, dropped, or corroborated over the
@@ -317,4 +430,30 @@ func argInt(args map[string]any, k string, def int) int {
 		}
 	}
 	return def
+}
+
+// argList accepts either a JSON array or a newline/semicolon separated string.
+// Hosts vary in how reliably their models emit arrays for list-shaped
+// arguments, and rejecting a checkpoint because the decisions arrived as a
+// string would lose the work it was recording.
+func argList(args map[string]any, k string) []string {
+	var out []string
+	switch v := args[k].(type) {
+	case []any:
+		for _, it := range v {
+			if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case []string:
+		out = v
+	case string:
+		for _, line := range strings.FieldsFunc(v, func(r rune) bool { return r == '\n' || r == ';' }) {
+			line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*+ "))
+			if line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	return out
 }
