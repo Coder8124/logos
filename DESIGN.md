@@ -141,7 +141,8 @@ scrubber over `first_seen`, and click-through opens the note in Obsidian.
 
 All five steps implemented, plus a secretary layer, calendar capture, model
 router/BYOK, a conversational streaming agent, and an MCP server that lends the
-memory to other tools.
+memory to other tools — including session continuity, so one agent can check its
+work into the vault and a different agent can resume it.
 
 The vertical personas (tutor, business) and the outbound-action agent harness
 were removed: brain is memory that agents query, and neither was that.
