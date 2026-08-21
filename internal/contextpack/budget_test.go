@@ -74,3 +74,22 @@ func TestFitLeavesSmallTextAlone(t *testing.T) {
 		t.Errorf("fit(%q) = %q, %v — want it untouched", "short", got, trimmed)
 	}
 }
+
+// An absent section must hand its share to the sections that follow, not
+// forfeit it. Getting this wrong produced packs that spent half their budget
+// while still reporting notes they had dropped — the worst of both.
+func TestSkippedSectionReleasesItsShare(t *testing.T) {
+	skipped := newSpender(1000)
+	skipped.skip(secCheckpoint)
+	after := skipped.allowance(secWorking)
+
+	fresh := newSpender(1000)
+	bare := fresh.allowance(secWorking)
+
+	if after <= bare {
+		t.Errorf("skip should release the share: %d vs %d", after, bare)
+	}
+	if want := int(shares[secCheckpoint]*1000) + bare; after != want {
+		t.Errorf("allowance after skip = %d, want %d", after, want)
+	}
+}

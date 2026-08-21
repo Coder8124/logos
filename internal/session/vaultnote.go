@@ -40,7 +40,12 @@ func (c Checkpoint) Markdown(follows string) string {
 	if follows != "" {
 		fmt.Fprintf(&b, "  - { pred: follows, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", follows)
 	}
+	// first_seen is what the indexer and the graph's time scrubber read, and it
+	// is day-resolution. checkpointed carries the real instant, because "how
+	// long ago did the last agent stop" is a question an agent will reason about
+	// and rounding it to a date turns seconds into hours.
 	fmt.Fprintf(&b, "first_seen: %s\n", time.Unix(c.TS, 0).Format("2006-01-02"))
+	fmt.Fprintf(&b, "checkpointed: %s\n", time.Unix(c.TS, 0).Format(time.RFC3339))
 	b.WriteString("---\n")
 
 	section(&b, secTask, c.Task)
@@ -100,11 +105,12 @@ func bullets(b *strings.Builder, heading string, items []string) {
 }
 
 type checkpointFM struct {
-	Project   string `yaml:"project"`
-	Agent     string `yaml:"agent"`
-	Session   string `yaml:"session"`
-	HandoffTo string `yaml:"handoff_to"`
-	FirstSeen string `yaml:"first_seen"`
+	Project      string `yaml:"project"`
+	Agent        string `yaml:"agent"`
+	Session      string `yaml:"session"`
+	HandoffTo    string `yaml:"handoff_to"`
+	FirstSeen    string `yaml:"first_seen"`
+	Checkpointed string `yaml:"checkpointed"`
 }
 
 // ParseCheckpoint reads a checkpoint back from its note. It is forgiving in the
@@ -124,7 +130,11 @@ func ParseCheckpoint(raw string) Checkpoint {
 		Session:   fm.Session,
 		HandoffTo: fm.HandoffTo,
 	}
-	if t, err := time.Parse("2006-01-02", fm.FirstSeen); err == nil {
+	// Prefer the precise instant; fall back to the date for checkpoints written
+	// before that field existed, or hand-edited ones.
+	if t, err := time.Parse(time.RFC3339, fm.Checkpointed); err == nil {
+		c.TS = t.Unix()
+	} else if t, err := time.Parse("2006-01-02", fm.FirstSeen); err == nil {
 		c.TS = t.Unix()
 	}
 

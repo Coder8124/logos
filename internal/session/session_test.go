@@ -198,7 +198,6 @@ func TestMarkdownRoundTrip(t *testing.T) {
 	}
 
 	got := ParseCheckpoint(want.Markdown(""))
-	got.TS = want.TS // first_seen is day-resolution by design
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip lost information:\n got %+v\nwant %+v", got, want)
@@ -248,5 +247,29 @@ func TestRapidCheckpointsByOneAgentDoNotOverwriteEachOther(t *testing.T) {
 	}
 	if hist[0].Next != "c" {
 		t.Errorf("history should be newest first, got Next=%q", hist[0].Next)
+	}
+}
+
+func TestWorkingNotesSurviveEvenWhenStateIsWritten(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	AddNote(db, "kestrel-one", "claude", "Meridian will not move below 10k units")
+	c := &Checkpoint{
+		Project: "kestrel-one", Agent: "claude",
+		State: "The gap is really $34 once tariffs are counted.",
+		Next:  "get Dana a decision",
+	}
+	if err := Commit(db, dir, c); err != nil {
+		t.Fatal(err)
+	}
+
+	// Commit closes the session, so a note not folded in here is unreachable
+	// afterwards — dropping it would be silent data loss.
+	if !strings.Contains(c.State, "Meridian will not move") {
+		t.Errorf("working note lost when state was also written:\n%s", c.State)
+	}
+	if !strings.Contains(c.State, "tariffs are counted") {
+		t.Errorf("the agent's own state was overwritten:\n%s", c.State)
 	}
 }

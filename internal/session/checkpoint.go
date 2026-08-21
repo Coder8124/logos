@@ -78,16 +78,26 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 		c.Task = s.Task
 	}
 
+	// Fold the session's working notes into the record. They are appended, not
+	// substituted: a checkpoint closes the session, so anything left only in
+	// session_notes becomes unreachable — dropping them whenever the agent also
+	// wrote a state paragraph would silently lose everything note_progress
+	// collected.
 	notes, err := Notes(db, s.ID)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(c.State) == "" && len(notes) > 0 {
+	if len(notes) > 0 {
 		lines := make([]string, 0, len(notes))
 		for _, n := range notes {
 			lines = append(lines, "- "+n.Text)
 		}
-		c.State = "Recorded during the session:\n" + strings.Join(lines, "\n")
+		recorded := "Recorded during the session:\n" + strings.Join(lines, "\n")
+		if strings.TrimSpace(c.State) == "" {
+			c.State = recorded
+		} else {
+			c.State = strings.TrimSpace(c.State) + "\n\n" + recorded
+		}
 	}
 	if c.Empty() {
 		return fmt.Errorf("nothing to checkpoint — record some progress first")

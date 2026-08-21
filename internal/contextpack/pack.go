@@ -132,7 +132,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 			p.Notes = hits
 		}
 	}
-	p.Notes = append(p.Notes, p.graphReach(db)...)
+	p.Notes = interleave(p.Notes, p.graphReach(db))
 
 	if prefs, err := memory.Surface(db, []memory.Kind{memory.Preference}, maxPrefs); err == nil {
 		for _, m := range prefs {
@@ -212,6 +212,37 @@ func (p Pack) graphReach(db *sql.DB) []index.Hit {
 	// Deterministic order; the budget decides how many survive.
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
 	return out
+}
+
+// certainDirect is how many top-ranked search hits are placed ahead of the
+// graph's contribution.
+const certainDirect = 3
+
+// interleave decides the order the budget will consume notes in, and therefore
+// which notes actually reach the agent.
+//
+// Appending graph hits after the direct ones seems natural and is wrong: they
+// end up last in the queue, the budget runs out on the eighth semantic match,
+// and the one note ranked retrieval structurally could not find is the one that
+// gets dropped. That is the exact failure this feature exists to prevent.
+//
+// So the top few direct hits go first — those are certainly relevant — and then
+// the graph's notes, ahead of the long tail of weaker matches. A note the user
+// explicitly linked to this project outranks the eighth-best guess about what
+// they meant.
+func interleave(direct, viaGraph []index.Hit) []index.Hit {
+	if len(viaGraph) == 0 {
+		return direct
+	}
+	head := direct
+	var tail []index.Hit
+	if len(direct) > certainDirect {
+		head, tail = direct[:certainDirect], direct[certainDirect:]
+	}
+	out := make([]index.Hit, 0, len(direct)+len(viaGraph))
+	out = append(out, head...)
+	out = append(out, viaGraph...)
+	return append(out, tail...)
 }
 
 // openLoops returns commitments still outstanding, those touching this project

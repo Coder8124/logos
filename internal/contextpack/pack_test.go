@@ -146,7 +146,9 @@ func TestSmallerBudgetDropsAndReportsIt(t *testing.T) {
 	ix := seedVault(t)
 
 	big, _ := Build(ix, nil, "", Request{Task: "reduce cost", Hint: "kestrel-one", Budget: 4000})
-	small, _ := Build(ix, nil, "", Request{Task: "reduce cost", Hint: "kestrel-one", Budget: 120})
+	// Small enough that even after inheriting every other section's unspent
+	// share, the notes cannot all fit.
+	small, _ := Build(ix, nil, "", Request{Task: "reduce cost", Hint: "kestrel-one", Budget: 40})
 
 	bigOut, smallOut := big.Render(), small.Render()
 	if len(smallOut) >= len(bigOut) {

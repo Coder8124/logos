@@ -38,7 +38,8 @@ type Line struct {
 	Dropped int    `json:"dropped"`
 }
 
-// Section names, in render order. Also the keys into shares.
+// Section names. Allocation order is the order Render spends them in — notes
+// last, because they are elastic and absorb whatever the others left.
 const (
 	secCheckpoint = "checkpoint"
 	secWorking    = "working notes"
@@ -47,8 +48,6 @@ const (
 	secMemories   = "memories"
 	secLoops      = "open loops"
 )
-
-var order = []string{secCheckpoint, secWorking, secProject, secNotes, secMemories, secLoops}
 
 var shares = map[string]float64{
 	secCheckpoint: 0.18,
@@ -83,6 +82,12 @@ func newSpender(limit int) *spender { return &spender{limit: limit} }
 func (s *spender) allowance(section string) int {
 	return int(shares[section]*float64(s.limit)) + s.carry
 }
+
+// skip releases a section's whole share to the sections that follow. Every
+// render path must call either this or take, or an absent section quietly
+// forfeits its budget and the pack comes back thinner than it was asked for
+// while still reporting exclusions.
+func (s *spender) skip(section string) { s.carry = s.allowance(section) }
 
 // take fills a section. want is the ordered list of candidate chunks; it returns
 // the ones that fit. The first item is always admitted even if it exceeds the
