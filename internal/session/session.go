@@ -44,8 +44,12 @@ type Session struct {
 type Note struct {
 	ID      int64
 	Session string
-	Text    string
-	TS      int64
+	// Agent is denormalised from the session because notes outlive the agent
+	// that wrote them — when work passes between two agents, which of them
+	// found a thing is part of the finding.
+	Agent string
+	Text  string
+	TS    int64
 }
 
 const Schema = `
@@ -116,16 +120,25 @@ func Start(db *sql.DB, project, agent, task string) (Session, error) {
 	return Session{}, fmt.Errorf("could not allocate a session id for %s", project)
 }
 
-// Current returns the open session for a project, opening one if there is none.
-// Agents call note_progress without ceremony; making them manage a session
-// lifecycle would mean they simply wouldn't.
+// Current returns this agent's open session for a project, opening one if there
+// is none. Agents call note_progress without ceremony; making them manage a
+// session lifecycle would mean they simply wouldn't.
+//
+// Scoped to the agent, not just the project. A session is one agent's working
+// stretch: when a previous agent died without committing, its session is still
+// open, and handing it to whoever arrives next would file their checkpoint
+// under the dead agent's id — so the record of a handoff would name the wrong
+// author. Their uncommitted notes are still picked up; see Commit.
 func Current(db *sql.DB, project, agent string) (Session, error) {
 	project = safe(project)
+	if strings.TrimSpace(agent) == "" {
+		agent = "agent"
+	}
 	var s Session
 	err := db.QueryRow(
 		`SELECT id, project, agent, task, started, ended, slug
-		 FROM sessions WHERE project = ? AND ended = 0
-		 ORDER BY started DESC LIMIT 1`, project).
+		 FROM sessions WHERE project = ? AND agent = ? AND ended = 0
+		 ORDER BY started DESC LIMIT 1`, project, agent).
 		Scan(&s.ID, &s.Project, &s.Agent, &s.Task, &s.Started, &s.Ended, &s.Slug)
 	if err == nil {
 		return s, nil
@@ -178,34 +191,26 @@ func AddNote(db *sql.DB, project, agent, text string) (Note, error) {
 // Notes returns a session's working notes, oldest first — the order they were
 // written is the order they make sense in.
 func Notes(db *sql.DB, sessionID string) ([]Note, error) {
-	rows, err := db.Query(
-		`SELECT id, session, text, ts FROM session_notes WHERE session = ? ORDER BY ts, id`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []Note
-	for rows.Next() {
-		var n Note
-		if err := rows.Scan(&n.ID, &n.Session, &n.Text, &n.TS); err != nil {
-			return nil, err
-		}
-		out = append(out, n)
-	}
-	return out, rows.Err()
+	return scanNotes(db.Query(
+		`SELECT n.id, n.session, s.agent, n.text, n.ts
+		 FROM session_notes n JOIN sessions s ON s.id = n.session
+		 WHERE n.session = ? ORDER BY n.ts, n.id`, sessionID))
 }
 
 // Uncommitted returns the working notes for a project that no checkpoint has
-// captured yet — everything written into still-open sessions. This is the
-// "uncommitted changes" half of resume: work that happened but was never
-// written down properly.
+// captured yet — everything written into still-open sessions, whoever wrote
+// them. This is the "uncommitted changes" half of resume: work that happened
+// but was never written down properly, including the work of an agent that
+// died before it could.
 func Uncommitted(db *sql.DB, project string) ([]Note, error) {
-	rows, err := db.Query(
-		`SELECT n.id, n.session, n.text, n.ts
+	return scanNotes(db.Query(
+		`SELECT n.id, n.session, s.agent, n.text, n.ts
 		 FROM session_notes n JOIN sessions s ON s.id = n.session
 		 WHERE s.project = ? AND s.ended = 0
-		 ORDER BY n.ts, n.id`, safe(project))
+		 ORDER BY n.ts, n.id`, safe(project)))
+}
+
+func scanNotes(rows *sql.Rows, err error) ([]Note, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +219,7 @@ func Uncommitted(db *sql.DB, project string) ([]Note, error) {
 	var out []Note
 	for rows.Next() {
 		var n Note
-		if err := rows.Scan(&n.ID, &n.Session, &n.Text, &n.TS); err != nil {
+		if err := rows.Scan(&n.ID, &n.Session, &n.Agent, &n.Text, &n.TS); err != nil {
 			return nil, err
 		}
 		out = append(out, n)
@@ -222,10 +227,18 @@ func Uncommitted(db *sql.DB, project string) ([]Note, error) {
 	return out, rows.Err()
 }
 
-// close marks a session committed and records where its checkpoint landed.
-func close_(db *sql.DB, id, slug string) error {
+// closeProject marks every open session on a project as committed and points
+// them at the checkpoint that captured them.
+//
+// All of them, not just the committing agent's: a checkpoint commits the
+// project's working tree. Leaving another agent's open session behind would
+// mean its notes are folded into the checkpoint *and* still reported as
+// uncommitted, so every future resume would replay work that has already been
+// written down.
+func closeProject(db *sql.DB, project, slug string) error {
 	_, err := db.Exec(
-		`UPDATE sessions SET ended = ?, slug = ? WHERE id = ?`, time.Now().Unix(), slug, id)
+		`UPDATE sessions SET ended = ?, slug = ? WHERE project = ? AND ended = 0`,
+		time.Now().Unix(), slug, safe(project))
 	return err
 }
 

@@ -48,13 +48,14 @@ func (c Checkpoint) Empty() bool {
 		len(c.Failed) == 0 && len(c.Questions) == 0
 }
 
-// Commit writes the checkpoint to the vault and closes the session. This is the
-// commit in "working tree, then commit": until it is called, everything the
-// agent recorded lives only in the rebuildable index and is not really saved.
+// Commit writes the checkpoint to the vault and closes the project's open
+// sessions. This is the commit in "working tree, then commit": until it is
+// called, everything the agent recorded lives only in the rebuildable index and
+// is not really saved.
 //
-// The working notes of the session are folded in as state when the caller left
-// state blank, so an agent that only ever called note_progress still produces a
-// useful checkpoint instead of an empty one.
+// The project's uncommitted working notes are folded in — including any left by
+// an agent that died mid-task — so an agent that only ever called note_progress
+// still produces a useful checkpoint instead of an empty one.
 func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if strings.TrimSpace(c.Project) == "" {
 		return fmt.Errorf("a checkpoint needs a project")
@@ -67,8 +68,8 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 		c.TS = time.Now().Unix()
 	}
 
-	// Bind to the project's open session so working notes and the checkpoint
-	// describe the same stretch of work.
+	// Bind to this agent's session. The id becomes the checkpoint's filename, so
+	// it has to name whoever is actually writing it.
 	s, err := Current(db, c.Project, c.Agent)
 	if err != nil {
 		return err
@@ -78,19 +79,30 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 		c.Task = s.Task
 	}
 
-	// Fold the session's working notes into the record. They are appended, not
-	// substituted: a checkpoint closes the session, so anything left only in
-	// session_notes becomes unreachable — dropping them whenever the agent also
-	// wrote a state paragraph would silently lose everything note_progress
-	// collected.
-	notes, err := Notes(db, s.ID)
+	// Fold the project's uncommitted working notes into the record. They are
+	// appended, not substituted: a checkpoint closes the sessions, so anything
+	// left only in session_notes becomes unreachable — dropping them whenever
+	// the agent also wrote a state paragraph would silently lose everything
+	// note_progress collected.
+	//
+	// Every open session's notes, not only this agent's. When work passes from
+	// an agent that died mid-task, its findings are exactly what the next agent
+	// is building on, and they have to end up in the durable record or they are
+	// lost the moment anyone checkpoints.
+	notes, err := Uncommitted(db, c.Project)
 	if err != nil {
 		return err
 	}
 	if len(notes) > 0 {
 		lines := make([]string, 0, len(notes))
 		for _, n := range notes {
-			lines = append(lines, "- "+n.Text)
+			// Attribute when more than one agent contributed: which of them
+			// found a thing is part of the finding.
+			if n.Agent != "" && n.Agent != c.Agent {
+				lines = append(lines, "- ("+n.Agent+") "+n.Text)
+			} else {
+				lines = append(lines, "- "+n.Text)
+			}
 		}
 		recorded := "Recorded during the session:\n" + strings.Join(lines, "\n")
 		if strings.TrimSpace(c.State) == "" {
@@ -114,7 +126,7 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
-	return close_(db, s.ID, c.Slug)
+	return closeProject(db, c.Project, c.Slug)
 }
 
 // Latest returns the most recent checkpoint for a project, or nil if there is

@@ -273,3 +273,76 @@ func TestWorkingNotesSurviveEvenWhenStateIsWritten(t *testing.T) {
 		t.Errorf("the agent's own state was overwritten:\n%s", c.State)
 	}
 }
+
+// The scenario two live agents actually produced: agent A works, records
+// findings, and is killed before it can checkpoint. Agent B arrives, continues,
+// and checkpoints.
+//
+// The bug this pins down: Commit used to bind to whatever session was open on
+// the project, so B inherited A's dead session and the handoff record — filename
+// and session id — was attributed to A.
+func TestCheckpointAfterAnotherAgentDiedIsAttributedCorrectly(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	// Agent A works and dies. No checkpoint.
+	AddNote(db, "ota-firmware", "claude", "no flash size anywhere in the vault")
+	AddNote(db, "ota-firmware", "claude", "certification is not the real objection")
+
+	// Agent B picks it up, adds its own finding, and checkpoints.
+	AddNote(db, "ota-firmware", "cursor", "the eMMC is 64GB — A/B slots cost nothing")
+	c := &Checkpoint{
+		Project: "ota-firmware", Agent: "cursor",
+		Task: "decide whether OTA is viable", Next: "ask Tomas about the boot ROM",
+	}
+	if err := Commit(db, dir, c); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasSuffix(c.Session, "-cursor") {
+		t.Errorf("checkpoint filed under %q — a handoff record must name its author", c.Session)
+	}
+	if !strings.HasSuffix(c.Slug, "-cursor") {
+		t.Errorf("slug %q should name the committing agent", c.Slug)
+	}
+
+	// A's findings are the thing B is building on. They must reach the durable
+	// record, attributed, or they die with the session that gets closed.
+	for _, want := range []string{"(claude) no flash size", "(claude) certification is not"} {
+		if !strings.Contains(c.State, want) {
+			t.Errorf("missing %q from the checkpoint state:\n%s", want, c.State)
+		}
+	}
+	// B's own note needs no attribution — it is the author.
+	if !strings.Contains(c.State, "- the eMMC is 64GB") {
+		t.Errorf("the committing agent's own note should be unattributed:\n%s", c.State)
+	}
+
+	// And nothing may still look uncommitted, or every future resume replays
+	// work that has already been written down.
+	left, _ := Uncommitted(db, "ota-firmware")
+	if len(left) != 0 {
+		t.Errorf("%d notes still uncommitted after a checkpoint", len(left))
+	}
+}
+
+// Two agents working the same project concurrently keep separate sessions.
+func TestSessionsAreScopedToTheAgent(t *testing.T) {
+	db := testDB(t)
+
+	a, err := Current(db, "brain", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Current(db, "brain", "cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ID == b.ID {
+		t.Fatal("two agents must not share one session")
+	}
+	again, _ := Current(db, "brain", "claude")
+	if again.ID != a.ID {
+		t.Error("the same agent should stay in its own open session")
+	}
+}
