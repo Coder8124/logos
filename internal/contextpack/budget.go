@@ -49,12 +49,17 @@ const (
 	secLoops      = "open loops"
 )
 
+// Continuity (checkpoint + working notes) gets a third of the budget between
+// them. Working notes were originally sized at 7% on the assumption they would
+// be one-line scribbles; agents that actually use them write findings several
+// sentences long, and starving that section defeats the point of collecting
+// them — an agent killed before it could checkpoint leaves nothing else behind.
 var shares = map[string]float64{
 	secCheckpoint: 0.18,
-	secWorking:    0.07,
-	secProject:    0.15,
-	secNotes:      0.35,
-	secMemories:   0.17,
+	secWorking:    0.15,
+	secProject:    0.13,
+	secNotes:      0.32,
+	secMemories:   0.14,
 	secLoops:      0.08,
 }
 

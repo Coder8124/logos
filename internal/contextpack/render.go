@@ -162,7 +162,12 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 func (p *Pack) wantWorking() []string {
 	want := make([]string, 0, len(p.Working))
 	for _, n := range p.Working {
-		want = append(want, "- "+oneLine(n.Text))
+		// Deliberately not clipped to a line length. A working note is a
+		// finding an agent chose to write down — often the reason a whole
+		// approach was abandoned — and truncating it mid-sentence destroys
+		// exactly the part that was worth keeping. If it does not fit, the
+		// budget should say so; a hard character cap says nothing.
+		want = append(want, "- "+flatten(n.Text))
 	}
 	return want
 }
@@ -341,9 +346,16 @@ func dedup(in []string) []string {
 	return out
 }
 
+// flatten collapses whitespace without shortening. Use it wherever the content
+// is something someone wrote on purpose.
+func flatten(s string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+}
+
+// oneLine flattens and clips. Use it for labels and summaries — titles,
+// headings, list entries whose job is to be scannable — never for findings.
 func oneLine(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
-	s = strings.Join(strings.Fields(s), " ")
+	s = flatten(s)
 	if len(s) > 160 {
 		s = s[:159] + "…"
 	}

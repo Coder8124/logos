@@ -152,7 +152,7 @@ func TestSmallerBudgetDropsAndReportsIt(t *testing.T) {
 
 	bigOut, smallOut := big.Render(), small.Render()
 	if len(smallOut) >= len(bigOut) {
-		t.Errorf("a 120-token budget produced %d chars vs %d at 4000", len(smallOut), len(bigOut))
+		t.Errorf("a 40-token budget produced %d chars vs %d at 4000", len(smallOut), len(bigOut))
 	}
 	if small.Budget.Spent > big.Budget.Spent {
 		t.Errorf("spend should track the ceiling: %d vs %d", small.Budget.Spent, big.Budget.Spent)
@@ -229,4 +229,26 @@ func slugs(hits []index.Hit) []string {
 		out = append(out, h.Slug)
 	}
 	return out
+}
+
+// A working note is a finding someone chose to write down — often the reason a
+// whole approach was abandoned. Clipping it to a line length destroys exactly
+// the part worth keeping, and does it silently.
+func TestWorkingNotesAreNotTruncated(t *testing.T) {
+	ix := seedVault(t)
+	long := "Vault has NO flash size number for the SoC — only that it was costed at " +
+		"'the smaller part' on the $27.80 SoC+memory BOM line. Cannot size an A/B " +
+		"partition scheme from the vault; this needs Tomas to supply the part number."
+	if _, err := session.AddNote(ix.DB, "kestrel-one", "claude", long); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Budget: 4000})
+	out := p.Render()
+	if !strings.Contains(out, "needs Tomas to supply the part number") {
+		t.Errorf("the end of the finding was cut off:\n%s", out)
+	}
+	if strings.Contains(out, "…") {
+		t.Errorf("working notes should not be ellipsised at a fixed width:\n%s", out)
+	}
 }
