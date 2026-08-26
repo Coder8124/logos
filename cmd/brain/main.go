@@ -72,6 +72,10 @@ USAGE
     brain routines [--days N] [--propose]
                                       mine recurring patterns from the timeline
     brain prune [days]                drop raw events past the retention window
+    brain bench continuity [list] [--only X] [--verbose] [--brain-only]
+                                      the handoff + memory suite, against every system installed
+    brain bench memory <file> | bench pipeline
+                                      LongMemEval retrieval recall; the extract→recall loop
 
 ENV
     BRAIN_VAULT   path to the vault (default ./vault)
@@ -158,6 +162,10 @@ func main() {
 		err = runBench(args[1], flagInt(args, "--n", 100), !hasFlag(args, "--vector"))
 	case cmd == "bench" && len(args) >= 1 && args[0] == "pipeline":
 		err = runPipelineBench()
+	case cmd == "bench" && len(args) >= 2 && args[0] == "continuity" && args[1] == "list":
+		err = listBenchScenarios(flagStr(args, "--only", ""))
+	case cmd == "bench" && len(args) >= 1 && args[0] == "continuity":
+		err = runContinuityBench(args[1:])
 	case cmd == "graph":
 		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
 	case cmd == "routines":

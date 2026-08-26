@@ -31,3 +31,6 @@ resources/voice/piper/*
 
 # Regenerable icon review strip (scripts/make-icon.py --preview)
 app/build/appicon-preview.png
+
+# benchmark adapter virtualenvs — recreate with bench/README.md
+bench/adapters/.venv-*
