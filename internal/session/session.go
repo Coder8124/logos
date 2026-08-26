@@ -171,6 +171,16 @@ func SetTask(db *sql.DB, id, task string) error {
 
 // AddNote appends one line of progress to the project's open session.
 func AddNote(db *sql.DB, project, agent, text string) (Note, error) {
+	return AddNoteAt(db, project, agent, text, time.Now().Unix())
+}
+
+// AddNoteAt appends a note that happened at a given time rather than now.
+//
+// Backdating exists for the cases where the writing and the doing are not the
+// same moment: importing a trail from elsewhere, replaying a transcript, or a
+// benchmark that needs "thirteen days ago" to actually be thirteen days ago.
+// Anything that reasons about how old a note is depends on this being real.
+func AddNoteAt(db *sql.DB, project, agent, text string, ts int64) (Note, error) {
 	if strings.TrimSpace(text) == "" {
 		return Note{}, fmt.Errorf("an empty note records nothing")
 	}
@@ -178,7 +188,10 @@ func AddNote(db *sql.DB, project, agent, text string) (Note, error) {
 	if err != nil {
 		return Note{}, err
 	}
-	n := Note{Session: s.ID, Text: strings.TrimSpace(text), TS: time.Now().Unix()}
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	n := Note{Session: s.ID, Text: strings.TrimSpace(text), TS: ts}
 	res, err := db.Exec(
 		`INSERT INTO session_notes (session, text, ts) VALUES (?,?,?)`, n.Session, n.Text, n.TS)
 	if err != nil {
