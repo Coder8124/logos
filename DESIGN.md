@@ -1,7 +1,13 @@
 # brain — design
 
-A local-first second brain. Observes what you do, distills it into an Obsidian
-vault, and shows you the graph of what it knows.
+A local-first memory and continuity layer for AI agents. It observes what you
+do, distils it into an Obsidian vault you own, and hands that context to
+whichever AI you are using — so when one stops mid-task, another picks up
+without you re-explaining anything.
+
+The "second brain" framing is retired on purpose. It describes the storage and
+misses the product: what makes this worth installing is not that notes are
+searchable, it is that work survives the end of a session.
 
 ## Principles
 
@@ -10,6 +16,9 @@ vault, and shows you the graph of what it knows.
    vault.
 2. **The database is a cache.** `.brain/index.db` holds embeddings, edges and
    FTS. Delete it, reindex, get byte-identical state. It is never authoritative.
+   *Caveat, honestly stated:* this holds for notes and checkpoints and does not
+   yet hold for memories, which live only in the cache. See the benchmark's
+   durability family.
 3. **Local by default.** Nothing leaves the machine unless you name a cloud model
    and confirm the redaction preview.
 4. **Propose, don't assert.** The system writes nothing to the vault that you

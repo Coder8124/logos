@@ -28,7 +28,7 @@ const (
 )
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `brain — local-first second brain
+	fmt.Fprintf(os.Stderr, `brain — local-first memory and continuity for AI agents
 
 USAGE
     brain brief                       what the secretary thinks you should know now

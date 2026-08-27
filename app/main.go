@@ -53,7 +53,7 @@ func main() {
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
 				Title:   "brain",
-				Message: "A local-first second brain.",
+				Message: "Local-first memory and continuity for AI agents.",
 			},
 		},
 	})

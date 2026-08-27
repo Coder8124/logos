@@ -1,5 +1,13 @@
 # The continuity benchmark — results
 
+> **This page reports the 2026-08-25 baseline**, before any of the failures
+> below were addressed. Fixes have since landed for staleness, supersession,
+> abstention, attribution, project scoping, distractor resistance and the
+> checkpoint-truncation bug, and the suite's own labels have moved with them.
+> The numbers here are kept as measured rather than quietly restated, because a
+> benchmark that edits its history the moment its author improves is not
+> evidence of anything. Re-run `brain bench continuity` for current figures.
+
 32 hand-written scenarios, 8 systems, everything local. Run with
 `brain bench continuity`; harness in [`internal/eval`](../internal/eval),
 methodology and fairness notes in [`bench/README.md`](../bench/README.md).

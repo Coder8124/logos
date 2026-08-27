@@ -1,13 +1,19 @@
 # brain
 
-**The memory you own.** A local-first second brain that watches your day,
-distills it into an Obsidian1 vault you fully control, and lends that memory to
-the AI tools you already use — over MCP, on your machine, nothing uploaded
+**The memory you own.** A local-first memory and continuity layer for AI agents.
+Work with Claude Code, Cursor, Codex or your own agent; when one stops, another
+picks up exactly where it left off — over MCP, on your machine, nothing uploaded
 unless you say so.
 
-> **Memory is the product.** Chat assistants forget you the moment a session
-> ends. brain is the persistent, private memory that doesn't — the one thing you
-> carry between tools, models, and years. Git, but for agentic memory.
+```
+Claude Code  ──▶  checkpoint  ──▶  brain  ──▶  resume  ──▶  Cursor
+                                (your vault)
+```
+
+> **Memory is the product, and continuity is the proof.** Chat assistants forget
+> you the moment a session ends. brain doesn't — and the test of that is not
+> whether it can find an old note, it is whether an agent that has never seen
+> your project can continue one that did.
 
 Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.

@@ -1,6 +1,6 @@
 # feat/rollup-review-queue — step 3
 
-Where the thing becomes a second brain: episodic rows in, proposed notes out,
+Where raw activity becomes knowledge: episodic rows in, proposed notes out,
 you approve, vault grows.
 
 ## Pipeline
