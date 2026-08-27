@@ -1,6 +1,9 @@
 package eval
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // The suite.
 //
@@ -21,9 +24,15 @@ import "fmt"
 // whose author chooses the categories is a benchmark its author wins, and the
 // only defence is to write the losses down first.
 
-// benchNow is a fixed clock. Scenarios place events relative to it so that
-// "thirteen days old" means the same thing on every run, forever.
-const benchNow int64 = 1_767_225_600 // 2026-01-01T00:00:00Z
+// The clock is anchored to now, and the offsets are what is fixed.
+//
+// It was a constant at first, which was wrong in a way that hid a whole family
+// of failures: pinned to 2026-01-01 and run in August, a note written "thirteen
+// days ago" is really eight months old, and any system reporting the age of its
+// own context reports the true one. The staleness cases were unwinnable and the
+// suite was measuring the wrong thing. What has to stay stable between runs is
+// the *interval* — thirteen days before the question — not the wall date.
+var benchNow = time.Now().Unix()
 
 const day = 86400
 
@@ -123,7 +132,7 @@ func continuity() []Scenario {
 		{
 			ID: "handoff-attribution", Family: "continuity", Skill: "attribution",
 			Why:   "When two agents contributed, which of them found a thing is part of the finding.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: []Event{
 				doc(30, "yield", "Bonding yield", "Display bonding runs at 71 percent first-pass."),
 				note(4, "claude", "yield", "Traced the yield loss to the ACF bonding temperature ramp, not the alignment stage."),
@@ -168,7 +177,7 @@ func continuity() []Scenario {
 		{
 			ID: "handoff-scope-isolation", Family: "continuity", Skill: "scope",
 			Why:   "Two projects in one store. Resuming one must not import the other's ruled-out approaches.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: []Event{
 				doc(30, "kestrel-one", "Kestrel One", "Smart glasses hardware programme."),
 				doc(30, "website", "Website rebuild", "Marketing site rebuild ahead of launch."),
@@ -221,7 +230,7 @@ func continuity() []Scenario {
 		{
 			ID: "handoff-noise-resistance", Family: "continuity", Skill: "distractors",
 			Why:   "Forty routine notes around one checkpoint. Volume must not bury the handoff.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: append(
 				noise(40, "kestrel-one", "Standup: no blockers, continuing as planned"),
 				Event{
@@ -315,7 +324,7 @@ func continuity() []Scenario {
 		{
 			ID: "handoff-stale-context", Family: "continuity", Skill: "staleness",
 			Why:   "Notes are thirteen days old against a moving schedule. Nothing marks them as old.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: []Event{
 				doc(60, "kestrel-one", "Kestrel One", "Ship date November 12. Tooling freeze six weeks prior."),
 				note(13, "claude", "kestrel-one", "We have about sixteen days before the tooling freeze, so there is room for one more DVT spin."),
@@ -333,7 +342,7 @@ func continuity() []Scenario {
 		{
 			ID: "handoff-superseded-plan", Family: "continuity", Skill: "supersession",
 			Why:   "The plan in the checkpoint was abandoned by the user afterwards. Replaying it as current is worse than silence.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: []Event{
 				doc(30, "kestrel-one", "Kestrel One", "Smart glasses programme."),
 				{
@@ -463,7 +472,7 @@ func memoryCases() []Scenario {
 		{
 			ID: "supersession-current-value", Family: "memory", Skill: "supersession",
 			Why:   "A number that changed twice. The current one must come back and the old ones must not.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: append(noiseFacts(20),
 				said(40, "We are targeting a $199 retail price."),
 				said(25, "Retail is moving to $229 after the optics quote came back."),
@@ -514,7 +523,7 @@ func memoryCases() []Scenario {
 		{
 			ID: "abstention-never-recorded", Family: "memory", Skill: "abstention",
 			Why:   "Asked about something never said. Saying so is the correct answer; the LongMemEval harness filters these out before scoring.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: append(noiseFacts(30),
 				said(20, "Our contract manufacturer is Pegatron, in the Suzhou plant."),
 			),
@@ -531,7 +540,7 @@ func memoryCases() []Scenario {
 		{
 			ID: "abstention-adjacent", Family: "memory", Skill: "abstention",
 			Why:   "The store knows the neighbouring fact. Returning it unlabelled reads as an answer to a question nobody answered.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: append(noiseFacts(20),
 				said(20, "The Suzhou plant handles final assembly."),
 				said(18, "The Suzhou plant runs two shifts."),
@@ -591,7 +600,7 @@ func memoryCases() []Scenario {
 		{
 			ID: "contradiction-unflagged", Family: "memory", Skill: "conflict",
 			Why:   "Two sources disagree and neither supersedes the other. Picking one silently is the failure.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: append(noiseFacts(15),
 				doc(20, "", "Ops summary", "First-pass bonding yield is 71 percent."),
 				doc(19, "", "Factory report week 34", "Bonding first-pass yield measured at 63 percent across the week."),

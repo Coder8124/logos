@@ -3,7 +3,9 @@ package contextpack
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/project"
 	"github.com/pragun/brain/internal/secretary"
 )
@@ -48,11 +50,13 @@ func (p *Pack) Render() string {
 	var b strings.Builder
 	p.renderHeader(&b)
 	p.renderCheckpoint(&b, checkpoint)
-	section(&b, "Recorded since, not yet checkpointed", keptWorking, "\n")
+	p.renderWorking(&b, keptWorking)
 	section(&b, "The project", keptProj, "\n")
 	section(&b, "From the vault", keptNotes, "\n\n")
 	section(&b, "What you've told me", keptMems, "\n")
 	section(&b, "Still open", keptLoops, "\n")
+	p.renderConflicts(&b)
+	p.renderGaps(&b, keptWorking, keptProj, keptNotes, keptMems)
 
 	// Sources and exclusions, now that what survived is known.
 	if p.Project != nil && len(keptProj) > 0 {
@@ -108,31 +112,69 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 		sp.skip(secCheckpoint)
 		return ""
 	}
-	var body strings.Builder
+	// The checkpoint is budgeted in two tiers, because one of its fields has no
+	// natural size and the rest do.
+	//
+	// State absorbs every uncommitted working note at commit time, so on a busy
+	// project it is unbounded — forty standup lines of "no blockers". The
+	// decisions, the ruled-out approaches, the open questions and the next step
+	// are a handful of lines each and are the only part of a checkpoint that
+	// cannot be reconstructed from anything else.
+	//
+	// Trimming the body as one blob cut from the bottom, which meant routine
+	// chatter in State evicted "already tried, didn't work" — the single most
+	// valuable section in the pack, and the whole reason checkpoints exist. So
+	// the irreplaceable tiers are charged first and State spends what is left.
+	var head, tail strings.Builder
 	if c.Task != "" {
-		fmt.Fprintf(&body, "**They were doing:** %s\n\n", strings.TrimSpace(c.Task))
+		fmt.Fprintf(&head, "**They were doing:** %s\n\n", strings.TrimSpace(c.Task))
 	}
-	if c.State != "" {
-		fmt.Fprintf(&body, "%s\n\n", strings.TrimSpace(c.State))
-	}
-	list(&body, "Decided", c.Decisions)
+	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
-	list(&body, "Already tried, didn't work", c.Failed)
-	list(&body, "Still open", c.Questions)
-	list(&body, "Files touched", c.Files)
+	list(&tail, "Already tried, didn't work", c.Failed)
+	list(&tail, "Still open", c.Questions)
+	list(&tail, "Files touched", c.Files)
+	// Predecessors' dead ends, attributed. Cheap — a line each — and the only
+	// thing in an old checkpoint that is still true.
+	if older := p.priorFailures(); len(older) > 0 {
+		list(&tail, "Ruled out earlier in this project", older)
+	}
 	if c.Next != "" {
-		fmt.Fprintf(&body, "**Next step:** %s\n", strings.TrimSpace(c.Next))
+		if m, ok := overtaken(c.Next, c.TS, p.all()); ok {
+			// The plan is not printed. An agent handed "next step: X" acts on X,
+			// and a caveat underneath does not reliably stop it — so the line
+			// that would send it back into abandoned work is replaced by the
+			// statement that abandoned it.
+			fmt.Fprintf(&tail, "**Next step:** _the plan recorded here was overtaken — %s_\n",
+				oneLine(m.Text))
+			p.Excluded = append(p.Excluded, "the checkpoint's next step (superseded by a later decision)")
+		} else {
+			fmt.Fprintf(&tail, "**Next step:** %s\n", strings.TrimSpace(c.Next))
+		}
 	}
 
 	allowance := sp.allowance(secCheckpoint)
-	text, trimmed := fit(body.String(), allowance)
+	fixed := head.String() + tail.String()
+	state, trimmed := "", false
+	if s := strings.TrimSpace(c.State); s != "" {
+		room := allowance - estimate(fixed)
+		if room <= 0 {
+			trimmed = true
+		} else if state, trimmed = fit(s, room); state != "" {
+			state += "\n\n"
+		}
+	}
+	if trimmed {
+		p.Excluded = append(p.Excluded, "part of the checkpoint's session log (budget)")
+	}
+
+	text := head.String() + state + tail.String()
 	cost := estimate(text)
 	sp.spent += cost
 	sp.carry = max(0, allowance-cost)
 	dropped := 0
 	if trimmed {
 		dropped = 1
-		p.Excluded = append(p.Excluded, "part of the checkpoint body (budget)")
 	}
 	sp.lines = append(sp.lines, Line{Section: secCheckpoint, Tokens: cost, Items: 1, Dropped: dropped})
 	if c.Slug != "" {
@@ -152,24 +194,135 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 	if who == "" {
 		who = "an agent"
 	}
-	fmt.Fprintf(b, "\n## Where we left off\n\nLast checkpoint by **%s**, %s.", who, project.Age(c.TS))
+	fmt.Fprintf(b, "\n## Where we left off\n\nLast checkpoint by **%s**, %s", who, project.Age(c.TS))
 	if c.HandoffTo != "" {
-		fmt.Fprintf(b, " Handed off to **%s**.", c.HandoffTo)
+		fmt.Fprintf(b, ", handed off to **%s**", c.HandoffTo)
+	}
+	b.WriteString(".")
+	// A checkpoint that has sat for a fortnight describes a situation that may
+	// have moved. Saying so costs a clause and stops the next agent treating a
+	// stale plan as the current one.
+	if daysOld(c.TS) >= staleAfterDays {
+		fmt.Fprintf(b, " That was %s — treat the plan below as a starting point, not the current state.", humanAge(c.TS))
 	}
 	fmt.Fprintf(b, "\n\n%s\n", body)
 }
 
 func (p *Pack) wantWorking() []string {
 	want := make([]string, 0, len(p.Working))
+	multi := len(p.workingAuthors()) > 1
 	for _, n := range p.Working {
+		// Attribute when more than one agent contributed. Which of them found a
+		// thing is part of the finding: an agent that inherits "the vendor says
+		// it cannot be tuned" without knowing who established that cannot judge
+		// how hard to lean on it. With a single author the name goes in the
+		// heading instead, because repeating it on every line is noise.
+		line := "- "
+		if multi && n.Agent != "" {
+			line += "(" + n.Agent + ") "
+		}
 		// Deliberately not clipped to a line length. A working note is a
 		// finding an agent chose to write down — often the reason a whole
 		// approach was abandoned — and truncating it mid-sentence destroys
 		// exactly the part that was worth keeping. If it does not fit, the
 		// budget should say so; a hard character cap says nothing.
-		want = append(want, "- "+flatten(n.Text))
+		want = append(want, line+flatten(n.Text))
 	}
 	return want
+}
+
+// workingAuthors lists the distinct agents that left uncommitted notes, oldest
+// contribution first.
+func (p *Pack) workingAuthors() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range p.Working {
+		if n.Agent != "" && !seen[n.Agent] {
+			seen[n.Agent] = true
+			out = append(out, n.Agent)
+		}
+	}
+	return out
+}
+
+// renderWorking prints uncommitted work with the two things that decide how far
+// to trust it: who wrote it, and how old it is.
+//
+// Age is the one this benchmark was built around. Uncommitted notes carry
+// urgency in their wording — "about sixteen days before the freeze" — and
+// nothing in the note says when that was true. Handed over undated, a fortnight
+// later, that sentence is an active lie about a schedule. Every memory system
+// tested had this failure; it is cheap to fix and nobody does it.
+func (p *Pack) renderWorking(b *strings.Builder, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	b.WriteString("\n## Recorded since, not yet checkpointed\n")
+
+	var meta []string
+	if authors := p.workingAuthors(); len(authors) == 1 {
+		meta = append(meta, "by **"+authors[0]+"**")
+	} else if len(authors) > 1 {
+		meta = append(meta, "by **"+strings.Join(authors, "**, **")+"**")
+	}
+	if oldest := p.oldestWorking(); oldest > 0 {
+		age := humanAge(oldest)
+		if daysOld(oldest) >= staleAfterDays {
+			age += " — this may be out of date, check anything time-sensitive before acting on it"
+		}
+		meta = append(meta, age)
+	}
+	if len(meta) > 0 {
+		fmt.Fprintf(b, "\n_%s. Never checkpointed._\n", strings.Join(meta, ", "))
+	}
+	b.WriteString("\n" + strings.Join(items, "\n") + "\n")
+}
+
+// priorFailures collects what earlier checkpoints ruled out, attributed to
+// whoever ruled it out and skipping anything the current checkpoint already
+// repeats.
+func (p *Pack) priorFailures() []string {
+	seen := map[string]bool{}
+	if p.Checkpoint != nil {
+		for _, f := range p.Checkpoint.Failed {
+			seen[normalizeKey(f)] = true
+		}
+	}
+	var out []string
+	for _, c := range p.History {
+		for _, f := range c.Failed {
+			k := normalizeKey(f)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			who := c.Agent
+			if who == "" {
+				who = "an earlier agent"
+			}
+			out = append(out, fmt.Sprintf("(%s) %s", who, flatten(f)))
+		}
+	}
+	return out
+}
+
+func normalizeKey(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// all is every memory the pack is carrying, preferences included.
+func (p *Pack) all() []memory.Memory {
+	return append(append([]memory.Memory{}, p.Related...), p.Preferences...)
+}
+
+func (p *Pack) oldestWorking() int64 {
+	var oldest int64
+	for _, n := range p.Working {
+		if n.TS > 0 && (oldest == 0 || n.TS < oldest) {
+			oldest = n.TS
+		}
+	}
+	return oldest
 }
 
 func (p *Pack) wantProject() []string {
@@ -267,6 +420,81 @@ func section(b *strings.Builder, heading string, items []string, sep string) {
 	b.WriteString(strings.Join(items, sep) + "\n")
 }
 
+// renderConflicts reports disagreement rather than resolving it.
+//
+// Supersession is a different case and is handled by dropping the older value:
+// where two statements about the same thing are separated in time, the later
+// one is the answer. Here there is no ordering to lean on, so both stay and the
+// agent is told to check. Silently picking one is the failure mode this exists
+// to prevent — it produces a confident answer with a citation attached, which
+// is the hardest kind of wrong to catch.
+func (p *Pack) renderConflicts(b *strings.Builder) {
+	if len(p.Conflicts) == 0 && len(p.Superseded) == 0 {
+		return
+	}
+	b.WriteString("\n## Not settled\n\n")
+	for _, c := range p.Conflicts {
+		fmt.Fprintf(b, "- **Sources conflict** — %s. Both are in the vault; neither supersedes the other.\n", c)
+	}
+	// Deliberately without the superseded text.
+	//
+	// Reprinting it to be transparent put the dead value back into the context
+	// window, which is the entire thing suppression exists to prevent — the
+	// agent reads "$199" and has no reason to care that a caption called it
+	// superseded. What the agent needs is that the figure moved, so it does not
+	// treat one number as though it had always been true; the old value itself
+	// is history, and history is available on request.
+	if n := len(p.Superseded); n > 0 {
+		oldest := p.Superseded[0].Created
+		for _, m := range p.Superseded {
+			if m.Created < oldest {
+				oldest = m.Created
+			}
+		}
+		fmt.Fprintf(b, "- This changed: %d earlier %s superseded by what is above, going back to %s. "+
+			"The values shown are the current ones; ask for the history if the change matters.\n",
+			n, plural(n, "statement was", "statements were"), project.Age(oldest))
+	}
+}
+
+// renderGaps says when the store has nothing, instead of letting a neighbouring
+// fact stand in as an answer.
+//
+// This is the failure every system benchmarked shares, and the one with the
+// worst consequence. Asked about a warranty period it never recorded, a store
+// returns the manufacturing agreement — topically adjacent, retrieved with a
+// respectable score, and not an answer. The agent has no way to tell the
+// difference between "here is what you asked for" and "here is the nearest
+// thing I had", so it answers the user from the nearest thing.
+//
+// Note the asymmetry with the rest of the pack: everywhere else the cost of
+// being wrong is a wasted section, and here it is a fabricated answer. So this
+// fires on weak retrieval rather than on empty retrieval.
+func (p *Pack) renderGaps(b *strings.Builder, working, proj, notes, mems []string) {
+	if p.Checkpoint != nil || len(working) > 0 || len(proj) > 0 {
+		return // there is real work here; the question is not unanswered
+	}
+	if len(notes) > 0 {
+		return // vault prose is substantive enough to stand as an answer
+	}
+
+	// Getting memories back means retrieval found *something*; it does not mean
+	// it found what was asked for. answered() is what separates the two.
+	if len(mems) > 0 && answered(p.Task, p.all()) {
+		return
+	}
+	switch {
+	case len(mems) == 0:
+		b.WriteString("\n## Nothing recorded\n\n")
+		fmt.Fprintf(b, "_There is no record bearing on %q. Nothing was found — say so rather than inferring an answer from context._\n",
+			oneLine(p.Task))
+	default:
+		b.WriteString("\n## Possibly not recorded\n\n")
+		fmt.Fprintf(b, "_Nothing directly answers %q. What follows above was retrieved as the nearest related material and may not be an answer — check before treating it as one._\n",
+			oneLine(p.Task))
+	}
+}
+
 func (p *Pack) renderSources(b *strings.Builder) {
 	if len(p.Sources) == 0 {
 		return
@@ -346,6 +574,37 @@ func dedup(in []string) []string {
 	return out
 }
 
+// staleAfterDays is when context stops being reported as simply current.
+//
+// A week is short enough to catch a moving schedule and long enough that
+// ordinary week-to-week work is not constantly hedged. It is a heuristic and it
+// is deliberately conservative: the cost of an unnecessary caveat is a clause,
+// and the cost of a missing one is an agent acting on a fortnight-old plan.
+const staleAfterDays = 7
+
+func daysOld(ts int64) int {
+	if ts == 0 {
+		return 0
+	}
+	return int(time.Since(time.Unix(ts, 0)).Hours() / 24)
+}
+
+// humanAge spells the age out. project.Age renders "13d ago", which is right
+// for a dense listing and wrong in a sentence warning someone that what they
+// are reading has gone off.
+func humanAge(ts int64) string {
+	switch d := daysOld(ts); {
+	case ts == 0:
+		return ""
+	case d <= 0:
+		return "written today"
+	case d == 1:
+		return "1 day old"
+	default:
+		return fmt.Sprintf("%d days old", d)
+	}
+}
+
 // flatten collapses whitespace without shortening. Use it wherever the content
 // is something someone wrote on purpose.
 func flatten(s string) string {
@@ -360,6 +619,13 @@ func oneLine(s string) string {
 		s = s[:159] + "…"
 	}
 	return s
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func clip(s []string, n int) []string {

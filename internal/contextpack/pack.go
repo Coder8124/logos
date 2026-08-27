@@ -55,6 +55,9 @@ type Pack struct {
 	// answer to "where were we", which no amount of semantic recall provides.
 	Checkpoint *session.Checkpoint `json:"checkpoint,omitempty"`
 	Working    []session.Note      `json:"working,omitempty"`
+	// History is earlier checkpoints on the same project. Only their ruled-out
+	// approaches are used — see Build.
+	History []session.Checkpoint `json:"history,omitempty"`
 
 	// Notes is vault content — the actual prose, not just titles. Hits reached
 	// through the graph rather than matched directly carry Via.
@@ -63,6 +66,14 @@ type Pack struct {
 	Preferences []memory.Memory        `json:"preferences"`
 	Related     []memory.Memory        `json:"related"`
 	OpenLoops   []secretary.Commitment `json:"open_loops"`
+
+	// Superseded holds recalled memories a later statement replaced. They are
+	// kept out of the answer but reported, so the agent knows the value moved
+	// rather than seeing one figure and assuming it was always so.
+	Superseded []memory.Memory `json:"superseded,omitempty"`
+	// Conflicts names sources that disagree and cannot be ordered. Unlike
+	// supersession this resolves nothing — it says so out loud instead.
+	Conflicts []string `json:"conflicts,omitempty"`
 
 	// Sources lists what actually made it into the render, so the consumer can
 	// cite rather than paraphrase.
@@ -78,6 +89,11 @@ const (
 	maxRelated = 10
 	maxNotes   = 12
 	maxListed  = 8
+	// checkpointDepth is how far back continuity reaches: the current
+	// checkpoint plus a few predecessors' dead ends. Deep enough for a chain of
+	// handoffs, shallow enough that a long-running project does not spend its
+	// whole budget on archaeology.
+	checkpointDepth = 4
 )
 
 // Build gathers candidates from every store. It deliberately over-gathers: what
@@ -113,9 +129,18 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// not depend on the vault having been curated. An agent working through MCP
 	// may leave checkpoints on a project that never got a note of its own — and
 	// the checkpoint is itself the evidence that the project exists.
+	// The latest checkpoint, and what earlier ones ruled out.
+	//
+	// History matters because dead ends accumulate across handoffs, not within
+	// them. On the third agent of a chain, the approach the *first* one killed
+	// is still dead and still expensive to rediscover — and it lives in a file
+	// that agent never wrote and the current checkpoint does not mention. Only
+	// the failures are carried forward: the rest of an old checkpoint is stale
+	// narration, but "we tried this and it did not work" does not expire.
 	if scope := p.scope(); scope != "" && ix.Vault != "" {
-		if c, err := session.Latest(ix.Vault, scope); err == nil && c != nil {
-			p.Checkpoint = c
+		if all, err := session.History(ix.Vault, scope, checkpointDepth); err == nil && len(all) > 0 {
+			p.Checkpoint = &all[0]
+			p.History = all[1:]
 		}
 	}
 	if scope := p.scope(); scope != "" {
@@ -129,7 +154,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// them one by one.
 	if embed != nil && query != "" {
 		if hits, err := ix.HybridSearch(embed, embedModel, query, maxNotes); err == nil {
-			p.Notes = hits
+			p.Notes = withoutSessionNotes(hits)
 		}
 	}
 	p.Notes = interleave(p.Notes, p.graphReach(db))
@@ -143,12 +168,42 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	if embed != nil && query != "" {
 		if mems, err := memory.Recall(db, embed, embedModel, query, maxRelated); err == nil {
-			p.Related = mems
+			p.Related, p.Superseded = supersede(req.Task, mems)
 		}
 	}
+	p.Conflicts = contradictions(p.Notes)
 	p.OpenLoops = openLoops(db, p.Project)
 
 	return p, nil
+}
+
+// withoutSessionNotes keeps checkpoints out of the vault-prose arm.
+//
+// Checkpoints are markdown in the vault, which is what makes them durable — and
+// also means ordinary retrieval finds them, as files, with no idea what they
+// are. Two things went wrong when it did.
+//
+// Another project's checkpoint came back as ordinary context: asked to resume
+// one piece of work, the search arm cheerfully supplied a different one's
+// ruled-out approaches, and nothing told the agent they belonged elsewhere.
+//
+// Worse, *this* project's checkpoint came back too — the same file already
+// rendered above, but raw. That quietly undid the reasoning applied to it:
+// a next step withdrawn by a later decision was suppressed in the checkpoint
+// section and then printed verbatim two sections down, straight out of the
+// file. Retrieval had no way to know the plan had been called off.
+//
+// So the whole directory is excluded here. Continuity has its own section and
+// its own rules; letting the raw file in through a second door bypasses them.
+func withoutSessionNotes(hits []index.Hit) []index.Hit {
+	out := hits[:0]
+	for _, h := range hits {
+		if strings.HasPrefix(h.Slug, session.CheckpointDir+"/") {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // scope is the name continuity is filed under.
