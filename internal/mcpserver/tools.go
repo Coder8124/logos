@@ -59,6 +59,19 @@ var toolDefs = []map[string]any{
 		}, "project"),
 	},
 	{
+		"name": "before_you_try",
+		// Written as an instruction rather than a description, because this is
+		// the one tool the model has no reason to reach for on its own. Every
+		// other tool answers a question the model already has; this one answers
+		// a question it does not know to ask — whether the thing it is about to
+		// suggest was ruled out before it existed.
+		"description": "Check whether an approach has already been tried and failed, BEFORE you propose it. Call this whenever you are about to suggest a solution, a refactor, a vendor, a library, or a fix on work the user has a history with — especially if it seems obvious, because obvious approaches are the ones already attempted. Searches every dead end recorded across the user's whole vault, including work from other projects and from agents that no longer exist. If it returns anything, say so out loud before proposing: 'this was tried in March and the drop test failed'. A recorded failure is evidence, not a veto — if you still think it is right, say what is different now.",
+		"inputSchema": obj(map[string]any{
+			"approach": str("the approach you are about to propose, in a sentence"),
+			"project":  str("optional: the project being worked on, so rulings from elsewhere can be flagged as possibly not transferring"),
+		}, "approach"),
+	},
+	{
 		"name":        "note_progress",
 		"description": "Record one line of what you just did or learned while working. Cheap and meant to be called often — after a decision, a dead end, or a surprising discovery. These stay uncommitted until checkpoint folds them into a durable record, so use them freely rather than saving everything for the end.",
 		"inputSchema": obj(map[string]any{

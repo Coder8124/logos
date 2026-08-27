@@ -49,6 +49,8 @@ USAGE
     brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
+    brain tried <approach> [--project X]
+                                      has this already been ruled out? ask before proposing
     brain sessions <project>          checkpoint history for a project
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
@@ -114,6 +116,8 @@ func main() {
 		err = runCheckpoint(args)
 	case cmd == "resume":
 		err = runResume(args)
+	case cmd == "tried":
+		err = runTried(args)
 	case cmd == "sessions":
 		err = runSessionLog(args)
 	case cmd == "say" && rest != "":

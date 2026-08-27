@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/pragun/brain/internal/contextpack"
+	"github.com/pragun/brain/internal/deadend"
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/project"
@@ -169,6 +170,8 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 		})
 	case "resume":
 		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
+	case "before_you_try":
+		return s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
 	case "note_progress":
 		return s.noteProgress(argStr(args, "project"), argStr(args, "agent"), argStr(args, "text"))
 	case "checkpoint":
@@ -281,6 +284,27 @@ func (s *Server) context(req contextpack.Request) (string, error) {
 // resume is context aimed at one question: where did the last agent stop. It is
 // the same assembly as context, told to lead with the checkpoint, so an agent
 // that has just been handed a project can start with one call.
+// beforeYouTry is the one tool here that is not retrieval.
+//
+// Everything else answers a question the host's model already has. This answers
+// one it does not know to ask, which is why the tool description is written as
+// an instruction: the model has no way of knowing that the obvious approach it
+// is about to suggest was ruled out on a different project by an agent that no
+// longer exists.
+func (s *Server) beforeYouTry(approach, project string) (string, error) {
+	if strings.TrimSpace(approach) == "" {
+		return "", fmt.Errorf("before_you_try needs the approach you are considering")
+	}
+	if err := session.Init(s.DB); err != nil {
+		return "", err
+	}
+	hits, err := deadend.Check(s.vault, s.DB, s.embed, s.embedModel, approach, project, 6)
+	if err != nil {
+		return "", err
+	}
+	return deadend.Render(approach, hits), nil
+}
+
 func (s *Server) resume(project, agent string, budget int) (string, error) {
 	if strings.TrimSpace(project) == "" {
 		return "", fmt.Errorf("resume needs a project")
