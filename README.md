@@ -143,6 +143,58 @@ source, and honest about what it had to leave out.
 
 ---
 
+## Embedding it in your own agent
+
+MCP is for hosts you don't control. If you're writing the agent yourself, import
+the engine directly — same vault, same files, no subprocess and no protocol.
+
+```sh
+go get github.com/pragun/brain
+```
+
+```go
+b, err := brain.Open("/path/to/vault", brain.WithAgent("my-agent"))
+if err != nil {
+    log.Fatal(err)
+}
+defer b.Close()
+
+// Starting a task: what did the last agent leave behind?
+c, _ := b.Resume("kestrel-one")
+fmt.Println(c.Render())        // drop straight into a system prompt
+
+// About to propose something: has it already been ruled out?
+approach := "re-quoting the waveguide to bring the BOM down"
+if ruled, _ := b.Tried(approach, "kestrel-one"); len(ruled) > 0 {
+    fmt.Println(brain.Explain(approach, ruled))
+}
+
+// Finishing: commit where you stopped. Failed is the field that earns its keep.
+b.Note("kestrel-one", "re-quoted the waveguide; no movement under 10k units")
+b.Checkpoint(brain.Checkpoint{
+    Project: "kestrel-one",
+    Failed:  []string{"re-quoting the waveguide — no movement under 10k units"},
+    Next:    "quote the display driver alternatives",
+})
+```
+
+The rest of the surface is `Context`, `Remember`/`Recall`/`Forget`, `Search`,
+`Ask`, `History`, `Projects`, `Index`, and `ServeMCP` if you'd rather serve the
+tools than call them. `examples/handoff` is the whole thing end to end: one agent
+works and stops, another opens the same vault and continues.
+
+No model runtime is required. `Open` discovers one if it's there and uses it for
+embeddings; without one, retrieval falls back to lexical and graph traversal —
+measurably weaker, not broken. `brain.WithoutEmbedding()` skips discovery
+outright, which is what you want in CI.
+
+Everything else stays under `internal/` on purpose. The exported surface is what
+an agent actually uses, so the retrieval, budgeting and consolidation internals
+can change without breaking you; the domain types are aliases for their internal
+definitions, which makes them part of the contract rather than a copy that drifts.
+
+---
+
 ## The command surface
 
 ```text
@@ -224,9 +276,11 @@ LongMemEval-S; hybrid beats vector-only by 8.9 points.
 ## Repository
 
 ```
+brain.go         the public API — what an embedding agent imports
+examples/        runnable embeddings, starting with the handoff
 cmd/brain/       the CLI — one engine, two front ends
-internal/        index, memory, session, contextpack, graph, capture, dream,
-                 rollup, secretary, router, voice, mcpserver
+internal/        index, memory, session, contextpack, deadend, graph, capture,
+                 dream, rollup, secretary, router, voice, mcpserver
 app/             Wails v2 desktop app (menubar orb, panel, graph canvas)
 docs/            per-subsystem notes: capture, dream, graph, models, presence…
 scripts/         demo vault seeding, voice-engine fetch, icon build

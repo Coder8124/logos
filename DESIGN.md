@@ -26,6 +26,22 @@ searchable, it is that work survives the end of a session.
 4. **Propose, don't assert.** The system writes nothing to the vault that you
    haven't accepted, until you raise its auto-accept threshold yourself.
 
+## Three front ends, one facade
+
+The CLI, the desktop app and the MCP server are all consumers of the same
+engine. A fourth consumer — someone else's agent — gets `brain.go` at the module
+root: `Open`, `Context`/`Resume`, `Note`/`Checkpoint`, `Tried`, the memory calls,
+and `ServeMCP`. Everything else stays under `internal/`, where Go's own rules
+keep it unimportable, so retrieval and budgeting can be rewritten without
+breaking an embedder.
+
+The domain types are aliases (`type Memory = memory.Memory`), not copies. That
+makes them part of the exported contract, which is the honest trade: parallel
+structs plus a translation layer would buy freedom nobody asked for at the cost
+of a conversion at every call. `brain_test.go` is an external test package, so it
+can only reach what an embedder can reach — if it needs an internal import, the
+facade has a hole.
+
 ## Two-tier memory
 
 | | Episodic | Semantic |

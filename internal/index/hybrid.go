@@ -47,6 +47,28 @@ func (ix *Index) lexical(query string, k int) ([]string, error) {
 	return out, nil
 }
 
+// LexicalSearch is the FTS arm on its own, as full Hits. It is the fallback for
+// a machine with no embedding model: worse than hybrid, but it needs no runtime
+// and no vectors, so retrieval still works on a fresh checkout.
+func (ix *Index) LexicalSearch(query string, k int) ([]Hit, error) {
+	slugs, err := ix.lexical(query, k)
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]Hit, 0, len(slugs))
+	for rank, slug := range slugs {
+		h, ok := ix.HitBySlug(slug)
+		if !ok {
+			continue
+		}
+		// bm25 ordering is all we have; synthesise a descending score so callers
+		// that sort or threshold on Score behave.
+		h.Score = 1.0 / float64(rank+1)
+		hits = append(hits, h)
+	}
+	return hits, nil
+}
+
 // ftsQuery turns free text into a safe FTS5 OR-query. FTS5 treats bare
 // punctuation as syntax, so we keep only alphanumeric tokens and OR them —
 // recall-oriented, since fusion with vectors sorts out precision.

@@ -33,6 +33,9 @@ type Router struct {
 }
 
 func New(cfg *Config, vault string) (*Router, error) {
+	if cfg == nil {
+		cfg = Defaults()
+	}
 	found := provider.Discover()
 	if len(found) == 0 {
 		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
