@@ -16,9 +16,11 @@ searchable, it is that work survives the end of a session.
    vault.
 2. **The database is a cache.** `.brain/index.db` holds embeddings, edges and
    FTS. Delete it, reindex, get byte-identical state. It is never authoritative.
-   *Caveat, honestly stated:* this holds for notes and checkpoints and does not
-   yet hold for memories, which live only in the cache. See the benchmark's
-   durability family.
+   That covers notes, checkpoints *and* memories: memories are written to
+   `memories/<kind>.md` and rebuilt from there, so `rm -rf .brain` costs nothing
+   but the time to re-embed. It used to be false for memories, which lived only
+   in the cache — the continuity benchmark's durability family exists to keep it
+   honest.
 3. **Local by default.** Nothing leaves the machine unless you name a cloud model
    and confirm the redaction preview.
 4. **Propose, don't assert.** The system writes nothing to the vault that you
@@ -42,8 +44,16 @@ never become markdown directly. A vault that grows 400 files a day is landfill.
 vault/
   daily/2026-07-18.md
   people/…  projects/…  topics/…  routines/…  sources/…
+  sessions/<project>/     # checkpoints: where an agent stopped
+  memories/<kind>.md      # what it knows about you, one line each
   .brain/                 # index.db, config.toml, queue.jsonl — do not sync
 ```
+
+`memories/` is the memory store written down rather than a set of notes, so the
+indexer skips it as prose and reconciles it as memories. The bookkeeping —
+id, confidence, salience, provenance — rides in an HTML comment, which Obsidian
+does not render, so the file reads as a plain bullet list you can edit. Correct
+a line to correct the fact; delete a line to forget it.
 
 ### Note frontmatter
 

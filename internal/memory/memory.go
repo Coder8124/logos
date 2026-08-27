@@ -172,6 +172,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		if id, ok := nearestMemory(db, qvec, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
+			flush(db, m.Kind)
 			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, nil
 		}
 	}
@@ -186,6 +187,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	if n, _ := res.RowsAffected(); n > 0 {
 		m.ID, _ = res.LastInsertId()
 		logEvent(db, m.ID, EvCreated, m.Text, 0)
+		flush(db, m.Kind)
 		return Receipt{Outcome: EvCreated, ID: m.ID}, nil
 	}
 
@@ -389,11 +391,13 @@ func Count(db *sql.DB) (int, error) {
 func Forget(db *sql.DB, id int64) error {
 	// Snapshot the text into the log first, so the timeline records what was
 	// forgotten even though the row is about to vanish.
-	var text string
-	db.QueryRow("SELECT text FROM memories WHERE id = ?", id).Scan(&text)
+	var text, kind string
+	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
 	_, err := db.Exec("DELETE FROM memories WHERE id = ?", id)
 	if err == nil {
 		logEvent(db, id, EvForgotten, text, 0)
+		// Forgetting has to reach the file too, or the next import restores it.
+		flush(db, Kind(kind))
 	}
 	return err
 }

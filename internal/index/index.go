@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pragun/brain/internal/memory"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/vault"
 	_ "modernc.org/sqlite"
@@ -84,7 +85,23 @@ func Open(vaultDir string) (*Index, error) {
 		return nil, err
 	}
 	migrate(db)
+	// Pair the memory store with the vault it belongs to. This is the one place
+	// that holds both, and doing it here means every write path gets a durable
+	// copy without each caller having to remember to ask for one.
+	memory.SetVault(vaultDir)
 	return &Index{Vault: vaultDir, DB: db}, nil
+}
+
+// SyncMemories reconciles the memory store against its markdown in the vault.
+//
+// The mirror of Sync, for the other half of what the system knows. Notes are
+// rebuilt from files on every index; memories were not, which made "delete the
+// database and reindex" true for one half and quietly destructive for the
+// other. Running both from one command is what makes the guarantee whole.
+//
+// Returns how many memories the vault held.
+func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (int, error) {
+	return memory.Import(ix.DB, p, embedModel, ix.Vault)
 }
 
 // migrate adds columns to databases created before they existed. ALTER TABLE
@@ -120,6 +137,13 @@ func (ix *Index) Sync() (SyncReport, error) {
 		}
 		if d.IsDir() {
 			if strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			// memories/ is the memory store written down, not a set of notes.
+			// Indexing it would put every remembered fact into vault search a
+			// second time, so the same preference comes back as a memory and as
+			// a note that happens to quote it. It is reconciled below instead.
+			if d.Name() == memory.Dir && filepath.Dir(path) == ix.Vault {
 				return filepath.SkipDir
 			}
 			return nil

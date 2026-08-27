@@ -410,10 +410,14 @@ func runIndex(watch bool) error {
 		if err != nil {
 			return err
 		}
+		mems, err := ix.SyncMemories(p, embedModel)
+		if err != nil {
+			return err
+		}
 		notes, _ := ix.NoteCount()
 		edges, _ := ix.EdgeCount()
-		fmt.Printf("+%d ~%d -%d =%d · embedded %d · %d notes, %d edges\n",
-			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges)
+		fmt.Printf("+%d ~%d -%d =%d · embedded %d · %d notes, %d edges, %d memories\n",
+			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges, mems)
 		return nil
 	}
 

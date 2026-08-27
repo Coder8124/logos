@@ -202,6 +202,13 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 			}
 		}
 	}
+	// Consolidation retires memories wholesale, so the files have to follow or
+	// the next import would restore everything it just superseded.
+	if merged+superseded > 0 {
+		for _, k := range kinds {
+			flush(db, k)
+		}
+	}
 	return merged, superseded, nil
 }
 

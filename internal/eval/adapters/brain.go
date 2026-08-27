@@ -183,7 +183,12 @@ func (b *Brain) DropDerived() error {
 	if err := b.open(); err != nil {
 		return err
 	}
-	_, err := b.ix.Sync()
+	if _, err := b.ix.Sync(); err != nil {
+		return err
+	}
+	// Both halves, exactly as `brain index` runs them. Rebuilding notes but not
+	// memories would measure a reindex nobody performs.
+	_, err := b.ix.SyncMemories(b.embed, b.model)
 	return err
 }
 

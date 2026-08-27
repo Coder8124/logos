@@ -656,8 +656,8 @@ func durability() []Scenario {
 		},
 		{
 			ID: "durability-memories-survive-wipe", Family: "durability", Skill: "source-of-truth",
-			Why:         "brain's own principle says the database is a cache. Its memories live only in that cache.",
-			Known:       KnownWeakness,
+			Why:         "The principle says the database is a cache. Memories are files now, so losing the cache costs nothing.",
+			Known:       KnownStrength,
 			DropDerived: true,
 			Setup: append(noiseFacts(10),
 				said(20, "Our contract manufacturer is Pegatron, in the Suzhou plant."),

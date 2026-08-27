@@ -194,8 +194,22 @@ relevant is often the one whose words never match your query.
 vault/
   daily/  people/  projects/  topics/  routines/  sources/
   sessions/<project>/<timestamp>-<agent>.md      # checkpoints
+  memories/<kind>.md                             # what it knows about you
   .brain/                                        # index.db, config — do not sync
 ```
+
+Everything above `.brain/` is the record, including the memories:
+
+```console
+$ brain memory add "I prefer terse replies with no preamble"
+$ rm -rf $BRAIN_VAULT/.brain && brain index
++1 ~0 -0 =0 · embedded 1 · 1 notes, 0 edges, 2 memories
+$ brain memory
+  [1] (fact  sal 0.70 · conf █████ 0.90) I prefer terse replies with no preamble
+```
+
+Same ids, same confidence. `memories/<kind>.md` is a plain bullet list — edit a
+line to correct a fact, delete one to forget it, then reindex.
 
 Model tiers run T0 embeddings (137M) through T2 synthesis (8–24B) locally; T3 is
 cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather
