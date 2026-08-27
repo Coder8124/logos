@@ -69,14 +69,48 @@ application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
 }
 ```
 
-Eleven tools in two families:
+Twelve tools in two families:
 
 **Memory** — *what do you know about X.* `remember` (returns a receipt saying
 whether it created a fact or corroborated one it already had), `recall`,
 `list_memories`, `forget`, `memory_diff`, `list_projects`.
 
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
-`checkpoint`, `handoff`.
+`checkpoint`, `handoff`, `before_you_try`.
+
+### The intercept
+
+`resume` hands an arriving agent the last checkpoint. That covers the dead end
+from yesterday, on the project it is already working on. It does nothing for the
+one from March, on a project nobody mentioned, recorded by an agent that no
+longer exists — because nobody thinks to search for the thing they are about to
+suggest.
+
+`before_you_try` is the other direction. The agent is about to propose
+something, and the tool interrupts:
+
+```console
+$ brain tried "switch to a plastic frame to save weight"
+
+## This has been tried
+
+One recorded dead end already bears on "switch to a plastic frame to save weight".
+
+- **Switching to a plastic frame — fails the drop test at 1.2m** — tried by
+  claude, 3mo ago · `sessions/kestrel-one/20260521-142207-claude`
+
+Before proposing this, say that it has been tried and what happened. If you still
+think it is right, say what is different now — a dead end recorded under other
+constraints is evidence, not a verdict.
+```
+
+It searches every dead end in the vault, across all projects, including findings
+left in working notes by an agent that died before it could check in. A recorded
+failure is evidence, never a veto, and rulings from a different project are
+flagged as possibly not transferring.
+
+The mechanism is a morning's work. The two years of accumulated *we tried that*
+is not — which is the part that compounds.
 
 ### The handoff
 
@@ -127,6 +161,7 @@ brain context <task> [--project p] [--budget n] everything bearing on a task, bu
 brain note <project> <what you did>             record progress; uncommitted until checkpoint
 brain checkpoint <project> [--handoff who]      commit where you stopped, into the vault
 brain resume <project> | sessions <project>     pick up; read the checkpoint log
+brain tried <approach> [--project p]            has this already been ruled out?
 brain mcp serve                                 serve the memory to MCP hosts
 brain index [--watch] | rollup | review | prune cache sync, proposals, retention
 brain capture [--daemon]                        pull episodic events
