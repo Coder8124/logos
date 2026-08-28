@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pragun/brain/internal/provider"
+	"github.com/pragun/brain/internal/textmatch"
 )
 
 // Kind categorises a memory so it can be weighted and surfaced appropriately.
@@ -169,7 +170,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	// adding a twin — this is what keeps the store from growing on repetition.
 	// A re-statement is corroboration, so it also lifts confidence.
 	if qvec != nil {
-		if id, ok := nearestMemory(db, qvec, DedupThreshold); ok {
+		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
 			flush(db, m.Kind)
@@ -228,12 +229,21 @@ func defaultConfidence(source string) float64 {
 // DedupThreshold is how close a new memory must be to an existing one to be
 // treated as the same fact. High, so genuinely distinct facts about the same
 // subject are kept; only near-restatements collapse.
+//
+// The threshold alone was not enough — records that share a sentence frame and
+// differ only in a number sit above it. It is now one of two conditions, the
+// other being sameFact.
 const DedupThreshold = 0.87
 
 // nearestMemory returns the id of the most-similar active memory if it clears
 // the threshold — the write-time guard against near-duplicate accumulation.
-func nearestMemory(db *sql.DB, query []float32, threshold float64) (int64, bool) {
-	rows, err := db.Query(`SELECT id, vec FROM memories WHERE superseded = 0 AND vec IS NOT NULL`)
+//
+// text is the statement being stored, and it is not optional: a candidate that
+// asserts a different value is rejected however close its vector is. See
+// sameFact for why. Candidates are considered in similarity order, so a genuine
+// restatement sitting just behind a value-differing twin is still found.
+func nearestMemory(db *sql.DB, query []float32, text string, threshold float64) (int64, bool) {
+	rows, err := db.Query(`SELECT id, text, vec FROM memories WHERE superseded = 0 AND vec IS NOT NULL`)
 	if err != nil {
 		return 0, false
 	}
@@ -242,16 +252,37 @@ func nearestMemory(db *sql.DB, query []float32, threshold float64) (int64, bool)
 	best := threshold
 	for rows.Next() {
 		var id int64
+		var candidate string
 		var vec []byte
-		if rows.Scan(&id, &vec) != nil || len(vec) == 0 {
+		if rows.Scan(&id, &candidate, &vec) != nil || len(vec) == 0 {
 			continue
 		}
-		if sim := cosine(query, blobToFloats(vec)); sim >= best {
-			best = sim
-			bestID = id
+		sim := cosine(query, blobToFloats(vec))
+		if sim < best || !sameFact(text, candidate) {
+			continue
 		}
+		best = sim
+		bestID = id
 	}
 	return bestID, bestID != 0
+}
+
+// sameFact is the second opinion the embedding cannot give.
+//
+// Cosine similarity is a judgement about topic, and two records in the same
+// sentence frame are the same topic by construction. Measured against
+// nomic-embed-text: "the server in rack 12 is running hot" and "…rack 13…"
+// score 0.958; "$38" against "$42" scores 0.978. Both are well past any dedup
+// threshold, and both are two facts rather than one said twice. The digits are
+// the whole content of the difference and are close to invisible to the model.
+//
+// So a merge additionally requires that the two statements do not assert
+// different values. The asymmetry is the point: a duplicate that survives costs
+// a line in a file the user can delete, and a fact merged away is gone for good
+// — the text is never written, so neither the vault copy nor the log can bring
+// it back.
+func sameFact(incoming, existing string) bool {
+	return !textmatch.DifferingValues(incoming, existing)
 }
 
 // Recall returns the memories most relevant to a query, by embedding similarity.

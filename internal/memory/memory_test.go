@@ -208,12 +208,17 @@ func TestNearestMemoryDetectsNearDuplicate(t *testing.T) {
 	storeVec(t, db, "launching in Q4", Context, 0.5, []float32{0, 1, 0})
 
 	// A near-identical vector should find the first memory as a duplicate.
-	if _, ok := nearestMemory(db, []float32{0.99, 0.02, 0}, 0.87); !ok {
+	if _, ok := nearestMemory(db, []float32{0.99, 0.02, 0}, "likes short emails", 0.87); !ok {
 		t.Error("a near-identical vector should be flagged as a duplicate")
 	}
 	// An orthogonal vector should not match anything.
-	if _, ok := nearestMemory(db, []float32{0, 0, 1}, 0.87); ok {
+	if _, ok := nearestMemory(db, []float32{0, 0, 1}, "something else entirely", 0.87); ok {
 		t.Error("an unrelated vector must not be treated as a duplicate")
+	}
+	// Close vector, different value asserted: two facts, not one restated.
+	storeVec(t, db, "the server in rack 12 is running hot", Fact, 0.5, []float32{0, 0, 1})
+	if _, ok := nearestMemory(db, []float32{0, 0, 1}, "the server in rack 13 is running hot", 0.87); ok {
+		t.Error("an identical vector must not merge two records that differ by their number")
 	}
 }
 
