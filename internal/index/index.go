@@ -87,8 +87,9 @@ func Open(vaultDir string) (*Index, error) {
 	migrate(db)
 	// Pair the memory store with the vault it belongs to. This is the one place
 	// that holds both, and doing it here means every write path gets a durable
-	// copy without each caller having to remember to ask for one.
-	memory.SetVault(vaultDir)
+	// copy without each caller having to remember to ask for one. The binding is
+	// per-database, so a process holding two vaults keeps them apart.
+	memory.SetVault(db, vaultDir)
 	return &Index{Vault: vaultDir, DB: db}, nil
 }
 
@@ -123,7 +124,12 @@ func migrate(db *sql.DB) {
 	}
 }
 
-func (ix *Index) Close() error { return ix.DB.Close() }
+func (ix *Index) Close() error {
+	// Drop the vault binding with the handle, so a long-lived process that opens
+	// and closes many vaults does not accumulate them.
+	memory.SetVault(ix.DB, "")
+	return ix.DB.Close()
+}
 
 // Sync reads every note in the vault and reconciles it against the cache. Only
 // notes whose content hash changed are re-parsed and marked for re-embedding.

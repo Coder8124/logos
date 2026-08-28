@@ -206,7 +206,9 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	// the next import would restore everything it just superseded.
 	if merged+superseded > 0 {
 		for _, k := range kinds {
-			flush(db, k)
+			if err := flush(db, k); err != nil {
+				return merged, superseded, err
+			}
 		}
 	}
 	return merged, superseded, nil

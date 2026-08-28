@@ -173,8 +173,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			flush(db, m.Kind)
-			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, nil
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, flush(db, m.Kind)
 		}
 	}
 
@@ -188,8 +187,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	if n, _ := res.RowsAffected(); n > 0 {
 		m.ID, _ = res.LastInsertId()
 		logEvent(db, m.ID, EvCreated, m.Text, 0)
-		flush(db, m.Kind)
-		return Receipt{Outcome: EvCreated, ID: m.ID}, nil
+		return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)
 	}
 
 	// The fingerprint already existed — the same sentence, word for word. That
@@ -425,12 +423,13 @@ func Forget(db *sql.DB, id int64) error {
 	var text, kind string
 	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
 	_, err := db.Exec("DELETE FROM memories WHERE id = ?", id)
-	if err == nil {
-		logEvent(db, id, EvForgotten, text, 0)
-		// Forgetting has to reach the file too, or the next import restores it.
-		flush(db, Kind(kind))
+	if err != nil {
+		return err
 	}
-	return err
+	logEvent(db, id, EvForgotten, text, 0)
+	// Forgetting has to reach the file too, or the next import restores it —
+	// which makes a failure here worth reporting rather than swallowing.
+	return flush(db, Kind(kind))
 }
 
 // --- vector helpers (shared shape with the index) ---

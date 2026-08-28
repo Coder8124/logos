@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pragun/brain/internal/provider"
@@ -37,20 +38,43 @@ import (
 // Dir is where memories live inside the vault.
 const Dir = "memories"
 
-// vaultDir is set once by index.Open, which is the single place that knows both
-// the database and the vault it belongs to.
+// The vault a store writes through to, keyed by the database it belongs to.
 //
-// Package-level state is a wart, and the alternative was worse: threading a
-// path through Store, Forget, Learn, both dream passes and every caller of
-// each, so that a durability guarantee depended on nobody forgetting to pass
-// it. One assignment at the point the two halves are already paired is the
-// smaller cost.
-var vaultDir string
+// This used to be one package-level string, on the reasoning that threading a
+// path through Store, Forget, Learn and both dream passes was the worse cost.
+// That was true right up until a process could hold two vaults at once, which
+// the public API made ordinary: the second Open overwrote the binding, so one
+// vault's memories were written into the other's directory and then erased by
+// its next whole-file flush. Neither vault ended up with the memory.
+//
+// Keying by *sql.DB restores the pairing without touching a single call
+// signature — the database handle is already threaded everywhere the path would
+// have had to go.
+var (
+	vaultMu sync.RWMutex
+	vaults  = map[*sql.DB]string{}
+)
 
-// SetVault tells the memory store where its durable copy belongs. Passing an
-// empty string disables writing through, which is what tests that only care
-// about the cache want.
-func SetVault(dir string) { vaultDir = dir }
+// SetVault tells one store where its durable copy belongs. An empty dir unbinds
+// it, which disables writing through — what tests that only care about the
+// cache want, and what index.Close does so a closed handle leaves nothing
+// behind.
+func SetVault(db *sql.DB, dir string) {
+	vaultMu.Lock()
+	defer vaultMu.Unlock()
+	if dir == "" {
+		delete(vaults, db)
+		return
+	}
+	vaults[db] = dir
+}
+
+// vaultFor returns the vault bound to a database, or "" if it has none.
+func vaultFor(db *sql.DB) string {
+	vaultMu.RLock()
+	defer vaultMu.RUnlock()
+	return vaults[db]
+}
 
 // kinds is the fixed set, so exporting is deterministic and a kind with no
 // memories still gets its file emptied rather than left stale.
@@ -63,11 +87,21 @@ var kinds = []Kind{Preference, Person, Fact, Context}
 // read is how the cache became authoritative in the first place. The files are
 // small — a few hundred short lines each — so this is cheaper than the SQLite
 // write that precedes it.
-func flush(db *sql.DB, kind Kind) {
-	if vaultDir == "" {
-		return
+//
+// The error is returned rather than dropped. It used to be discarded, which
+// meant a read-only directory or a full disk produced a memory that existed
+// only in the cache while the caller was told it was saved — and the cache is
+// the thing the README tells people to delete. A write that cannot be made
+// durable has to say so.
+func flush(db *sql.DB, kind Kind) error {
+	dir := vaultFor(db)
+	if dir == "" {
+		return nil
 	}
-	_ = ExportKind(db, vaultDir, kind)
+	if err := ExportKind(db, dir, kind); err != nil {
+		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
+	}
+	return nil
 }
 
 // Export writes every kind to the vault.
@@ -131,7 +165,7 @@ func renderKind(kind Kind, mems []Memory) string {
 	for _, m := range mems {
 		fmt.Fprintf(&b, "- %s <!-- brain id=%d conf=%.2f sal=%.2f src=%s created=%s uses=%d",
 			oneLine(m.Text), m.ID, m.Confidence, m.Salience, orDash(m.Source),
-			time.Unix(m.Created, 0).UTC().Format("2006-01-02"), m.Uses)
+			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
 			fmt.Fprintf(&b, " project=%s", m.Project)
 		}
@@ -185,15 +219,34 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	var imported int
 	keep := map[int64]bool{}
 
+	// Only kinds whose file was read and found intact are authoritative. A kind
+	// whose file is missing or truncated says nothing about what the user wants
+	// forgotten, so its cached memories are left alone below.
+	authoritative := map[Kind]bool{}
+	var damaged []string
+
 	for _, kind := range kinds {
 		raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md"))
 		if os.IsNotExist(err) {
+			// Absence of information, not an instruction to delete. A sync client
+			// mid-restore, a partial rsync, or a crash between two flushes all
+			// produce exactly this, and reaping here forgot the whole kind.
 			continue
 		}
 		if err != nil {
 			return imported, err
 		}
-		for _, m := range parseKind(kind, string(raw)) {
+
+		parsed := parseKind(kind, string(raw))
+
+		// A file that ends mid-line was interrupted rather than edited. Acting on
+		// it would delete every memory the missing tail held.
+		if looksTruncated(string(raw)) {
+			damaged = append(damaged, string(kind)+".md ends mid-record")
+			continue
+		}
+
+		for _, m := range parsed {
 			id, err := upsert(db, p, embedModel, m)
 			if err != nil {
 				return imported, err
@@ -201,28 +254,40 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 			keep[id] = true
 			imported++
 		}
+		authoritative[kind] = true
+	}
+
+	// A damaged file is reported and never acted on. Importing what survived
+	// would be the same silent deletion this guard exists to prevent, and the
+	// user needs to know before they overwrite the file by writing a new memory.
+	if len(damaged) > 0 {
+		return imported, fmt.Errorf(
+			"refusing to import an incomplete memory store (%s); "+
+				"restore the file or delete the count line to accept it as-is",
+			strings.Join(damaged, "; "))
 	}
 
 	// Nothing on disk means nothing was ever exported — a store predating this,
 	// or a vault that has never held memories. Deleting the cache in that case
 	// would destroy the very data this function exists to protect, so it exports
 	// instead of importing.
-	if imported == 0 {
+	if len(authoritative) == 0 {
 		return 0, Export(db, dir)
 	}
 
-	rows, err := db.Query("SELECT id FROM memories WHERE superseded = 0")
+	rows, err := db.Query("SELECT id, kind FROM memories WHERE superseded = 0")
 	if err != nil {
 		return imported, err
 	}
 	var orphans []int64
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var kind string
+		if err := rows.Scan(&id, &kind); err != nil {
 			rows.Close()
 			return imported, err
 		}
-		if !keep[id] {
+		if !keep[id] && authoritative[Kind(kind)] {
 			orphans = append(orphans, id)
 		}
 	}
@@ -312,6 +377,39 @@ func parseKind(kind Kind, raw string) []Memory {
 	return out
 }
 
+// looksTruncated reports that a store file was cut off rather than edited.
+//
+// The distinction is the whole difficulty here, because the two look identical
+// from a count: deleting a line is the documented way to forget something, and
+// it leaves the frontmatter's count stale by exactly the amount a torn write
+// would. Enforcing the count breaks the feature the format exists to provide.
+//
+// What a hand edit never does is leave the file ending in the middle of a
+// record. So that is what is checked: unterminated frontmatter, or a final
+// bullet whose metadata comment was opened and never closed. A write
+// interrupted at an arbitrary byte lands mid-line almost every time.
+//
+// A tear that happens to land exactly on a line boundary is indistinguishable
+// from a deliberate deletion and is accepted. That is a real gap, and it is the
+// narrower one: brain's own writes go through vault.WriteAtomic, which replaces
+// the file by rename and cannot tear, so this only arises when something else —
+// a sync client, a crashed editor — is writing the file.
+func looksTruncated(raw string) bool {
+	trimmed := strings.TrimRight(raw, " \t\r\n")
+	if trimmed == "" {
+		return false
+	}
+	// Frontmatter opened and never closed.
+	if rest, ok := strings.CutPrefix(trimmed, "---"); ok && !strings.Contains(rest, "\n---") {
+		return true
+	}
+	lines := strings.Split(trimmed, "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	// A record whose bookkeeping comment was opened and never closed.
+	return strings.HasPrefix(last, "- ") &&
+		strings.Contains(last, "<!--") && !strings.Contains(last, "-->")
+}
+
 func applyMeta(m *Memory, meta string) {
 	meta = strings.TrimSuffix(strings.TrimPrefix(meta, "<!--"), "-->")
 	for _, field := range strings.Fields(meta) {
@@ -336,8 +434,14 @@ func applyMeta(m *Memory, meta string) {
 		case "project":
 			m.Project = value
 		case "created":
-			if t, err := time.Parse("2006-01-02", value); err == nil {
-				m.Created = t.Unix()
+			// RFC3339 now; the bare date is what older files carry. Recording
+			// only the date collapsed two memories written hours apart onto the
+			// same timestamp, and supersession decides by which came later.
+			for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+				if t, err := time.Parse(layout, value); err == nil {
+					m.Created = t.Unix()
+					break
+				}
 			}
 		}
 	}

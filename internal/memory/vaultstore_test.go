@@ -16,8 +16,8 @@ func vaultDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	db := testDB(t)
 	dir := t.TempDir()
-	SetVault(dir)
-	t.Cleanup(func() { SetVault("") })
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
 	return db, dir
 }
 

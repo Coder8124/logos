@@ -14,7 +14,7 @@ import (
 	"github.com/pragun/brain/internal/provider"
 )
 
-// dedupStore is a cache-only store: SetVault("") keeps these tests off the
+// dedupStore is a cache-only store: no vault binding keeps these tests off the
 // filesystem, since what is under test is what reaches the database at all.
 func dedupStore(t *testing.T) *sql.DB {
 	t.Helper()
@@ -26,7 +26,7 @@ func dedupStore(t *testing.T) *sql.DB {
 	if err := Init(db); err != nil {
 		t.Fatal(err)
 	}
-	SetVault("")
+	SetVault(db, "")
 	return db
 }
 
