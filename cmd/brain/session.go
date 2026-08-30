@@ -9,6 +9,7 @@ import (
 
 	"github.com/pragun/brain/internal/contextpack"
 	"github.com/pragun/brain/internal/memory"
+	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
 	"github.com/pragun/brain/internal/secretary"
 	"github.com/pragun/brain/internal/session"
@@ -142,13 +143,21 @@ func runResume(args []string) error {
 		}
 	}
 
-	rt, err := openRouter()
+	// Resume is the one command that must never need a model: the checkpoint it
+	// reads is markdown in the vault, and an agent picking up someone else's work
+	// on a machine with no runtime is exactly the case this exists for.
+	rt, err := openRouterOptional()
 	if err != nil {
 		return err
 	}
-	embedModel, _ := rt.Model(router.T0)
+	var embed *provider.Provider
+	var embedModel string
+	if rt != nil {
+		embedModel, _ = rt.Model(router.T0)
+		embed = rt.Local()
+	}
 
-	pack, err := contextpack.Build(ix, rt.Local(), embedModel, contextpack.Request{
+	pack, err := contextpack.Build(ix, embed, embedModel, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Budget: budget,
 	})
 	if err != nil {

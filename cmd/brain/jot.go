@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,6 +20,23 @@ func openRouter() (*router.Router, error) {
 		return nil, err
 	}
 	return router.New(cfg, vaultPath())
+}
+
+// openRouterOptional is openRouter for the commands that do not actually need a
+// model. A missing runtime comes back as (nil, nil) and the caller carries on
+// degraded; a malformed config is still an error, because that is a mistake the
+// user can fix and silently ignoring it would hide it.
+//
+// The distinction matters most for `mcp serve`. A host launches it in the
+// background and shows the user a connection failure, not our message — so
+// refusing to start over an absent model is how "brain has no embeddings here"
+// becomes "brain is broken".
+func openRouterOptional() (*router.Router, error) {
+	rt, err := openRouter()
+	if errors.Is(err, router.ErrNoRuntime) {
+		return nil, nil
+	}
+	return rt, err
 }
 
 func jotCmd(text string) error {

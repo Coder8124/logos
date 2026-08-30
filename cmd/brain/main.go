@@ -479,12 +479,16 @@ func search(query string) error {
 	}
 	defer ix.Close()
 
-	p, err := findProvider()
-	if err != nil {
-		return err
+	// No runtime is not a failure: FTS5 is in the index either way, so fall back
+	// to the lexical arm alone. Exact terms — names, error codes, IDs — are found
+	// as well as they ever were; only paraphrase suffers.
+	var hits []index.Hit
+	if p, perr := findProvider(); perr == nil {
+		hits, err = ix.HybridSearch(p, env("BRAIN_EMBED", defaultEmbedModel), query, 8)
+	} else {
+		fmt.Fprintln(os.Stderr, "· no model runtime — searching lexically")
+		hits, err = ix.LexicalSearch(query, 8)
 	}
-
-	hits, err := ix.HybridSearch(p, env("BRAIN_EMBED", defaultEmbedModel), query, 8)
 	if err != nil {
 		return err
 	}

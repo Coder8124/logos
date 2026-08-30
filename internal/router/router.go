@@ -1,12 +1,23 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/pragun/brain/internal/provider"
 )
+
+// ErrNoRuntime means nothing answered on any known local port.
+//
+// It is a condition, not a failure. Generation genuinely needs a model, but
+// retrieval degrades to lexical and the whole continuity surface — checkpoint,
+// resume, note_progress, before_you_try — needs no model at all. Callers that
+// only want those should carry on with a nil Router rather than refusing to
+// start, so this is a sentinel they can test for instead of matching on the
+// message.
+var ErrNoRuntime = errors.New("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
 
 // Capability is what a probe actually established about a model, as opposed to
 // what the runtime advertised.
@@ -38,7 +49,7 @@ func New(cfg *Config, vault string) (*Router, error) {
 	}
 	found := provider.Discover()
 	if len(found) == 0 {
-		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
+		return nil, ErrNoRuntime
 	}
 	// Carry the thinking-budget setting onto the local provider, so a reasoning
 	// model is bounded and returns an answer rather than thinking until it runs

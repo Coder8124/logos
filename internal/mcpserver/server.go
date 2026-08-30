@@ -60,7 +60,15 @@ type Server struct {
 	out        *json.Encoder
 }
 
+// New builds a server over an open index. rt may be nil: a machine with no
+// model runtime still gets every continuity tool, and retrieval falls back to
+// lexical. That is the difference between "brain is not much use here" and "the
+// MCP server would not start", and a host only ever shows the user the second
+// one.
 func New(db *sql.DB, rt *router.Router, vault string) *Server {
+	if rt == nil {
+		return &Server{DB: db, vault: vault}
+	}
 	embed, _ := rt.Model(router.T0)
 	return &Server{DB: db, vault: vault, embed: rt.Local(), embedModel: embed}
 }

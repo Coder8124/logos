@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/pragun/brain/internal/contextpack"
 	"github.com/pragun/brain/internal/memory"
+	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
 	"github.com/pragun/brain/internal/secretary"
 	"github.com/pragun/brain/internal/session"
@@ -58,13 +60,23 @@ func runContext(args []string) error {
 		return err
 	}
 
-	rt, err := openRouter()
+	// contextpack.Build treats a nil provider as "skip the semantic arm", so a
+	// machine with no runtime still gets the checkpoint, the dead ends, the open
+	// loops and the graph-reached notes — which is most of what context is for.
+	rt, err := openRouterOptional()
 	if err != nil {
 		return err
 	}
-	embedModel, _ := rt.Model(router.T0)
+	var embed *provider.Provider
+	var embedModel string
+	if rt != nil {
+		embedModel, _ = rt.Model(router.T0)
+		embed = rt.Local()
+	} else {
+		fmt.Fprintln(os.Stderr, "· no model runtime — assembling without semantic search")
+	}
 
-	pack, err := contextpack.Build(ix, rt.Local(), embedModel,
+	pack, err := contextpack.Build(ix, embed, embedModel,
 		contextpack.Request{Task: task, Hint: hint, Budget: budget})
 	if err != nil {
 		return err
