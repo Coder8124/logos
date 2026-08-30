@@ -41,7 +41,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `brain — local-first memory and continuity for AI agents
 
 USAGE
-    brain setup [--vault DIR] [--yes]  connect brain to every AI agent on this machine
+    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes]
+                                      connect brain to the AI agents on this machine
     brain brief                       what the secretary thinks you should know now
     brain replay [--peek]             catch up on what changed since you were last here
     brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
@@ -64,7 +65,8 @@ USAGE
                                       has this already been ruled out? ask before proposing
     brain sessions <project>          checkpoint history for a project
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
-    brain mcp install [--vault DIR]   register this brain with every MCP host found
+    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
+                                      register this brain with the MCP hosts found
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
     brain loop [add|done|drop]        manage open loops (commitments)
     brain think [off|low|medium|high]  how much the model reasons before answering
@@ -254,6 +256,25 @@ func flagStr(args []string, name, def string) string {
 		}
 	}
 	return def
+}
+
+// flagStrs collects a flag that may be given more than once, and also accepts a
+// comma-separated list, so `--host claude-code --host codex` and
+// `--host claude-code,codex` both work. Whichever a user reaches for first is
+// the one that should have worked.
+func flagStrs(args []string, name string) []string {
+	var out []string
+	for i, a := range args {
+		if a != name || i+1 >= len(args) {
+			continue
+		}
+		for _, part := range strings.Split(args[i+1], ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
 }
 
 func argInt(args []string, pos, def int) int {

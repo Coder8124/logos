@@ -239,6 +239,75 @@ func TestInstallReportsEveryHost(t *testing.T) {
 	}
 }
 
+// Plan is what the user is shown before agreeing to anything, so the one
+// property that matters is that looking does not touch.
+func TestPlanWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.json")
+
+	hosts := []Host{{
+		Name:     "present",
+		Detect:   func() bool { return true },
+		Where:    func() string { return path },
+		Register: func(Server) (Outcome, error) { t.Fatal("Plan must not register"); return Failed, nil },
+	}, {
+		Name:     "absent",
+		Detect:   func() bool { return false },
+		Where:    func() string { return "nowhere" },
+		Register: func(Server) (Outcome, error) { t.Fatal("Plan must not register"); return Failed, nil },
+	}}
+
+	results := Plan(hosts)
+	want := map[string]Outcome{"present": Pending, "absent": Skipped}
+	for _, r := range results {
+		if r.Outcome != want[r.Host] {
+			t.Errorf("%s: outcome = %q, want %q", r.Host, r.Outcome, want[r.Host])
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("Plan created a config file; it must only look")
+	}
+}
+
+// A user evaluating one integration types the host name however it occurs to
+// them. All of these should reach Claude Code.
+func TestOnlyMatchesHowPeopleType(t *testing.T) {
+	hosts := Hosts()
+	for _, spelling := range []string{"claude-code", "Claude Code", "claudecode", "CLAUDE_CODE", "claude c"} {
+		kept, unmatched := Only(hosts, []string{spelling})
+		if len(unmatched) > 0 {
+			t.Errorf("%q was not matched to a host", spelling)
+			continue
+		}
+		if len(kept) != 1 || kept[0].Name != "Claude Code" {
+			t.Errorf("%q selected %v, want just Claude Code", spelling, Names(kept))
+		}
+	}
+}
+
+// An unknown name must be reported, never silently ignored — wiring nothing
+// while claiming success is the failure mode being avoided.
+func TestOnlyReportsUnknownNames(t *testing.T) {
+	kept, unmatched := Only(Hosts(), []string{"cursor", "emacs"})
+	if len(unmatched) != 1 || unmatched[0] != "emacs" {
+		t.Errorf("unmatched = %v, want [emacs]", unmatched)
+	}
+	if len(kept) != 1 || kept[0].Name != "Cursor" {
+		t.Errorf("kept = %v, want [Cursor]", Names(kept))
+	}
+}
+
+// No --host means every host, which is the behaviour setup has always had.
+func TestOnlyWithNoNamesKeepsEverything(t *testing.T) {
+	kept, unmatched := Only(Hosts(), nil)
+	if len(unmatched) != 0 {
+		t.Errorf("unmatched = %v, want none", unmatched)
+	}
+	if len(kept) != len(Hosts()) {
+		t.Errorf("kept %d hosts, want all %d", len(kept), len(Hosts()))
+	}
+}
+
 // The hosts we ship must at least be well-formed: named, and able to answer
 // where they live without panicking on a machine that has none of them.
 func TestShippedHostsAreWellFormed(t *testing.T) {

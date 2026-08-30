@@ -41,10 +41,19 @@ func setupCmd(args []string) error {
 
 	checkRuntime(yes)
 	indexVault(vault)
-	if err := wireHosts(vault); err != nil {
+	if err := wireHosts(vault, wireOptsFrom(args)); err != nil {
 		return err
 	}
 	return nil
+}
+
+// wireOptsFrom reads the wiring flags shared by `setup` and `mcp install`.
+func wireOptsFrom(args []string) wireOpts {
+	return wireOpts{
+		only:   flagStrs(args, "--host"),
+		dryRun: hasFlag(args, "--dry-run"),
+		yes:    hasFlag(args, "--yes") || hasFlag(args, "-y"),
+	}
 }
 
 // chooseVault resolves where the vault lives and makes sure it exists.
@@ -206,7 +215,14 @@ func indexVault(vault string) {
 }
 
 // wireHosts registers this binary with every MCP host on the machine.
-func wireHosts(vault string) error {
+// wireOpts is how the caller narrows or previews the wiring.
+type wireOpts struct {
+	only   []string // --host, repeatable; empty means every detected host
+	dryRun bool     // --dry-run: show the plan and change nothing
+	yes    bool     // --yes: do not prompt
+}
+
+func wireHosts(vault string, opts wireOpts) error {
 	bin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("could not find my own path, which the host config needs: %w", err)
@@ -224,9 +240,56 @@ func wireHosts(vault string) error {
 		Env: map[string]string{"BRAIN_VAULT": vault},
 	}
 
+	hosts, unmatched := setup.Only(setup.Hosts(), opts.only)
+	if len(unmatched) > 0 {
+		return fmt.Errorf("unknown host %s — brain knows: %s",
+			strings.Join(unmatched, ", "), strings.Join(setup.Names(setup.Hosts()), ", "))
+	}
+
+	// Show the plan before touching anything. Registering brain with every AI
+	// tool on the machine is a big commitment for someone trying one of them,
+	// and it used to happen with no gate at all.
+	plan := setup.Plan(hosts)
+	var present int
+	for _, r := range plan {
+		if r.Outcome == setup.Pending {
+			present++
+		}
+	}
+
 	fmt.Println("\n  hosts")
+	if present > 0 {
+		fmt.Printf("    each of these will be pointed at:\n")
+		fmt.Printf("      %s %s\n", bin, strings.Join(srv.Args, " "))
+		fmt.Printf("      BRAIN_VAULT=%s\n\n", vault)
+	}
+	for _, r := range plan {
+		if r.Outcome == setup.Skipped {
+			fmt.Printf("    %-16s —  not installed\n", r.Host)
+			continue
+		}
+		fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
+	}
+
+	if present == 0 {
+		fmt.Println("\n  No MCP hosts found. Install Claude Code, Claude Desktop, Cursor or")
+		fmt.Println("  Codex and re-run `brain mcp install`.")
+		return nil
+	}
+
+	if opts.dryRun {
+		fmt.Println("\n  --dry-run: nothing was written.")
+		return nil
+	}
+	if !opts.yes && !confirm(fmt.Sprintf("\n  wire %d host(s)?", present)) {
+		fmt.Println("  skipped; re-run `brain mcp install` when you are ready")
+		fmt.Println("  (--host <name> wires just one)")
+		return nil
+	}
+
+	fmt.Println()
 	var wired int
-	for _, r := range setup.Install(srv, setup.Hosts()) {
+	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
 		case setup.Skipped:
 			fmt.Printf("    %-16s —  not installed\n", r.Host)
@@ -275,11 +338,9 @@ func mcpInstallCmd(args []string) error {
 	if _, err := os.Stat(abs); err != nil {
 		return fmt.Errorf("vault not found at %s — run `brain setup` first, or pass --vault", abs)
 	}
-	return wireHosts(abs)
+	return wireHosts(abs, wireOptsFrom(args))
 }
 
-// confirm asks a yes/no question, defaulting to yes. A non-interactive stdin
-// answers yes: setup is something a person ran on purpose.
 // confirm asks a yes/no question. An interactive user pressing return accepts;
 // nobody being there declines.
 //

@@ -62,6 +62,9 @@ const (
 	Skipped Outcome = "not installed"
 	// Failed means it is installed and something went wrong.
 	Failed Outcome = "failed"
+	// Pending means the host is installed and would be wired. Only Plan produces
+	// it — it is what the user is being asked to approve.
+	Pending Outcome = "would wire"
 )
 
 // A Result is one host's line in the report.
@@ -83,6 +86,65 @@ type Host struct {
 	Where func() string
 	// Register points the host at this server.
 	Register func(Server) (Outcome, error)
+}
+
+// Plan reports what Install would do, without doing any of it.
+//
+// Registering brain with every AI tool on someone's machine is a large action
+// for someone evaluating one integration, and it used to happen with no gate at
+// all — not even --yes. Showing the list first costs one function and turns an
+// imposition into a choice.
+//
+// It does not distinguish "would register" from "would update": finding that
+// out means reading a config the user has not yet agreed to have touched, and
+// for the CLI-based hosts it means asking their command, which is not free.
+// Pending is the honest answer to "what will happen here".
+func Plan(hosts []Host) []Result {
+	out := make([]Result, 0, len(hosts))
+	for _, h := range hosts {
+		r := Result{Host: h.Name, Where: h.Where(), Outcome: Pending}
+		if !h.Detect() {
+			r.Outcome = Skipped
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// Only keeps the hosts the user named, matched case-insensitively on a prefix so
+// `--host claude-code`, `--host "Claude Code"` and `--host codex` all work. An
+// unmatched name is returned so the caller can say so rather than silently
+// wiring nothing.
+func Only(hosts []Host, names []string) (kept []Host, unmatched []string) {
+	if len(names) == 0 {
+		return hosts, nil
+	}
+	norm := func(s string) string {
+		return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s))
+	}
+	for _, want := range names {
+		found := false
+		for _, h := range hosts {
+			if strings.HasPrefix(norm(h.Name), norm(want)) {
+				kept = append(kept, h)
+				found = true
+				break
+			}
+		}
+		if !found {
+			unmatched = append(unmatched, want)
+		}
+	}
+	return kept, unmatched
+}
+
+// Names lists every host brain knows how to wire, for error messages.
+func Names(hosts []Host) []string {
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, h.Name)
+	}
+	return out
 }
 
 // Install registers the server with every host that is present.
