@@ -40,6 +40,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `brain — local-first memory and continuity for AI agents
 
 USAGE
+    brain setup [--vault DIR] [--yes]  connect brain to every AI agent on this machine
     brain brief                       what the secretary thinks you should know now
     brain replay [--peek]             catch up on what changed since you were last here
     brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
@@ -62,6 +63,7 @@ USAGE
                                       has this already been ruled out? ask before proposing
     brain sessions <project>          checkpoint history for a project
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
+    brain mcp install [--vault DIR]   register this brain with every MCP host found
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
     brain loop [add|done|drop]        manage open loops (commitments)
     brain think [off|low|medium|high]  how much the model reasons before answering
@@ -90,7 +92,7 @@ USAGE
                                       LongMemEval retrieval recall; the extract→recall loop
 
 ENV
-    BRAIN_VAULT   path to the vault (default ./vault)
+    BRAIN_VAULT   path to the vault (default ~/brain)
     BRAIN_MODEL   chat model (default %s)
     BRAIN_EMBED   embed model (default %s)
     BRAIN_REPOS   colon-separated repos to mine for commits
@@ -110,6 +112,10 @@ func main() {
 	switch {
 	case cmd == "version", cmd == "--version", cmd == "-v":
 		fmt.Printf("brain %s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	case cmd == "setup":
+		err = setupCmd(args)
+	case cmd == "mcp" && len(args) >= 1 && args[0] == "install":
+		err = mcpInstallCmd(args)
 	case cmd == "doctor":
 		err = doctor(hasFlag(args, "--probe"))
 	case cmd == "key":
@@ -265,7 +271,24 @@ func env(key, def string) string {
 	return def
 }
 
-func vaultPath() string { return env("BRAIN_VAULT", "vault") }
+// vaultPath resolves where the vault lives.
+//
+// The default is absolute — ~/brain — and that matters more than it looks. It
+// used to be the relative "vault", which is fine in a terminal and quietly
+// wrong everywhere else: an MCP host launches this binary from a directory
+// nobody chose, so a config that omitted BRAIN_VAULT did not fail, it created
+// an empty vault somewhere the user would never look. brain then appeared to
+// work while knowing nothing, which is the worst way for a memory product to
+// break. BRAIN_VAULT still wins wherever it is set.
+func vaultPath() string {
+	if v := os.Getenv("BRAIN_VAULT"); v != "" {
+		return v
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, "brain")
+	}
+	return "vault" // no home directory to speak of; the old behaviour
+}
 
 func watchedRepos() []string {
 	if v := os.Getenv("BRAIN_REPOS"); v != "" {
