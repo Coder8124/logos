@@ -1,0 +1,43 @@
+{
+  "name": "@coder8124/brain",
+  "version": "0.1.0",
+  "description": "The memory you own. A local-first memory and continuity layer for AI agents, over MCP.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "continuity",
+    "local-first",
+    "claude",
+    "cursor",
+    "codex"
+  ],
+  "homepage": "https://github.com/Coder8124/brain",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Coder8124/brain.git",
+    "directory": "npm"
+  },
+  "license": "MIT",
+  "bin": {
+    "brain": "bin/brain.js"
+  },
+  "files": [
+    "bin/brain.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "optionalDependencies": {
+    "@coder8124/brain-darwin-arm64": "0.1.0",
+    "@coder8124/brain-darwin-x64": "0.1.0",
+    "@coder8124/brain-linux-x64": "0.1.0",
+    "@coder8124/brain-linux-arm64": "0.1.0",
+    "@coder8124/brain-win32-x64": "0.1.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node scripts/test.js"
+  }
+}

@@ -44,3 +44,9 @@ personal/
 # npm platform packages are generated from dist/ by npm/scripts/build.js — they
 # hold ~11MB binaries each and are rebuilt for every release.
 npm/platforms/
+npm/node_modules/
+# Exception: npm/bin holds the hand-written launcher, not a build product. The
+# generic bin/ rule at the top of this file would otherwise swallow the one file
+# the npm package cannot work without.
+!npm/bin/
+!npm/bin/**
