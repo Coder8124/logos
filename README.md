@@ -20,23 +20,56 @@ this project dies, you keep a vault.
 
 ---
 
-## Quickstart
-
-Requires Go 1.26+ and a local model runtime (Ollama, LM Studio, Jan, or Msty).
-Endpoints are auto-discovered — no configuration for the common case.
+## Install
 
 ```sh
-go build -o bin/brain ./cmd/brain
-export BRAIN_VAULT=~/vault          # defaults to ./vault
-
-./bin/brain doctor                  # what runtimes and models it found
-./bin/brain index                   # sync the vault into the cache and embed
-./bin/brain ask "what did I decide about pricing?"
+go install github.com/pragun/brain/cmd/brain@latest
+brain setup
 ```
 
-`doctor --probe` actually loads each model and reports which ones honour JSON
-schemas — worth running once, since small models that ignore a schema will
-quietly poison extraction.
+That is the whole thing. `setup` picks a vault (`~/brain` unless you say
+otherwise), finds your local model runtime and offers to pull anything missing,
+runs the first index, and then **registers brain with every AI agent on the
+machine**:
+
+```console
+$ brain setup
+
+  vault      /Users/you/brain   (created)
+  runtime    Ollama at http://localhost:11434/v1
+  embedding  nomic-embed-text ✓
+  model      gemma3:4b ✓
+
+  index      0 notes, 0 edges
+
+  hosts
+    Claude Code      ✓  registered (claude mcp add --scope user)
+    Claude Desktop   ✓  registered (~/Library/Application Support/Claude/…)
+    Cursor           ✓  registered (~/.cursor/mcp.json)
+    Codex            ✓  registered (codex mcp add)
+
+  Restart the host, then ask it: "what do you remember about me?"
+```
+
+Restart the agent and it can reach your memory. `brain setup --vault ~/notes`
+points it elsewhere; `brain mcp install` re-runs just the wiring. Both are safe
+to run twice — an existing entry is updated, never duplicated, other MCP servers
+in those files are left alone, and anything edited gets a `.brain-backup`
+beside it.
+
+Where a host ships its own registration command (Claude Code, Codex) brain uses
+it, so their config format stays their problem. Only Claude Desktop and Cursor
+get hand-written JSON.
+
+A local model runtime — Ollama, LM Studio, Jan, or Msty — is wanted but
+optional. Without one, retrieval falls back to lexical search and graph
+traversal: measurably weaker, not broken. Endpoints are auto-discovered.
+
+```sh
+brain doctor --probe                # which models load, and honour JSON schemas
+brain index                         # re-sync after editing the vault by hand
+brain ask "what did I decide about pricing?"
+```
 
 Want something to point it at? `./scripts/seed-demo-vault.sh` builds a synthetic
 vault (`~/vaults/kestrel`) with interlocking constraints — a BOM that doesn't
@@ -51,11 +84,56 @@ cd app && wails dev        # or: wails build
 
 ---
 
+## Does it actually work?
+
+Two benchmarks, both reproducible from this repo, both run entirely locally.
+
+**Retrieval.** 96.0% recall@5 / 99.2% recall@10 on the full 500-question
+LongMemEval-S. Hybrid beats vector-only by 8.9 points.
+
+**Continuity.** A suite built here, because nothing existing measured handoff:
+32 hand-authored scenarios, nine memory systems, one machine, same embedding
+model throughout.
+
+```
+system                pass  fidelity  carry   leak  signal
+brain                81.2%    82.8%   89.1%  33.3%   88.9%
+mempalace            46.9%    71.9%   82.8%  58.3%   22.2%
+recency-window       46.9%    68.8%   84.4%  83.3%   22.2%
+letta                43.8%    67.2%   82.8%  83.3%   22.2%
+mem0                 43.8%    67.2%   82.8%  83.3%   22.2%
+vector-rag           43.8%    67.2%   82.8%  83.3%   22.2%
+none                  0.0%     6.2%    6.2%   0.0%    0.0%
+```
+
+Retrieval is not the differentiator — every real system carries 82–89% of the
+required facts. The gap is **leakage** (returning the superseded price next to
+the current one) and **signal** (saying *this was tried*, *this changed*,
+*nothing on record covers that*). A scenario passes only when it clears all
+three bars, because a system that returns the right fact *and* the stale one it
+replaced has handed the next agent a coin flip.
+
+On the durability family — write, delete every rebuildable artifact, read again
+— brain scores **100%** and every other system scores **0%**.
+
+It loses too: arithmetic and recency-conflict are 0% for everyone, and MemPalace
+beats brain outright on temporal ordering. Full numbers, method and caveats in
+[docs/continuity-benchmark.md](docs/continuity-benchmark.md).
+
+```sh
+go run ./cmd/brain bench continuity --brain-only
+```
+
+---
+
 ## Lending the memory to other agents
 
 `brain mcp serve` exposes the memory over the **Model Context Protocol** — the
 same protocol Claude Desktop, Claude Code, and Cursor speak, and one any
 application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
+
+`brain setup` writes the config for you. If your host is not one of the four it
+knows:
 
 ```json
 {
@@ -68,6 +146,10 @@ application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
   }
 }
 ```
+
+Both paths must be absolute. A host launches the server from a directory nobody
+chose, so a relative `BRAIN_VAULT` resolves somewhere you will never look — and
+brain will appear to work while knowing nothing.
 
 Twelve tools in two families:
 
@@ -183,10 +265,8 @@ The rest of the surface is `Context`, `Remember`/`Recall`/`Forget`, `Search`,
 tools than call them. `examples/handoff` is the whole thing end to end: one agent
 works and stops, another opens the same vault and continues.
 
-No model runtime is required. `Open` discovers one if it's there and uses it for
-embeddings; without one, retrieval falls back to lexical and graph traversal —
-measurably weaker, not broken. `brain.WithoutEmbedding()` skips discovery
-outright, which is what you want in CI.
+`brain.WithoutEmbedding()` skips model discovery outright, which is what you want
+in CI.
 
 Everything else stays under `internal/` on purpose. The exported surface is what
 an agent actually uses, so the retrieval, budgeting and consolidation internals
@@ -198,6 +278,8 @@ definitions, which makes them part of the contract rather than a copy that drift
 ## The command surface
 
 ```text
+brain setup [--vault DIR] [--yes]               connect brain to every agent here
+brain mcp serve | mcp install                   serve the memory; wire up the hosts
 brain ask <q> | search <q> | timeline           query what it knows
 brain brief                                     what the secretary thinks you should know now
 brain replay [--peek]                           what changed since you were last here
@@ -214,14 +296,14 @@ brain note <project> <what you did>             record progress; uncommitted unt
 brain checkpoint <project> [--handoff who]      commit where you stopped, into the vault
 brain resume <project> | sessions <project>     pick up; read the checkpoint log
 brain tried <approach> [--project p]            has this already been ruled out?
-brain mcp serve                                 serve the memory to MCP hosts
+brain bench continuity [--brain-only]           the handoff suite, against every system installed
 brain index [--watch] | rollup | review | prune cache sync, proposals, retention
 brain capture [--daemon]                        pull episodic events
 brain dream [--phase nrem|rem]                  nightly consolidation
 brain doctor [--probe] | key set|rm <ref>       runtimes and tiers; API keys
 ```
 
-Environment: `BRAIN_VAULT` (default `./vault`), `BRAIN_MODEL`, `BRAIN_EMBED`,
+Environment: `BRAIN_VAULT` (default `~/brain`), `BRAIN_MODEL`, `BRAIN_EMBED`,
 `BRAIN_REPOS` (colon-separated repos to mine for commits), `BRAIN_AGENT` (the
 name recorded in the session trail, default `cli`).
 
@@ -268,9 +350,6 @@ cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather
 than tool-calling — small local models are unreliable at tool schemas and
 near-perfect with a JSON schema enforced at the sampler.
 
-Measured at **96.0% recall@5 / 99.2% recall@10** on the full 500-question
-LongMemEval-S; hybrid beats vector-only by 8.9 points.
-
 ---
 
 ## Repository
@@ -279,13 +358,25 @@ LongMemEval-S; hybrid beats vector-only by 8.9 points.
 brain.go         the public API — what an embedding agent imports
 examples/        runnable embeddings, starting with the handoff
 cmd/brain/       the CLI — one engine, two front ends
-internal/        index, memory, session, contextpack, deadend, graph, capture,
-                 dream, rollup, secretary, router, voice, mcpserver
+internal/        index, memory, session, contextpack, deadend, graph, setup,
+                 capture, dream, rollup, secretary, router, voice, mcpserver
+chaos/           fault injection: SIGKILL mid-write, full disks, racing processes
 app/             Wails v2 desktop app (menubar orb, panel, graph canvas)
-docs/            per-subsystem notes: capture, dream, graph, models, presence…
+bench/           Python adapters for the systems brain is scored against
+docs/            the benchmark, plus per-subsystem notes
 scripts/         demo vault seeding, voice-engine fetch, icon build
 ```
 
-Further reading: [PRODUCT.md](PRODUCT.md) for the full product surface,
-[DESIGN.md](DESIGN.md) for principles and architecture, [CREDITS.md](CREDITS.md)
-for prior work that shaped the ideas.
+Tests run with `go test ./...`. The chaos tier is opt-in and slower:
+
+```sh
+go test -tags chaos ./chaos
+```
+
+It kills the binary mid-checkpoint forty times, fills a real disk image to
+ENOSPC, and races processes on one vault — the failures that only appear when
+the kernel is involved.
+
+Further reading: [CREDITS.md](CREDITS.md) for prior work that shaped the ideas,
+and `DESIGN.md` / `PRODUCT.md` for principles, architecture and the full product
+surface.
