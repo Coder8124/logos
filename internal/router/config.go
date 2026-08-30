@@ -68,6 +68,34 @@ type Config struct {
 	// thinking model from spending its whole budget thinking and returning an
 	// empty answer over the /v1 endpoint.
 	Think string `json:"think,omitempty"`
+	// RetentionDays is how long raw capture events are kept before the daemon
+	// drops them. Rollups have already extracted anything worth keeping by then,
+	// which is the whole point of the two-tier design.
+	//
+	// This existed as an idea long before it existed as a number: capture polls
+	// every five seconds, and until now nothing scheduled a prune, so raw events
+	// accumulated for as long as the daemon ran. 0 means the default; a negative
+	// value means keep everything, for someone who has decided that on purpose.
+	RetentionDays int `json:"retention_days,omitempty"`
+}
+
+// DefaultRetentionDays is long enough that a monthly consolidation still has its
+// evidence, short enough that a laptop running the daemon continuously does not
+// quietly fill up.
+const DefaultRetentionDays = 30
+
+// Retention resolves the configured window, in days. The second return says
+// whether events are kept forever, which callers must report rather than
+// present as a number.
+func (c *Config) Retention() (days int, forever bool) {
+	switch {
+	case c == nil || c.RetentionDays == 0:
+		return DefaultRetentionDays, false
+	case c.RetentionDays < 0:
+		return 0, true
+	default:
+		return c.RetentionDays, false
+	}
 }
 
 // Defaults match what a stock Ollama install tends to have. Anything missing is
@@ -111,6 +139,7 @@ func Load(vault string) (*Config, error) {
 	if onDisk.Think != "" {
 		cfg.Think = onDisk.Think
 	}
+	cfg.RetentionDays = onDisk.RetentionDays
 	return cfg, nil
 }
 

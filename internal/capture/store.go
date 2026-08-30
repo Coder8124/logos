@@ -133,6 +133,40 @@ func Count(db *sql.DB) (int, error) {
 	return n, err
 }
 
+// Footprint is what raw capture currently costs, measured rather than guessed.
+//
+// A user deciding whether to leave the daemon running deserves a number, and
+// the only honest number is one taken from their own data: how much text their
+// own apps and URLs actually produce. Bytes is the stored text plus a fixed
+// allowance for the integer columns and row overhead — close enough to size a
+// disk budget, and never presented as exact.
+//
+// Days is how long the existing events span. It is the reason this returns a
+// span at all: with less than a day of data there is nothing to extrapolate
+// from, and saying so is better than projecting a week from ten minutes.
+func Footprint(db *sql.DB) (events int, bytes int64, days float64, err error) {
+	// 48 bytes covers id, ts, dur_s, the row header and the two indexes' share.
+	const rowOverhead = 48
+	var size sql.NullInt64
+	var lo, hi sql.NullInt64
+	err = db.QueryRow(`
+		SELECT COUNT(*),
+		       SUM(LENGTH(COALESCE(app,'')) + LENGTH(COALESCE(title,''))
+		           + LENGTH(COALESCE(url,'')) + LENGTH(COALESCE(path,'')) + ?),
+		       MIN(ts), MAX(ts)
+		FROM events`, rowOverhead).Scan(&events, &size, &lo, &hi)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if size.Valid {
+		bytes = size.Int64
+	}
+	if lo.Valid && hi.Valid && hi.Int64 > lo.Int64 {
+		days = float64(hi.Int64-lo.Int64) / 86400
+	}
+	return events, bytes, days, nil
+}
+
 // ByIDs fetches specific events, for showing the evidence behind a proposal.
 // Ordered by time rather than by id so the reader sees a narrative.
 func ByIDs(db *sql.DB, ids []int64) ([]Event, error) {
