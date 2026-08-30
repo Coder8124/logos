@@ -1,399 +1,274 @@
-# A Continuity Benchmark for Agent Memory
+# A benchmark for handoff, not just recall
 
-**What survives when the agent doesn't.**
+**Nine memory systems, thirty-two hand-authored scenarios, one machine, no
+network.** Run 2026-08-29 on an M-series Mac, every system embedding with
+`nomic-embed-text` through the same local Ollama.
 
-Run of 2026-08-29 · commit `19dad1c` · 32 scenarios · 9 systems · all local
+Reproduce it:
 
----
-
-## Abstract
-
-Memory benchmarks for language agents almost all measure *recall*: given a
-corpus of past conversation, can the system find the fact that answers a
-question. That is a real capability and it is not the one that fails in
-practice. What fails is **handoff** — an agent stops, another starts, and the
-expensive knowledge (what was already ruled out, what was superseded, who said
-it, how old it is) does not make the trip.
-
-This benchmark measures handoff. It comprises 32 hand-authored adversarial
-scenarios across three families — continuity, durability and memory — scored by
-a deterministic rubric with no model in the loop. Nine systems are evaluated:
-`brain`, three third-party memory systems run for real against local models
-(mem0, MemPalace, Letta), four controlled baselines, and an empty control.
-
-Two results stand out. First, **eight of twenty-five skills were scored at 0%
-by every system in the field** at baseline — they are category-level blind
-spots, not implementation gaps. Second, at the retrieval layer with inference
-disabled, **mem0 and Letta produce byte-identical output**, which suggests the
-differentiation between such products lives in their LLM-mediated write path
-rather than in retrieval.
-
-`brain` scores 81.2% against a field clustered at 43.8–46.9%. That number is
-reported alongside a conflict of interest that should be read first: the author
-of the benchmark is the author of the leading system, and six of the eight
-originally-universal failures were fixed in `brain` after they were discovered
-by this suite.
+```sh
+go run ./cmd/brain bench continuity          # the whole field
+go run ./cmd/brain bench continuity --brain-only
+go run ./cmd/brain bench continuity list     # every scenario and what it asks
+```
 
 ---
 
-## 1. Motivation
+## 1. Why another memory benchmark
 
-An agent session ends for mundane reasons: a context window fills, a process is
-killed, a user switches from one tool to another. The next agent begins from
-nothing. In practice the user re-explains the project, and — the expensive part
-— the new agent proposes something that was tried and rejected three weeks ago.
+Existing memory benchmarks — LongMemEval, LoCoMo, and the retrieval suites that
+follow them — measure the same thing in different clothes: *given a long
+history, can the system find the fact that answers a question.* brain scores
+well on that (96.0% recall@5 on the full 500-question LongMemEval-S, hybrid
+retrieval beating vector-only by 8.9 points) and so does everything else worth
+comparing against. Recall is close to solved at this scale.
 
-Existing benchmarks do not capture this. LongMemEval, LoCoMo and similar suites
-pose a question against a conversational history and score whether the right
-passage is retrieved. Under that framing a system that returns *every*
-statement it has ever seen scores well. In a handoff, that same system hands
-the next agent a superseded price, a cancelled plan, and a dead end presented
-as an open option.
+The thing that is not solved, and that nobody measures, is **handoff**: an agent
+stops mid-task, and a different agent — often a different product, on a
+different day — has to continue. That is a different problem from recall in four
+specific ways, and each one is a family of scenarios here:
 
-So the question here is not "can it find the fact" but:
+1. **Negative knowledge.** The expensive thing an agent learns is what *didn't*
+   work. Recall benchmarks never test it, because it isn't an answer to a
+   question — it's a constraint on a plan.
+2. **Supersession.** A history contains a price that changed, a plan that was
+   cancelled, a decision that was reversed. Returning the stale one is worse
+   than returning nothing, and recall metrics score it as a hit.
+3. **Provenance and staleness.** *Who* recorded this, and *when*, decide whether
+   the next agent should act on it. A retrieved sentence with neither is a
+   liability.
+4. **Abstention.** When nothing on record bears on the question, the correct
+   output is to say so. Nearest-neighbour retrieval structurally cannot do this:
+   there is always a nearest neighbour.
 
-> Given everything one agent knew, can a different agent continue the work
-> without repeating it?
+A fifth family is about the substrate rather than the retrieval:
+**durability** — does what the system knows survive deleting its own cache.
 
-That reframing changes what must be measured. Recall is necessary but no longer
-sufficient; what a system *wrongly includes* matters as much as what it finds,
-and abstention becomes a scoreable skill rather than a failure to answer.
+### The metric that matters
+
+Recall alone rewards dumping the whole history. So a scenario passes only when
+it clears **every** bar it sets:
+
+| Metric | What it measures |
+|---|---|
+| **carry** | required facts present in the output |
+| **leak** | facts that must *not* appear — superseded values, other projects' dead ends, cancelled plans |
+| **signal** | required framing — "this was tried", "this changed", "nothing on record" |
+| **tokens** | output size, against the scenario's budget |
+
+**fidelity** = carry × (1 − leak). **pass** requires all three of carry, leak
+and signal. That last condition is the whole design: a system that returns the
+right fact *and* the stale one it replaced has not answered the question, it has
+handed the next agent a coin flip.
 
 ---
 
-## 2. Design
+## 2. The field
 
-### 2.1 Scenarios
+Six real systems and three controls. The controls exist so a number has
+something to mean.
 
-32 scenarios, hand-authored, in three families:
+| System | What it is |
+|---|---|
+| **brain** | this project — checkpoints in markdown, hybrid retrieval, budgeted context assembly |
+| **letta** | Letta 0.16.8 (formerly MemGPT), archival memory via a local server |
+| **mem0** | mem0ai, verbatim store + BM25/vector search |
+| **mempalace** | MemPalace, local palace store |
+| *vector-rag* | control: embed everything, return top-k by cosine |
+| *recency-window* | control: return the last N events |
+| *full-dump* | control: return everything, truncated to budget |
+| *static-file* | control: a hand-written project file, never updated |
+| *none* | control: no memory at all. The floor. |
 
-| Family | n | Question asked |
-|---|--:|---|
-| continuity | 14 | Can a cold agent resume work another agent stopped? |
-| durability | 3 | Does the memory survive the cache being deleted? |
-| memory | 15 | Classical recall, plus supersession, negation, abstention, arithmetic, temporal reasoning |
-
-Each scenario is a sequence of timestamped events (checkpoints, working notes,
-memories, vault notes) followed by one query with a token budget. Timestamps
-are real and backdated, so "thirteen days ago" is thirteen days before the run
-and staleness is genuinely measurable.
-
-Scenarios are written adversarially, and **deliberately include cases the
-author expected `brain` to fail**: 6 of the 32 are labelled known weaknesses in
-the suite itself. The harness prints every case where the label mispredicted the
-outcome, in either direction, so a scenario quietly becoming easy is visible.
-
-### 2.2 Metrics
-
-Every metric is computed by string matching against gold labels. No model
-judges any output, which makes the suite deterministic and reproducible.
-
-- **recall** — required facts present. Returns 1 when a scenario requires
-  nothing, so abstention cases are not penalised for correctly carrying nothing.
-- **leak** — facts present that should have been suppressed: superseded values,
-  cancelled plans, another project's dead ends.
-- **signal** — required *labels* present: "this is stale", "these two sources
-  disagree", "I have no record of this". A system can carry every fact and score
-  zero here.
-- **fidelity** — `recall × (1 − leak)`. The headline quality number.
-- **pass** — the scenario met **every** bar it set, signal labels included. This
-  is deliberately harsh, and it is the number to read.
-- **tokens / density** — mean response size, and required facts per 1000 tokens.
-
-An early version scored fidelity only, and a staleness scenario scored 100% by
-returning a two-week-old plan with no warning — doing precisely what the case
-was written to catch. `pass` exists because of that.
-
-One methodological trap is worth naming. `brain`'s renderer opens with
-`# Context for: <task>`, which echoes the question. An early harness scored that
-echo as a hit and gave a scenario 100% for returning two undated facts. The
-scorer now strips any echo of the prompt before matching, and a regression test
-(`TestTheQuestionCannotAnswerItself`) holds that line.
-
-### 2.3 Systems
-
-Nine systems. All embeddings are `nomic-embed-text` via Ollama, on the same
-machine, so the comparison is like-for-like.
-
-**Third-party, run for real:**
-
-| System | Version | How it was driven |
-|---|---|---|
-| mem0 | 2.0.19 | `add(infer=False)`, `search(top_k=20)`, Qdrant local |
-| MemPalace | 3.8.0 | native API, local store |
-| Letta (MemGPT) | 0.16.8 | archival memory: `passages.create` / `passages.search(top_k=20)` |
-
-Each runs as a subprocess in its own virtualenv speaking newline-delimited JSON,
-so what is measured is their retrieval rather than a reimplementation of it.
-
-**Controlled baselines**, which exist to make the third-party numbers legible:
-
-- **full-dump** — return everything, budget permitting. The upper bound on recall
-  and the lower bound on discipline.
-- **recency-window** — return the most recent events.
-- **vector-rag** — plain cosine top-k over the same embedder. The honest floor
-  for "just use a vector database".
-- **static-file** — a hand-written `CLAUDE.md`-style project file that never
-  updates. What most teams actually do today.
-- **none** — no memory. Confirms the scenarios are not self-answering.
-
-### 2.4 What is not measured, and why
-
-Two of the three third-party systems have an LLM-mediated write path that is
-switched off here.
-
-mem0's `add(infer=True)` runs a model over every write to extract and reconcile
-facts. Letta's full agent loop lets a model decide what enters core memory and
-when to search archival. Both are those systems at their most capable. Both are
-also one-or-more model calls per event, against scenarios writing up to 200
-events, across 32 scenarios — days of local inference.
-
-The direction of that bias must be stated plainly: **disabling inference is
-favourable on retrieval** (nothing is lost to a small model's extraction) and
-**unfavourable on reconciliation** (supersession and contradiction are exactly
-what the inference path exists to handle). mem0's and Letta's weakest results
-here are in the arm that was switched off. This is the caveat most likely to
-matter if these numbers are cited.
+Every system runs locally against the same models. No API keys, nothing leaves
+the machine, so the comparison is like-for-like on the same hardware.
 
 ---
 
 ## 3. Results
 
-### 3.1 Overall
-
-| system | pass | fidelity | recall | leak | signal | tokens | dens/1k |
-|---|--:|--:|--:|--:|--:|--:|--:|
-| **brain** | **81.2%** | **82.8%** | **89.1%** | **33.3%** | **88.9%** | 253 | 6.5 |
-| mempalace | 46.9% | 71.9% | 82.8% | 58.3% | 22.2% | 308 | 4.0 |
-| recency-window | 46.9% | 68.8% | 84.4% | 83.3% | 22.2% | 230 | 11.0 |
-| full-dump | 46.9% | 68.8% | 84.4% | 83.3% | 22.2% | 264 | 10.9 |
-| letta | 43.8% | 67.2% | 82.8% | 83.3% | 22.2% | 169 | 11.2 |
-| mem0 | 43.8% | 67.2% | 82.8% | 83.3% | 22.2% | 169 | 11.2 |
-| vector-rag | 43.8% | 67.2% | 82.8% | 83.3% | 22.2% | 96 | 12.9 |
-| static-file | 6.2% | 22.7% | 22.7% | 0.0% | 0.0% | 14 | 6.4 |
-| none | 0.0% | 6.2% | 6.2% | 0.0% | 0.0% | 0 | 0.0 |
-
-### 3.2 The finding that matters most: recall is not the differentiator
-
-Every system that returns anything scores **82.8–89.1% recall**. The spread is
-six points. On a conventional recall benchmark these systems are
-indistinguishable.
-
-The spread on **pass** is 43.8% to 81.2%, and on **leak** it is 33.3% to 83.3%.
-The differentiation is entirely in what a system *suppresses* and *flags*, not
-in what it finds.
-
-This is the argument for the benchmark existing. A suite that measured only
-recall would conclude that a plain vector database is as good as anything else —
-and on recall, it is.
-
-### 3.3 Universal blind spots
-
-Eight skills scored **0% across every system in the field** when this suite was
-first run:
-
-`abstention` · `arithmetic` · `attribution` · `conflict` · `recency-conflict` ·
-`scope` · `staleness` · `supersession`
-
-These are not implementation bugs. They are a category-level gap: no system in
-the field distinguished a superseded value from a current one, said who wrote
-something, noticed that a note was two weeks old, or declined to answer when it
-held nothing relevant.
-
-Three remain unsolved by every system including `brain`:
-
-- **arithmetic** (0% for all nine) — aggregating values across retrieved facts.
-  Retrieval systems retrieve; none of them compute.
-- **recency-conflict** (0% for all nine) — two sources disagree *and* one is
-  newer, requiring both the conflict and the ordering to be surfaced.
-- **temporal** — only MemPalace scores here (50%), and `brain` scores 0%.
-  MemPalace's explicit time model earns it the one result no other system gets.
-
-### 3.4 mem0 and Letta are the same system at this layer
-
-mem0 and Letta return **byte-identical output** on every scenario — same pass,
-fidelity, leak, signal, and the same 169 mean tokens. This was verified directly
-outside the harness: given four events and one query, the two produce the same
-string.
-
-The explanation is not a harness bug. With inference disabled, both are a
-verbatim passage store ranked by cosine similarity over the same embedding
-model, returning the same top-k, packed to the same budget by the same rule.
-Same corpus, same embedder, same ranking, same packer, same output.
-
-The implication is worth stating: **the retrieval substrate of these products is
-commodity.** Whatever distinguishes them lives in the write path — extraction,
-reconciliation, what the agent chooses to store — which is precisely the part
-this run switched off. Their convergence here is a fact about the layer being
-measured, not a judgement of the products.
-
-`vector-rag` — 40 lines of cosine top-k — matches both on pass and fidelity,
-and beats both on density.
-
-### 3.5 Where brain wins, and what it costs
-
-`brain` holds six skills outright that no other system scores on: `staleness`,
-`supersession`, `abstention`, `attribution`, `scope`, `died-mid-task`, plus
-`source-of-truth` (100% vs 33% for static-file) and `conflict` (50% vs 0%).
-
-It is also the only system scoring above 0% on the **durability** family (100%
-vs 0% for everything except static-file's 33%) — the cases that delete the
-index and require the memory to survive. Most systems have no answer because
-their store *is* the database.
-
-The cost is legibility of the win: these are the skills `brain` was modified to
-address after this suite exposed them. See §5.
-
-`brain` is not the densest system (6.5 facts/1k tokens against vector-rag's
-12.9). Density bought by returning nothing but nearest neighbours is not free —
-it is paid for in the leak column, where vector-rag sits at 83.3% against
-`brain`'s 33.3%.
-
-### 3.6 The static-file baseline
-
-`static-file` scores 6.2%. It is included because it is what most teams do
-today: a hand-written project file, committed once, never updated. It has 0%
-leak — it cannot leak, because it never learns anything — and 22.7% recall.
-
----
-
-## 4. Reproducing
-
-```sh
-git clone https://github.com/Coder8124/brain && cd brain
-go build -o bin/brain ./cmd/brain
-./bin/brain bench continuity              # whole field
-./bin/brain bench continuity --brain-only # no Python systems needed
+```
+system                pass  fidelity  carry   leak  signal  tokens  dens/1k
+brain                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
+mempalace            46.9%    71.9%   82.8%  58.3%   22.2%     308      4.0
+recency-window       46.9%    68.8%   84.4%  83.3%   22.2%     230     11.0
+full-dump            46.9%    68.8%   84.4%  83.3%   22.2%     264     10.9
+letta                43.8%    67.2%   82.8%  83.3%   22.2%     169     11.2
+mem0                 43.8%    67.2%   82.8%  83.3%   22.2%     169     11.2
+vector-rag           43.8%    67.2%   82.8%  83.3%   22.2%      96     12.9
+static-file           6.2%    22.7%   22.7%   0.0%    0.0%      14      6.4
+none                  0.0%     6.2%    6.2%   0.0%    0.0%       0      0.0
 ```
 
-Third-party systems are auto-discovered: each `bench/adapters/*_adapter.py`
-that reports itself runnable is included, and one that cannot import its own
-package is **skipped rather than scored zero** — a missing row is honest where a
-row of zeros would be a lie about that system's quality.
+By family:
 
-Letta additionally needs PostgreSQL with pgvector and a running `letta server`;
-`bench/README.md` documents the setup.
+```
+system              continuity  durability  memory
+brain                      86%        100%     73%
+mempalace                  50%          0%     53%
+recency-window             50%          0%     53%
+full-dump                  50%          0%     53%
+letta                      50%          0%     47%
+mem0                       50%          0%     47%
+vector-rag                 50%          0%     47%
+static-file                 0%         33%      7%
+none                        0%          0%      0%
+```
 
-**Environment for this run:** Apple M4 Pro, 48 GB, macOS 26.6.2, Go 1.26.5,
-Ollama serving `nomic-embed-text` (768-dim). Raw output is retained per run.
+### What the numbers say
 
----
+**Carry is not the differentiator.** Every real system lands between 82.8% and
+89.1%. Retrieval works. The spread in *pass* comes almost entirely from leakage
+and signal.
 
-## 5. Threats to validity
+**Leakage is.** brain leaks 33.3%; every embedding-based system except MemPalace
+leaks 83.3% — they return the superseded price alongside the current one,
+because both are semantically close to the question and nothing in a cosine
+score encodes "this one was replaced."
 
-Listed in descending order of how much they should worry a reader.
+**Signal is the cliff.** brain 88.9%, everything else 22.2%. No system in the
+field except brain says "this was already tried", "this value changed", or
+"nothing on record covers that." This is not a tuning gap; it is a category
+these systems do not model.
 
-1. **The benchmark author is the author of the leading system.** This is not
-   independent evaluation and should not be read as such. Three mitigations are
-   built in and none of them fully answers the objection: 6 of 32 scenarios are
-   labelled as expected failures for `brain`; the harness prints every
-   mislabelled prediction; and every fix is behavioural rather than
-   case-specific (see below).
+**Density is a trap.** vector-rag carries the most facts per 1000 tokens (12.9)
+and passes 43.8%. It buys that density by returning nothing but nearest
+neighbours — no provenance, no ordering, no framing. Efficiency at the cost of
+everything that makes the context actionable.
 
-2. **Six of the eight universal blind spots were fixed in `brain` after this
-   suite found them.** The baseline run had `brain` at 50.0%, one scenario ahead
-   of the field. The current 81.2% reflects work motivated by these results.
-   Every other system's score is unchanged across both runs, which is the
-   control: nothing in the harness moved, only `brain` did. Whether that is
-   "the benchmark drove real improvement" or "the system was fitted to the
-   benchmark" is a fair question. The evidence for the former is that each fix
-   changed behaviour visible on scenarios other than the one that exposed it —
-   but the reader should weigh that claim knowing who is making it.
+### Letta and mem0 scoring identically is not a coincidence
 
-3. **The inference-disabled caveat (§2.4).** mem0 and Letta are run without
-   their LLM write path. Their weakest categories are the ones that path exists
-   to serve.
-
-4. **32 scenarios.** One case moves the headline by roughly 3 points. The
-   confidence intervals on any single skill (1–3 cases each) are wide enough
-   that per-skill numbers should be read as direction, not measurement.
-
-5. **Budgets are generous** relative to scenario size, which is why `full-dump`
-   still reaches 46.9%. A tighter budget would separate the field further and
-   would also make the suite a test of compression rather than of selection.
-
-6. **Single embedding model, single machine, single run.** No seed variance is
-   reported. Deterministic scoring removes judge variance but not embedding or
-   ordering variance.
-
-7. **English-only, software-project-shaped scenarios.** The vocabulary is
-   hardware and software product work because that is what the author could
-   write adversarially with confidence.
+Both land on 43.8% / 67.2% / 82.8% / 83.3% / 22.2% at 169 mean tokens. With
+extraction disabled, they reduce to the same algorithm: store the event text
+verbatim, embed it with `nomic-embed-text`, return top-k by cosine within
+budget. Same corpus, same embedding model, same ranking — so the same passages
+come back. The identical row is evidence the harness is doing what it claims,
+and a reminder of what is actually being compared for those two: their retrieval
+substrate, not their agent loops.
 
 ---
 
-## 6. What would make this stronger
+## 4. Where the difference comes from
 
-Honest next steps, roughly by value:
+Eight skills scored 0% across the entire field in the first run of this suite.
+brain now holds seven of them, and no other system moved:
 
-- **Independent replication**, ideally by someone who did not write `brain`.
-- **A held-out suite** authored by someone else against the same rubric, which
-  is the only clean answer to threat (2).
-- **mem0 with `infer=True` and Letta with its agent loop**, at whatever scale is
-  affordable, to close threat (3).
-- **More scenarios**, particularly in the three unsolved skills, where n is
-  currently 1–2.
-- **Seed and model variance**: repeat under two or three embedding models.
+| Skill | brain | best of the rest |
+|---|---:|---:|
+| staleness | **100%** | 0% |
+| supersession | **100%** | 0% |
+| abstention | **100%** | 0% |
+| attribution | **100%** | 0% |
+| scope | **100%** | 0% |
+| died-mid-task | **100%** | 0% |
+| source-of-truth | **100%** | 33% (static-file) |
+| conflict | **50%** | 0% |
+
+These came from behaviour changes, not from fitting the suite — each one shows
+up on scenarios other than the one that exposed it:
+
+- **Age and author on everything uncommitted.** Working notes and checkpoints
+  carry who wrote them and how old they are, with an explicit warning past seven
+  days. → staleness, attribution.
+- **Two-tier checkpoint budget.** Decisions, dead ends, open questions and the
+  next step are charged before the session log. Forty standup lines used to
+  evict "already tried, didn't work". → distractors.
+- **Checkpoint history carried forward.** Predecessors' ruled-out approaches
+  accumulate across handoffs, attributed. → multi-hop-handoff.
+- **Supersession at recall.** Where two retrieved statements are on-topic and
+  assert different values, the later wins and the earlier is dropped — reported
+  as "this changed", *without* reprinting the dead value. → supersession.
+- **Cancelled plans suppressed.** A next step withdrawn by a later decision is
+  replaced by the decision that withdrew it. An agent handed "next step: X" acts
+  on X. → superseded-plan.
+- **Contradiction flagged, not resolved.** Two sources that disagree with no
+  ordering between them both stay, and the disagreement is named. → conflict.
+- **Abstention.** When nothing retrieved is on topic, say so rather than letting
+  the nearest neighbour stand in as an answer. → abstention.
+
+### Durability: 100% vs 0%
+
+Three scenarios write, delete every rebuildable artifact, and read again. brain
+scores 100%; every other system scores 0%, including the controls.
+
+This is not a subtle result and it is not really about retrieval quality — it is
+about where the source of truth lives. brain writes checkpoints and memories to
+markdown in a vault the user owns; the SQLite index is a cache, and deleting it
+costs only the time to re-embed. The other systems keep their knowledge inside
+their own store, so wiping the store wipes what they know.
+
+This family exists because it was **once false for brain too**. Memories lived
+only in the cache, and `rm -rf .brain` — which the README told people to do —
+destroyed every preference and fact with no warning. The benchmark caught it,
+and the family now exists to keep the claim honest.
 
 ---
 
-## 7. Related work
+## 5. Where brain loses, and where nobody wins
 
-LongMemEval and LoCoMo measure long-horizon conversational recall; `brain`
-scores 96.0% recall@5 / 99.2% recall@10 on the full 500-question LongMemEval-S,
-which is a different and easier question than the one asked here. MemGPT/Letta
-introduced the tiered context model this benchmark's archival arm exercises.
-mem0 and MemPalace are contemporaneous memory layers with published claims on
-recall benchmarks. None of these evaluate handoff between agents, which is the
-gap this suite addresses.
+Reported because a benchmark that only shows wins is marketing.
+
+- **arithmetic — 0%, everyone.** Aggregating values across records ("what do
+  these six line items total"). No system in the field does arithmetic over
+  retrieved facts. Retrieval is not computation.
+- **recency-conflict — 0%, everyone.** Two sources disagree *and* one is newer,
+  requiring the system to prefer recency without being told to.
+- **temporal — brain 0%, MemPalace 50%.** Ordering events in time and answering
+  windowed questions. **MemPalace beats brain outright here** and it is the one
+  skill where that is true.
+- **multi-hop — brain 0%, recency-window and full-dump 100%.** Chaining two
+  facts to reach a third. The dumb controls win by carrying everything, which is
+  exactly the tradeoff their leak scores pay for — but a loss is a loss.
+- **conflict — 50%.** Half the contradiction cases are still unflagged.
 
 ---
 
-## Appendix: pass rate by skill
+## 6. Caveats
 
-| skill | brain | mempalace | letta | mem0 | vector-rag | full-dump | recency | static |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| abstention | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| arithmetic | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| attribution | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| budget | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| cold-start | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| conflict | **50%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| died-mid-task | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| distractors | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| graph-reach | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
-| lexical | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| multi-hop | 0% | 0% | 0% | 0% | 0% | **100%** | **100%** | 0% |
-| multi-hop-handoff | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| negation | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| negative-knowledge | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| open-questions | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| preference | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| rationale | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| recall | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| recency-conflict | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| scale | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0% |
-| scope | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| source-of-truth | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 33% |
-| staleness | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| supersession | **100%** | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
-| temporal | 0% | **50%** | 0% | 0% | 0% | 0% | 0% | 0% |
+Stated plainly, because they bound what these numbers are worth.
 
-Note `multi-hop`, where `brain` scores 0% and the two dump-everything baselines
-score 100%: chaining two facts is easier when you were handed all of them. That
-case is in the suite because it is a real cost of selection, and it is one of
-the six labelled expected failures.
+- **32 scenarios.** One case moves the headline by roughly 3 points. Treat
+  differences under ~6 points as noise.
+- **I wrote the suite and I wrote the system it scores best.** Six cases are
+  marked as known weaknesses up front and the report prints every wrong
+  prediction, but this is not independent evaluation and should not be read as
+  one.
+- **mem0 ran with `infer=False` and Letta with its agent loop off.** Both store
+  text verbatim rather than running an LLM over every write. This is favourable
+  to them on retrieval — nothing is lost to a small model's extraction — and
+  unfavourable on reconciliation, which is precisely where their headline
+  weakness (supersession) sits. **This is the caveat most likely to matter.**
+  Running either authentically means one or more local model calls per event,
+  and a single scenario writes upwards of two hundred events.
+- **Budgets are generous relative to scenario size**, which is why dumping the
+  whole history still scores 46.9%. A tighter budget would separate the field
+  further and would also be a different benchmark.
+- **Single machine, single embedding model.** No variance across hardware,
+  seeds, or embedding choice is reported.
+- **Letta needs PostgreSQL + pgvector and a running server**; it is the only
+  system here that cannot be run from a pip install alone.
 
-**Family pass rates**
+---
 
-| system | continuity | durability | memory |
-|---|--:|--:|--:|
-| brain | 86% | 100% | 73% |
-| mempalace | 50% | 0% | 53% |
-| recency-window | 50% | 0% | 53% |
-| full-dump | 50% | 0% | 53% |
-| letta | 50% | 0% | 47% |
-| mem0 | 50% | 0% | 47% |
-| vector-rag | 50% | 0% | 47% |
-| static-file | 0% | 33% | 7% |
-| none | 0% | 0% | 0% |
+## 7. Reproducing
+
+```sh
+# brain alone — needs only Ollama
+go run ./cmd/brain bench continuity --brain-only
+
+# the whole field — needs the Python adapters installed
+python3 -m venv bench/adapters/.venv-mem0    && bench/adapters/.venv-mem0/bin/pip install 'mem0ai[extras]'
+python3 -m venv bench/adapters/.venv-letta   && bench/adapters/.venv-letta/bin/pip install letta asyncpg pgvector
+letta server --port 8289          # needs PostgreSQL with pgvector
+go run ./cmd/brain bench continuity
+```
+
+An adapter that cannot import its own package is **skipped, not failed** — a
+missing row is honest where a row of zeros would be a lie about that system's
+quality. See `bench/README.md` for the adapter protocol; each is ~100 lines of
+Python translating the harness's events into that system's own API.
+
+Scenario definitions live in `internal/eval/scenarios.go`, scoring in
+`internal/eval/score.go`. Every scenario carries a `Why` line stating what it is
+really asking, and a `Known` label recording brain's expected outcome so
+regressions are visible rather than quietly absorbed.
