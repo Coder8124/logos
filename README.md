@@ -132,8 +132,61 @@ go run ./cmd/brain bench continuity --brain-only
 same protocol Claude Desktop, Claude Code, and Cursor speak, and one any
 application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
 
-`brain setup` writes the config for you. If your host is not one of the four it
-knows:
+### Which agents work today
+
+`brain setup` detects and wires the first group automatically. Everything in the
+second group speaks MCP, so brain should work once pointed at it — but nobody
+has confirmed it, and "should work" is not a claim this project makes about
+itself.
+
+| Agent | Wired by `brain setup` | How | Verified |
+|---|---|---|---|
+| **Claude Code** | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
+| **Codex** | yes | `codex mcp add` | ✅ handshake + round trip |
+| **Cursor** | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
+| **Claude Desktop** | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
+| Windsurf | not yet | manual JSON below | ❓ **help wanted** |
+| Cline / Roo Code | not yet | manual JSON below | ❓ **help wanted** |
+| Zed | not yet | manual JSON below | ❓ **help wanted** |
+| VS Code Copilot | not yet | manual JSON below | ❓ **help wanted** |
+| Gemini CLI | not yet | manual JSON below | ❓ **help wanted** |
+| OpenCode | not yet | manual JSON below | ❓ **help wanted** |
+| JetBrains AI | not yet | manual JSON below | ❓ **help wanted** |
+| Continue.dev | not yet | manual JSON below | ❓ **help wanted** |
+
+"Verified" means `brain doctor --integration` passes against it: the host
+launches the server, completes the MCP handshake, writes a checkpoint, reads it
+back through `resume`, and the markdown lands in the vault that was configured.
+Anything less is registration, not integration — and a host pointed at the wrong
+vault passes a handshake perfectly while knowing nothing.
+
+### Adding an agent
+
+This is the most useful contribution to the project, and it is genuinely small.
+A host is four fields in [`internal/setup/hosts.go`](internal/setup/hosts.go):
+
+```go
+{
+    Name:   "Windsurf",
+    Detect: func() bool { return exists(inHome(".codeium", "windsurf")) },
+    Where:  func() string { return inHome(".codeium", "windsurf", "mcp_config.json") },
+    Register: func(s Server) (Outcome, error) {
+        return mergeJSON(inHome(".codeium", "windsurf", "mcp_config.json"), s)
+    },
+}
+```
+
+`mergeJSON` already handles the hazards — it parses before writing, refuses a
+malformed file rather than replacing it, backs up to `.brain-backup`, preserves
+every other MCP server in the file, and writes atomically. If the host ships its
+own registration command, prefer `viaCLI` so its config format stays its problem.
+
+Then run `brain doctor --integration` and open a PR with the output. If it
+passes, the row moves up. `internal/setup/setup_test.go` has the fixtures.
+
+If your host is not listed at all: brain talks plain MCP over stdio, so the
+manual config below works anywhere, and a report that it did is worth as much as
+a patch.
 
 ```json
 {
@@ -150,6 +203,12 @@ knows:
 Both paths must be absolute. A host launches the server from a directory nobody
 chose, so a relative `BRAIN_VAULT` resolves somewhere you will never look — and
 brain will appear to work while knowing nothing.
+
+**No model runtime is required.** Every continuity tool below — `checkpoint`,
+`resume`, `note_progress`, `before_you_try` — is markdown and SQL, and works with
+nothing installed. Retrieval falls back to BM25, which for code (identifiers,
+error strings, paths) is the right tool rather than a consolation. A 274 MB
+embedding model adds paraphrase-tolerant search if you want it.
 
 Twelve tools in two families:
 
