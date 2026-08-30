@@ -26,6 +26,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -85,21 +86,109 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 		return err
 	}
 	s.out = json.NewEncoder(w)
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
 
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	// A bufio.Scanner gives up permanently on a line longer than its buffer,
+	// which ends the session for every later request too. A Reader lets an
+	// oversized frame be drained and refused on its own.
+	br := bufio.NewReaderSize(in, 64*1024)
+
+	for {
+		line, err := readFrame(br)
+		if err == errFrameTooLong {
+			// The id is unreachable inside a frame we refused to hold, so this
+			// cannot be answered in-band. Say so on the transport and carry on;
+			// the alternative was silently serving nothing from here onwards.
+			s.replyErr(json.RawMessage("null"), -32600,
+				"request too large; split the payload or raise the client's limit")
+			continue
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		var req request
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			continue // unparseable line: ignore, do not crash the transport
+		if jsonErr := json.Unmarshal([]byte(line), &req); jsonErr != nil {
+			// A frame that will not parse still had an id the host is blocking
+			// on. Dropping it silently left that host waiting forever, so dig
+			// the id out of the raw bytes and answer with the parse error
+			// JSON-RPC defines for exactly this.
+			s.replyErr(rawID(line), -32700, "parse error: "+jsonErr.Error())
+			continue
 		}
 		s.handle(req)
 	}
-	return sc.Err()
+}
+
+// maxFrame is the largest request accepted. Generous: a checkpoint carrying a
+// long session log or a big context pack is a legitimate payload, and the cost
+// of the limit being too low used to be the whole session.
+const maxFrame = 32 << 20
+
+var errFrameTooLong = errors.New("frame exceeds the maximum request size")
+
+// readFrame reads one newline-delimited frame. An overlong frame is consumed to
+// its newline and reported, so the stream stays aligned and the next request is
+// read normally.
+func readFrame(br *bufio.Reader) (string, error) {
+	var b strings.Builder
+	tooLong := false
+	for {
+		chunk, more, err := br.ReadLine()
+		if err != nil {
+			if b.Len() > 0 && err == io.EOF {
+				break // a final frame with no trailing newline
+			}
+			return "", err
+		}
+		if tooLong {
+			// Keep draining to the newline so the stream stays aligned, but
+			// hold none of it.
+		} else if b.Len()+len(chunk) > maxFrame {
+			tooLong = true
+			b.Reset()
+		} else {
+			b.Write(chunk)
+		}
+		if !more {
+			break
+		}
+	}
+	if tooLong {
+		return "", errFrameTooLong
+	}
+	return b.String(), nil
+}
+
+// rawID recovers the "id" member from a frame too malformed to unmarshal. Best
+// effort by design — a frame with no recoverable id gets a null id, which is
+// what JSON-RPC says to send when the id cannot be determined.
+func rawID(line string) json.RawMessage {
+	i := strings.Index(line, `"id"`)
+	if i < 0 {
+		return json.RawMessage("null")
+	}
+	rest := strings.TrimSpace(line[i+4:])
+	rest, ok := strings.CutPrefix(rest, ":")
+	if !ok {
+		return json.RawMessage("null")
+	}
+	rest = strings.TrimSpace(rest)
+
+	end := strings.IndexAny(rest, ",}")
+	if end < 0 {
+		end = len(rest)
+	}
+	candidate := strings.TrimSpace(rest[:end])
+	if candidate == "" || !json.Valid([]byte(candidate)) {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(candidate)
 }
 
 func (s *Server) handle(req request) {

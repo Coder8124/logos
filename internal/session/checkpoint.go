@@ -60,6 +60,13 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if strings.TrimSpace(c.Project) == "" {
 		return fmt.Errorf("a checkpoint needs a project")
 	}
+	// Distinguish "you gave no project" from "that project name cannot be a
+	// filename" — reporting the second as the first blames the caller for
+	// omitting what they supplied.
+	if safe(c.Project) == "" {
+		return fmt.Errorf(
+			"project name %q has no letters or digits to make a filename from", c.Project)
+	}
 	c.Project = safe(c.Project)
 	if strings.TrimSpace(c.Agent) == "" {
 		c.Agent = "agent"

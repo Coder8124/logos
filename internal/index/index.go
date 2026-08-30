@@ -57,6 +57,10 @@ type Index struct {
 
 type SyncReport struct {
 	Added, Updated, Removed, Unchanged int
+	// Skipped counts files the walk found but did not index: symlinks, and
+	// files that could not be read. They are reported rather than silently
+	// dropped, because "the index is missing a note" is otherwise invisible.
+	Skipped int
 }
 
 func Open(vaultDir string) (*Index, error) {
@@ -65,12 +69,22 @@ func Open(vaultDir string) (*Index, error) {
 		return nil, fmt.Errorf("creating %s: %w", dir, err)
 	}
 
-	db, err := sql.Open("sqlite", filepath.Join(dir, "index.db"))
+	// busy_timeout rides in the DSN so every connection the pool opens gets it,
+	// not just the one a PRAGMA statement happens to land on.
+	//
+	// Without it a second process writing the same vault fails outright with
+	// SQLITE_BUSY rather than waiting its turn — and two processes on one vault
+	// is the normal arrangement here, not an edge case: the CLI is meant to be
+	// run while the desktop app or an MCP server holds the same vault. WAL
+	// already lets readers continue during a write; this is what makes the
+	// writers queue instead of one of them losing.
+	db, err := sql.Open("sqlite",
+		filepath.Join(dir, "index.db")+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, err
 	}
-	// modernc's driver is not safe for unlimited concurrent writers; the whole
-	// application is single-writer anyway.
+	// modernc's driver is not safe for unlimited concurrent writers, and one
+	// connection per process keeps this process's own writes serialised.
 	db.SetMaxOpenConns(1)
 
 	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA foreign_keys=ON"} {
@@ -154,9 +168,19 @@ func (ix *Index) Sync() (SyncReport, error) {
 			}
 			return nil
 		}
-		if filepath.Ext(path) == ".md" {
-			files = append(files, path)
+		if filepath.Ext(path) != ".md" {
+			return nil
 		}
+		// Symlinks are skipped rather than followed. A link in the vault
+		// pointing at ~/Documents would pull that file's contents into the
+		// index and into retrieval results, which is not what "the vault is
+		// what it knows" means; and a dangling link — what a half-finished sync
+		// client leaves behind — would fail the read below.
+		if d.Type()&fs.ModeSymlink != 0 {
+			rep.Skipped++
+			return nil
+		}
+		files = append(files, path)
 		return nil
 	})
 	if err != nil {
@@ -174,7 +198,16 @@ func (ix *Index) Sync() (SyncReport, error) {
 	for _, path := range files {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return rep, fmt.Errorf("reading %s: %w", path, err)
+			// One file we cannot read costs that file, not the index. The walk
+			// above already takes this line on unreadable entries; taking the
+			// opposite line here meant a single permission-denied file — or one
+			// another process had open — left the entire vault unindexed.
+			//
+			// It counts as seen: the file is on disk, only unreadable right now,
+			// and dropping it from seen would delete a note that still exists.
+			seen[vault.Slug(ix.Vault, path)] = true
+			rep.Skipped++
+			continue
 		}
 		n := vault.Parse(ix.Vault, path, string(raw))
 		seen[n.Slug] = true

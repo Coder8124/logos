@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // A Session is one agent's working stretch on one project. It exists to give
@@ -94,9 +95,18 @@ func Start(db *sql.DB, project, agent, task string) (Session, error) {
 	if strings.TrimSpace(agent) == "" {
 		agent = "agent"
 	}
+	// A name made entirely of punctuation or emoji survives sanitisation as the
+	// empty string. Saying "a session needs a project" there blames the caller
+	// for omitting what they supplied, which is how this took a while to
+	// diagnose the first time.
+	slug := safe(project)
+	if slug == "" {
+		return Session{}, fmt.Errorf(
+			"project name %q has no letters or digits to make a filename from", project)
+	}
 	now := time.Now()
 	s := Session{
-		Project: safe(project),
+		Project: slug,
 		Agent:   agent,
 		Task:    task,
 		Started: now.Unix(),
@@ -258,13 +268,24 @@ func closeProject(db *sql.DB, project, slug string) error {
 // safe reduces a name to something usable as a path segment and a session id.
 // Project names arrive from agents and from note slugs; neither is trustworthy
 // as a filename.
+//
+// Letters and digits in any script are kept. The rule used to be ASCII-only,
+// which quietly made brain unusable for anyone naming a project in Japanese,
+// Cyrillic, Arabic, Greek or Hindi: the name reduced to the empty string and
+// the caller was then told a project was required, having supplied one.
+// Filesystems on every platform brain targets take UTF-8 filenames, so the
+// restriction bought nothing.
+//
+// What is still stripped is what makes a path dangerous or ambiguous:
+// separators, dots, and control characters. `..` and `/` cannot survive, which
+// is what keeps a checkpoint inside the vault.
 func safe(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder
 	lastDash := false
 	for _, r := range s {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			lastDash = false
 		case r == '-' || r == '_' || r == ' ' || r == '/' || r == '.':
