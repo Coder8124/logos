@@ -243,8 +243,22 @@ func wireHosts(vault string) error {
 		fmt.Println("  Codex and re-run `brain mcp install`.")
 		return nil
 	}
-	fmt.Printf("\n  Restart the host, then ask it: \"what do you remember about me?\"\n")
-	fmt.Printf("  Nothing yet? Give it something: brain memory add \"...\"\n")
+	// The first thing a new user sees brain do decides what they think it is.
+	// "What do you remember about me?" on a fresh vault correctly answers
+	// "nothing", which demonstrates an empty database rather than the product.
+	//
+	// Continuity is the differentiator and it works immediately, with no model
+	// and no indexing: a checkpoint is markdown, and resume reads it back. So
+	// the suggested first move is a handoff someone can run in thirty seconds
+	// and watch survive across two different agents.
+	fmt.Println("\n  Restart the host, then try the handoff — it is what brain is for:")
+	fmt.Println()
+	fmt.Println("    1. In one agent:  \"checkpoint this: trying X, ruled out Y because Z,")
+	fmt.Println("                       next step is W\"")
+	fmt.Println("    2. In another:    \"resume <project>\"")
+	fmt.Println()
+	fmt.Println("  The second agent should recite what the first ruled out, without")
+	fmt.Println("  you re-explaining. From the terminal: brain resume <project>")
 	return nil
 }
 
@@ -266,12 +280,20 @@ func mcpInstallCmd(args []string) error {
 
 // confirm asks a yes/no question, defaulting to yes. A non-interactive stdin
 // answers yes: setup is something a person ran on purpose.
+// confirm asks a yes/no question. An interactive user pressing return accepts;
+// nobody being there declines.
+//
+// It used to accept on EOF, which meant a setup run from a script, a CI job or
+// a piped installer silently answered yes to everything — including a
+// multi-gigabyte model pull nobody asked for. A prompt with no reader is not
+// consent. `--yes` remains the way to say yes without a terminal, and it is
+// explicit.
 func confirm(prompt string) bool {
 	fmt.Printf("%s [Y/n] ", prompt)
 	sc := bufio.NewScanner(os.Stdin)
 	if !sc.Scan() {
-		fmt.Println()
-		return true
+		fmt.Println("\n             no answer (not a terminal) — skipping; pass --yes to accept")
+		return false
 	}
 	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
 	return answer == "" || answer == "y" || answer == "yes"

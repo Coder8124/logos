@@ -111,7 +111,12 @@ func runCheckpoint(args []string) error {
 		return err
 	}
 	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
-	fmt.Println("run `brain index` to make it searchable.")
+	// Deliberately not "run `brain index` to make it searchable" any more. That
+	// was true about general retrieval and misleading about the thing the user
+	// just did: resume reads this file off disk, so the handoff already works.
+	// Reading it as "your checkpoint is not finished yet" sent people to a
+	// command they did not need.
+	fmt.Println("`brain resume` picks it up now — indexing only affects wider search.")
 	return nil
 }
 

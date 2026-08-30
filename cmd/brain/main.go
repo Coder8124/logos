@@ -3,6 +3,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
@@ -430,17 +431,35 @@ func runIndex(watch bool) error {
 	}
 	defer ix.Close()
 
-	p, err := findProvider()
-	if err != nil {
-		return err
-	}
+	// Sync is pure file reading — it needs no model, and it is what keeps the
+	// FTS table current. Only the embedding passes need a provider.
+	//
+	// Requiring one here left a hole in the middle of the no-runtime story:
+	// lexical search worked, but the command that refreshes what it searches did
+	// not, so editing a note on a machine without Ollama meant the change was
+	// invisible until a model appeared. Worse, `brain checkpoint` tells the user
+	// to run exactly this command.
+	p, perr := findProvider()
 	embedModel := env("BRAIN_EMBED", defaultEmbedModel)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr,
+			"· no model runtime — indexing text only; run this again with Ollama up to add embeddings")
+	}
 
 	pass := func() error {
 		rep, err := ix.Sync()
 		if err != nil {
 			return err
 		}
+		notes, _ := ix.NoteCount()
+		edges, _ := ix.EdgeCount()
+
+		if p == nil {
+			fmt.Printf("+%d ~%d -%d =%d · %d notes, %d edges · lexical only\n",
+				rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges)
+			return nil
+		}
+
 		embedded, err := ix.EmbedPending(p, embedModel, 32)
 		if err != nil {
 			return err
@@ -449,8 +468,6 @@ func runIndex(watch bool) error {
 		if err != nil {
 			return err
 		}
-		notes, _ := ix.NoteCount()
-		edges, _ := ix.EdgeCount()
 		fmt.Printf("+%d ~%d -%d =%d · embedded %d · %d notes, %d edges, %d memories\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges, mems)
 		return nil
@@ -560,6 +577,12 @@ func runCapture(daemon bool, backfillDays int) error {
 	} else {
 		fmt.Println("· focus sampling: app name only — grant Accessibility to System Events for window titles")
 	}
+
+	// Say what this will cost before it starts costing it. A daemon that samples
+	// every few seconds and keeps what it finds is a reasonable thing to run and
+	// an unreasonable thing to discover you have been running.
+	retentionDays, keepForever := captureRetention(ix.Vault)
+	describeCapture(ix.DB, retentionDays, keepForever)
 	fmt.Println("· recording. ^C to stop.")
 
 	// Sessions are written only when they end, so a crash loses at most the one
@@ -623,6 +646,18 @@ func runCapture(daemon bool, backfillDays int) error {
 			}
 
 		case <-dreamTicker.C:
+			// Retention rides the hourly tick rather than getting a ticker of its
+			// own: the window is measured in days, so the exact hour it runs does
+			// not matter, and one fewer goroutine does.
+			if !keepForever {
+				cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
+				if n, err := capture.Prune(ix.DB, cutoff); err != nil {
+					fmt.Fprintln(os.Stderr, "· prune error:", err)
+				} else if n > 0 {
+					fmt.Printf("· pruned %d events older than %d days\n", n, retentionDays)
+				}
+			}
+
 			today := time.Now().Format("2006-01-02")
 			if time.Now().Hour() >= dreamHour && lastDream != today {
 				lastDream = today
@@ -634,6 +669,66 @@ func runCapture(daemon bool, backfillDays int) error {
 		case <-presenceTicker.C:
 			dp.tick(ix.DB, time.Now())
 		}
+	}
+}
+
+// captureRetention reads the window from config, falling back to the default
+// when the config cannot be read. A malformed config should not mean "keep
+// everything forever" by accident.
+func captureRetention(vault string) (days int, forever bool) {
+	cfg, err := router.Load(vault)
+	if err != nil {
+		return router.DefaultRetentionDays, false
+	}
+	return cfg.Retention()
+}
+
+// describeCapture prints what the daemon samples, how long it keeps it, and
+// what that costs — measured from the user's own events rather than estimated
+// from a table of averages.
+func describeCapture(db *sql.DB, retentionDays int, keepForever bool) {
+	fmt.Printf("· sampling every %s · browser, calendar and git every 5m\n",
+		sources.PollInterval)
+
+	if keepForever {
+		fmt.Println("· retention: keeping everything (retention_days is negative in config)")
+	} else {
+		fmt.Printf("· retention: %d days, pruned hourly\n", retentionDays)
+	}
+
+	events, bytes, days, err := capture.Footprint(db)
+	if err != nil {
+		return
+	}
+	if events == 0 {
+		fmt.Println("· disk: nothing recorded yet, so there is nothing to project from")
+		return
+	}
+	fmt.Printf("· disk: %s across %d events", humanBytes(bytes), events)
+	// Under a day of history cannot support a weekly projection. Saying so is
+	// better than multiplying ten minutes by 1008 and presenting the result.
+	if days < 1 {
+		fmt.Println(" — too little history to project a weekly rate yet")
+		return
+	}
+	perWeek := float64(bytes) / days * 7
+	fmt.Printf(" · about %s/week at this rate", humanBytes(int64(perWeek)))
+	if !keepForever {
+		fmt.Printf(", levelling off near %s", humanBytes(int64(perWeek/7*float64(retentionDays))))
+	}
+	fmt.Println()
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
 	}
 }
 
