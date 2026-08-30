@@ -37,3 +37,6 @@ bench/adapters/.venv-*
 
 # Letta writes its OpenAPI spec into the working directory on server start.
 bench/adapters/openapi_letta.json
+
+# Personal notes: product comparisons, ideas, strategy. Never committed.
+personal/
