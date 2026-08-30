@@ -16,6 +16,7 @@ import (
 
 	"github.com/pragun/brain/internal/capture"
 	"github.com/pragun/brain/internal/capture/sources"
+	"github.com/pragun/brain/internal/health"
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
@@ -70,7 +71,8 @@ USAGE
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
     brain loop [add|done|drop]        manage open loops (commitments)
     brain think [off|low|medium|high]  how much the model reasons before answering
-    brain doctor [--probe]            list runtimes and tiers; --probe loads each model
+    brain doctor [--probe] [--integration]
+                                      health of vault, index, hosts; --integration proves a host can reach it
     brain version                     which build this is
     brain key set|rm <ref>            manage API keys in the macOS keychain
     brain index [--watch]             sync vault into the cache and embed
@@ -120,6 +122,10 @@ func main() {
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "install":
 		err = mcpInstallCmd(args)
 	case cmd == "doctor":
+		if hasFlag(args, "--integration") {
+			err = doctorIntegration()
+			break
+		}
 		err = doctor(hasFlag(args, "--probe"))
 	case cmd == "key":
 		err = keyCmd(args)
@@ -356,10 +362,35 @@ func openEvents() (*index.Index, error) {
 }
 
 func doctor(probe bool) error {
+	// The product first, the model plumbing second. This used to be the other
+	// way round — and in fact only ever reported the plumbing, so a vault that
+	// did not exist and an index a week stale both passed silently.
+	//
+	// It also used to return an error when no runtime answered, which made the
+	// one command a confused user reaches for refuse to run precisely when
+	// something was wrong.
+	rep := gatherHealth()
+	fmt.Println("─── brain ───")
+	for _, c := range rep.Checks {
+		fmt.Printf("  %-14s %s\n", c.Name, renderState(c.State))
+		if c.Detail != "" {
+			fmt.Printf("  %-14s   %s\n", "", c.Detail)
+		}
+		if c.Fix != "" {
+			fmt.Printf("  %-14s   → %s\n", "", c.Fix)
+		}
+	}
+	ok, failed, unknown := rep.Counts()
+	fmt.Printf("\n  %d ok · %d failed · %d unchecked\n", ok, failed, unknown)
+
 	found := provider.Discover()
 	if len(found) == 0 {
-		return fmt.Errorf("no local runtime responding on any known port")
+		// Not an error. Every continuity tool works without a model, and search
+		// falls back to lexical; the report above already said so.
+		fmt.Println("\nNo local model runtime — nothing above depends on one.")
+		return nil
 	}
+	fmt.Println("\n─── runtimes ───")
 	for _, d := range found {
 		fmt.Printf("%s — %s\n", d.Provider.Name, d.Provider.BaseURL)
 		for _, m := range d.Models {
@@ -411,6 +442,74 @@ func doctor(probe bool) error {
 		}
 	}
 	return nil
+}
+
+// doctorIntegration is the difference between "brain is installed" and "your
+// agents can reach this vault". It is the same probe setup runs, exposed so it
+// can be re-run after a host update or a config edit.
+func doctorIntegration() error {
+	bin, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	vault := vaultPath()
+
+	fmt.Printf("─── integration ───\n  binary  %s\n  vault   %s\n\n", bin, vault)
+	checks := health.Integration(bin, vault)
+	failed := 0
+	for _, c := range checks {
+		fmt.Printf("  %-12s %s\n", c.Name, renderState(c.State))
+		if c.Detail != "" {
+			fmt.Printf("  %-12s   %s\n", "", c.Detail)
+		}
+		if c.Fix != "" {
+			fmt.Printf("  %-12s   → %s\n", "", c.Fix)
+		}
+		if c.State == health.Failed {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("integration is not working")
+	}
+	fmt.Println("\n  Working. A host launching this binary reaches this vault.")
+	return nil
+}
+
+// gatherHealth assembles what the checks need, tolerating every piece of it
+// being missing. A vault that will not open, an index that is not there and a
+// runtime that is not running each become Unknown rather than an early return —
+// the point of the report is to work when things are broken.
+func gatherHealth() health.Report {
+	vault := vaultPath()
+	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel)}
+
+	if ix, err := index.Open(vault); err == nil {
+		defer ix.Close()
+		capture.InitStore(ix.DB) // so the capture check reads a table rather than an error
+		in.DB = ix.DB
+	}
+	if found := provider.Discover(); len(found) > 0 {
+		in.Runtime = found[0].Provider
+	}
+	in.RetentionDays, in.KeepForever = captureRetention(vault)
+
+	return health.Run(in)
+}
+
+func renderState(s health.State) string {
+	switch s {
+	case health.OK:
+		return "ok"
+	case health.Failed:
+		return "FAILED"
+	default:
+		// Spelled out, because the whole point is that this is not "fine".
+		return "unchecked"
+	}
 }
 
 func truncate(s string, n int) string {

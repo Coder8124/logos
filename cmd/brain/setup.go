@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pragun/brain/internal/health"
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/router"
@@ -298,6 +299,32 @@ func wireHosts(vault string, opts wireOpts) error {
 		default:
 			wired++
 			fmt.Printf("    %-16s ✓  %s (%s)\n", r.Host, r.Outcome, r.Where)
+		}
+	}
+
+	// Writing a config file is not the same as having a working integration,
+	// and until now nothing checked the difference — the first evidence of a
+	// problem arrived inside the host, as a connection error with no diagnosis.
+	// Being our own host for one round trip costs a second and turns "wrote the
+	// config" into "this works".
+	if wired > 0 {
+		fmt.Println("\n  checking it works")
+		ok := true
+		for _, c := range health.Integration(bin, vault) {
+			if c.State == health.Failed {
+				ok = false
+				fmt.Printf("    %-16s ✗  %s\n", c.Name, c.Detail)
+				if c.Fix != "" {
+					fmt.Printf("    %-16s    → %s\n", "", c.Fix)
+				}
+				continue
+			}
+			fmt.Printf("    %-16s ✓  %s\n", c.Name, c.Detail)
+		}
+		if !ok {
+			fmt.Println("\n  The hosts are configured but the server did not pass its own check.")
+			fmt.Println("  `brain doctor --integration` re-runs this.")
+			return nil
 		}
 	}
 
