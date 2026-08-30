@@ -41,6 +41,10 @@ bench/adapters/openapi_letta.json
 # Personal notes: product comparisons, ideas, strategy. Never committed.
 personal/
 
+# Working notes and drafts. Same rule as personal/ — thinking, not product.
+# The space is literal; gitignore takes no quoting.
+yap files/
+
 # npm platform packages are generated from dist/ by npm/scripts/build.js — they
 # hold ~11MB binaries each and are rebuilt for every release.
 npm/platforms/
