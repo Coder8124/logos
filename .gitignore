@@ -34,3 +34,6 @@ app/build/appicon-preview.png
 
 # benchmark adapter virtualenvs — recreate with bench/README.md
 bench/adapters/.venv-*
+
+# Letta writes its OpenAPI spec into the working directory on server start.
+bench/adapters/openapi_letta.json

@@ -95,10 +95,50 @@ whoever is left.
 cd bench/adapters
 uv venv .venv-mem0       && VIRTUAL_ENV=.venv-mem0 uv pip install "mem0ai[extras]" ollama
 uv venv .venv-mempalace  && VIRTUAL_ENV=.venv-mempalace uv pip install mempalace
+uv venv .venv-letta      && VIRTUAL_ENV=.venv-letta uv pip install letta asyncpg pgvector psycopg2-binary
 ```
 
-Both are pointed at Ollama, so no API keys are needed and the comparison is
+All are pointed at Ollama, so no API keys are needed and the comparison is
 like-for-like: same models, same hardware, no network.
+
+### Letta needs a little more
+
+Letta 0.16 is a server, and since it dropped SQLite it needs PostgreSQL with
+pgvector. Nothing here touches an existing database — the cluster is scratch and
+can be deleted afterwards.
+
+```sh
+brew install pgvector                      # ships for postgresql@17 and @18
+
+PGD=~/.brain-bench-pg
+initdb -D "$PGD" -U letta --auth=trust     # use the @17 or @18 initdb
+pg_ctl -D "$PGD" -o "-p 5433 -k $PGD" -l "$PGD/server.log" start
+psql -h "$PGD" -p 5433 -U letta -d postgres -c "CREATE DATABASE letta OWNER letta;"
+psql -h "$PGD" -p 5433 -U letta -d letta    -c "CREATE EXTENSION vector;"
+
+export LETTA_PG_URI="postgresql://letta@127.0.0.1:5433/letta"
+export LETTA_DIR=~/.brain-bench-letta
+.venv-letta/bin/letta server --port 8289
+```
+
+The published wheel carries no Alembic migrations, so the schema has to be
+created once from the ORM metadata, and one column needs a default the ORM does
+not declare:
+
+```sh
+.venv-letta/bin/python -c "
+from sqlalchemy import create_engine
+import letta.orm
+from letta.orm.base import Base
+Base.metadata.create_all(create_engine('postgresql+psycopg2://letta@127.0.0.1:5433/letta'))"
+
+psql -h "$PGD" -p 5433 -U letta -d letta \
+  -c "CREATE SEQUENCE IF NOT EXISTS messages_sequence_id_seq OWNED BY messages.sequence_id;" \
+  -c "ALTER TABLE messages ALTER COLUMN sequence_id SET DEFAULT nextval('messages_sequence_id_seq');"
+```
+
+Tear down with `pg_ctl -D ~/.brain-bench-pg stop && rm -rf ~/.brain-bench-pg
+~/.brain-bench-letta`.
 
 ### Fairness notes
 
@@ -119,6 +159,18 @@ it was driven here.
 - **mem0 telemetry is disabled** in the shim. It ships analytics on by default
   and opens a PostHog client at import; a benchmark claiming every system runs
   locally has to mean it.
+- **Letta** is scored on its **archival memory** (`passages.create` /
+  `passages.search`), which is the part of its three-tier memory that
+  corresponds to what the other systems do. Its full agent loop — a model
+  deciding what enters core memory and when to search — is Letta at its most
+  capable and is not affordable here at 32 scenarios x up to 200 events, the
+  same call made for mem0. As with mem0, the shortcut is favourable on
+  retrieval and unfavourable on reconciliation.
+- **Letta embeddings must be given a `/v1` endpoint.** It routes every
+  embedding through its OpenAI-compatible client and appends `/embeddings` to
+  whatever base it is handed, regardless of `embedding_endpoint_type`, and
+  Ollama serves that path only under `/v1`. Without it every write returns a
+  500 that the server logs as "an unknown error occurred".
 - **MemPalace** is the only third-party system here with a handoff story of its
   own — it ships an `artifact` command for agent handoffs and a `wake-up`
   context command. The benchmark does not use them: `artifact` is an exact-file

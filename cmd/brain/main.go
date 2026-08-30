@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +20,14 @@ import (
 	"github.com/pragun/brain/internal/router"
 	"github.com/pragun/brain/internal/voice"
 )
+
+// version is stamped at build time by scripts/release.sh:
+//
+//	-ldflags "-X main.version=v0.1.0"
+//
+// "dev" is what a plain `go build` produces, and saying so is more useful than
+// printing a number that is not tied to a release.
+var version = "dev"
 
 const (
 	defaultEmbedModel = "nomic-embed-text"
@@ -57,6 +66,7 @@ USAGE
     brain loop [add|done|drop]        manage open loops (commitments)
     brain think [off|low|medium|high]  how much the model reasons before answering
     brain doctor [--probe]            list runtimes and tiers; --probe loads each model
+    brain version                     which build this is
     brain key set|rm <ref>            manage API keys in the macOS keychain
     brain index [--watch]             sync vault into the cache and embed
     brain ask <question…>             retrieve and answer from the vault
@@ -98,6 +108,8 @@ func main() {
 
 	var err error
 	switch {
+	case cmd == "version", cmd == "--version", cmd == "-v":
+		fmt.Printf("brain %s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 	case cmd == "doctor":
 		err = doctor(hasFlag(args, "--probe"))
 	case cmd == "key":
