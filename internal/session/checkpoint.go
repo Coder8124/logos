@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pragun/brain/internal/gitstate"
 	"github.com/pragun/brain/internal/vault"
 )
 
@@ -30,6 +31,10 @@ type Checkpoint struct {
 	Questions []string
 	Files     []string
 	Next      string
+	// Git is the repository as it stood, read rather than reported. The half of
+	// a checkpoint an agent cannot forget to fill in — see the comment in
+	// Commit, and package gitstate.
+	Git gitstate.State
 	// HandoffTo names who this was left for. Empty for a plain checkpoint —
 	// the difference is intent, not mechanism.
 	HandoffTo string
@@ -84,6 +89,21 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	c.Session = s.ID
 	if c.Task == "" {
 		c.Task = s.Task
+	}
+
+	// Observe the repository, rather than waiting to be told about it.
+	//
+	// Everything above this line is what the agent chose to say. This is what
+	// was actually true — branch, commit, and what was still uncommitted — read
+	// straight from git. An agent that forgets to describe its state cannot
+	// forget this, which is the whole point: the model is no longer the only
+	// path by which a checkpoint becomes useful.
+	//
+	// Only filled when the caller did not set it, so a replayed or imported
+	// checkpoint keeps the state it was recorded with instead of being
+	// overwritten by whatever the working tree happens to look like now.
+	if c.Git.Empty() {
+		c.Git = gitstate.Read(workingDir())
 	}
 
 	// Fold the project's uncommitted working notes into the record. They are
@@ -203,4 +223,15 @@ func Projects(vaultDir string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// workingDir is where the agent is standing. A coding agent's cwd is the repo it
+// is working in — that is the assumption the whole product makes — and an MCP
+// server inherits it from the host that launched it.
+func workingDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/pragun/brain/internal/gitstate"
 )
 
 // The checkpoint's on-disk form.
@@ -34,6 +36,26 @@ func (c Checkpoint) Markdown(follows string) string {
 	fmt.Fprintf(&b, "session: %s\n", yamlStr(c.Session))
 	if c.HandoffTo != "" {
 		fmt.Fprintf(&b, "handoff_to: %s\n", yamlStr(c.HandoffTo))
+	}
+	// The observed half. In frontmatter rather than a prose section because it
+	// is structured, machine-written, and the thing a later query will filter on
+	// — "what was the tree at, when this was decided" is a lookup, not reading.
+	if !c.Git.Empty() {
+		if c.Git.Branch != "" {
+			fmt.Fprintf(&b, "branch: %s\n", yamlStr(c.Git.Branch))
+		}
+		if c.Git.Commit != "" {
+			fmt.Fprintf(&b, "commit: %s\n", yamlStr(c.Git.Commit))
+		}
+		if c.Git.Subject != "" {
+			fmt.Fprintf(&b, "commit_subject: %s\n", yamlStr(c.Git.Subject))
+		}
+		if c.Git.Dirty > 0 {
+			fmt.Fprintf(&b, "uncommitted: %d\n", c.Git.Dirty)
+		}
+		if c.Git.Worktree != "" {
+			fmt.Fprintf(&b, "worktree: %s\n", yamlStr(c.Git.Worktree))
+		}
 	}
 	b.WriteString("relations:\n")
 	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", c.Project)
@@ -111,6 +133,13 @@ type checkpointFM struct {
 	HandoffTo    string `yaml:"handoff_to"`
 	FirstSeen    string `yaml:"first_seen"`
 	Checkpointed string `yaml:"checkpointed"`
+	// The observed half, round-tripped so a rebuilt index and a hand-read file
+	// agree with each other.
+	Branch        string `yaml:"branch"`
+	Commit        string `yaml:"commit"`
+	CommitSubject string `yaml:"commit_subject"`
+	Uncommitted   int    `yaml:"uncommitted"`
+	Worktree      string `yaml:"worktree"`
 }
 
 // ParseCheckpoint reads a checkpoint back from its note. It is forgiving in the
@@ -129,6 +158,13 @@ func ParseCheckpoint(raw string) Checkpoint {
 		Agent:     fm.Agent,
 		Session:   fm.Session,
 		HandoffTo: fm.HandoffTo,
+		Git: gitstate.State{
+			Branch:   fm.Branch,
+			Commit:   fm.Commit,
+			Subject:  fm.CommitSubject,
+			Dirty:    fm.Uncommitted,
+			Worktree: fm.Worktree,
+		},
 	}
 	// Prefer the precise instant; fall back to the date for checkpoints written
 	// before that field existed, or hand-edited ones.

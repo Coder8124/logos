@@ -199,6 +199,21 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 		fmt.Fprintf(b, ", handed off to **%s**", c.HandoffTo)
 	}
 	b.WriteString(".")
+	// What the repository was, as distinct from what the agent said about it.
+	// An arriving agent can check this out and be standing where the decisions
+	// were made, which is the difference between "this was true then" and "this
+	// was true at a3f9c2".
+	if s := c.Git.Summary(); s != "" {
+		fmt.Fprintf(b, "\n\n**Repository was:** %s", s)
+		if c.Git.Subject != "" {
+			fmt.Fprintf(b, " — %q", oneLine(c.Git.Subject))
+		}
+		if c.Git.Worktree != "" {
+			// Same project, divergent parallel state, which is exactly where a
+			// handoff goes wrong silently.
+			fmt.Fprintf(b, "\n**In worktree:** %s", c.Git.Worktree)
+		}
+	}
 	// A checkpoint that has sat for a fortnight describes a situation that may
 	// have moved. Saying so costs a clause and stops the next agent treating a
 	// stale plan as the current one.
