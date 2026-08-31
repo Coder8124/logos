@@ -42,7 +42,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `brain — local-first memory and continuity for AI agents
 
 USAGE
-    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes]
+    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
                                       connect brain to the AI agents on this machine
     brain brief                       what the secretary thinks you should know now
     brain replay [--peek]             catch up on what changed since you were last here

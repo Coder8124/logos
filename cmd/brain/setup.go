@@ -98,54 +98,111 @@ func checkRuntime(yes bool) {
 		}
 	}
 
-	// Only the embedding model is worth blocking on. The chat tiers are used by
-	// ask and the rollup; memory and continuity work without them.
-	var missing []string
-	for _, want := range wantedModels() {
+	// The embedding model and the chat tiers are asked about separately, because
+	// they are not the same decision and lumping them made the answer harder
+	// than it needed to be.
+	//
+	// T0 is 274MB and buys semantic search. T1 and T2 together are ~26GB and buy
+	// `ask`, `voice`, `presence` and the nightly rollup — none of which any MCP
+	// tool touches, so a coding agent needs none of it. Offering all three in one
+	// prompt asked people to download 26GB to get 274MB of product, with no way
+	// to say "just the useful one" and no sizes to judge by.
+	embed := env("BRAIN_EMBED", defaultEmbedModel)
+	fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
+	if !have[embed] {
+		if yes || confirm(fmt.Sprintf("             pull %s (%s)? adds semantic search",
+			embed, modelSize(embed))) {
+			pull(p.BaseURL, embed)
+		} else {
+			fmt.Println("             skipped; retrieval stays lexical, which still works")
+		}
+	}
+
+	var chat []string
+	for _, want := range chatModels() {
 		if !have[want] {
-			missing = append(missing, want)
+			chat = append(chat, want)
 		}
-		fmt.Printf("  %-10s %s %s\n", modelLabel(want), want, tick(have[want]))
+		fmt.Printf("  model      %s %s\n", want, tick(have[want]))
 	}
-	if len(missing) == 0 {
+	if len(chat) == 0 {
 		return
 	}
-	if !yes && !confirm(fmt.Sprintf("             pull %s?", strings.Join(missing, ", "))) {
-		fmt.Println("             skipped; brain will use what is present")
+
+	// Default no, and say what declining costs. With the server no longer
+	// refusing to start without a runtime, "no" is a safe answer rather than a
+	// gamble — which is what makes stating the size honest rather than a scare.
+	fmt.Printf("             %s are optional (%s) — only `brain ask`, `voice`\n",
+		strings.Join(chat, " and "), totalSize(chat))
+	fmt.Println("             and the nightly rollup use them. No MCP tool does.")
+	if !allModels(os.Args) {
+		fmt.Println("             skipped; pass --all-models to pull them")
 		return
 	}
-	for _, m := range missing {
-		fmt.Printf("             pulling %s … ", m)
-		if err := pullModel(p.BaseURL, m); err != nil {
-			fmt.Printf("failed: %v\n", err)
-			continue
-		}
-		fmt.Println("done")
+	for _, m := range chat {
+		pull(p.BaseURL, m)
 	}
 }
 
-// wantedModels is the embedding model plus the configured chat tiers. Reading
-// them from the router config means setup pulls what this install will actually
-// use rather than a hard-coded list.
-func wantedModels() []string {
-	out := []string{env("BRAIN_EMBED", defaultEmbedModel)}
+// pull fetches one model, reporting either way.
+func pull(baseURL, model string) {
+	fmt.Printf("             pulling %s … ", model)
+	if err := pullModel(baseURL, model); err != nil {
+		fmt.Printf("failed: %v\n", err)
+		return
+	}
+	fmt.Println("done")
+}
+
+func allModels(args []string) bool { return hasFlag(args, "--all-models") }
+
+// modelSize is what a download actually costs, so "yes" is an informed answer.
+// Approximate and clearly so — the exact figure depends on the quantisation the
+// registry serves, and a rounded number a user can plan around beats a precise
+// one that is wrong on their machine.
+func modelSize(model string) string {
+	switch {
+	case strings.Contains(model, "embed"):
+		return "~270 MB"
+	case strings.HasPrefix(model, "gemma3:4b"):
+		return "~3.3 GB"
+	case strings.HasPrefix(model, "qwen3"):
+		return "~23 GB"
+	default:
+		return "size unknown"
+	}
+}
+
+func totalSize(models []string) string {
+	var known []string
+	for _, m := range models {
+		if s := modelSize(m); s != "size unknown" {
+			known = append(known, s)
+		}
+	}
+	if len(known) == 0 {
+		return "size unknown"
+	}
+	return strings.Join(known, " + ")
+}
+
+// chatModels is the configured local chat tiers. Read from the router config
+// rather than hard-coded, so setup offers what this install would actually use.
+//
+// Deliberately excludes the embedding model, which is a separate and much
+// smaller decision — see checkRuntime.
+func chatModels() []string {
 	cfg, err := router.Load(vaultPath())
 	if err != nil {
-		return out
+		return nil
 	}
+	var out []string
 	for _, t := range []router.Tier{router.T1, router.T2} {
 		if tc, ok := cfg.Tiers[t.String()]; ok && tc.Model != "" && tc.BaseURL == "" {
 			out = append(out, tc.Model)
 		}
 	}
 	return out
-}
-
-func modelLabel(model string) string {
-	if strings.Contains(model, "embed") {
-		return "embedding"
-	}
-	return "model"
 }
 
 func tick(ok bool) string {
