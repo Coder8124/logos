@@ -22,15 +22,54 @@ this project dies, you keep a vault.
 
 ## Install
 
+One click, for the hosts that support it:
+
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9icmFpbiIsIm1jcCIsInNlcnZlIl19)
+[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Fbrain%22%2C%22mcp%22%2C%22serve%22%5D%7D)
+
+Or one command, for everything else:
+
 ```sh
-go install github.com/pragun/brain/cmd/brain@latest
-brain setup
+npx -y @brainyprime/brain setup
 ```
 
-That is the whole thing. `setup` picks a vault (`~/brain` unless you say
-otherwise), finds your local model runtime and offers to pull anything missing,
-runs the first index, and then **registers brain with every AI agent on the
-machine**:
+No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
+for your platform (~11 MB, not 55: the platform packages are gated on `os` and
+`cpu`, so you fetch only yours).
+
+<details>
+<summary>Other ways in</summary>
+
+```sh
+# From source, if you have Go
+git clone https://github.com/Coder8124/brain && cd brain
+go build -o bin/brain ./cmd/brain && ./bin/brain setup
+
+# Or a release binary — no runtime at all
+# github.com/Coder8124/brain/releases
+```
+
+Wiring a host by hand needs no install whatsoever, because `npx` resolves the
+binary on demand:
+
+```json
+{
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "@brainyprime/brain", "mcp", "serve"]
+    }
+  }
+}
+```
+
+That config is portable between machines, which an absolute binary path is not.
+
+</details>
+
+`setup` picks a vault (`~/brain` unless you say otherwise), finds your local
+model runtime and offers to pull anything missing, runs the first index, then
+**shows you which agents it would wire and asks before touching any of them**:
 
 ```console
 $ brain setup
@@ -43,27 +82,57 @@ $ brain setup
   index      0 notes, 0 edges
 
   hosts
-    Claude Code      ✓  registered (claude mcp add --scope user)
-    Claude Desktop   ✓  registered (~/Library/Application Support/Claude/…)
-    Cursor           ✓  registered (~/.cursor/mcp.json)
-    Codex            ✓  registered (codex mcp add)
+    each of these will be pointed at:
+      /Users/you/go/bin/brain mcp serve
+      BRAIN_VAULT=/Users/you/brain
 
-  Restart the host, then ask it: "what do you remember about me?"
+    Claude Code      →  claude mcp add --scope user
+    Claude Desktop   →  ~/Library/Application Support/Claude/…
+    Cursor           →  ~/.cursor/mcp.json
+    Codex            →  codex mcp add
+
+  wire 4 host(s)? [Y/n] y
+
+    Claude Code      ✓  registered
+    Claude Desktop   ✓  registered
+    Cursor           ✓  registered
+    Codex            ✓  registered
+
+  checking it works
+    handshake        ✓  server answered initialize
+    tools            ✓  continuity tools advertised
+    round trip       ✓  checkpoint written and recovered through resume
+    vault            ✓  written to /Users/you/brain, and cleaned up
 ```
 
-Restart the agent and it can reach your memory. `brain setup --vault ~/notes`
-points it elsewhere; `brain mcp install` re-runs just the wiring. Both are safe
-to run twice — an existing entry is updated, never duplicated, other MCP servers
-in those files are left alone, and anything edited gets a `.brain-backup`
-beside it.
+That last block is the point: **registering a server and having a working
+integration are not the same thing.** Setup becomes the host for one round trip
+— writes a checkpoint, reads it back through `resume`, confirms the markdown
+landed in the vault it just configured, then deletes it. A host pointed at the
+wrong vault passes a handshake perfectly while knowing nothing, and that is the
+failure worth catching.
+
+`brain doctor --integration` re-runs it any time.
+
+`--host cursor` wires exactly one; `--dry-run` prints the plan and writes
+nothing; `--vault ~/notes` points elsewhere; `brain mcp install` re-runs just
+the wiring. All safe to run twice — an existing entry is updated, never
+duplicated, other MCP servers in those files are left alone, and anything edited
+gets a `.brain-backup` beside it.
 
 Where a host ships its own registration command (Claude Code, Codex) brain uses
 it, so their config format stays their problem. Only Claude Desktop and Cursor
 get hand-written JSON.
 
-A local model runtime — Ollama, LM Studio, Jan, or Msty — is wanted but
-optional. Without one, retrieval falls back to lexical search and graph
-traversal: measurably weaker, not broken. Endpoints are auto-discovered.
+**No model runtime is required.** Every continuity tool — `checkpoint`,
+`resume`, `note_progress`, `before_you_try` — is markdown and SQL, and works
+with nothing installed. Retrieval falls back to BM25, which for code
+(identifiers, error strings, paths) is the right tool rather than a consolation.
+
+A 274 MB embedding model adds paraphrase-tolerant search if you want it. The
+chat tiers are only for `brain ask`, `voice` and the nightly rollup — nothing an
+MCP host calls ever touches them, so a coding agent needs none of it. Ollama,
+LM Studio, Jan and Msty are auto-discovered if present.
 
 ```sh
 brain doctor --probe                # which models load, and honour JSON schemas
@@ -290,8 +359,17 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-go get github.com/pragun/brain
+git clone https://github.com/Coder8124/brain
+# then, in your go.mod:
+#   require github.com/pragun/brain v0.0.0
+#   replace github.com/pragun/brain => ../brain
 ```
+
+> The module is declared as `github.com/pragun/brain` while the repository lives
+> at `Coder8124/brain`, so `go get` cannot resolve it from the proxy yet — a
+> clone builds fine, because Go builds a local module by its declared path
+> without fetching it. Renaming the module is a tracked change; until then, use
+> the `replace` above.
 
 ```go
 b, err := brain.Open("/path/to/vault", brain.WithAgent("my-agent"))
