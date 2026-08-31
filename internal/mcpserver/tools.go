@@ -72,6 +72,19 @@ var toolDefs = []map[string]any{
 		}, "approach"),
 	},
 	{
+		"name": "why",
+		// The counterpart to before_you_try. That one fires on a proposal; this
+		// one fires on a file — the other moment an agent is about to act on
+		// something whose history it cannot see. `git blame` answers who and
+		// when and structurally cannot answer why, so the reasoning is in a pull
+		// request nobody kept or the head of someone who left.
+		"description": "Find out why a file is the way it is, BEFORE changing something that looks wrong. Returns the decisions taken and the approaches ruled out while that file was being worked on, with who recorded them and when. Use it when code looks odd, redundant, or badly done, when you are about to revert or simplify something, and when the user asks 'why is this like this'. Code that looks wrong is often load-bearing, and this is the record of what it is bearing.",
+		"inputSchema": obj(map[string]any{
+			"file":  str("the file path you are about to change or are curious about"),
+			"limit": intSchema("how many checkpoints to return (default 5)"),
+		}, "file"),
+	},
+	{
 		"name":        "note_progress",
 		"description": "Record one line of what you just did or learned while working. Cheap and meant to be called often — after a decision, a dead end, or a surprising discovery. These stay uncommitted until checkpoint folds them into a durable record, so use them freely rather than saving everything for the end.",
 		"inputSchema": obj(map[string]any{

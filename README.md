@@ -292,14 +292,14 @@ nothing installed. Retrieval falls back to BM25, which for code (identifiers,
 error strings, paths) is the right tool rather than a consolation. A 274 MB
 embedding model adds paraphrase-tolerant search if you want it.
 
-Twelve tools in two families:
+Thirteen tools in two families:
 
 **Memory** — *what do you know about X.* `remember` (returns a receipt saying
 whether it created a fact or corroborated one it already had), `recall`,
 `list_memories`, `forget`, `memory_diff`, `list_projects`.
 
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
-`checkpoint`, `handoff`, `before_you_try`.
+`checkpoint`, `handoff`, `before_you_try`, `why`.
 
 ### The intercept
 
@@ -334,6 +334,44 @@ flagged as possibly not transferring.
 
 The mechanism is a morning's work. The two years of accumulated *we tried that*
 is not — which is the part that compounds.
+
+### Why is this code like this?
+
+`before_you_try` fires on a proposal. `why` fires on a **file** — the other
+moment an agent is about to act on history it cannot see.
+
+`git blame` answers who changed a line and when. It structurally cannot answer
+why, because the reasoning was in a pull request nobody kept, a thread that
+scrolled away, or the head of someone who left. So the same three approaches get
+re-attempted every eighteen months by people with no way of knowing they were
+attempted before.
+
+```console
+$ brain why internal/memory/vaultstore.go
+
+internal/memory/vaultstore.go — 1 checkpoint(s)
+
+─── 14 Mar 2026 · claude · memory-store
+    while: make the vault write durable
+    ruled out:  keeping vectors in the markdown — the file stops being human-editable
+    decided:    flush() returns an error now, because a memory that reached
+                SQLite and not the vault reported success
+    → sessions/memory-store/20260314-091120-claude
+```
+
+Every checkpoint already records which files were touched, right next to the
+decisions and dead ends. Nothing was querying it — the join existed in the data
+and not in the code.
+
+Path matching is deliberately loose: an agent writes whatever path it had in
+hand, a person asks with whatever their shell completed, and requiring those to
+match exactly would mean the lookup almost never fires. `vaultstore.go`,
+`./internal/memory/vaultstore.go` and an absolute path all resolve.
+
+The claim is deliberately modest, and the output says so: this reports what was
+written down while the file was touched, **not** an explanation of the code. A
+decision nobody recorded is not here, and a file with no history is reported as
+"nothing was recorded" rather than as evidence the code is arbitrary.
 
 ### The handoff
 

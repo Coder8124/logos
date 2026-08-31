@@ -184,6 +184,9 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 		"checkpoint": true, "handoff": true,
 		// the one that speaks first: has this already been ruled out
 		"before_you_try": true,
+		// and its counterpart on a file rather than a proposal: what was being
+		// decided when this was last touched
+		"why": true,
 	}
 	if len(res.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(res.Tools), len(want))

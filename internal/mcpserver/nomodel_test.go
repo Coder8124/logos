@@ -235,6 +235,46 @@ func TestContextWithoutModel(t *testing.T) {
 	}
 }
 
+// why is the counterpart to before_you_try: that one fires on a proposal, this
+// one on a file. Both read the vault and need no model, which matters because
+// the moment either is useful is the moment an agent is about to act on history
+// it cannot see.
+func TestWhyWithoutModel(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	if _, ok := call(t, c, 20, "checkpoint", map[string]any{
+		"project":   "kestrel",
+		"task":      "make the housing cheaper",
+		"decisions": []string{"extruded aluminium, not cast"},
+		"failed":    []string{"injection moulding — tooling cost never amortises"},
+		"files":     []string{"internal/housing/spec.go"},
+		"agent":     "claude",
+	}); !ok {
+		t.Fatal("checkpoint failed")
+	}
+
+	line, ok := call(t, c, 21, "why", map[string]any{"file": "internal/housing/spec.go"})
+	if !ok {
+		t.Fatal("why failed with no model runtime")
+	}
+	// The ruled-out approach is the half someone about to "fix" the file needs.
+	for _, want := range []string{"injection moulding", "extruded aluminium", "claude"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("why did not carry %q:\n%s", want, truncateForLog(line))
+		}
+	}
+
+	// A file with no history must say nothing was recorded — never imply the
+	// code is arbitrary, which is a claim about the code rather than the record.
+	line, ok = call(t, c, 22, "why", map[string]any{"file": "internal/unrelated/thing.go"})
+	if !ok {
+		t.Fatal("why failed on an unknown file")
+	}
+	if !strings.Contains(line, "No checkpoint mentions") {
+		t.Errorf("why on an unrecorded file should say so plainly:\n%s", truncateForLog(line))
+	}
+}
+
 // A memory stored through MCP must reach the vault markdown, not just the
 // cache. "Markdown is truth, the index is a rebuildable cache" is the product's
 // central claim and the reason the durability benchmark scores 100% — but that

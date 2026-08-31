@@ -62,6 +62,7 @@ USAGE
     brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
+    brain why <file>                  what was being decided when this file was touched
     brain tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
     brain sessions <project>          checkpoint history for a project
@@ -143,6 +144,8 @@ func main() {
 		err = runCheckpoint(args)
 	case cmd == "resume":
 		err = runResume(args)
+	case cmd == "why":
+		err = runWhy(args)
 	case cmd == "tried":
 		err = runTried(args)
 	case cmd == "sessions":

@@ -269,6 +269,8 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
 	case "before_you_try":
 		return s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+	case "why":
+		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
 		return s.noteProgress(argStr(args, "project"), argStr(args, "agent"), argStr(args, "text"))
 	case "checkpoint":
@@ -400,6 +402,80 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 		return "", err
 	}
 	return deadend.Render(approach, hits), nil
+}
+
+// why reports what was being decided when a file was worked on.
+//
+// Reads markdown out of the vault and needs no model and no index, so it works
+// on a machine with neither — which matters, because the moment it is useful is
+// the moment an agent is about to change something it does not understand.
+func (s *Server) why(file string, limit int) (string, error) {
+	if strings.TrimSpace(file) == "" {
+		return "", fmt.Errorf("why needs a file path")
+	}
+	if s.vault == "" {
+		return "", fmt.Errorf("why reads checkpoints from the vault, and no vault is configured")
+	}
+	mentions, err := session.Touching(s.vault, file, limit)
+	if err != nil {
+		return "", err
+	}
+	if len(mentions) == 0 {
+		// Distinguish the two nothings. "Nothing was recorded" is a fact about
+		// the record; "there is no reason" is a claim about the code, and this
+		// tool is not entitled to make it.
+		return fmt.Sprintf(
+			"No checkpoint mentions %s.\n\nNothing was written down while this file was worked on, or it was "+
+				"recorded under a different path. Do not read this as evidence the code is arbitrary.", file), nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# What was decided around %s\n\n", file)
+	for _, m := range mentions {
+		when := "an unknown date"
+		if m.TS > 0 {
+			when = time.Unix(m.TS, 0).Format("2 Jan 2006")
+		}
+		who := m.Agent
+		if who == "" {
+			who = "an unrecorded author"
+		}
+		fmt.Fprintf(&b, "## %s — %s", when, who)
+		if m.Project != "" {
+			fmt.Fprintf(&b, " · %s", m.Project)
+		}
+		b.WriteString("\n\n")
+		if m.Task != "" {
+			fmt.Fprintf(&b, "While: %s\n\n", m.Task)
+		}
+		// Ruled out first: a decision explains the shape of the code, and a dead
+		// end explains why it is not some other shape — which is what someone
+		// about to "fix" it needs.
+		writeList(&b, "Ruled out", m.Failed)
+		writeList(&b, "Decided", m.Decisions)
+		writeList(&b, "Still open", m.Questions)
+		fmt.Fprintf(&b, "Source: %s\n\n", m.Slug)
+	}
+	b.WriteString("This is what was recorded while the file was touched, not an analysis of " +
+		"the code. Treat it as evidence about intent, and check it still holds.\n")
+	return b.String(), nil
+}
+
+func writeList(b *strings.Builder, label string, items []string) {
+	var kept []string
+	for _, it := range items {
+		if s := strings.TrimSpace(it); s != "" {
+			kept = append(kept, s)
+		}
+	}
+	if len(kept) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "**%s:**\n", label)
+	for _, it := range kept {
+		fmt.Fprintf(b, "- %s\n", it)
+	}
+	b.WriteString("\n")
 }
 
 func (s *Server) resume(project, agent string, budget int) (string, error) {

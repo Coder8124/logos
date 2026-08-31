@@ -83,6 +83,9 @@ type (
 	Checkpoint = session.Checkpoint
 	// Note is one line of uncommitted progress.
 	Note = session.Note
+	// Mention is a checkpoint that touched a file, and what was being worked
+	// out at the time. Returned by Why.
+	Mention = session.Mention
 	// Hit is a retrieved vault note, with its provenance.
 	Hit = index.Hit
 	// Ruling is something already tried that did not work.
@@ -307,6 +310,20 @@ func (b *Brain) Projects() ([]string, error) {
 // approval.
 func (b *Brain) Tried(approach, project string) ([]Ruling, error) {
 	return deadend.Check(b.ix.Vault, b.ix.DB, b.embed, b.embedModel, approach, project, 6)
+}
+
+// Why reports what was being decided when a file was worked on: the decisions
+// taken and the approaches ruled out while it was being touched, newest first.
+//
+// The complement to `git blame`, which answers who and when and cannot answer
+// why. Matching on the path is deliberately loose — an agent records whatever
+// path it had in hand and a caller asks with whatever they have — so a bare
+// filename or a partial path both resolve.
+//
+// It reads markdown from the vault, so it needs no model and no index. limit of
+// 0 means every match.
+func (b *Brain) Why(file string, limit int) ([]Mention, error) {
+	return session.Touching(b.ix.Vault, file, limit)
 }
 
 // Explain renders the result of Tried as prose to put in front of a model,
