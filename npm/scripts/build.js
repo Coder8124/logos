@@ -96,7 +96,7 @@ for (const t of TARGETS) {
     path.join(dir, "package.json"),
     JSON.stringify(
       {
-        name: `@coder8124/brain-${t.npm}`,
+        name: `@brainyprime/brain-${t.npm}`,
         version: VERSION,
         description: `brain binary for ${t.os} ${t.cpu}`,
         homepage: wrapper.homepage,

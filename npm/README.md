@@ -4,7 +4,7 @@
 it is the convention MCP hosts already use. No Go toolchain, no clone, no build.
 
 ```bash
-npx -y @coder8124/brain setup
+npx -y @brainyprime/brain setup
 ```
 
 Or wire a host by hand, with no install at all:
@@ -14,7 +14,7 @@ Or wire a host by hand, with no install at all:
   "mcpServers": {
     "brain": {
       "command": "npx",
-      "args": ["-y", "@coder8124/brain", "mcp", "serve"],
+      "args": ["-y", "@brainyprime/brain", "mcp", "serve"],
       "env": { "BRAIN_VAULT": "/Users/you/brain" }
     }
   }
@@ -29,12 +29,12 @@ One wrapper package plus five platform packages, the pattern esbuild and swc
 use:
 
 ```
-@coder8124/brain                 the launcher, a few KB
-  ├─ @coder8124/brain-darwin-arm64      os: darwin  cpu: arm64
-  ├─ @coder8124/brain-darwin-x64        os: darwin  cpu: x64
-  ├─ @coder8124/brain-linux-x64         os: linux   cpu: x64
-  ├─ @coder8124/brain-linux-arm64       os: linux   cpu: arm64
-  └─ @coder8124/brain-win32-x64         os: win32   cpu: x64
+@brainyprime/brain                 the launcher, a few KB
+  ├─ @brainyprime/brain-darwin-arm64      os: darwin  cpu: arm64
+  ├─ @brainyprime/brain-darwin-x64        os: darwin  cpu: x64
+  ├─ @brainyprime/brain-linux-x64         os: linux   cpu: x64
+  ├─ @brainyprime/brain-linux-arm64       os: linux   cpu: arm64
+  └─ @brainyprime/brain-win32-x64         os: win32   cpu: x64
 ```
 
 The platform packages are `optionalDependencies` carrying `os` and `cpu` fields,
@@ -99,7 +99,7 @@ the vault for memory writes.
 
 ## Scope
 
-`@coder8124` must match the npm account or org publishing it. If the scope
+`@brainyprime` must match the npm account or org publishing it. If the scope
 differs, change it in `package.json`, in the `PLATFORMS` table in
 `bin/brain.js`, and in `TARGETS` in `scripts/build.js` — all three must agree or
 the launcher will not resolve its own binary.

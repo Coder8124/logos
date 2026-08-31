@@ -1,5 +1,5 @@
 {
-  "name": "@coder8124/brain",
+  "name": "@brainyprime/brain",
   "version": "0.1.0",
   "description": "The memory you own. A local-first memory and continuity layer for AI agents, over MCP.",
   "keywords": [
@@ -30,11 +30,11 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@coder8124/brain-darwin-arm64": "0.1.0",
-    "@coder8124/brain-darwin-x64": "0.1.0",
-    "@coder8124/brain-linux-x64": "0.1.0",
-    "@coder8124/brain-linux-arm64": "0.1.0",
-    "@coder8124/brain-win32-x64": "0.1.0"
+    "@brainyprime/brain-darwin-arm64": "0.1.0",
+    "@brainyprime/brain-darwin-x64": "0.1.0",
+    "@brainyprime/brain-linux-x64": "0.1.0",
+    "@brainyprime/brain-linux-arm64": "0.1.0",
+    "@brainyprime/brain-win32-x64": "0.1.0"
   },
   "scripts": {
     "build": "node scripts/build.js",

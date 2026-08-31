@@ -18,11 +18,11 @@ const { spawnSync } = require("child_process");
 
 // npm's platform vocabulary, which is Node's, not Go's.
 const PLATFORMS = {
-  "darwin arm64": "@coder8124/brain-darwin-arm64",
-  "darwin x64": "@coder8124/brain-darwin-x64",
-  "linux x64": "@coder8124/brain-linux-x64",
-  "linux arm64": "@coder8124/brain-linux-arm64",
-  "win32 x64": "@coder8124/brain-win32-x64",
+  "darwin arm64": "@brainyprime/brain-darwin-arm64",
+  "darwin x64": "@brainyprime/brain-darwin-x64",
+  "linux x64": "@brainyprime/brain-linux-x64",
+  "linux arm64": "@brainyprime/brain-linux-arm64",
+  "win32 x64": "@brainyprime/brain-win32-x64",
 };
 
 function binaryPath() {
@@ -78,7 +78,7 @@ if (result.error) {
       "the binary is not executable.",
       "",
       "Reinstall to restore its permissions:",
-      "  npm install --force @coder8124/brain"
+      "  npm install --force @brainyprime/brain"
     );
   }
   fail(`could not start the binary: ${result.error.message}`);
