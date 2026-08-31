@@ -1,0 +1,25 @@
+{
+  "$schema": "https://code.claude.com/schemas/plugin.json",
+  "name": "brain",
+  "displayName": "brain — continuity across agents",
+  "description": "Checkpoint and resume work across Claude Code, Cursor and Codex. Records what was ruled out so the next agent does not repeat it. Local-first: your memory is markdown on your disk.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Coder8124",
+    "url": "https://github.com/Coder8124"
+  },
+  "homepage": "https://github.com/Coder8124/brain",
+  "repository": "https://github.com/Coder8124/brain",
+  "license": "MIT",
+  "keywords": ["memory", "continuity", "handoff", "mcp", "local-first"],
+  "category": "productivity",
+  "skills": ["./skills/"],
+  "commands": ["./commands/"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": {
+    "brain": {
+      "command": "npx",
+      "args": ["-y", "@brainyprime/brain", "mcp", "serve"]
+    }
+  }
+}

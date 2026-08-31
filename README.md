@@ -22,7 +22,20 @@ this project dies, you keep a vault.
 
 ## Install
 
-One click, for the hosts that support it:
+**Claude Code** — two commands, and this is the version to prefer:
+
+```
+/plugin marketplace add Coder8124/brain
+/plugin install brain@brain
+```
+
+The plugin is not just the MCP server. It also installs a **SessionStart hook**
+that puts the last handoff in front of the model before it does anything, which
+is the difference between continuity that works and continuity that works when
+the model remembers to ask for it. Plus a `/handoff` command and a skill that
+teaches it to check `before_you_try` before proposing.
+
+One click, for the other hosts:
 
 [![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9icmFpbiIsIm1jcCIsInNlcnZlIl19)
 [![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Fbrain%22%2C%22mcp%22%2C%22serve%22%5D%7D)
