@@ -184,12 +184,14 @@ model throughout.
 
 ```
 system                pass  fidelity  carry   leak  signal
-brain                81.2%    82.8%   89.1%  33.3%   88.9%
+brain                84.4%    85.9%   89.1%  16.7%   88.9%
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%
+full-dump            46.9%    68.8%   84.4%  83.3%   22.2%
 letta                43.8%    67.2%   82.8%  83.3%   22.2%
 mem0                 43.8%    67.2%   82.8%  83.3%   22.2%
 vector-rag           43.8%    67.2%   82.8%  83.3%   22.2%
+static-file           6.2%    22.7%   22.7%   0.0%    0.0%
 none                  0.0%     6.2%    6.2%   0.0%    0.0%
 ```
 
@@ -203,8 +205,10 @@ replaced has handed the next agent a coin flip.
 On the durability family — write, delete every rebuildable artifact, read again
 — brain scores **100%** and every other system scores **0%**.
 
-It loses too: arithmetic and recency-conflict are 0% for everyone, and MemPalace
-beats brain outright on temporal ordering. Full numbers, method and caveats in
+It loses too: arithmetic, recency-conflict and multi-hop are 0%, and temporal
+ordering is 0% for every system measured — retrieval is not computation, and no
+amount of it turns "which came first" into an answer. Full numbers, method and
+caveats in
 [docs/continuity-benchmark.md](docs/continuity-benchmark.md).
 
 ```sh

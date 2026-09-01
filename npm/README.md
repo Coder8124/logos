@@ -1,151 +1,179 @@
-# Logos on npm
+<h1 align="center">Logos</h1>
 
-`npx` is the shortest path from nothing to Logos answering inside an agent, and
-it is the convention MCP hosts already use. No Go toolchain, no clone, no build.
+<p align="center">
+  <strong>The memory you own.</strong><br>
+  Continuity for AI coding agents — checkpoint in one tool, resume in another.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@brainyprime/logos"><img alt="npm" src="https://img.shields.io/npm/v/@brainyprime/logos?style=flat-square&color=0b7285"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+  <img alt="platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-arm64%20%2B%20x64-555?style=flat-square">
+  <img alt="download" src="https://img.shields.io/badge/download-~11%20MB-555?style=flat-square">
+</p>
+
+```
+Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──▶  Cursor
+                                (your vault)
+```
+
+Your agent finishes a session and everything it learned goes with it — the three
+approaches it ruled out, the decision it made at 2am, the reason the obvious fix
+does not work here. The next agent starts from nothing and tries the first dead
+end again.
+
+Logos is the layer that survives the session. It stores what happened as
+**markdown on your disk**, and serves it back over MCP to whichever agent picks
+up next.
+
+---
+
+## Install
 
 ```bash
 npx -y @brainyprime/logos setup
 ```
 
-Or wire a host by hand, with no install at all:
+That is the whole thing. No Go toolchain, no clone, no build — this package
+carries a prebuilt binary for your platform.
+
+`setup` picks a vault (`~/brain` unless you say otherwise), runs the first index,
+then **shows you which agents it would wire and asks before touching any of
+them.** Decline everything and you still have a working install.
+
+<details>
+<summary><b>Wire a host by hand instead</b></summary>
+
+No install at all — `npx` resolves the binary on demand:
 
 ```json
 {
   "mcpServers": {
     "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/logos", "mcp", "serve"],
-      "env": { "BRAIN_VAULT": "/Users/you/brain" }
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
     }
   }
 }
 ```
 
-That config is portable between machines, which the binary-path form is not.
+That config is portable between machines, which an absolute binary path is not.
+Add `"env": { "BRAIN_VAULT": "/path/to/vault" }` to point it somewhere other
+than `~/brain`.
 
-## Two names, on purpose
+</details>
 
-**Logos** is the product. **brain** is the development name — the Go module
-(`github.com/pragun/brain`), the repository, the command the binary calls itself
-in its own help, and `BRAIN_VAULT`.
-
-The seam is exactly one file, `bin/logos.js`: the npm packages carry the product
-name, and the executable inside them keeps the development name. Nothing in the
-Go tree was renamed to publish this, which is why the two can be settled
-independently.
-
-The wrapper installs `logos` and `brain` as the same command, so either reads
-correctly next to whichever set of docs you are looking at.
-
-## How it is packaged
-
-One wrapper package plus five platform packages, the pattern esbuild and swc
-use:
+<details>
+<summary><b>Claude Code users: prefer the plugin</b></summary>
 
 ```
-@brainyprime/logos                 the launcher, a few KB
-  ├─ @brainyprime/logos-darwin-arm64      os: darwin  cpu: arm64
-  ├─ @brainyprime/logos-darwin-x64        os: darwin  cpu: x64
-  ├─ @brainyprime/logos-linux-x64         os: linux   cpu: x64
-  ├─ @brainyprime/logos-linux-arm64       os: linux   cpu: arm64
-  └─ @brainyprime/logos-win32-x64         os: win32   cpu: x64
+/plugin marketplace add Coder8124/brain
+/plugin install logos@logos
 ```
 
-The platform packages are `optionalDependencies` carrying `os` and `cpu` fields,
-so npm evaluates them at install time and fetches only the one that matches —
-about 11 MB, not 55.
+The plugin is more than the MCP server. It installs a **SessionStart hook** that
+puts the last handoff in front of the model before it does anything — the
+difference between continuity that works and continuity that works when the
+model remembers to ask for it.
 
-**No `postinstall` script.** The common alternative downloads a binary after
-install, which breaks under `--ignore-scripts` (increasingly the default in CI),
-breaks offline installs, and asks users to trust a network fetch at install time.
-Shipping the binaries as real package contents costs nothing and avoids all
-three.
+</details>
 
-The binaries are pure Go with `CGO_ENABLED=0`, so one linux build covers glibc
-and musl alike.
+---
 
-### The launcher
+## What it actually does
 
-`bin/logos.js` resolves the platform package and hands over with `stdio:
-"inherit"`, so the child gets the real file descriptors. This matters more than
-it looks: `logos mcp serve` speaks newline-delimited JSON-RPC over stdin/stdout,
-and a wrapper that buffers or writes one stray byte to stdout corrupts the
-stream. Node is not in the data path, and every diagnostic goes to stderr.
+```console
+$ logos checkpoint kestrel-one --agent claude \
+    --decided "aluminium frame, 6061" \
+    --failed  "plastic frame — fails drop test at 1.2m" \
+    --next    "quote the single-mic line"
 
-Exit codes and signals are propagated, so a host that kills its servers sees
-what actually happened.
-
-## Releasing
-
-Push a tag and let `.github/workflows/release.yml` do it — it builds, tests,
-publishes all six packages over npm's trusted publishing, and cuts the GitHub
-release. There is no token anywhere in that path.
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
+$ logos resume kestrel-one          # from Cursor. From Codex. From anywhere.
 ```
 
-Trusted publishing has to be configured per package on npmjs.com, and a package
-must exist before it can be configured, so the **first** publish of each of the
-six is manual. Once, with 2FA:
+The second agent gets the decisions, the dead ends, and the next step — and is
+told, in the pack itself, that the dead ends are there so it does not pay for
+them twice.
 
-```bash
-../scripts/release.sh v0.1.0     # cross-compile, checksum
-node scripts/build.js            # generate platforms/ from dist/
-node scripts/test.js             # handshake through the wrapper
-node scripts/publish.js --otp 123456
+| | |
+|---|---|
+| **Negative knowledge** | Records what was *ruled out*, not just what is true. `before_you_try` answers "has this been tried?" before the agent proposes it. |
+| **Structured handoff** | A checkpoint is decisions, failures, open questions and a next step — not a summary paragraph. |
+| **Scope isolation** | Asking about one project does not drag in another's stale prices. |
+| **Provenance** | Every fact carries where it came from, when, and how confident. |
+| **Stale-plan suppression** | A next step that later work has overtaken is withdrawn, not repeated. |
+| **Durability** | Delete the index, the cache, every derived artifact — the vault is markdown and nothing is lost. |
+
+---
+
+## It works with no AI runtime at all
+
+Continuity — checkpoint, resume, dead ends, handoff — is markdown, SQL and
+string matching. **No model on any path.** Retrieval falls back to lexical
+search, which for code (identifiers, error strings, paths) is arguably the right
+tool anyway.
+
+Install a 274 MB embedding model later if you want semantic recall. Nothing
+requires the 22 GB one.
+
+| You code with | Extra download | You get |
+|---|---|---|
+| Claude Code / Cursor / Codex | **0 MB** | continuity + lexical search |
+| …and want fuzzy recall | 274 MB | + semantic retrieval |
+
+---
+
+## Local-first, meant literally
+
+- Your memory is **markdown files in a directory you chose.** Open them, grep
+  them, commit them, delete them.
+- `.brain/index.db` is a **cache.** Delete it and it rebuilds.
+- Nothing is uploaded. There is no account, no server, no telemetry.
+- If this project disappears tomorrow, **you keep a vault** that every text
+  editor on earth can read.
+
+---
+
+## Supported platforms
+
+| | |
+|---|---|
+| macOS | arm64 · x64 |
+| Linux | x64 · arm64 (glibc and musl — pure Go, `CGO_ENABLED=0`) |
+| Windows | x64 |
+
+The platform packages are `optionalDependencies` gated on `os` and `cpu`, so npm
+fetches only the one that matches — about **11 MB, not 55**. There is **no
+`postinstall` script**: the binaries ship as real package contents, so
+`--ignore-scripts` and offline installs both work.
+
+---
+
+## Common commands
+
+```sh
+logos setup                    # pick a vault, wire your agents (asks first)
+logos doctor                   # what is working, what is not, what it cannot check
+logos doctor --integration     # prove a host round-trips through to the vault
+logos resume <project>         # the handoff, as a human can read it
+logos tried "<approach>"       # has this already been ruled out?
+logos mcp serve                # the MCP server, over stdio
 ```
 
-`publish.js` does the platform packages before the wrapper — the wrapper's
-`optionalDependencies` pin exact versions, and publishing it first leaves
-everyone with a broken install until the rest land. It also refuses to start
-without valid auth, checks every platform package's version against the
-wrapper's, and is safe to re-run after a partial failure: npm rejects a
-republish, and the script reads that as "already landed" rather than an error.
+`brain` is installed as an alias for `logos` — same command, either spelling.
 
-Public packages are free and unlimited on npm. Scoped packages default to
-private, which is why `--access public` is on every publish.
+---
 
-`build.js` extracts the binaries from the release archives rather than compiling
-its own, so what npm ships is byte-identical to the GitHub release and covered
-by the same `SHA256SUMS`.
+## Two names
 
-Bump the version in `package.json` — `build.js` reads it, stamps every platform
-package with it, and looks for `dist/brain_v<version>_*` archives, so a mismatch
-between the tag and the package version is caught as a missing archive rather
-than shipping quietly.
+**Logos** is the product. **brain** is the development name, and stays one: the
+repository, the Go module `github.com/pragun/brain`, the `brain` command,
+`BRAIN_VAULT`, and `.brain/`. Both spellings work everywhere you meet them.
 
-### What `test.js` checks
+---
 
-Beyond "does it run": it drives a real `initialize` handshake through the
-launcher and asserts stdout carries only JSON-RPC. That check is the reason this
-directory has a test at all — it is the failure mode a wrapper introduces, and
-it is invisible until a host reports an unhelpful protocol error.
-
-It also caught a bug in `mcp serve` itself: the server opened the SQLite file
-directly instead of going through `index.Open`, so it failed on a vault that had
-never been indexed, ran without `busy_timeout`, and never registered the vault
-for memory writes.
-
-## Scope
-
-`@brainyprime` must match the npm account or org publishing it. If the scope
-differs, change it in `package.json`, in the `PLATFORMS` table in `bin/logos.js`,
-and where `build.js` names each platform package — all three must agree or the
-launcher will not resolve its own binary.
-
-The unscoped `logos` and `logos-cli` are both taken by unrelated packages, and
-the `@logos` scope is already registered, so the scoped name is the one that is
-actually ours to publish.
-
-## Layout
-
-```
-npm/
-  package.json          the wrapper
-  bin/logos.js          resolve the platform package, exec it, pass stdio through
-  scripts/build.js      generate platforms/ from ../dist
-  scripts/test.js       run the launcher, drive an MCP handshake
-  scripts/publish.js    platform packages, then the wrapper
-  platforms/            generated, gitignored
-```
+<p align="center">
+  <a href="https://github.com/Coder8124/brain">Source &amp; full documentation</a> ·
+  <a href="https://github.com/Coder8124/brain/blob/main/docs/continuity-benchmark.md">Benchmark</a> ·
+  MIT
+</p>
