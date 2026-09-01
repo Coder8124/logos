@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/routine"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/routine"
 )
 
 // Naming is the model's only job here. Mining found the pattern; the model

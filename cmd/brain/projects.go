@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/project"
+	"github.com/Coder8124/brain/internal/project"
 )
 
 // projectsCmd surfaces the work the system has detected on its own — each with

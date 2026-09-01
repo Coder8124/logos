@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/project"
+	"github.com/Coder8124/brain/internal/project"
 )
 
 // Render writes the interruption.

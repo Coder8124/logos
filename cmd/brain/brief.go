@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/rollup"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/rollup"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // runBrief is the secretary speaking first. Unlike ask/search/timeline, you

@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pragun/brain/internal/health"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/setup"
+	"github.com/Coder8124/brain/internal/health"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/setup"
 )
 
 // brain setup — the one command between cloning this and an agent answering

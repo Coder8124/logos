@@ -6,9 +6,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/routine"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/routine"
 )
 
 // A Brief is what the secretary says when you open it: the proactive digest

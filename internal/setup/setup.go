@@ -33,7 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // Name is what brain calls itself in a host's server list.

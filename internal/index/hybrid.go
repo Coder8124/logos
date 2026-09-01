@@ -3,7 +3,7 @@ package index
 import (
 	"strings"
 
-	"github.com/pragun/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/provider"
 )
 
 // Hybrid search: lexical FTS5 fused with vector similarity.

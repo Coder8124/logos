@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/textmatch"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/textmatch"
 )
 
 // Kind categorises a memory so it can be weighted and surfaced appropriately.

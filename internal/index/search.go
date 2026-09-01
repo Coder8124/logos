@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pragun/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/provider"
 )
 
 // Hit is one retrieved note.

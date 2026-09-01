@@ -35,9 +35,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/session"
-	"github.com/pragun/brain/internal/textmatch"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/textmatch"
 )
 
 // Source says where a ruling came from, which is also how much to trust it.

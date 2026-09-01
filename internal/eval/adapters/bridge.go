@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/pragun/brain/internal/eval"
+	"github.com/Coder8124/brain/internal/eval"
 	"os"
 	"os/exec"
 	"path/filepath"

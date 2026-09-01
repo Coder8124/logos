@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pragun/brain/internal/graph"
+	"github.com/Coder8124/brain/internal/graph"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )

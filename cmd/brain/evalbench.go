@@ -5,10 +5,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pragun/brain/internal/eval"
-	"github.com/pragun/brain/internal/eval/adapters"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/eval"
+	"github.com/Coder8124/brain/internal/eval/adapters"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // runContinuityBench runs the handoff-and-memory suite over every system that

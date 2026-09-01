@@ -13,7 +13,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/pragun/brain"
+	"github.com/Coder8124/brain"
 )
 
 const project = "kestrel-one"

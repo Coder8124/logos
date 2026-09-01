@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/textmatch"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/textmatch"
 )
 
 // Two facts about the same thing that do not agree.

@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/session"
-	"github.com/pragun/brain/internal/setup"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/setup"
 )
 
 // State is what a check concluded.

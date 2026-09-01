@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // runThink sets or shows how much the model reasons before answering — the share

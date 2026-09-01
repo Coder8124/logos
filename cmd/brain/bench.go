@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // runBench evaluates the memory's retrieval recall at several k against a

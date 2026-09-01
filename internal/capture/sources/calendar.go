@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 // Calendar is read through EventKit via a JXA (JavaScript for Automation)

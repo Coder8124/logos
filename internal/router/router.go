@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pragun/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/provider"
 )
 
 // ErrNoRuntime means nothing answered on any known local port.

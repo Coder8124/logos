@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // Writing to the vault.

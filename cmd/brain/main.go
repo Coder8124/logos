@@ -14,13 +14,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/capture/sources"
-	"github.com/pragun/brain/internal/health"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/voice"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/capture/sources"
+	"github.com/Coder8124/brain/internal/health"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/voice"
 )
 
 // version is stamped at build time by scripts/release.sh:

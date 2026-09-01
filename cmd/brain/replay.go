@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/replay"
+	"github.com/Coder8124/brain/internal/replay"
 )
 
 // runReplay prints "since you've been away" — the catch-up the app should open

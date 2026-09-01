@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/deadend"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/deadend"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // runTried asks whether an approach has already been ruled out.

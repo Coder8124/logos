@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/event"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/routine"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/event"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/routine"
 )
 
 // GistWindowDays is how far back gist extraction looks for recurring structure.

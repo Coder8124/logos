@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/event"
-	"github.com/pragun/brain/internal/routine"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/event"
+	"github.com/Coder8124/brain/internal/routine"
 )
 
 // The Weekly Review — the executive-assistant briefing, delivered every Sunday.

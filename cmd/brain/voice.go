@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/agent"
-	"github.com/pragun/brain/internal/voice"
+	"github.com/Coder8124/brain/internal/agent"
+	"github.com/Coder8124/brain/internal/voice"
 )
 
 // Voice: talk to the assistant and hear it back, all locally. `say` speaks text,

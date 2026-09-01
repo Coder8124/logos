@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // runWeekly prints the Sunday executive-assistant briefing: what got done, what

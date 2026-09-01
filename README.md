@@ -19,7 +19,7 @@ Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
 
 > **On the two names.** Logos is the product. `brain` is the development name and
-> stays one: the repository, the Go module `github.com/pragun/brain`, the
+> stays one: the repository, the Go module `github.com/Coder8124/brain`, the
 > `brain` command, `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos`
 > and `brain` as the same command, so either spelling works wherever you meet it.
 
@@ -419,17 +419,18 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-git clone https://github.com/Coder8124/brain
-# then, in your go.mod:
-#   require github.com/pragun/brain v0.0.0
-#   replace github.com/pragun/brain => ../brain
+go get github.com/Coder8124/brain@latest
 ```
 
-> The module is declared as `github.com/pragun/brain` while the repository lives
-> at `Coder8124/brain`, so `go get` cannot resolve it from the proxy yet — a
-> clone builds fine, because Go builds a local module by its declared path
-> without fetching it. Renaming the module is a tracked change; until then, use
-> the `replace` above.
+The module path and the repository agree, so the proxy can resolve it. Working
+against a local checkout instead:
+
+```sh
+git clone https://github.com/Coder8124/brain
+# then, in your go.mod:
+#   require github.com/Coder8124/brain v0.0.0
+#   replace github.com/Coder8124/brain => ../brain
+```
 
 ```go
 b, err := brain.Open("/path/to/vault", brain.WithAgent("my-agent"))

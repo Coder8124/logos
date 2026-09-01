@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/pragun/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/memory"
 	_ "modernc.org/sqlite"
 )
 

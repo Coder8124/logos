@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
 )
 
 // Kind is what a dreamed insight would become if accepted.

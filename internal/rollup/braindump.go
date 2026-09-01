@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // Braindump: a scrap of text in, a classified, routed proposal out.

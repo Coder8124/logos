@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/pragun/brain/internal/gitstate"
+	"github.com/Coder8124/brain/internal/gitstate"
 )
 
 // The checkpoint's on-disk form.

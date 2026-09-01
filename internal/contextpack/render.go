@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/project"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // Rendering is where the budget is actually spent, which is why Render takes a

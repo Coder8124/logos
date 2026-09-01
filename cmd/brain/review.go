@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/rollup"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/rollup"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // The trust loop. The system proposes, the user accepts. Everything the model

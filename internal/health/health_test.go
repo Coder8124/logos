@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pragun/brain/internal/index"
+	"github.com/Coder8124/brain/internal/index"
 
 	_ "modernc.org/sqlite"
 )

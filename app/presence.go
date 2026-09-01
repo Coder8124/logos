@@ -4,10 +4,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/dream"
-	"github.com/pragun/brain/internal/flavor"
-	"github.com/pragun/brain/internal/presence"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/dream"
+	"github.com/Coder8124/brain/internal/flavor"
+	"github.com/Coder8124/brain/internal/presence"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // The presence, in the panel. The widget is a window onto the ambient secretary,

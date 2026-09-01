@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pragun/brain"
+	"github.com/Coder8124/brain"
 )
 
 func vaultAt(t *testing.T, name string) string {

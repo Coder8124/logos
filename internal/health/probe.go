@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // Integration proves the wiring end to end, by being the host.

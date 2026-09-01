@@ -22,14 +22,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/graph"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/project"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/session"
-	"github.com/pragun/brain/internal/when"
+	"github.com/Coder8124/brain/internal/graph"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/when"
 )
 
 // A Request is what the caller is trying to do. Task is the important field:

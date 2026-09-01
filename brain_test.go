@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pragun/brain"
+	"github.com/Coder8124/brain"
 )
 
 // open makes a scratch vault. No model runtime — an embedder's CI has none, and

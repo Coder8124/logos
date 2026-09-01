@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // memoryCmd inspects and edits the assistant's persistent memory — the facts it

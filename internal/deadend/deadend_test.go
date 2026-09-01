@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // The tests that matter here are the ones about restraint.

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // A miniature vault with the shape that matters: a project note that links to a

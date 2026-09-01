@@ -167,7 +167,7 @@ logos mcp serve                # the MCP server, over stdio
 ## Two names
 
 **Logos** is the product. **brain** is the development name, and stays one: the
-repository, the Go module `github.com/pragun/brain`, the `brain` command,
+repository, the Go module `github.com/Coder8124/brain`, the `brain` command,
 `BRAIN_VAULT`, and `.brain/`. Both spellings work everywhere you meet them.
 
 ---

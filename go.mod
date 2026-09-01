@@ -1,4 +1,4 @@
-module github.com/pragun/brain
+module github.com/Coder8124/brain
 
 go 1.26.5
 

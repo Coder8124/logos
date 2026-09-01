@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // countHeading counts lines that are exactly the given markdown heading, which
