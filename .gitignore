@@ -57,3 +57,6 @@ npm/node_modules/
 
 # Benchmark output — regenerable, and large.
 bench/results/
+
+# Python bytecode from the benchmark adapters.
+__pycache__/
