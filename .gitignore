@@ -54,3 +54,6 @@ npm/node_modules/
 # the npm package cannot work without.
 !npm/bin/
 !npm/bin/**
+
+# Benchmark output — regenerable, and large.
+bench/results/

@@ -13,15 +13,31 @@ searches on demand. Archival is the part that corresponds to what every other
 system in this table does, so archival is what is scored: passages in,
 semantic search out.
 
-The alternative would be to run Letta's full agent loop, letting the model
-decide what to write into core memory and when to search archival. That is
-Letta at its most capable and it is not runnable here: one scenario writes
-upwards of two hundred events, each becoming at least one local model call,
-and the suite has thirty-two scenarios. The same call was made for mem0
-(infer=False). In both cases the shortcut is *favourable* to the system under
-test on a retrieval benchmark — nothing is lost to a small model's extraction —
-and unfavourable on the reconciliation cases, which is stated in the write-up
-rather than buried.
+Two modes, and the difference is the whole caveat
+-------------------------------------------------
+**Default (`LETTA_AGENT_LOOP` unset).** Passages go straight into archival and
+come back by semantic search. No completion is ever requested, so the run is
+fast and deterministic. On a retrieval benchmark this is *favourable* to Letta —
+nothing is lost to a small model's extraction — and unfavourable on the
+reconciliation cases, where deciding that a new number replaces an old one is
+exactly the work the loop does and this mode skips.
+
+**`LETTA_AGENT_LOOP=1`.** Every write becomes a real agent turn: the event is
+sent as a message, and the model decides what to put in core memory and what to
+file in archival, with the base memory tools available to it. That is Letta as
+its authors intend it, and it is the mode that answers the caveat above.
+
+Reads are deliberately identical in both modes: archival search, plus whatever
+the loop wrote into core memory. The benchmark scores *the context a system
+hands the next agent*, not a generated answer, so asking the agent a question
+and grading its reply would be measuring something no other row measures. Core
+memory is included because in agent-loop mode that is where the loop puts what
+it considers settled — leaving it out would run the loop and then discard its
+main output.
+
+Cost, measured rather than guessed: the suite is 596 write events across 32
+scenarios (201 of them in `scale-haystack` alone). At roughly a turn each,
+agent-loop mode is hours, not minutes — a deliberate overnight run.
 
 Running it requires more than an import: Letta 0.16 needs a PostgreSQL server
 with pgvector and a running `letta server`. See bench/README.md. The probe below
@@ -42,10 +58,19 @@ BASE = os.environ.get("LETTA_BASE_URL", "http://localhost:8289")
 OLLAMA = os.environ.get("LETTA_OLLAMA", "http://localhost:11434/v1")
 EMBED_MODEL = os.environ.get("LETTA_EMBED", "nomic-embed-text")
 EMBED_DIMS = int(os.environ.get("LETTA_EMBED_DIMS", "768"))
-# The agent needs a model handle to be created at all, even though the agent
-# loop is never run here. letta-free is the built-in default and costs nothing
-# because no completion is ever requested.
-MODEL = os.environ.get("LETTA_MODEL", "letta/letta-free")
+AGENT_LOOP = os.environ.get("LETTA_AGENT_LOOP", "") == "1"
+
+# In archival-only mode the agent still needs a model handle to be created at
+# all, even though no completion is ever requested; letta-free is the built-in
+# default and costs nothing because the loop never runs.
+#
+# In agent-loop mode the model actually runs, so it has to be local — a
+# benchmark that claims every system stays on the machine cannot quietly send
+# 596 events to a hosted endpoint. The handle must be one `letta server` has
+# discovered; ask it with `client.models.list()`. Note that Letta filters
+# Ollama models by tool-calling support, so small models may not appear.
+DEFAULT_MODEL = "ollama/glm-4.7-flash:latest" if AGENT_LOOP else "letta/letta-free"
+MODEL = os.environ.get("LETTA_MODEL", DEFAULT_MODEL)
 
 
 def probe():
@@ -92,10 +117,27 @@ class Adapter:
                 "embedding_dim": EMBED_DIMS,
                 "batch_size": 32,
             },
-            # No memory blocks: core memory is filled by the agent loop, which
-            # is not being run. Archival is the surface under test.
-            memory_blocks=[],
-            include_base_tools=False,
+            # Archival-only: core memory is filled by the agent loop, which is
+            # not being run, so there is nothing to give it. Agent-loop mode
+            # needs a block to write into and the base tools to write with.
+            memory_blocks=(
+                [
+                    {
+                        "label": "project",
+                        "value": "",
+                        "description": (
+                            "What is currently true about the work: decisions and "
+                            "the reasons for them, what has been ruled out and why, "
+                            "open questions, and the next step. Replace a fact when "
+                            "it is superseded rather than appending beside it."
+                        ),
+                        "limit": 4000,
+                    }
+                ]
+                if AGENT_LOOP
+                else []
+            ),
+            include_base_tools=AGENT_LOOP,
         )
         self.agent_id = agent.id
 
@@ -103,16 +145,42 @@ class Adapter:
         # `flat` is the harness's prose rendering of an event — for a checkpoint
         # that means task, decisions, what failed and what is next, spelled out.
         # Letta has no checkpoint primitive, so this is the fullest form it can
-        # take. created_at carries the event's real time, which the suite
-        # backdates, so Letta's temporal filters see the same history brain does.
+        # take.
+        if AGENT_LOOP:
+            return self._write_through_loop(ev)
+
+        # created_at carries the event's real time, which the suite backdates,
+        # so Letta's temporal filters see the same history brain does.
         kwargs = {"text": ev["flat"]}
         if ev.get("ts"):
-            import datetime
-
-            kwargs["created_at"] = datetime.datetime.fromtimestamp(
-                ev["ts"], datetime.timezone.utc
-            ).isoformat()
+            kwargs["created_at"] = self._iso(ev["ts"])
         self.client.agents.passages.create(self.agent_id, **kwargs)
+
+    def _write_through_loop(self, ev):
+        """One agent turn per event: the model decides what to keep and where.
+
+        The message says when the event happened because the loop cannot see
+        `created_at` on a passage it has not written yet, and half the suite
+        turns on which of two facts is later. It does not tell the agent *how*
+        to store anything beyond that — choosing between core and archival, and
+        deciding that a new number replaces an old one, is the work under test.
+        """
+        when = f" (recorded {self._iso(ev['ts'])})" if ev.get("ts") else ""
+        self.client.agents.messages.create(
+            self.agent_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Record this{when}:\n\n{ev['flat']}",
+                }
+            ],
+        )
+
+    @staticmethod
+    def _iso(ts):
+        import datetime
+
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
 
     def read(self, q):
         query = q["task"]
@@ -126,6 +194,20 @@ class Adapter:
 
         budget = q.get("budget") or 2000
         out, used = [], 0
+
+        # Core memory first, and only in agent-loop mode, where it holds what
+        # the loop decided was settled. It is what Letta would actually put in
+        # the next agent's context window, so leaving it out would run the loop
+        # and then throw away its main output. It goes first because it is what
+        # Letta itself ranked as most important, and the budget is tight.
+        if AGENT_LOOP:
+            for text in self._core_memory():
+                cost = len(text) // 4 + 1
+                if used + cost > budget and out:
+                    break
+                out.append(text)
+                used += cost
+
         for h in results:
             text = getattr(h, "content", None) or getattr(h, "text", None) or ""
             if not text and isinstance(h, dict):
@@ -138,6 +220,20 @@ class Adapter:
             out.append(text)
             used += cost
         return "\n\n".join(out)
+
+    def _core_memory(self):
+        """The agent's core memory blocks, as plain text. Empty on any failure —
+        a read that raises would score as a crash rather than as a miss."""
+        try:
+            blocks = self.client.agents.blocks.list(self.agent_id)
+        except Exception:
+            return []
+        texts = []
+        for b in blocks:
+            value = getattr(b, "value", None) or ""
+            if value.strip():
+                texts.append(value.strip())
+        return texts
 
     def close(self):
         if self.client and self.agent_id:
