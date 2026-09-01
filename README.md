@@ -52,8 +52,8 @@ npx -y @brainyprime/logos setup
 ```
 
 No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
-for your platform (~11 MB, not 55: the platform packages are gated on `os` and
-`cpu`, so you fetch only yours).
+for your platform (~5 MB over the wire: the platform packages are gated on `os`
+and `cpu`, so you fetch one of the five, not all of them).
 
 <details>
 <summary>Other ways in</summary>

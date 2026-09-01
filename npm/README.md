@@ -9,7 +9,7 @@
   <a href="https://www.npmjs.com/package/@brainyprime/logos"><img alt="npm" src="https://img.shields.io/npm/v/@brainyprime/logos?style=flat-square&color=0b7285"></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
   <img alt="platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-arm64%20%2B%20x64-555?style=flat-square">
-  <img alt="download" src="https://img.shields.io/badge/download-~11%20MB-555?style=flat-square">
+  <img alt="download" src="https://img.shields.io/badge/download-~5%20MB-555?style=flat-square">
 </p>
 
 ```
@@ -35,7 +35,7 @@ npx -y @brainyprime/logos setup
 ```
 
 That is the whole thing. No Go toolchain, no clone, no build — this package
-carries a prebuilt binary for your platform.
+carries a prebuilt binary for your platform, about 5 MB.
 
 `setup` picks a vault (`~/brain` unless you say otherwise), runs the first index,
 then **shows you which agents it would wire and asks before touching any of
@@ -143,9 +143,9 @@ requires the 22 GB one.
 | Windows | x64 |
 
 The platform packages are `optionalDependencies` gated on `os` and `cpu`, so npm
-fetches only the one that matches — about **11 MB, not 55**. There is **no
-`postinstall` script**: the binaries ship as real package contents, so
-`--ignore-scripts` and offline installs both work.
+fetches **one** of them, not five: about **5 MB over the wire, 11 MB on disk**.
+There is **no `postinstall` script** — the binaries ship as real package
+contents, so `--ignore-scripts` and offline installs both work.
 
 ---
 

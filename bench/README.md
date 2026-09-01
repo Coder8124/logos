@@ -159,13 +159,42 @@ it was driven here.
 - **mem0 telemetry is disabled** in the shim. It ships analytics on by default
   and opens a PostHog client at import; a benchmark claiming every system runs
   locally has to mean it.
-- **Letta** is scored on its **archival memory** (`passages.create` /
-  `passages.search`), which is the part of its three-tier memory that
-  corresponds to what the other systems do. Its full agent loop — a model
-  deciding what enters core memory and when to search — is Letta at its most
-  capable and is not affordable here at 32 scenarios x up to 200 events, the
-  same call made for mem0. As with mem0, the shortcut is favourable on
-  retrieval and unfavourable on reconciliation.
+- **Letta** is scored by default on its **archival memory**
+  (`passages.create` / `passages.search`), which is the part of its three-tier
+  memory that corresponds to what the other systems do. As with mem0, that
+  shortcut is favourable on retrieval and unfavourable on reconciliation.
+  `LETTA_AGENT_LOOP=1` runs it the authentic way: every write becomes a real
+  agent turn with the base memory tools available, and the model decides what
+  belongs in core memory and what gets filed in archival.
+
+  Reads are identical in both modes — archival search, plus core memory when
+  the loop has filled it. The benchmark scores *the context a system hands the
+  next agent*, so asking the agent a question and grading its reply would
+  measure something no other row measures; but discarding core memory would run
+  the loop and then throw away its main output.
+
+  In agent-loop mode the model actually runs, so it must be local. The default
+  is `ollama/glm-4.7-flash:latest`; override with `LETTA_MODEL`, using a handle
+  `client.models.list()` reports, since Letta filters Ollama models by
+  tool-calling support and small ones may not appear.
+
+### What authentic mode costs
+
+The suite is **596 write events** across 32 scenarios, 201 of them in
+`scale-haystack` alone. Measured on one machine:
+
+| Mode | Per write | Whole suite |
+|---|---|---|
+| mem0 `infer=False`, Letta archival | milliseconds | ~3 minutes |
+| `MEM0_INFER=1` | ~7 s | ~70 minutes |
+| `LETTA_AGENT_LOOP=1` | 18–40 s | ~4 hours |
+
+So the authentic run is an overnight job, not an unaffordable one — the earlier
+note that it could not be run was an estimate, and the estimate was wrong.
+
+```sh
+MEM0_INFER=1 LETTA_AGENT_LOOP=1 go run ./cmd/brain bench continuity
+```
 - **Letta embeddings must be given a `/v1` endpoint.** It routes every
   embedding through its OpenAI-compatible client and appends `/embeddings` to
   whatever base it is handed, regardless of `embedding_endpoint_type`, and
