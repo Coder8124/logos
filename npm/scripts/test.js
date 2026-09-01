@@ -49,6 +49,8 @@ function check(name, ok, detail) {
 }
 
 // 1. The launcher resolves and runs the binary, and the exit code survives.
+//    The binary answers with its own name, `brain`, not the package's — that is
+//    the seam this wrapper exists to bridge, so asserting on it is deliberate.
 const v = spawnSync(process.execPath, [launcher, "version"], { encoding: "utf8" });
 check("logos version runs through the wrapper", v.status === 0 && /^brain /.test(v.stdout || ""), v.stderr || v.stdout);
 
