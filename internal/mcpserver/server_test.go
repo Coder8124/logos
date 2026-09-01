@@ -151,8 +151,9 @@ func handshake(t *testing.T, c *testClient) {
 	if init.ProtocolVersion != protocolVersion {
 		t.Errorf("protocolVersion = %q, want %q", init.ProtocolVersion, protocolVersion)
 	}
-	if init.ServerInfo.Name != "brain-memory" {
-		t.Errorf("serverInfo.name = %q, want brain-memory", init.ServerInfo.Name)
+	// The product name, which is what a host displays in its server list.
+	if init.ServerInfo.Name != "logos" {
+		t.Errorf("serverInfo.name = %q, want logos", init.ServerInfo.Name)
 	}
 	if init.Capabilities.Tools == nil {
 		t.Error("server must advertise a tools capability")

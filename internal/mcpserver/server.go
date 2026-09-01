@@ -219,7 +219,10 @@ func (s *Server) handle(req request) {
 		s.reply(req.ID, map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "brain-memory", "version": "0.1.0"},
+			// The product name: this is the string a host shows the user in its
+			// server list. The repository, the Go module and the binary keep the
+			// development name.
+			"serverInfo": map[string]any{"name": "logos", "version": "0.1.0"},
 		})
 	case "notifications/initialized":
 		// notification, no reply
