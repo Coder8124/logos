@@ -186,15 +186,32 @@ The suite is **596 write events** across 32 scenarios, 201 of them in
 | Mode | Per write | Whole suite |
 |---|---|---|
 | mem0 `infer=False`, Letta archival | milliseconds | ~3 minutes |
-| `MEM0_INFER=1` | ~7 s | ~70 minutes |
-| `LETTA_AGENT_LOOP=1` | 18–40 s | ~4 hours |
+| `MEM0_INFER=1` | ~10 s | ~1.7 hours |
+| `LETTA_AGENT_LOOP=1` | ~33 s | ~5.4 hours |
 
-So the authentic run is an overnight job, not an unaffordable one — the earlier
-note that it could not be run was an estimate, and the estimate was wrong.
+Timed on `supersession-current-value`: Letta's loop took 12m29s for 23 events
+and issued **108 chat completions for those 23 writes — about 4.7 model calls
+each**, since a turn is reason → call a tool → read the result → often step
+again. An earlier note here guessed "roughly a turn each", which was low.
+
+Treat ~7 hours for the pair as a **floor, not an estimate**. Both systems grow
+their context as memory accumulates — Letta's context estimate climbed 2,379 →
+8,917 tokens across those 23 events — so `scale-haystack`'s 201 events cost
+more than 8.7× a 23-event scenario, not the same per write.
 
 ```sh
 MEM0_INFER=1 LETTA_AGENT_LOOP=1 go run ./cmd/brain bench continuity
 ```
+
+What it buys, measured on the scenario the caveat pointed at: Letta goes from
+0% to 50% fidelity, correctly dropping the first superseded price and still
+leaking the second. mem0 stays at 0% and fails in a new way — it synthesises
+"currently $199, but will increase to $229 … then to $249", reading a history
+of revisions as a schedule of increases. Full write-up in
+[docs/continuity-benchmark.md §6.1](../docs/continuity-benchmark.md).
+
+Note that `infer=True` also wants spaCy (`mem0ai[nlp]`), which the install line
+above does not pull; without it that path logs a fallback warning.
 - **Letta embeddings must be given a `/v1` endpoint.** It routes every
   embedding through its OpenAI-compatible client and appends `/embeddings` to
   whatever base it is handed, regardless of `embedding_endpoint_type`, and

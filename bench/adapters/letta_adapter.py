@@ -36,8 +36,18 @@ it considers settled — leaving it out would run the loop and then discard its
 main output.
 
 Cost, measured rather than guessed: the suite is 596 write events across 32
-scenarios (201 of them in `scale-haystack` alone). At roughly a turn each,
-agent-loop mode is hours, not minutes — a deliberate overnight run.
+scenarios (201 of them in `scale-haystack` alone). A write is not one model
+call — timing `supersession-current-value` gave 108 chat completions for 23
+writes, about 4.7 each, at ~33 s per event, because a turn is reason → call a
+tool → read the result → often step again. That puts the suite near 5.4 hours,
+and superlinear rather than flat: context grows as memory accumulates, so long
+scenarios cost more per write than short ones.
+
+What the loop buys, on that scenario: fidelity 0% → 50%. Archival mode returns
+all three superseded prices, exactly as plain vector search does; the loop
+drops the first entirely and leaks only the second. The scenario still fails,
+because `pass` is conjunctive and one leak scores like ten — but the difference
+is real, and it is only visible in `fidelity`.
 
 Running it requires more than an import: Letta 0.16 needs a PostgreSQL server
 with pgvector and a running `letta server`. See bench/README.md. The probe below
