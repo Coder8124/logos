@@ -1,4 +1,4 @@
-# brain
+# Logos
 
 **The memory you own.** A local-first memory and continuity layer for AI agents.
 Work with Claude Code, Cursor, Codex or your own agent; when one stops, another
@@ -6,17 +6,22 @@ picks up exactly where it left off — over MCP, on your machine, nothing upload
 unless you say so.
 
 ```
-Claude Code  ──▶  checkpoint  ──▶  brain  ──▶  resume  ──▶  Cursor
+Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──▶  Cursor
                                 (your vault)
 ```
 
 > **Memory is the product, and continuity is the proof.** Chat assistants forget
-> you the moment a session ends. brain doesn't — and the test of that is not
+> you the moment a session ends. Logos doesn't — and the test of that is not
 > whether it can find an old note, it is whether an agent that has never seen
 > your project can continue one that did.
 
 Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
+
+> **On the two names.** Logos is the product. `brain` is the development name and
+> stays one: the repository, the Go module `github.com/pragun/brain`, the
+> `brain` command, `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos`
+> and `brain` as the same command, so either spelling works wherever you meet it.
 
 ---
 
@@ -26,7 +31,7 @@ this project dies, you keep a vault.
 
 ```
 /plugin marketplace add Coder8124/brain
-/plugin install brain@brain
+/plugin install logos@logos
 ```
 
 The plugin is not just the MCP server. It also installs a **SessionStart hook**
@@ -37,13 +42,13 @@ teaches it to check `before_you_try` before proposing.
 
 One click, for the other hosts:
 
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9icmFpbiIsIm1jcCIsInNlcnZlIl19)
-[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Fbrain%22%2C%22mcp%22%2C%22serve%22%5D%7D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9sb2dvcyIsIm1jcCIsInNlcnZlIl19)
+[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
 
 Or one command, for everything else:
 
 ```sh
-npx -y @brainyprime/brain setup
+npx -y @brainyprime/logos setup
 ```
 
 No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
@@ -68,9 +73,9 @@ binary on demand:
 ```json
 {
   "mcpServers": {
-    "brain": {
+    "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/brain", "mcp", "serve"]
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
     }
   }
 }

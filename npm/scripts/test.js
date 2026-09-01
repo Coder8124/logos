@@ -15,7 +15,7 @@ const path = require("path");
 const { spawnSync, spawn } = require("child_process");
 
 const root = path.join(__dirname, "..");
-const launcher = path.join(root, "bin", "brain.js");
+const launcher = path.join(root, "bin", "logos.js");
 
 const KEY = { darwin: "darwin", linux: "linux", win32: "win32" }[process.platform];
 const ARCH = { arm64: "arm64", x64: "x64" }[process.arch];
@@ -34,7 +34,7 @@ if (!fs.existsSync(path.join(platDir, "bin", exe))) {
 
 // Stand in for what npm does at install time, so require.resolve in the
 // launcher finds the platform package exactly as it would for a real user.
-const link = path.join(root, "node_modules", "@brainyprime", `brain-${plat}`);
+const link = path.join(root, "node_modules", "@brainyprime", `logos-${plat}`);
 fs.mkdirSync(path.dirname(link), { recursive: true });
 fs.rmSync(link, { recursive: true, force: true });
 fs.symlinkSync(platDir, link, "junction");
@@ -50,7 +50,7 @@ function check(name, ok, detail) {
 
 // 1. The launcher resolves and runs the binary, and the exit code survives.
 const v = spawnSync(process.execPath, [launcher, "version"], { encoding: "utf8" });
-check("brain version runs through the wrapper", v.status === 0 && /^brain /.test(v.stdout || ""), v.stderr || v.stdout);
+check("logos version runs through the wrapper", v.status === 0 && /^brain /.test(v.stdout || ""), v.stderr || v.stdout);
 
 // 2. A non-zero exit from the binary reaches the caller, rather than being
 //    swallowed into a success the host would misread as a clean shutdown.

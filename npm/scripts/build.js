@@ -42,6 +42,10 @@ function die(msg) {
   process.exit(1);
 }
 
+// The archives and the executable inside them keep the development name,
+// `brain`, because that is what scripts/release.sh builds and what the binary
+// calls itself. Only the npm packages carry the product name. bin/logos.js is
+// the seam.
 function archiveFor(t) {
   const base = `brain_v${VERSION}_${t.goos}_${t.goarch}`;
   const zip = path.join(dist, `${base}.zip`);
@@ -96,9 +100,9 @@ for (const t of TARGETS) {
     path.join(dir, "package.json"),
     JSON.stringify(
       {
-        name: `@brainyprime/brain-${t.npm}`,
+        name: `@brainyprime/logos-${t.npm}`,
         version: VERSION,
-        description: `brain binary for ${t.os} ${t.cpu}`,
+        description: `Logos binary for ${t.os} ${t.cpu}`,
         homepage: wrapper.homepage,
         repository: wrapper.repository,
         license: wrapper.license,

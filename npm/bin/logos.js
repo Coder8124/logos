@@ -8,7 +8,13 @@
 // per-platform packages gated by `os`/`cpu`, npm installs only the matching one,
 // and this file resolves it.
 //
-// The important constraint is that `brain mcp serve` speaks newline-delimited
+// On the two names: the published product is Logos, and the executable inside
+// the platform packages is still called `brain` — that is the development name,
+// what `scripts/release.sh` builds, and what the binary calls itself in its own
+// help. This file is the seam between the two, which is why the package name and
+// the file on disk differ. Keep it that way rather than renaming the Go tree.
+//
+// The important constraint is that `logos mcp serve` speaks newline-delimited
 // JSON-RPC over stdin/stdout. Anything this wrapper writes to stdout corrupts
 // that stream, and any buffering between the host and the binary risks stalling
 // it. So stdio is inherited — the child gets the real file descriptors and this
@@ -18,11 +24,11 @@ const { spawnSync } = require("child_process");
 
 // npm's platform vocabulary, which is Node's, not Go's.
 const PLATFORMS = {
-  "darwin arm64": "@brainyprime/brain-darwin-arm64",
-  "darwin x64": "@brainyprime/brain-darwin-x64",
-  "linux x64": "@brainyprime/brain-linux-x64",
-  "linux arm64": "@brainyprime/brain-linux-arm64",
-  "win32 x64": "@brainyprime/brain-win32-x64",
+  "darwin arm64": "@brainyprime/logos-darwin-arm64",
+  "darwin x64": "@brainyprime/logos-darwin-x64",
+  "linux x64": "@brainyprime/logos-linux-x64",
+  "linux arm64": "@brainyprime/logos-linux-arm64",
+  "win32 x64": "@brainyprime/logos-win32-x64",
 };
 
 function binaryPath() {
@@ -30,7 +36,7 @@ function binaryPath() {
   const pkg = PLATFORMS[key];
   if (!pkg) {
     fail(
-      `brain has no prebuilt binary for ${key}.`,
+      `no prebuilt binary for ${key}.`,
       "",
       "Supported: " + Object.keys(PLATFORMS).join(", ") + ".",
       "Build from source instead:",
@@ -38,6 +44,7 @@ function binaryPath() {
     );
   }
 
+  // The executable keeps its development name inside the archive; see above.
   const exe = process.platform === "win32" ? "brain.exe" : "brain";
   try {
     // Resolve through the package's own entry so npm/pnpm/yarn layouts, symlinks
@@ -45,7 +52,7 @@ function binaryPath() {
     return require.resolve(`${pkg}/bin/${exe}`);
   } catch (e) {
     fail(
-      `brain is installed, but the binary package for ${key} is missing.`,
+      `installed, but the binary package for ${key} is missing.`,
       "",
       `Expected: ${pkg}`,
       "",
@@ -60,7 +67,7 @@ function binaryPath() {
 }
 
 function fail(...lines) {
-  for (const line of lines) console.error(line ? `brain: ${line}` : "");
+  for (const line of lines) console.error(line ? `logos: ${line}` : "");
   process.exit(1);
 }
 
@@ -78,14 +85,14 @@ if (result.error) {
       "the binary is not executable.",
       "",
       "Reinstall to restore its permissions:",
-      "  npm install --force @brainyprime/brain"
+      "  npm install --force @brainyprime/logos"
     );
   }
   fail(`could not start the binary: ${result.error.message}`);
 }
 
 // A child killed by a signal has a null status. Reproduce the signal rather
-// than inventing an exit code, so `brain mcp serve` under a host that kills its
+// than inventing an exit code, so `logos mcp serve` under a host that kills its
 // servers reports what actually happened.
 if (result.signal) {
   process.kill(process.pid, result.signal);
