@@ -16,18 +16,22 @@ package mcpserver
 var toolDefs = []map[string]any{
 	{
 		"name":        "remember",
-		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Stored on the user's machine, never uploaded.",
+		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded.",
 		"inputSchema": obj(map[string]any{
-			"text": str("the thing to remember, as a clear standalone statement"),
-			"kind": enumStr("what kind of memory it is", "preference", "person", "context", "fact"),
+			"text":    str("the thing to remember, as a clear standalone statement"),
+			"kind":    enumStr("what kind of memory it is", "preference", "person", "context", "fact"),
+			"project": str("optional: override the project this belongs to; defaults to the folder you are working in"),
+			"global":  boolSchema("set true for a fact that applies to every project, not just this one"),
 		}, "text"),
 	},
 	{
 		"name":        "recall",
-		"description": "Retrieve what is known about the user relevant to a query, from their private local memory. Use this at the start of a task or whenever the user's preferences, people, or prior context would help — so you act on what they've told you before instead of asking again.",
+		"description": "Retrieve what is known about the user relevant to a query, from their private local memory. Use this at the start of a task or whenever the user's preferences, people, or prior context would help — so you act on what they've told you before instead of asking again. Searches the project you are working in plus facts marked global; anything returned from a different project is labelled as such. Set all_projects only when the user explicitly asks about other work.",
 		"inputSchema": obj(map[string]any{
-			"query": str("what you want to recall about the user"),
-			"limit": intSchema("how many memories to return (default 5)"),
+			"query":        str("what you want to recall about the user"),
+			"limit":        intSchema("how many memories to return (default 5)"),
+			"project":      str("optional: search a different project than the folder you are working in"),
+			"all_projects": boolSchema("search every project, not just this one — only when the user asks for it"),
 		}, "query"),
 	},
 	{
@@ -154,6 +158,10 @@ func str(desc string) map[string]any { return map[string]any{"type": "string", "
 
 func intSchema(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
+}
+
+func boolSchema(desc string) map[string]any {
+	return map[string]any{"type": "boolean", "description": desc}
 }
 
 func enumStr(desc string, vals ...string) map[string]any {
