@@ -161,7 +161,7 @@ func (b *Brain) Read(q eval.Query) (eval.Response, error) {
 		b.dirty = false
 	}
 	pack, err := contextpack.Build(b.ix, b.embed, b.model, contextpack.Request{
-		Task: q.Task, Hint: q.Project, Budget: q.Budget,
+		Task: q.Task, Hint: q.Project, Budget: q.Budget, Now: q.Now,
 	})
 	if err != nil {
 		return eval.Response{}, err

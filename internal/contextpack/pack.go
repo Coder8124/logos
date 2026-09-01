@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pragun/brain/internal/graph"
 	"github.com/pragun/brain/internal/index"
@@ -28,6 +29,7 @@ import (
 	"github.com/pragun/brain/internal/provider"
 	"github.com/pragun/brain/internal/secretary"
 	"github.com/pragun/brain/internal/session"
+	"github.com/pragun/brain/internal/when"
 )
 
 // A Request is what the caller is trying to do. Task is the important field:
@@ -41,6 +43,11 @@ type Request struct {
 	// Budget is the approximate token ceiling for the rendered pack. 0 means
 	// DefaultBudget.
 	Budget int
+	// Now is the clock the task's time expressions are resolved against. Zero
+	// means the wall clock. It exists so "what was I working on last month" is
+	// testable, and because a benchmark and a replay both need to ask the
+	// question as of a moment that is not this one.
+	Now int64
 }
 
 // A Pack is everything relevant to one task, gathered from every store, ready to
@@ -74,6 +81,19 @@ type Pack struct {
 	// Conflicts names sources that disagree and cannot be ordered. Unlike
 	// supersession this resolves nothing — it says so out loud instead.
 	Conflicts []string `json:"conflicts,omitempty"`
+
+	// Window is the span of time the task asked about, when it asked about one,
+	// and OutOfWindow counts what was set aside for falling outside it. The
+	// count is rendered and the contents are not: an item excluded for being the
+	// wrong date does not become less wrong for being listed, and reprinting it
+	// would undo the filter. The number is there so the agent knows a filter ran
+	// and can ask again without one.
+	Window      *when.Window `json:"window,omitempty"`
+	OutOfWindow int          `json:"out_of_window,omitempty"`
+	// WindowEmpty is set when the window matched nothing dated, in which case the
+	// filter was abandoned rather than applied and the pack holds everything it
+	// gathered.
+	WindowEmpty bool `json:"window_empty,omitempty"`
 
 	// Sources lists what actually made it into the render, so the consumer can
 	// cite rather than paraphrase.
@@ -173,8 +193,69 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	p.Conflicts = contradictions(p.Notes)
 	p.OpenLoops = openLoops(db, p.Project)
+	p.applyWindow(req)
 
 	return p, nil
+}
+
+// applyWindow narrows the pack to the span of time the task asked about.
+//
+// This is the one question ranked retrieval cannot answer by matching. Nobody
+// writes "five weeks ago" in a note; they write what they did, on a day that
+// turns out to be five weeks back, and only a clock connects the two. Without
+// this the pack answers "what was I working on last month" with everything it
+// has, newest first — which is not a bad answer to that question so much as an
+// answer to a different one.
+//
+// Two rules keep a mis-parsed phrase from being destructive. Preferences are
+// never filtered, because a preference is not an event: "I like proposals as
+// bullet points" does not stop applying because it was recorded in June. And if
+// the window empties every dated section, it is abandoned entirely and the pack
+// says so — a question about a period with nothing in it should be told that,
+// not handed a blank page.
+func (p *Pack) applyWindow(req Request) {
+	now := time.Now()
+	if req.Now > 0 {
+		now = time.Unix(req.Now, 0)
+	}
+	w, ok := when.Parse(req.Task, now)
+	if !ok {
+		return
+	}
+
+	notes := make([]index.Hit, 0, len(p.Notes))
+	for _, h := range p.Notes {
+		if w.Contains(h.FirstSeen) {
+			notes = append(notes, h)
+		}
+	}
+	working := make([]session.Note, 0, len(p.Working))
+	for _, n := range p.Working {
+		if w.Contains(n.TS) {
+			working = append(working, n)
+		}
+	}
+	related := make([]memory.Memory, 0, len(p.Related))
+	for _, m := range p.Related {
+		if w.Contains(m.Created) {
+			related = append(related, m)
+		}
+	}
+
+	dropped := (len(p.Notes) - len(notes)) + (len(p.Working) - len(working)) + (len(p.Related) - len(related))
+	if dropped == 0 {
+		p.Window = &w // nothing to filter, but the reader should still see what was assumed
+		return
+	}
+	// Everything dated fell outside. Either the window is wrong or the period is
+	// empty; either way, suppressing the whole pack would answer neither.
+	if len(notes) == 0 && len(working) == 0 && len(related) == 0 {
+		p.Window, p.WindowEmpty = &w, true
+		return
+	}
+
+	p.Notes, p.Working, p.Related = notes, working, related
+	p.Window, p.OutOfWindow = &w, dropped
 }
 
 // withoutSessionNotes keeps checkpoints out of the vault-prose arm.

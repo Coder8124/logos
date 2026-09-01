@@ -570,6 +570,16 @@ func memoryCases() []Scenario {
 		},
 		{
 			ID: "temporal-ordering", Family: "memory", Skill: "temporal",
+			// Every system measured here scores zero on this, including the two
+			// that run a model over their writes. The label asks the store to
+			// state a comparison, and a store retrieves — this is the same bucket
+			// as numeric-aggregation, and it stays a weakness because it is one.
+			//
+			// What did change is that the material is now answerable. Three facts
+			// each saying "today", recorded weeks apart, used to arrive with no
+			// dates at all; they now carry the day they were written, so a reader
+			// can order them. Carrying the evidence is retrieval's job. Drawing
+			// the conclusion is not.
 			Why:   "Which came first. The store holds timestamps but the answer needs them compared, not listed.",
 			Known: KnownWeakness,
 			Setup: append(noiseFacts(15),
@@ -584,8 +594,15 @@ func memoryCases() []Scenario {
 		},
 		{
 			ID: "temporal-window", Family: "memory", Skill: "temporal",
+			// Was a weakness until internal/when: the phrase is now resolved
+			// against the read clock and the out-of-period notes are dropped,
+			// with a line saying how many and what window ran. Kept as a strength
+			// rather than retired, because the failure it caught — returning
+			// everything to a question that named a period — is the default
+			// behaviour of every other system here and would return the moment
+			// the parser stopped being consulted.
 			Why:   "'Last month' has to be resolved against the clock, not matched as a string.",
-			Known: KnownWeakness,
+			Known: KnownStrength,
 			Setup: []Event{
 				note(45, "user", "kestrel-one", "Spent the week on the optics quote comparison."),
 				note(35, "user", "kestrel-one", "Ran the drop test series on the magnesium frame."),

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pragun/brain/internal/index"
 	"github.com/pragun/brain/internal/memory"
@@ -251,4 +252,146 @@ func TestWorkingNotesAreNotTruncated(t *testing.T) {
 	if strings.Contains(out, "…") {
 		t.Errorf("working notes should not be ellipsised at a fixed width:\n%s", out)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Time windows.
+// ---------------------------------------------------------------------------
+
+// A question that names a period is a question with a filter attached, and the
+// filter is the part that decides the answer. Without it the pack returns
+// everything it has to "what was I working on last month", which is a good
+// answer to a question nobody asked.
+func TestATaskThatNamesAPeriodFiltersToIt(t *testing.T) {
+	ix := seedVault(t)
+
+	now := time.Now()
+	ago := func(days int) int64 { return now.AddDate(0, 0, -days).Unix() }
+	for _, n := range []struct {
+		days int
+		text string
+	}{
+		{45, "Spent the week on the optics quote comparison."},
+		{35, "Ran the drop test series on the magnesium frame."},
+		{5, "Started the packaging design review."},
+	} {
+		if _, err := session.AddNoteAt(ix.DB, "kestrel-one", "user", n.text, ago(n.days)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	p, err := Build(ix, nil, "", Request{
+		Task: "what was I working on about five weeks ago?",
+		Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window == nil {
+		t.Fatal("no window was parsed from a task that plainly names one")
+	}
+	out := p.Render()
+
+	if !strings.Contains(out, "drop test") {
+		t.Errorf("the note inside the window did not survive:\n%s", out)
+	}
+	// The out-of-period notes must be gone from the text, not merely deranked.
+	// Listing what was excluded would put it back in the context window, which
+	// is the whole thing the filter was for.
+	for _, gone := range []string{"packaging design review", "optics quote"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("%q is outside the window and still in the pack:\n%s", gone, out)
+		}
+	}
+	// A filter nobody can see is a filter nobody can correct.
+	if !strings.Contains(out, "about five weeks ago") {
+		t.Errorf("the render does not say which window it applied:\n%s", out)
+	}
+	if p.OutOfWindow != 2 {
+		t.Errorf("OutOfWindow = %d, want 2", p.OutOfWindow)
+	}
+}
+
+// A task with no time expression must be left entirely alone. The cost of a
+// filter firing on a phrase nobody meant temporally is context removed
+// silently, which is worse than no filter at all.
+func TestAnOrdinaryTaskIsNotFiltered(t *testing.T) {
+	ix := seedVault(t)
+	if _, err := session.AddNoteAt(ix.DB, "kestrel-one", "user",
+		"Started the packaging design review.", time.Now().AddDate(0, 0, -200).Unix()); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "keep cutting the BOM toward target", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window != nil {
+		t.Errorf("a task with no time expression produced a window: %s", p.Window)
+	}
+	if !strings.Contains(p.Render(), "packaging design review") {
+		t.Error("a 200-day-old note was dropped from an unfiltered request")
+	}
+}
+
+// If the window empties everything dated, the filter is abandoned rather than
+// applied. A period with nothing in it should be reported as empty, not
+// answered with a blank page.
+func TestAnEmptyWindowIsAbandonedRatherThanApplied(t *testing.T) {
+	now := time.Now()
+	p := Pack{
+		Task: "what did I do about two years ago?",
+		Working: []session.Note{
+			{Text: "Ran the drop test series.", TS: now.AddDate(0, 0, -3).Unix()},
+		},
+	}
+	p.Budget.Limit = DefaultBudget
+	p.applyWindow(Request{Task: p.Task, Now: now.Unix()})
+
+	if p.Window == nil {
+		t.Fatal("no window was parsed")
+	}
+	if !p.WindowEmpty {
+		t.Fatal("a window matching nothing should be reported empty")
+	}
+	out := p.Render()
+	if !strings.Contains(out, "drop test") {
+		t.Errorf("an empty window suppressed the pack instead of standing down:\n%s", out)
+	}
+	if !strings.Contains(out, "Nothing recorded falls in that period") {
+		t.Errorf("the render does not say the period was empty:\n%s", out)
+	}
+}
+
+// A fact written relative to the moment of writing is unreadable without the
+// date it was written on. Three notes each saying "today", recorded weeks
+// apart, are three identical claims until they are dated.
+func TestFactsCarryTheDateTheyWereRecorded(t *testing.T) {
+	ix := seedVault(t)
+	when := time.Date(2026, time.July, 27, 9, 0, 0, 0, time.UTC)
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{
+		Text: "Signed the Pegatron manufacturing agreement today.",
+		Kind: memory.Fact, Source: "manual", Created: when.Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "manufacturing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Related, _ = memory.All(ix.DB)
+	if out := p.Render(); !strings.Contains(out, "27 Jul 2026") {
+		t.Errorf("a recorded fact arrived without its date:\n%s", out)
+	}
+}
+
+// writeNote drops a file into the seeded vault. Kept beside the tests that use
+// it rather than in seedVault, which describes a fixed shape on purpose.
+func writeNote(ix *index.Index, rel, body string) error {
+	path := filepath.Join(ix.Vault, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }

@@ -150,7 +150,7 @@ func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) 
 
 func (ix *Index) HitBySlug(slug string) (Hit, bool) {
 	var h Hit
-	err := ix.DB.QueryRow("SELECT slug, title, kind, body FROM notes WHERE slug = ?", slug).
-		Scan(&h.Slug, &h.Title, &h.Kind, &h.Body)
+	err := ix.DB.QueryRow("SELECT slug, title, kind, body, first_seen FROM notes WHERE slug = ?", slug).
+		Scan(&h.Slug, &h.Title, &h.Kind, &h.Body, &h.FirstSeen)
 	return h, err == nil
 }

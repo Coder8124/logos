@@ -49,6 +49,7 @@ func (p *Pack) Render() string {
 	// 3. Render in the order an agent should read it.
 	var b strings.Builder
 	p.renderHeader(&b)
+	p.renderWindow(&b)
 	p.renderCheckpoint(&b, checkpoint)
 	p.renderWorking(&b, keptWorking)
 	section(&b, "The project", keptProj, "\n")
@@ -101,6 +102,36 @@ func (p *Pack) renderHeader(b *strings.Builder) {
 		}
 		fmt.Fprintf(b, "\n_No project matched %q — standing context only._\n", oneLine(hint))
 	}
+	// Stated once, at the top, where it frames everything under it. See
+	// untrusted.go for why structure alone is not enough.
+	fmt.Fprintf(b, "\n%s\n", boundary)
+}
+
+// renderWindow states the time filter that ran, and what it cost.
+//
+// A filter nobody can see is a filter nobody can correct. The phrase is echoed
+// with the dates it resolved to, so an asker who meant a different fortnight can
+// tell at a glance; the count of what was set aside tells the agent there is
+// more behind the filter and that asking again without a date would get it.
+//
+// What is deliberately absent is the content of what was excluded. Naming those
+// items would put the out-of-period material back in the context window, which
+// is the entire thing the filter was for.
+func (p *Pack) renderWindow(b *strings.Builder) {
+	if p.Window == nil {
+		return
+	}
+	switch {
+	case p.WindowEmpty:
+		fmt.Fprintf(b, "\n_You asked about %s. Nothing recorded falls in that period, so everything below is unfiltered — read the dates before trusting any of it as an answer._\n",
+			p.Window)
+	case p.OutOfWindow > 0:
+		fmt.Fprintf(b, "\n_Filtered to %s — %d %s outside that period %s set aside. Ask without a date to see %s._\n",
+			p.Window, p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
+			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"))
+	default:
+		fmt.Fprintf(b, "\n_Filtered to %s. Everything recorded falls inside it._\n", p.Window)
+	}
 }
 
 // spendCheckpoint charges the checkpoint against its share and returns the body
@@ -127,7 +158,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// the irreplaceable tiers are charged first and State spends what is left.
 	var head, tail strings.Builder
 	if c.Task != "" {
-		fmt.Fprintf(&head, "**They were doing:** %s\n\n", strings.TrimSpace(c.Task))
+		fmt.Fprintf(&head, "**They were doing:** %s\n\n", inline(c.Task))
 	}
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
@@ -149,7 +180,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 				oneLine(m.Text))
 			p.Excluded = append(p.Excluded, "the checkpoint's next step (superseded by a later decision)")
 		} else {
-			fmt.Fprintf(&tail, "**Next step:** %s\n", strings.TrimSpace(c.Next))
+			fmt.Fprintf(&tail, "**Next step:** %s\n", inline(c.Next))
 		}
 	}
 
@@ -161,7 +192,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 		if room <= 0 {
 			trimmed = true
 		} else if state, trimmed = fit(s, room); state != "" {
-			state += "\n\n"
+			state = block(state) + "\n\n"
 		}
 	}
 	if trimmed {
@@ -194,9 +225,9 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 	if who == "" {
 		who = "an agent"
 	}
-	fmt.Fprintf(b, "\n## Where we left off\n\nLast checkpoint by **%s**, %s", who, project.Age(c.TS))
+	fmt.Fprintf(b, "\n## Where we left off\n\nLast checkpoint by **%s**, %s", inline(who), project.Age(c.TS))
 	if c.HandoffTo != "" {
-		fmt.Fprintf(b, ", handed off to **%s**", c.HandoffTo)
+		fmt.Fprintf(b, ", handed off to **%s**", inline(c.HandoffTo))
 	}
 	b.WriteString(".")
 	// What the repository was, as distinct from what the agent said about it.
@@ -226,6 +257,12 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 func (p *Pack) wantWorking() []string {
 	want := make([]string, 0, len(p.Working))
 	multi := len(p.workingAuthors()) > 1
+	// The section header carries the age of the *oldest* note, which is the
+	// right warning to lead with and quietly wrong about every other line when
+	// the notes are spread out. A run of notes covering six weeks reads as six
+	// weeks old throughout, so once they span more than a day each one says when
+	// it was written.
+	spread := p.workingSpansDays()
 	for _, n := range p.Working {
 		// Attribute when more than one agent contributed. Which of them found a
 		// thing is part of the finding: an agent that inherits "the vendor says
@@ -233,8 +270,13 @@ func (p *Pack) wantWorking() []string {
 		// how hard to lean on it. With a single author the name goes in the
 		// heading instead, because repeating it on every line is noise.
 		line := "- "
+		if spread {
+			if d := shortDate(n.TS); d != "" {
+				line += d + " — "
+			}
+		}
 		if multi && n.Agent != "" {
-			line += "(" + n.Agent + ") "
+			line += "(" + inline(n.Agent) + ") "
 		}
 		// Deliberately not clipped to a line length. A working note is a
 		// finding an agent chose to write down — often the reason a whole
@@ -340,6 +382,25 @@ func (p *Pack) oldestWorking() int64 {
 	return oldest
 }
 
+// workingSpansDays reports whether the uncommitted notes cover more than a
+// single day, which is when one age for the whole section stops describing any
+// particular line in it.
+func (p *Pack) workingSpansDays() bool {
+	var oldest, newest int64
+	for _, n := range p.Working {
+		if n.TS <= 0 {
+			continue
+		}
+		if oldest == 0 || n.TS < oldest {
+			oldest = n.TS
+		}
+		if n.TS > newest {
+			newest = n.TS
+		}
+	}
+	return oldest > 0 && newest-oldest > 86400
+}
+
 func (p *Pack) wantProject() []string {
 	pr := p.Project
 	if pr == nil {
@@ -378,11 +439,11 @@ func (p *Pack) wantNotes() ([]string, []string) {
 	want := make([]string, 0, len(p.Notes))
 	slugs := make([]string, 0, len(p.Notes))
 	for _, h := range p.Notes {
-		head := fmt.Sprintf("### %s  `%s`", h.Title, h.Slug)
+		head := fmt.Sprintf("### %s  `%s`", inline(h.Title), inline(h.Slug))
 		if h.Via != "" {
-			head += fmt.Sprintf("\n_reached through the graph from %s — not a direct match_", h.Via)
+			head += fmt.Sprintf("\n_reached through the graph from %s — not a direct match_", inline(h.Via))
 		}
-		want = append(want, head+"\n\n"+demote(strings.TrimSpace(h.Body)))
+		want = append(want, head+"\n\n"+block(strings.TrimSpace(h.Body)))
 		slugs = append(slugs, h.Slug)
 	}
 	return want, slugs
@@ -391,19 +452,34 @@ func (p *Pack) wantNotes() ([]string, []string) {
 // wantMemories renders what the assistant has been told, with the provenance
 // that decides how much to trust it. A preference stated by hand and one
 // inferred from a passing remark should not read identically.
+//
+// Facts carry the date they were recorded, because a great many of them are
+// written relative to the moment of writing. "Signed the manufacturing
+// agreement today" is a complete statement when said and an unanswerable one a
+// month later: three such facts, recorded weeks apart, arrive as three
+// identical claims about today and the reader cannot order them. The date is
+// what makes the sentence mean again what it meant when it was written.
+//
+// Preferences do not get one. A preference is not an event — "bring me
+// proposals as bullet points" is as true now as when it was said — and dating it
+// invites a reader to discount it for age.
 func (p *Pack) wantMemories() []string {
 	var want []string
 	seen := map[int64]bool{}
 	for _, m := range p.Preferences {
-		want = append(want, fmt.Sprintf("- preference: %s  _(%s)_", oneLine(m.Text), m.Source))
+		want = append(want, fmt.Sprintf("- preference: %s  _(%s)_", oneLine(m.Text), inline(m.Source)))
 		seen[m.ID] = true
 	}
 	for _, m := range p.Related {
 		if seen[m.ID] {
 			continue
 		}
+		meta := inline(m.Source)
+		if d := shortDate(m.Created); d != "" {
+			meta += ", " + d
+		}
 		want = append(want, fmt.Sprintf("- %s: %s  _(%s, confidence %.2f)_",
-			m.Kind, oneLine(m.Text), m.Source, m.Confidence))
+			m.Kind, oneLine(m.Text), meta, m.Confidence))
 	}
 	return want
 }
@@ -552,27 +628,17 @@ func (p *Pack) noteDropped(section string, n int) {
 	}
 }
 
-// demote pushes headings inside a quoted note body below the pack's own heading
-// levels. A daily note's "## Observations" rendered verbatim sits at the same
-// level as "## Still open" and reads as a section of the pack rather than as a
-// piece of the note being quoted.
-func demote(body string) string {
-	lines := strings.Split(body, "\n")
-	for i, l := range lines {
-		if strings.HasPrefix(l, "#") {
-			lines[i] = "#" + l
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
+// list writes a labelled group of single-value fields — decisions, dead ends,
+// open questions.
 func list(b *strings.Builder, heading string, items []string) {
 	if len(items) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "**%s:**\n", heading)
 	for _, it := range items {
-		fmt.Fprintf(b, "- %s\n", strings.TrimSpace(it))
+		// inline, not TrimSpace: these are single-value fields, and a newline
+		// inside one is how payload forges a heading. See untrusted.go.
+		fmt.Fprintf(b, "- %s\n", inline(it))
 	}
 	b.WriteString("\n")
 }
@@ -596,6 +662,16 @@ func dedup(in []string) []string {
 // is deliberately conservative: the cost of an unnecessary caveat is a clause,
 // and the cost of a missing one is an agent acting on a fortnight-old plan.
 const staleAfterDays = 7
+
+// shortDate renders a recorded-at date, or "" when there is none. Always with
+// the year: a bare "27 Jul" is ambiguous on any vault old enough to matter, and
+// the two characters saved are not worth the class of mistake they buy.
+func shortDate(ts int64) string {
+	if ts <= 0 {
+		return ""
+	}
+	return time.Unix(ts, 0).Format("2 Jan 2006")
+}
 
 func daysOld(ts int64) int {
 	if ts == 0 {
