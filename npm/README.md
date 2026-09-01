@@ -99,7 +99,7 @@ them twice.
 |---|---|
 | **Negative knowledge** | Records what was *ruled out*, not just what is true. `before_you_try` answers "has this been tried?" before the agent proposes it. |
 | **Structured handoff** | A checkpoint is decisions, failures, open questions and a next step — not a summary paragraph. |
-| **Scope isolation** | Asking about one project does not drag in another's stale prices. |
+| **Scope isolation** | Memory is scoped to the folder you are working in, derived from the directory — not from the agent remembering to say which project it is on. Another repository's facts do not surface unless you ask for them. |
 | **Provenance** | Every fact carries where it came from, when, and how confident. |
 | **Stale-plan suppression** | A next step that later work has overtaken is withdrawn, not repeated. |
 | **Durability** | Delete the index, the cache, every derived artifact — the vault is markdown and nothing is lost. |
@@ -120,6 +120,26 @@ requires the 22 GB one.
 |---|---|---|
 | Claude Code / Cursor / Codex | **0 MB** | continuity + lexical search |
 | …and want fuzzy recall | 274 MB | + semantic retrieval |
+
+---
+
+## One vault, one project per folder
+
+Every host points at one vault, because that is what makes continuity work
+across tools. Facts are still kept apart: the project is taken from the folder
+the agent is working in, so two repositories open in two windows do not write
+into each other's memory.
+
+```
+~/code/kestrel   →  project "kestrel"
+~/code/acme-api  →  project "acme-api"     # cannot see kestrel's decisions
+```
+
+Nothing has to be configured, and the agent does not have to remember to say
+which project it is on — a rule a model can forget is not isolation. Override
+with `BRAIN_PROJECT`, mark a fact `global` when it really does apply everywhere
+(how you like replies written), and pass `all_projects` to search across all of
+them when you actually want that.
 
 ---
 
