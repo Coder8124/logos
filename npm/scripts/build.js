@@ -100,7 +100,7 @@ for (const t of TARGETS) {
     path.join(dir, "package.json"),
     JSON.stringify(
       {
-        name: `@brainyprime/logos-${t.npm}`,
+        name: `@ankrainc/logos-${t.npm}`,
         version: VERSION,
         description: `Logos binary for ${t.os} ${t.cpu}`,
         homepage: wrapper.homepage,

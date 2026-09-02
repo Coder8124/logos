@@ -1,5 +1,5 @@
 {
-  "name": "@brainyprime/logos",
+  "name": "@ankrainc/logos",
   "version": "0.1.0",
   "description": "Logos — cross-tool memory and continuity for AI coding agents, over MCP. Your vault is markdown on your own disk.",
   "keywords": [
@@ -32,11 +32,11 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@brainyprime/logos-darwin-arm64": "0.1.0",
-    "@brainyprime/logos-darwin-x64": "0.1.0",
-    "@brainyprime/logos-linux-x64": "0.1.0",
-    "@brainyprime/logos-linux-arm64": "0.1.0",
-    "@brainyprime/logos-win32-x64": "0.1.0"
+    "@ankrainc/logos-darwin-arm64": "0.1.0",
+    "@ankrainc/logos-darwin-x64": "0.1.0",
+    "@ankrainc/logos-linux-x64": "0.1.0",
+    "@ankrainc/logos-linux-arm64": "0.1.0",
+    "@ankrainc/logos-win32-x64": "0.1.0"
   },
   "scripts": {
     "build": "node scripts/build.js",

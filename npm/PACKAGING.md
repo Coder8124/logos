@@ -28,12 +28,12 @@ One wrapper package plus five platform packages, the pattern esbuild and swc
 use:
 
 ```
-@brainyprime/logos                 the launcher, a few KB
-  ├─ @brainyprime/logos-darwin-arm64      os: darwin  cpu: arm64
-  ├─ @brainyprime/logos-darwin-x64        os: darwin  cpu: x64
-  ├─ @brainyprime/logos-linux-x64         os: linux   cpu: x64
-  ├─ @brainyprime/logos-linux-arm64       os: linux   cpu: arm64
-  └─ @brainyprime/logos-win32-x64         os: win32   cpu: x64
+@ankrainc/logos                 the launcher, a few KB
+  ├─ @ankrainc/logos-darwin-arm64      os: darwin  cpu: arm64
+  ├─ @ankrainc/logos-darwin-x64        os: darwin  cpu: x64
+  ├─ @ankrainc/logos-linux-x64         os: linux   cpu: x64
+  ├─ @ankrainc/logos-linux-arm64       os: linux   cpu: arm64
+  └─ @ankrainc/logos-win32-x64         os: win32   cpu: x64
 ```
 
 The platform packages are `optionalDependencies` carrying `os` and `cpu` fields,
@@ -114,7 +114,7 @@ for memory writes.
 
 ## Scope
 
-`@brainyprime` must match the npm account or org publishing it. If the scope
+`@ankrainc` must match the npm account or org publishing it. If the scope
 differs, change it in `package.json`, in the `PLATFORMS` table in `bin/logos.js`,
 and where `build.js` names each platform package — all three must agree or the
 launcher will not resolve its own binary.

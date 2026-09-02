@@ -15,7 +15,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const PKG = "@brainyprime/logos";
+const PKG = "@ankrainc/logos";
 
 // The server name the host will show, and the prefix every tool appears under.
 // It is the product name, not the development one: this is a surface the user

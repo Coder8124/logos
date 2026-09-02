@@ -16,12 +16,12 @@
 # One-time setup, per package, at npmjs.com → the package → Settings → Trusted
 # Publisher: repository Coder8124/logos, workflow release.yml. All six need it:
 #
-#   @brainyprime/logos                 the wrapper
-#   @brainyprime/logos-darwin-arm64
-#   @brainyprime/logos-darwin-x64
-#   @brainyprime/logos-linux-x64
-#   @brainyprime/logos-linux-arm64
-#   @brainyprime/logos-win32-x64
+#   @ankrainc/logos                 the wrapper
+#   @ankrainc/logos-darwin-arm64
+#   @ankrainc/logos-darwin-x64
+#   @ankrainc/logos-linux-x64
+#   @ankrainc/logos-linux-arm64
+#   @ankrainc/logos-win32-x64
 #
 # Until a package exists it cannot be configured, so the very first publish of
 # each is the one manual step — see npm/scripts/publish.js.

@@ -148,13 +148,13 @@ function publish(dir, label) {
 
 // Platform packages first.
 for (const d of dirs) {
-  publish(path.join(platforms, d), `@brainyprime/logos-${d}`);
+  publish(path.join(platforms, d), `@ankrainc/logos-${d}`);
 }
 // Then the wrapper that depends on them.
-publish(root, "@brainyprime/logos");
+publish(root, "@ankrainc/logos");
 
 console.log(
   dryRun
     ? "\nDry run only. Nothing was published."
-    : `\nPublished. Try it:\n  npx -y @brainyprime/logos@${VERSION} version`
+    : `\nPublished. Try it:\n  npx -y @ankrainc/logos@${VERSION} version`
 );

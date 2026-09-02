@@ -34,7 +34,7 @@ if (!fs.existsSync(path.join(platDir, "bin", exe))) {
 
 // Stand in for what npm does at install time, so require.resolve in the
 // launcher finds the platform package exactly as it would for a real user.
-const link = path.join(root, "node_modules", "@brainyprime", `logos-${plat}`);
+const link = path.join(root, "node_modules", "@ankrainc", `logos-${plat}`);
 fs.mkdirSync(path.dirname(link), { recursive: true });
 fs.rmSync(link, { recursive: true, force: true });
 fs.symlinkSync(platDir, link, "junction");

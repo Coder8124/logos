@@ -43,13 +43,13 @@ teaches it to check `before_you_try` before proposing.
 
 One click, for the other hosts:
 
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9sb2dvcyIsIm1jcCIsInNlcnZlIl19)
-[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBhbmtyYWluYy9sb2dvcyIsIm1jcCIsInNlcnZlIl19)
+[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40ankrainc%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
 
 Or one command, for everything else:
 
 ```sh
-npx -y @brainyprime/logos setup
+npx -y @ankrainc/logos setup
 ```
 
 No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
@@ -61,7 +61,7 @@ and `cpu`, so you fetch one of the five, not all of them).
 
 ```sh
 # From source, if you have Go
-git clone https://github.com/Coder8124/logos && cd brain
+git clone https://github.com/Coder8124/logos && cd logos
 go build -o bin/brain ./cmd/brain && ./bin/brain setup
 
 # Or a release binary — no runtime at all
@@ -76,7 +76,7 @@ binary on demand:
   "mcpServers": {
     "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
+      "args": ["-y", "@ankrainc/logos", "mcp", "serve"]
     }
   }
 }

@@ -19,7 +19,7 @@
   "mcpServers": {
     "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
+      "args": ["-y", "@ankrainc/logos", "mcp", "serve"]
     }
   }
 }

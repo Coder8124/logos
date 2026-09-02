@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@brainyprime/logos"><img alt="npm" src="https://img.shields.io/npm/v/@brainyprime/logos?style=flat-square&color=0b7285"></a>
+  <a href="https://www.npmjs.com/package/@ankrainc/logos"><img alt="npm" src="https://img.shields.io/npm/v/@ankrainc/logos?style=flat-square&color=0b7285"></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
   <img alt="platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-arm64%20%2B%20x64-555?style=flat-square">
   <img alt="download" src="https://img.shields.io/badge/download-~5%20MB-555?style=flat-square">
@@ -31,7 +31,7 @@ up next.
 ## Install
 
 ```bash
-npx -y @brainyprime/logos setup
+npx -y @ankrainc/logos setup
 ```
 
 That is the whole thing. No Go toolchain, no clone, no build — this package
@@ -51,7 +51,7 @@ No install at all — `npx` resolves the binary on demand:
   "mcpServers": {
     "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
+      "args": ["-y", "@ankrainc/logos", "mcp", "serve"]
     }
   }
 }
