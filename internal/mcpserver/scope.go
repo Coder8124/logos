@@ -18,7 +18,8 @@ package mcpserver
 //
 // Resolution order, first non-empty wins:
 //
-//  1. the tool call's own `project` argument — an explicit request always wins
+//  1. the tool call's own `project` argument — an explicit request wins on
+//     which project, though not on which worktree inside it; see below
 //  2. BRAIN_PROJECT — for a host that runs the server somewhere unrelated to
 //     the work, or a user who wants two folders sharing one project
 //  3. the MCP roots the client advertised at initialize, when it sent any
@@ -92,8 +93,9 @@ func (s *Session) sessionProject() string {
 // worktree is empty in a main checkout, which is every repository that has none.
 //
 // The worktree narrows an explicitly-given project too, unlike everything else
-// here. That looks like a break with "an explicit request always wins", and is
-// not one: the project argument answers "which work is this", and the model
+// here. That looks like a break with rule 1 above, and is not one: the two
+// answer different questions. The project argument answers "which work is
+// this", and the model
 // answering it has no way of knowing which of two identical trees it is
 // standing in — resume, note_progress, checkpoint and handoff all *require* a
 // project, so honouring it as a complete scope would leave worktree scoping
