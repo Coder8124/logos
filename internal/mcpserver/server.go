@@ -92,6 +92,12 @@ type Session struct {
 	project     string
 	projectOnce sync.Once
 
+	// clientAgent is who the MCP host said it is at handshake — "claude-code",
+	// "cursor", "codex" — read once from initialize and never asked of the
+	// model. See identity.go. Empty for a host that omits clientInfo, or before
+	// initialize has run.
+	clientAgent string
+
 	// worktree is the linked git worktree the host was launched in, empty in a
 	// main checkout. It narrows continuity — sessions and checkpoints — without
 	// touching memory, because two worktrees are one repository being worked on
@@ -259,6 +265,7 @@ func (s *Session) handle(req request) *response {
 		// windows from one process. Captured before the first tool call, which
 		// is when the project is resolved.
 		s.roots = rootsFromInitialize(req.Params)
+		s.clientAgent = clientInfoFromInitialize(req.Params)
 		return reply(req.ID, map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -376,7 +383,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 		kind = memory.Context
 	}
 	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
-		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project,
+		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
 	})
 	if err != nil {
 		return "", err

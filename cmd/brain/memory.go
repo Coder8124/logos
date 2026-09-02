@@ -43,8 +43,8 @@ func memoryCmd(args []string) error {
 				meta += " · " + m.Project
 			}
 			// salience = how much it matters; conf = how sure we are it's true.
-			fmt.Printf("  [%d] (%-10s sal %.2f · conf %s) %s%s\n",
-				m.ID, m.Kind, m.Salience, confBar(m.Confidence), m.Text, meta)
+			fmt.Printf("  [%d] (%-10s sal %.2f · conf %s) %s%s · %s\n",
+				m.ID, m.Kind, m.Salience, confBar(m.Confidence), m.Text, meta, agentLabel(m.Agent))
 		}
 		return nil
 	}
@@ -224,6 +224,17 @@ func nonFlagArgs(args []string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// agentLabel names who learned a memory, for the listing. A dash rather than
+// nothing: most memories predate this field or came from the CLI rather than
+// a named MCP client, and a bare trailing "· " on those rows would read as a
+// rendering bug rather than an honest "we don't know".
+func agentLabel(agent string) string {
+	if strings.TrimSpace(agent) == "" {
+		return "-"
+	}
+	return agent
 }
 
 // confBar renders a confidence as a short 5-cell bar plus the number, so the
