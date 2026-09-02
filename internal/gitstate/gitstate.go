@@ -86,28 +86,65 @@ func Read(dir string) State {
 		s.Subject = git(dir, "log", "-1", "--pretty=%s")
 	}
 
-	// A linked worktree's git dir sits inside the main repo's common dir, so the
-	// two differ. Naming it prevents the confusion where two agents check in
-	// against "the same branch" from different trees.
-	//
-	// Both paths must be resolved before comparing: in the main tree
-	// --git-common-dir answers with a *relative* ".git" while
-	// --absolute-git-dir answers absolutely, so a naive comparison reports every
-	// ordinary repository as a worktree.
-	if gitDir, common := git(dir, "rev-parse", "--absolute-git-dir"), git(dir, "rev-parse", "--git-common-dir"); gitDir != "" && common != "" {
-		if !filepath.IsAbs(common) {
-			common = filepath.Join(dir, common)
-		}
-		if a, err1 := filepath.EvalSymlinks(gitDir); err1 == nil {
-			if b, err2 := filepath.EvalSymlinks(common); err2 == nil && a != b {
-				s.Worktree = git(dir, "rev-parse", "--show-toplevel")
-			}
-		}
+	// Naming the tree prevents the confusion where two agents check in against
+	// "the same branch" from different worktrees.
+	if linkedGitDir(dir) != "" {
+		s.Worktree = git(dir, "rev-parse", "--show-toplevel")
 	}
 
 	s.Files, s.Dirty = dirtyFiles(dir)
 	s.Insertions, s.Deletions = diffStat(dir)
 	return s
+}
+
+// WorktreeName is git's own name for the linked worktree at dir, and "" when
+// dir is the main checkout, is not a repository, or git will not answer.
+//
+// It is the name and not the path because this is what continuity is scoped by
+// — a folder that gets moved is the same worktree, exactly as a project that
+// gets moved is the same project. Git allocates the name itself, in the admin
+// directory it keeps per worktree (<repo>/.git/worktrees/<name>), and
+// guarantees it is unique inside the repository: two worktrees whose folders
+// happen to share a basename still get distinct names, which a scope derived
+// from the folder could not promise.
+func WorktreeName(dir string) string {
+	gitDir := linkedGitDir(dir)
+	if gitDir == "" {
+		return ""
+	}
+	return filepath.Base(gitDir)
+}
+
+// linkedGitDir returns the worktree's own git directory when dir is a linked
+// worktree, and "" when it is the main checkout or not a repository at all.
+//
+// A linked worktree's git dir sits inside the main repo's common dir, so the
+// two differ; in the main tree they are the same directory.
+//
+// Both paths must be resolved before comparing: in the main tree
+// --git-common-dir answers with a *relative* ".git" while --absolute-git-dir
+// answers absolutely, so a naive comparison reports every ordinary repository
+// as a worktree.
+func linkedGitDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	gitDir, common := git(dir, "rev-parse", "--absolute-git-dir"), git(dir, "rev-parse", "--git-common-dir")
+	if gitDir == "" || common == "" {
+		return ""
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(dir, common)
+	}
+	a, err := filepath.EvalSymlinks(gitDir)
+	if err != nil {
+		return ""
+	}
+	b, err := filepath.EvalSymlinks(common)
+	if err != nil || a == b {
+		return ""
+	}
+	return a
 }
 
 func isRepo(dir string) bool {

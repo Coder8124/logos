@@ -83,6 +83,11 @@ func (c Checkpoint) Empty() bool {
 // The project's uncommitted working notes are folded in — including any left by
 // an agent that died mid-task — so an agent that only ever called note_progress
 // still produces a useful checkpoint instead of an empty one.
+//
+// Project is a scope, so "kestrel/feature-x" writes into
+// sessions/kestrel/feature-x/ and closes only that worktree's sessions. The
+// caller decides the scope, exactly as it decides the project — see
+// internal/mcpserver/scope.go.
 func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if strings.TrimSpace(c.Project) == "" {
 		return fmt.Errorf("a checkpoint needs a project")
@@ -90,11 +95,11 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// Distinguish "you gave no project" from "that project name cannot be a
 	// filename" — reporting the second as the first blames the caller for
 	// omitting what they supplied.
-	if safe(c.Project) == "" {
+	if safeScope(c.Project) == "" {
 		return fmt.Errorf(
 			"project name %q has no letters or digits to make a filename from", c.Project)
 	}
-	c.Project = safe(c.Project)
+	c.Project = safeScope(c.Project)
 	if strings.TrimSpace(c.Agent) == "" {
 		c.Agent = "agent"
 	}
@@ -195,7 +200,7 @@ func Latest(vaultDir, project string) (*Checkpoint, error) {
 
 // History returns up to n checkpoints for a project, newest first.
 func History(vaultDir, project string, n int) ([]Checkpoint, error) {
-	dir := filepath.Join(vaultDir, CheckpointDir, safe(project))
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -222,13 +227,15 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 			continue // a checkpoint we cannot read must not hide the ones we can
 		}
 		c := ParseCheckpoint(string(raw))
-		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safe(project), strings.TrimSuffix(name, ".md")))
+		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(name, ".md")))
 		out = append(out, c)
 	}
 	return out, nil
 }
 
-// Projects lists the projects that have at least one checkpoint.
+// Projects lists the projects that have at least one checkpoint. Worktree
+// scopes are folders inside a project's, so they are not listed as projects of
+// their own — which is what they are not.
 func Projects(vaultDir string) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(vaultDir, CheckpointDir))
 	if err != nil {

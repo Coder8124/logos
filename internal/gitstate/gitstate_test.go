@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -187,5 +188,49 @@ func TestLinkedWorktreeIsNamed(t *testing.T) {
 	}
 	if side.Branch != "side" {
 		t.Errorf("worktree branch = %q, want side", side.Branch)
+	}
+}
+
+// The name is what continuity is scoped by, so it has to be git's own — stable
+// across a move, and unique inside the repository.
+func TestWorktreeNameIsGitsOwnName(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "first")
+
+	// Two worktrees whose folders share a basename. A scope taken from the
+	// folder would call both "same" and merge them, which is the exact
+	// collision worktree scoping exists to prevent; git allocates the second a
+	// name of its own.
+	parents := []string{filepath.Join(t.TempDir(), "left"), filepath.Join(t.TempDir(), "right")}
+	names := make([]string, 0, 2)
+	for i, parent := range parents {
+		wt := filepath.Join(parent, "same")
+		branch := "side" + strconv.Itoa(i)
+		if out, err := exec.Command("git", "-C", dir, "worktree", "add", "-b", branch, wt).CombinedOutput(); err != nil {
+			t.Skipf("worktree unavailable: %v: %s", err, out)
+		}
+		n := WorktreeName(wt)
+		if n == "" {
+			t.Fatalf("%s was not identified as a worktree", wt)
+		}
+		names = append(names, n)
+	}
+	if names[0] == names[1] {
+		t.Errorf("two worktrees share the name %q, so their continuity would merge", names[0])
+	}
+
+	// The main checkout is not a worktree, which is what keeps a repository
+	// with no linked worktrees behaving exactly as it did.
+	if n := WorktreeName(dir); n != "" {
+		t.Errorf("the main checkout was named as a worktree: %q", n)
+	}
+}
+
+// Same rule as everything else here: not knowing is a normal condition.
+func TestWorktreeNameDegradesToNothing(t *testing.T) {
+	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "nope"), ""} {
+		if n := WorktreeName(dir); n != "" {
+			t.Errorf("WorktreeName(%q) = %q, want empty", dir, n)
+		}
 	}
 }

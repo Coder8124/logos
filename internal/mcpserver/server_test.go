@@ -100,6 +100,11 @@ func send(t *testing.T, w io.Writer, v any) {
 // able to look at them.
 func startServer(t *testing.T) (*testClient, *sql.DB, string) {
 	t.Helper()
+	// These tests are about the protocol, not about scoping, and they name
+	// their project explicitly. Pin the worktree axis off so the suite reads
+	// the same run from a linked worktree as from the main checkout — see
+	// scope.go and scope_test.go, which test that axis on purpose.
+	t.Setenv("BRAIN_WORKTREE", "")
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
 	if err != nil {

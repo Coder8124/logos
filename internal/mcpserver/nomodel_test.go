@@ -32,6 +32,10 @@ import (
 
 func startNoModel(t *testing.T) (*asyncClient, string) {
 	t.Helper()
+	// Worktree scoping off: these tests name their project and care about what
+	// works without a model, not about where continuity is filed. See
+	// startServer for the same reasoning.
+	t.Setenv("BRAIN_WORKTREE", "")
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
 	if err != nil {

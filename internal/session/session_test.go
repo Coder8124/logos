@@ -282,6 +282,64 @@ func TestSafeRejectsPathEscapes(t *testing.T) {
 	}
 }
 
+// A scope has two levels when the work is happening in a worktree, and both
+// have to survive — flattening "kestrel/feature-x" to "kestrel-feature-x" would
+// file a worktree as a sibling project rather than inside the one it belongs
+// to. Each segment is still sanitised, so nothing gains the right to escape by
+// being spelled with a slash.
+func TestSafeScopeKeepsTheWorktreeInsideItsProject(t *testing.T) {
+	if got := safeScope("Kestrel One/feature X"); got != "kestrel-one/feature-x" {
+		t.Errorf(`safeScope = %q, want "kestrel-one/feature-x"`, got)
+	}
+	for _, in := range []string{"../../etc/passwd", "kestrel/../../etc", "/", "..", "kestrel/.."} {
+		got := safeScope(in)
+		if strings.Contains(got, "..") || strings.HasPrefix(got, "/") || strings.Contains(got, `\`) {
+			t.Errorf("safeScope(%q) = %q — still usable as a path escape", in, got)
+		}
+	}
+	// A plain project is unchanged by any of this.
+	if got := safeScope("kestrel-one"); got != "kestrel-one" {
+		t.Errorf("safeScope moved a plain project: %q", got)
+	}
+}
+
+// Two worktrees of one project keep separate checkpoints and separate open
+// sessions, and neither is visible from the project itself — which is what
+// stops an agent resuming into a tree it was never working in.
+func TestWorktreeScopesDoNotShareContinuity(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	for _, scope := range []string{"kestrel", "kestrel/feature-a", "kestrel/feature-b"} {
+		if _, err := AddNote(db, scope, "claude", "working in "+scope); err != nil {
+			t.Fatal(err)
+		}
+		if err := Commit(db, dir, &Checkpoint{
+			Project: scope, Agent: "claude", Next: "next step for " + scope,
+		}); err != nil {
+			t.Fatalf("%s: %v", scope, err)
+		}
+	}
+
+	for _, scope := range []string{"kestrel", "kestrel/feature-a", "kestrel/feature-b"} {
+		hist, err := History(dir, scope, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hist) != 1 {
+			t.Fatalf("%s has %d checkpoints, want its own one", scope, len(hist))
+		}
+		if want := "next step for " + scope; hist[0].Next != want {
+			t.Errorf("%s resumed into %q, want %q", scope, hist[0].Next, want)
+		}
+	}
+
+	// Committing in one worktree closes that worktree's sessions and no others.
+	if notes, err := Uncommitted(db, "kestrel/feature-a"); err != nil || len(notes) != 0 {
+		t.Errorf("feature-a still has %d uncommitted notes (%v)", len(notes), err)
+	}
+}
+
 func TestRapidCheckpointsByOneAgentDoNotOverwriteEachOther(t *testing.T) {
 	db := testDB(t)
 	dir := t.TempDir()
