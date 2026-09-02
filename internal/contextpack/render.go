@@ -8,6 +8,7 @@ import (
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/project"
 	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // Rendering is where the budget is actually spent, which is why Render takes a
@@ -160,6 +161,9 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	if c.Task != "" {
 		fmt.Fprintf(&head, "**They were doing:** %s\n\n", inline(c.Task))
 	}
+	// Above the session log, and charged with the fixed tier: evidence that a
+	// long standup log can evict is evidence the next agent regenerates by hand.
+	safeToContinue(&head, c)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	list(&tail, "Already tried, didn't work", c.Failed)
@@ -212,6 +216,28 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 		p.Sources = append(p.Sources, c.Slug)
 	}
 	return text
+}
+
+// safeToContinue prints what the last agent demonstrated, what it knows is
+// broken, and the commands that produced the evidence.
+//
+// It goes ahead of the prose because it answers the question a resuming agent
+// has first and a state paragraph never answers: which of this is checked? "Auth
+// is done" reads the same whether a test proved it or the author believed it
+// while the context ran out, so an agent handed only prose either re-verifies
+// everything or trusts a sentence — and trusting the sentence is how a session
+// inherits a foundation that was never true.
+//
+// Verified leads, blockers follow, commands last. What is standing decides what
+// to do next; what is broken qualifies it; the invocations only matter once the
+// agent has picked a claim it wants to re-run for itself.
+func safeToContinue(b *strings.Builder, c *session.Checkpoint) {
+	if len(c.Verified) == 0 && len(c.Blockers) == 0 && len(c.Commands) == 0 {
+		return // nothing was verified, or the checkpoint predates these fields
+	}
+	list(b, "Verified — safe to continue from", c.Verified)
+	list(b, "Known broken — do not build on it", c.Blockers)
+	list(b, "Shown by running", c.Commands)
 }
 
 // renderCheckpoint leads the pack: it is the one section nothing else can

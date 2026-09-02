@@ -141,6 +141,86 @@ func TestCheckpointLeadsTheRenderedPack(t *testing.T) {
 	}
 }
 
+// What was demonstrated has to arrive before the prose that merely claims
+// things, or the arriving agent reads a confident paragraph first and never gets
+// to the part that says which of it was checked.
+func TestVerificationLeadsTheCheckpointProse(t *testing.T) {
+	ix := seedVault(t)
+
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude",
+		Task:     "cut the BOM",
+		State:    "The single-mic line is basically done and the tariff numbers look fine.",
+		Verified: []string{"the single-mic BOM clears $118 — scripts/bom.py --line single-mic"},
+		Blockers: []string{"the tariff table is stale, so no landed cost is trustworthy"},
+		Commands: []string{"scripts/bom.py --line single-mic"},
+		Failed:   []string{"re-quoting the waveguide — no movement under 10k units"},
+		Next:     "refresh the tariff table",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+
+	for _, want := range []string{
+		"Verified — safe to continue from",
+		"clears $118",
+		"Known broken — do not build on it",
+		"tariff table is stale",
+		"Shown by running",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q from the render:\n%s", want, out)
+		}
+	}
+
+	verified := strings.Index(out, "Verified — safe to continue from")
+	for _, later := range []string{"basically done", "Already tried, didn't work", "Next step"} {
+		if i := strings.Index(out, later); i >= 0 && i < verified {
+			t.Errorf("%q came before the evidence block:\n%s", later, out)
+		}
+	}
+	// Order within the block: what stands, then what does not, then how to check.
+	if i, j := strings.Index(out, "Known broken"), strings.Index(out, "Shown by running"); i > j {
+		t.Errorf("blockers should precede the commands that produced the evidence:\n%s", out)
+	}
+}
+
+// The overwhelming majority of checkpoints in any existing vault carry none of
+// this. They must render exactly as they did before — an empty "verified"
+// heading claims something was checked and found wanting, which is not the same
+// as nobody having recorded it.
+func TestACheckpointWithNoVerificationRendersWithoutTheBlock(t *testing.T) {
+	ix := seedVault(t)
+
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude",
+		Task: "cut the BOM",
+		Next: "quote the single-mic line",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+
+	if !strings.Contains(out, "Where we left off") || !strings.Contains(out, "quote the single-mic line") {
+		t.Errorf("an old-shape checkpoint stopped rendering:\n%s", out)
+	}
+	for _, unwanted := range []string{"Verified — safe to continue from", "Known broken", "Shown by running"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("empty verification produced a %q heading:\n%s", unwanted, out)
+		}
+	}
+}
+
 // A smaller budget must produce a smaller pack and say what it dropped, rather
 // than silently returning less.
 func TestSmallerBudgetDropsAndReportsIt(t *testing.T) {

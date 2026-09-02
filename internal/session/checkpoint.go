@@ -28,6 +28,22 @@ type Checkpoint struct {
 	State     string
 	Decisions []string
 	Failed    []string
+	// The verified half. Failed says what was ruled out; these three say what the
+	// next agent may stand on without checking it again.
+	//
+	// Prose cannot carry this. "Auth is done" is a claim, and it reads the same
+	// whether a test demonstrated it or the last agent believed it while its
+	// context was running out. An arriving agent that cannot tell those apart
+	// either re-verifies everything or builds on a sentence, and the second is
+	// how a session inherits a foundation that was never true.
+	//
+	// So a verified entry names its evidence alongside the claim ("rejects
+	// expired tokens — go test ./internal/auth -run TestExpiry"), Commands are
+	// the invocations that produced it, and Blockers are the standing refutation:
+	// what is known broken, and what it stops.
+	Verified  []string
+	Blockers  []string
+	Commands  []string
 	Questions []string
 	Files     []string
 	Next      string
@@ -50,7 +66,13 @@ const CheckpointDir = "sessions"
 func (c Checkpoint) Empty() bool {
 	return strings.TrimSpace(c.Task) == "" && strings.TrimSpace(c.State) == "" &&
 		strings.TrimSpace(c.Next) == "" && len(c.Decisions) == 0 &&
-		len(c.Failed) == 0 && len(c.Questions) == 0
+		len(c.Failed) == 0 && len(c.Questions) == 0 &&
+		// "This much is proven" and "this is broken" are thin checkpoints but
+		// not empty ones: they are the part of a session the next agent would
+		// otherwise have to re-establish by running the suite itself. Commands
+		// deliberately do not count — a list of invocations with no claim
+		// attached records what was typed, not what is true.
+		len(c.Verified) == 0 && len(c.Blockers) == 0
 }
 
 // Commit writes the checkpoint to the vault and closes the project's open

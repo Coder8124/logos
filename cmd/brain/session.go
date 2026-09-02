@@ -49,7 +49,8 @@ func runNote(args []string) error {
 func runCheckpoint(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: brain checkpoint <project> [--task ...] [--next ...] " +
-			"[--decided ...] [--failed ...] [--question ...] [--file ...] [--handoff <agent>]\n" +
+			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
+			"[--question ...] [--file ...] [--handoff <agent>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
 	}
 	c := &session.Checkpoint{Project: args[0], Agent: agentName()}
@@ -74,6 +75,12 @@ func runCheckpoint(args []string) error {
 			c.Decisions = append(c.Decisions, val())
 		case "--failed":
 			c.Failed = append(c.Failed, val())
+		case "--verified":
+			c.Verified = append(c.Verified, val())
+		case "--blocker":
+			c.Blockers = append(c.Blockers, val())
+		case "--ran":
+			c.Commands = append(c.Commands, val())
 		case "--question":
 			c.Questions = append(c.Questions, val())
 		case "--file":
@@ -241,6 +248,15 @@ func merge(dst *session.Checkpoint, src session.Checkpoint) {
 	}
 	if len(dst.Failed) == 0 {
 		dst.Failed = src.Failed
+	}
+	if len(dst.Verified) == 0 {
+		dst.Verified = src.Verified
+	}
+	if len(dst.Blockers) == 0 {
+		dst.Blockers = src.Blockers
+	}
+	if len(dst.Commands) == 0 {
+		dst.Commands = src.Commands
 	}
 	if len(dst.Questions) == 0 {
 		dst.Questions = src.Questions
