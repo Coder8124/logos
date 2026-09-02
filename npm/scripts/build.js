@@ -133,4 +133,24 @@ for (const t of TARGETS) {
 }
 
 if (built === 0) die("nothing built");
+
+// The wrapper pins its platform packages by exact version, so the two have to
+// move together. Nothing did that until now: `npm version patch` bumps the
+// wrapper's own version and leaves optionalDependencies on the old one, and the
+// result is a wrapper that installs cleanly and then resolves five packages
+// that were never published. Rewriting them here means the version lives in
+// exactly one place and bumping it is one command.
+const pins = {};
+for (const t of TARGETS) pins[`@ankrainc/logos-${t.npm}`] = VERSION;
+
+const before = JSON.stringify(wrapper.optionalDependencies);
+if (JSON.stringify(pins) !== before) {
+  wrapper.optionalDependencies = pins;
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify(wrapper, null, 2) + "\n"
+  );
+  console.log(`  wrapper optionalDependencies repinned to ${VERSION}`);
+}
+
 console.log(`\n${built} platform package(s) in npm/platforms/ at v${VERSION}`);

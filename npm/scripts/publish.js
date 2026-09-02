@@ -109,6 +109,26 @@ for (const d of dirs) {
   }
 }
 
+// And the wrapper has to pin the versions it is about to be published alongside.
+// build.js keeps these in step; this catches a package.json edited by hand, or a
+// `npm version` run that nothing rebuilt afterwards. The failure it prevents is
+// silent and total: a wrapper that installs fine and then resolves five packages
+// that do not exist.
+const pins = wrapper.optionalDependencies || {};
+for (const d of dirs) {
+  const name = `@ankrainc/logos-${d}`;
+  if (pins[name] !== VERSION) {
+    die(
+      `the wrapper pins ${name} at ${pins[name] || "nothing"}, but ${VERSION} is\n` +
+        `  what is being published — run: node scripts/build.js`
+    );
+  }
+}
+for (const name of Object.keys(pins)) {
+  const d = name.replace("@ankrainc/logos-", "");
+  if (!dirs.includes(d)) die(`the wrapper pins ${name}, but platforms/${d} was not built`);
+}
+
 console.log(`publishing logos ${VERSION} as ${who}${dryRun ? " (dry run)" : ""}\n`);
 
 const otpFlag = process.argv.indexOf("--otp");
@@ -123,10 +143,9 @@ const otp = otpFlag !== -1 ? process.argv[otpFlag + 1] : null;
 // npm to have told us.
 const interactive = !otp && !ci && !dryRun && process.stdin.isTTY;
 
-// Already published is not a failure on a resumed run; it is what makes
-// resuming safe. Asked of the registry rather than inferred from an error
-// string, so it works whether or not npm's output was captured.
-function alreadyPublished(name) {
+// Is this version actually installable? Not "did npm accept a publish once",
+// which is a different and weaker question — see conflict() below.
+function readable(name) {
   const r = spawnSync("npm", ["view", `${name}@${VERSION}`, "version"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -134,10 +153,34 @@ function alreadyPublished(name) {
   return r.status === 0 && (r.stdout || "").trim() === VERSION;
 }
 
+// npm refuses to publish over a version it has seen before. That is usually
+// benign — a resumed run stepping over what already landed, which is what makes
+// resuming safe. It is not always benign: npm reserves a version number
+// permanently the moment it is written, so a publish that half-succeeded leaves
+// a version that can never be reused and that nobody can install. Both cases
+// produce the same E403, so the error text cannot tell them apart and must not
+// be trusted on its own. Ask the registry whether the version is actually
+// there; if it is not, the number is burned and the only way out is to bump.
+function conflict(label, name) {
+  if (readable(name)) {
+    console.log(`  = ${label} (already at this version)`);
+    return;
+  }
+  die(
+    `${label} claims ${VERSION} is already published, but the registry does not\n` +
+      `  serve it. That version number is burned — npm reserves it forever once\n` +
+      `  written, even for a publish that never became installable.\n\n` +
+      `  Bump every package to the next patch version and publish again:\n` +
+      `    npm version patch --no-git-tag-version && node scripts/build.js\n\n` +
+      `  Do not publish the wrapper until this one resolves, or every install on\n` +
+      `  this platform breaks: the wrapper pins it by exact version.`
+  );
+}
+
 let published = 0;
 function publish(dir, label) {
   const name = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).name;
-  if (!dryRun && alreadyPublished(name)) {
+  if (!dryRun && readable(name)) {
     console.log(`  = ${label} (already at this version)`);
     return;
   }
@@ -154,6 +197,12 @@ function publish(dir, label) {
       console.log(`  ✓ ${label}`);
       return;
     }
+    // stdio was inherited, so there is no output to inspect. The registry is
+    // the only witness left.
+    if (readable(name)) {
+      console.log(`  = ${label} (already at this version)`);
+      return;
+    }
     die(`${label} failed — ${published} published, nothing after it`);
   }
 
@@ -165,10 +214,8 @@ function publish(dir, label) {
     console.log(`  ✓ ${label}`);
     return;
   }
-  // Already published at this version is not a failure on a resumed run — it is
-  // the thing that makes resuming safe.
   if (/cannot publish over|previously published|EPUBLISHCONFLICT/i.test(out)) {
-    console.log(`  = ${label} (already at this version)`);
+    conflict(label, name);
     return;
   }
   if (/one-time pass|otp|two-factor|bypass 2fa/i.test(out)) {
