@@ -7,65 +7,84 @@
 <meta name="description" content="Download Logos — continuity for AI coding agents. One command, ~5 MB, no account.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400&display=swap">
 <style>
 /* ── Tokens ────────────────────────────────────────────────────────────────
-   Patina on stone. The neutrals carry a green bias so they sit with the
-   verdigris rather than beside it; brass is the one warm note and is spent
-   only on marks that mean "this is the record". */
+   Patina on stone, in OKLCH.
+
+   OKLCH rather than hex because the dark theme is the same palette at a
+   different lightness — chroma and hue are held, only L moves. In hex that is
+   guesswork that drifts; here it is one number per token, and the accent keeps
+   the same identity on both grounds instead of becoming a different green.
+
+   Every ink/accent below clears WCAG AA (4.5:1) against both the ground and the
+   raised surface, in both themes. The tightest is --ink-3 on light at 4.67.
+
+   Verdigris is the one cool note and marks the live thing — a link, a package
+   name, the current answer. Brass is the one warm note and marks the record —
+   the vault, the checkpoint, the thing that survives. They are never used for
+   decoration and never mixed in the same element. */
 :root {
-  --ground:   #F1F4F2;
-  --surface:  #FBFCFB;
-  --sunk:     #E7ECE9;
-  --ink:      #141A1B;
-  --ink-2:    #58635F;
-  --ink-3:    #616C68;
-  --rule:     #D2DAD6;
-  --rule-2:   #E2E8E5;
-  --verdigris:#0E6A5A;
-  --verdigris-soft: rgba(14,106,90,.09);
-  --brass:    #96690F;
+  --stone:   oklch(96.5% 0.006 150);
+  --paper:   oklch(99%   0.004 150);
+  --sunk:    oklch(93.5% 0.009 150);
+  --ink:     oklch(21%   0.015 175);
+  --ink-2:   oklch(47.5% 0.015 175);
+  --ink-3:   oklch(51.3% 0.013 175);
+  --rule:    oklch(87.5% 0.011 160);
+  --rule-2:  oklch(92.5% 0.008 160);
+  --patina:  oklch(47.5% 0.095 180);
+  --brass:   oklch(51.5% 0.098 75);
+  --wash:    oklch(47.5% 0.095 180 / .07);
+  --wash-2:  oklch(51.5% 0.098 75 / .09);
 
-  --shadow: 0 1px 0 var(--rule-2), 0 12px 28px -22px rgba(20,26,27,.5);
+  --lift-1: 0 1px 0 var(--rule-2);
+  --lift-2: 0 1px 0 var(--rule-2), 0 14px 32px -26px oklch(21% .015 175 / .55);
 
-  --f-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --f-display: "IBM Plex Sans Condensed", "Helvetica Neue Condensed", Impact, sans-serif;
   --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-voice: "Newsreader", "Iowan Old Style", Georgia, serif;
 
-  --margin-w: 8.5rem;
-  --measure: 63ch;
+  --margin-w: 9rem;
+  --measure: 64ch;
+  --ease: cubic-bezier(.2, .8, .2, 1);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ground:   #0D1112;
-    --surface:  #141A1B;
-    --sunk:     #191F20;
-    --ink:      #E7EDEA;
-    --ink-2:    #96A29D;
-    --ink-3:    #838F8A;
-    --rule:     #263030;
-    --rule-2:   #1E2626;
-    --verdigris:#4FC7AC;
-    --verdigris-soft: rgba(79,199,172,.11);
-    --brass:    #DCA84C;
-    --shadow: 0 1px 0 var(--rule-2), 0 14px 30px -24px #000;
+    --stone:   oklch(17.5% 0.011 175);
+    --paper:   oklch(21.5% 0.011 175);
+    --sunk:    oklch(24.5% 0.011 175);
+    --ink:     oklch(94.5% 0.008 160);
+    --ink-2:   oklch(71.5% 0.017 170);
+    --ink-3:   oklch(64.5% 0.016 170);
+    --rule:    oklch(32.5% 0.014 175);
+    --rule-2:  oklch(27.5% 0.013 175);
+    --patina:  oklch(79%   0.120 180);
+    --brass:   oklch(80%   0.100 80);
+    --wash:    oklch(79% 0.12 180 / .10);
+    --wash-2:  oklch(80% 0.10 80 / .12);
+    --lift-1: 0 1px 0 var(--rule-2);
+    --lift-2: 0 1px 0 var(--rule-2), 0 16px 34px -26px #000;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --ground:   #0D1112;
-  --surface:  #141A1B;
-  --sunk:     #191F20;
-  --ink:      #E7EDEA;
-  --ink-2:    #96A29D;
-  --ink-3:    #838F8A;
-  --rule:     #263030;
-  --rule-2:   #1E2626;
-  --verdigris:#4FC7AC;
-  --verdigris-soft: rgba(79,199,172,.11);
-  --brass:    #DCA84C;
-  --shadow: 0 1px 0 var(--rule-2), 0 14px 30px -24px #000;
+  --stone:   oklch(17.5% 0.011 175);
+  --paper:   oklch(21.5% 0.011 175);
+  --sunk:    oklch(24.5% 0.011 175);
+  --ink:     oklch(94.5% 0.008 160);
+  --ink-2:   oklch(71.5% 0.017 170);
+  --ink-3:   oklch(64.5% 0.016 170);
+  --rule:    oklch(32.5% 0.014 175);
+  --rule-2:  oklch(27.5% 0.013 175);
+  --patina:  oklch(79%   0.120 180);
+  --brass:   oklch(80%   0.100 80);
+  --wash:    oklch(79% 0.12 180 / .10);
+  --wash-2:  oklch(80% 0.10 80 / .12);
+  --lift-1: 0 1px 0 var(--rule-2);
+  --lift-2: 0 1px 0 var(--rule-2), 0 16px 34px -26px #000;
   color-scheme: dark;
 }
 
@@ -73,79 +92,90 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--ground);
+  background: var(--stone);
   color: var(--ink);
   font-family: var(--f-body);
   font-size: 16px;
-  line-height: 1.6;
-  font-feature-settings: "kern";
+  line-height: 1.62;
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; }
-a { color: var(--verdigris); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a { color: var(--patina); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:focus-visible, button:focus-visible {
-  outline: 2px solid var(--verdigris);
+  outline: 2px solid var(--patina);
   outline-offset: 2px;
-  border-radius: 1px;
+  border-radius: 2px;
 }
+::selection { background: var(--wash); }
 
 /* ── The spine ─────────────────────────────────────────────────────────────
    A record has a margin. Every section hangs its label in it, and one hairline
    runs the full height of the page: the line that does not break between
-   sessions is the whole product, so it is also the whole layout. */
+   sessions is the whole product, so it is also the whole layout.
+
+   The labels are names, not numbers. These sections are alternatives — five
+   ways to install one thing — and numbering them 01/02/03 would assert a
+   sequence that does not exist. */
 .page {
-  max-width: 62rem;
+  max-width: 64rem;
   margin: 0 auto;
-  padding: 0 1.5rem 5rem;
+  padding: 0 1.5rem 6rem;
 }
 .row {
   display: grid;
   grid-template-columns: var(--margin-w) minmax(0, 1fr);
-  gap: 0 2.25rem;
+  gap: 0 2.5rem;
   border-top: 1px solid var(--rule);
-  padding-top: 1.75rem;
-  margin-top: 2.75rem;
+  padding-top: 2rem;
+  margin-top: 3.25rem;
 }
 .row > .label {
   font-family: var(--f-mono);
   font-size: .6875rem;
   font-weight: 500;
-  letter-spacing: .13em;
+  letter-spacing: .14em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding-top: .28rem;
+  padding-top: .3rem;
   border-right: 1px solid var(--rule-2);
-  margin-right: -1.125rem;
+  margin-right: -1.25rem;
   min-height: 2.5rem;
 }
-.row > .body { max-width: var(--measure); min-width: 0; }
-.row.wide > .body { max-width: none; }
+/* The measure belongs to prose, not to the column. A line of English wants ~64
+   characters; a shell command wants as much room as it takes, and capping the
+   two together is what makes a code block clip mid-word while the paragraph
+   above it sits comfortably. So the column is full width and the running text
+   is what gets narrowed. */
+.row > .body { min-width: 0; }
+.row > .body > h2,
+.row > .body > p,
+.row > .body > ul,
+.row > .body > ol:not(.steps) { max-width: var(--measure); }
 
 h1, h2, h3 { text-wrap: balance; margin: 0; }
 h2 {
   font-family: var(--f-display);
-  font-weight: 500;
-  font-size: 1.5rem;
-  line-height: 1.25;
-  letter-spacing: -.008em;
-  margin-bottom: .6rem;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2.6vw, 1.95rem);
+  line-height: 1.14;
+  letter-spacing: -.005em;
+  margin-bottom: .7rem;
 }
 h3 {
   font-family: var(--f-body);
   font-weight: 600;
   font-size: .9375rem;
-  letter-spacing: .005em;
   margin-bottom: .35rem;
 }
-p { margin: 0 0 .9rem; color: var(--ink-2); }
-p.lead { color: var(--ink); }
+p { margin: 0 0 .95rem; color: var(--ink-2); }
 p:last-child { margin-bottom: 0; }
 strong { color: var(--ink); font-weight: 600; }
+em { font-style: italic; }
 code { font-family: var(--f-mono); font-size: .875em; }
 p code, li code, td code {
-  background: var(--verdigris-soft);
+  background: var(--wash);
   color: var(--ink);
-  padding: .08em .34em;
+  padding: .1em .36em;
   border-radius: 2px;
 }
 
@@ -154,13 +184,13 @@ p code, li code, td code {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: .85rem 1.25rem;
-  padding: 2.5rem 0 0;
+  gap: .85rem 1.35rem;
+  padding: 2.75rem 0 0;
 }
 .wordmark {
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: 1.6rem;
+  font-weight: 700;
+  font-size: 1.5rem;
   letter-spacing: .01em;
   line-height: 1;
   color: var(--ink);
@@ -168,63 +198,71 @@ p code, li code, td code {
 .wordmark::after {
   content: "";
   display: inline-block;
-  width: .3rem; height: .3rem;
-  margin-left: .42rem;
+  width: .32rem; height: .32rem;
+  margin-left: .4rem;
   border-radius: 50%;
   background: var(--brass);
-  vertical-align: .12em;
+  vertical-align: .1em;
 }
-.masthead .tag {
-  font-size: .875rem;
-  color: var(--ink-2);
-  margin-right: auto;
-}
+.masthead .tag { font-size: .875rem; color: var(--ink-2); margin-right: auto; }
 .masthead nav {
   display: flex;
-  gap: 1.15rem;
+  gap: 1.25rem;
   font-family: var(--f-mono);
   font-size: .75rem;
-  letter-spacing: .04em;
+  letter-spacing: .03em;
 }
-.masthead nav a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--rule); padding-bottom: 1px; }
-.masthead nav a:hover { color: var(--verdigris); border-bottom-color: currentColor; }
+.masthead nav a {
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+  transition: color .16s var(--ease), border-color .16s var(--ease);
+}
+.masthead nav a:hover { color: var(--patina); border-bottom-color: currentColor; }
 
-/* ── Hero ──────────────────────────────────────────────────────────────── */
-.hero { padding: 3.25rem 0 .5rem; }
+/* ── Hero ──────────────────────────────────────────────────────────────────
+   Two words at the largest size the page ever uses. The condensed cut is what
+   makes that possible without the line wrapping to mush, and the one italic
+   serif word is the only warm voice on the page — a human note inside a
+   technical document, spent once. */
+.hero { padding: 4rem 0 .5rem; }
 .hero h1 {
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: clamp(2.1rem, 5.4vw, 3.35rem);
-  line-height: 1.08;
-  letter-spacing: -.018em;
-  max-width: 19ch;
-  margin-bottom: 1.15rem;
+  font-weight: 700;
+  font-size: clamp(3.4rem, 12vw, 7.5rem);
+  line-height: .9;
+  letter-spacing: -.025em;
+  max-width: 12ch;
+  margin-bottom: 1.6rem;
 }
 .hero h1 em {
+  font-family: var(--f-voice);
+  font-weight: 400;
   font-style: italic;
-  color: var(--verdigris);
+  letter-spacing: -.01em;
+  color: var(--patina);
 }
 .hero .sub {
-  max-width: 54ch;
+  max-width: 56ch;
   font-size: 1.0625rem;
   color: var(--ink-2);
-  margin-bottom: 2.25rem;
+  margin-bottom: 2.4rem;
 }
 
 /* ── Command blocks ────────────────────────────────────────────────────── */
 .cmd {
   display: flex;
   align-items: stretch;
-  gap: 0;
-  background: var(--surface);
+  background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 3px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--lift-2);
   overflow: hidden;
 }
 .cmd pre {
   margin: 0;
-  padding: .95rem 1.1rem;
+  padding: 1rem 1.15rem;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -234,10 +272,10 @@ p code, li code, td code {
   color: var(--ink);
   tab-size: 2;
 }
-.cmd.primary pre { font-size: 1.0625rem; padding: 1.2rem 1.3rem; }
+.cmd.primary pre { font-size: 1.0625rem; padding: 1.3rem 1.4rem; }
 .cmd .prompt { color: var(--ink-3); user-select: none; }
 .cmd .flag { color: var(--ink-2); }
-.cmd .pkg { color: var(--verdigris); }
+.cmd .pkg { color: var(--patina); font-weight: 500; }
 .copy {
   flex: none;
   align-self: stretch;
@@ -250,190 +288,186 @@ p code, li code, td code {
   font-weight: 500;
   letter-spacing: .1em;
   text-transform: uppercase;
-  padding: 0 1.05rem;
+  padding: 0 1.1rem;
   cursor: pointer;
-  transition: background .13s, color .13s;
+  transition: background .16s var(--ease), color .16s var(--ease);
 }
-.copy:hover { background: var(--verdigris-soft); color: var(--verdigris); }
-.copy[data-state="done"] { color: var(--verdigris); }
+.copy:hover { background: var(--wash); color: var(--patina); }
+.copy[data-state="done"] { color: var(--patina); }
 .note {
   font-size: .8125rem;
   color: var(--ink-3);
-  margin-top: .7rem;
+  margin-top: .85rem;
+  max-width: 62ch;
 }
-.note strong { color: var(--ink-2); font-weight: 500; }
+.note strong { color: var(--ink-2); }
 
-/* Three claims a reader can check, set as a rule-separated strip rather than
-   badges — the page earns trust by being quiet about it. */
+/* ── Proof strip ───────────────────────────────────────────────────────── */
 .proof {
   list-style: none;
-  margin: 1.5rem 0 0;
-  padding: .75rem 0 0;
+  margin: 1.9rem 0 0;
+  padding: 1rem 0 0;
   border-top: 1px solid var(--rule-2);
   display: flex;
   flex-wrap: wrap;
-  gap: .35rem 1.4rem;
+  gap: .5rem 2rem;
   font-family: var(--f-mono);
   font-size: .75rem;
-  line-height: 1.5;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 .proof b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-.proof a { color: var(--verdigris); text-decoration-color: var(--rule); text-underline-offset: 2px; }
-.proof a:hover { text-decoration-color: currentColor; }
+.proof a { color: var(--ink-3); text-decoration-color: var(--rule); }
+.proof a:hover { color: var(--patina); }
 
-/* ── The handoff record — the page's one figure ─────────────────────────── */
+/* ── The record ────────────────────────────────────────────────────────────
+   The one diagram on the page, and the product's whole claim in one object:
+   two agents, two days, one file between them. Brass marks it because this is
+   the thing that survives. */
 .record {
-  margin-top: 2.75rem;
+  margin-top: 3rem;
   border: 1px solid var(--rule);
   border-radius: 3px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  background: var(--paper);
+  box-shadow: var(--lift-2);
   overflow: hidden;
 }
 .record .strip {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: .55rem 1.05rem;
-  border-bottom: 1px solid var(--rule-2);
-  background: var(--sunk);
+  flex-wrap: wrap;
+  gap: .4rem 1rem;
+  align-items: baseline;
+  padding: .8rem 1.2rem;
+  background: var(--wash-2);
+  border-bottom: 1px solid var(--rule);
   font-family: var(--f-mono);
-  font-size: .6875rem;
-  letter-spacing: .11em;
-  text-transform: uppercase;
-  color: var(--ink-3);
+  font-size: .75rem;
+  letter-spacing: .02em;
+  color: var(--ink-2);
 }
-.record .strip b { color: var(--brass); font-weight: 500; letter-spacing: .11em; }
-.leg {
-  padding: 1.05rem 1.15rem;
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  line-height: 1.75;
-}
-.leg + .leg { border-top: 1px solid var(--rule-2); }
+.record .strip b { color: var(--brass); font-weight: 500; margin-left: auto; }
+.record .strip code { color: var(--ink); }
+.leg { padding: 1.2rem 1.2rem 1.35rem; }
 .leg .who {
   display: block;
+  font-family: var(--f-mono);
   font-size: .6875rem;
-  letter-spacing: .11em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin-bottom: .5rem;
+  margin-bottom: .8rem;
 }
-.leg dl { margin: 0; display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: .1rem .9rem; }
-.leg dt { color: var(--ink-3); }
+.leg dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: .4rem 1.2rem;
+  font-size: .9375rem;
+}
+.leg dt {
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  letter-spacing: .04em;
+  color: var(--ink-3);
+  padding-top: .18rem;
+}
 .leg dd { margin: 0; color: var(--ink); }
-.leg dd.ruled { color: var(--brass); }
+.leg dd.ruled { color: var(--ink-2); }
 .record .between {
-  padding: .5rem 1.15rem;
+  padding: .85rem 1.2rem;
   border-top: 1px solid var(--rule-2);
   border-bottom: 1px solid var(--rule-2);
   background: var(--sunk);
   font-family: var(--f-mono);
   font-size: .75rem;
-  color: var(--ink-2);
-}
-.record .between span { color: var(--verdigris); }
-
-/* ── Steps (only where order is real) ──────────────────────────────────── */
-ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
-ol.steps > li { counter-increment: s; position: relative; padding-left: 1.9rem; }
-ol.steps > li + li { margin-top: 1rem; }
-ol.steps > li::before {
-  content: counter(s);
-  position: absolute;
-  left: 0; top: .1rem;
-  font-family: var(--f-mono);
-  font-size: .75rem;
   color: var(--ink-3);
 }
+.record .between span { color: var(--brass); }
 
-/* ── Buttons ───────────────────────────────────────────────────────────── */
-.btns { display: flex; flex-wrap: wrap; gap: .6rem; }
+/* ── Lists, buttons, tables ────────────────────────────────────────────── */
+/* min-width:0 because a grid item defaults to min-content, which for a command
+   block means "as wide as the longest line" — and the pre inside is the thing
+   that is supposed to scroll, not the page. */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
+.steps > li { min-width: 0; }
+.btns { display: flex; flex-wrap: wrap; gap: .7rem; }
 .btn {
   display: inline-flex;
   align-items: center;
   gap: .5rem;
-  padding: .55rem .95rem;
+  padding: .6rem 1.05rem;
   border: 1px solid var(--rule);
   border-radius: 3px;
-  background: var(--surface);
+  background: var(--paper);
+  box-shadow: var(--lift-1);
   color: var(--ink);
   font-size: .875rem;
   font-weight: 500;
   text-decoration: none;
-  transition: border-color .13s, background .13s;
+  transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease);
 }
-.btn:hover { border-color: var(--verdigris); background: var(--verdigris-soft); }
-.btn .mk { font-family: var(--f-mono); font-size: .75rem; color: var(--ink-3); }
-
-/* ── Table ─────────────────────────────────────────────────────────────── */
-.tablewrap { overflow-x: auto; }
+.btn:hover { border-color: var(--patina); background: var(--wash); transform: translateY(-1px); }
+.btn .mk { color: var(--patina); }
+.facts { margin: 0; padding-left: 1.1rem; display: grid; gap: .65rem; }
+.facts li { color: var(--ink-2); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); }
 table { border-collapse: collapse; width: 100%; font-size: .875rem; }
-th, td { text-align: left; padding: .58rem .8rem .58rem 0; border-bottom: 1px solid var(--rule-2); }
-th {
+th, td { text-align: left; padding: .65rem .9rem; border-bottom: 1px solid var(--rule-2); }
+thead th {
   font-family: var(--f-mono);
-  font-weight: 500;
   font-size: .6875rem;
-  letter-spacing: .11em;
+  font-weight: 500;
+  letter-spacing: .1em;
   text-transform: uppercase;
   color: var(--ink-3);
+  background: var(--sunk);
   border-bottom-color: var(--rule);
-  white-space: nowrap;
 }
+tbody tr:last-child td { border-bottom: 0; }
 td { color: var(--ink-2); }
-td:first-child { color: var(--ink); white-space: nowrap; }
-td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-td a { font-family: var(--f-mono); font-size: .8125rem; word-break: break-all; }
-tr:last-child td { border-bottom: 0; }
-
-/* ── Fact list ─────────────────────────────────────────────────────────── */
-ul.facts { margin: 0; padding: 0; list-style: none; }
-ul.facts > li {
-  padding-left: 1.2rem;
-  position: relative;
-  color: var(--ink-2);
-}
-ul.facts > li + li { margin-top: .65rem; }
-ul.facts > li::before {
-  content: "";
-  position: absolute;
-  left: 0; top: .68em;
-  width: .45rem; height: 1px;
-  background: var(--brass);
-}
+td:first-child { color: var(--ink); }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */
 footer {
-  margin-top: 4rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--rule);
   display: flex;
   flex-wrap: wrap;
-  gap: .5rem 1.5rem;
+  gap: .5rem 1.4rem;
+  margin-top: 4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rule);
   font-family: var(--f-mono);
   font-size: .75rem;
   color: var(--ink-3);
-  letter-spacing: .03em;
 }
-footer a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--rule); }
-footer a:hover { color: var(--verdigris); }
+footer a { color: var(--ink-3); text-decoration-color: var(--rule); }
+footer a:hover { color: var(--patina); }
 footer .sp { margin-left: auto; }
 
-@media (max-width: 46rem) {
-  .row { grid-template-columns: 1fr; gap: .8rem; }
-  .row > .label { border-right: 0; margin-right: 0; min-height: 0; padding-top: 0; }
-  .leg dl { grid-template-columns: 1fr; gap: 0; }
-  .leg dt { margin-top: .45rem; }
-  .cmd { flex-direction: column; }
-  .copy { border-left: 0; border-top: 1px solid var(--rule); padding: .6rem; text-align: left; }
+/* ── Motion ────────────────────────────────────────────────────────────────
+   One entrance, staggered, and nothing that repeats. Anything that pulses or
+   loops is asking for attention it has not earned. */
+.fade { animation: rise .6s var(--ease) both; }
+.hero h1.fade  { animation-delay: .02s; }
+.hero .sub     { animation-delay: .10s; }
+.hero .cmd     { animation-delay: .18s; }
+.hero .proof   { animation-delay: .26s; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(9px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade { animation: none; }
+  * { transition-duration: .01ms !important; }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .fade { animation: rise .5s cubic-bezier(.22,.68,.4,1) both; }
-  .fade:nth-child(2) { animation-delay: .07s; }
-  .fade:nth-child(3) { animation-delay: .14s; }
-  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+@media (max-width: 46rem) {
+  .row { grid-template-columns: 1fr; gap: .75rem; }
+  .row > .label { border-right: 0; margin-right: 0; min-height: 0; padding-top: 0; }
+  .leg dl { grid-template-columns: 1fr; gap: .15rem; }
+  .leg dt { padding-top: .5rem; }
+  .record .strip b { margin-left: 0; }
+  footer .sp { margin-left: 0; }
 }
 </style>
 </head>
@@ -564,7 +598,7 @@ footer .sp { margin-left: auto; }
     </div>
   </div>
 
-  <div class="row wide">
+  <div class="row">
     <div class="label">Binaries</div>
     <div class="body">
       <h2>Or just take the binary</h2>
