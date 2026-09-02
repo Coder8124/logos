@@ -19,7 +19,7 @@
   "mcpServers": {
     "logos": {
       "command": "npx",
-      "args": ["-y", "@ankrainc/logos", "mcp", "serve"]
+      "args": ["-y", "@noeton/logos", "mcp", "serve"]
     }
   }
 }

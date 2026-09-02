@@ -100,7 +100,7 @@ for (const t of TARGETS) {
     path.join(dir, "package.json"),
     JSON.stringify(
       {
-        name: `@ankrainc/logos-${t.npm}`,
+        name: `@noeton/logos-${t.npm}`,
         version: VERSION,
         description: `Logos binary for ${t.os} ${t.cpu}`,
         homepage: wrapper.homepage,
@@ -141,7 +141,7 @@ if (built === 0) die("nothing built");
 // that were never published. Rewriting them here means the version lives in
 // exactly one place and bumping it is one command.
 const pins = {};
-for (const t of TARGETS) pins[`@ankrainc/logos-${t.npm}`] = VERSION;
+for (const t of TARGETS) pins[`@noeton/logos-${t.npm}`] = VERSION;
 
 const before = JSON.stringify(wrapper.optionalDependencies);
 if (JSON.stringify(pins) !== before) {

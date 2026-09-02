@@ -116,7 +116,7 @@ for (const d of dirs) {
 // that do not exist.
 const pins = wrapper.optionalDependencies || {};
 for (const d of dirs) {
-  const name = `@ankrainc/logos-${d}`;
+  const name = `@noeton/logos-${d}`;
   if (pins[name] !== VERSION) {
     die(
       `the wrapper pins ${name} at ${pins[name] || "nothing"}, but ${VERSION} is\n` +
@@ -125,7 +125,7 @@ for (const d of dirs) {
   }
 }
 for (const name of Object.keys(pins)) {
-  const d = name.replace("@ankrainc/logos-", "");
+  const d = name.replace("@noeton/logos-", "");
   if (!dirs.includes(d)) die(`the wrapper pins ${name}, but platforms/${d} was not built`);
 }
 
@@ -236,13 +236,13 @@ function publish(dir, label) {
 
 // Platform packages first.
 for (const d of dirs) {
-  publish(path.join(platforms, d), `@ankrainc/logos-${d}`);
+  publish(path.join(platforms, d), `@noeton/logos-${d}`);
 }
 // Then the wrapper that depends on them.
-publish(root, "@ankrainc/logos");
+publish(root, "@noeton/logos");
 
 console.log(
   dryRun
     ? "\nDry run only. Nothing was published."
-    : `\nPublished. Try it:\n  npx -y @ankrainc/logos@${VERSION} version`
+    : `\nPublished. Try it:\n  npx -y @noeton/logos@${VERSION} version`
 );

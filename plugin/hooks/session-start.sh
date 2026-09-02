@@ -27,7 +27,7 @@ elif command -v brain >/dev/null 2>&1; then
   # The development name, which the binary and a source build still use.
   LOGOS=(brain)
 elif command -v npx >/dev/null 2>&1; then
-  LOGOS=(npx -y @ankrainc/logos)
+  LOGOS=(npx -y @noeton/logos)
 else
   exit 0
 fi
