@@ -101,6 +101,8 @@ CONTINUITY
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
     brain sessions <project>          checkpoint history for a project
+    brain bootstrap [project] [--dry-run] [--months N]
+                                      seed a cold vault from this repo's git history
     brain context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     brain tried <approach> [--project X]
@@ -229,6 +231,8 @@ func main() {
 		err = runCheckpoint(args)
 	case cmd == "resume":
 		err = runResume(args)
+	case cmd == "bootstrap":
+		err = runBootstrap(args)
 	case cmd == "why":
 		err = runWhy(args)
 	case cmd == "tried":

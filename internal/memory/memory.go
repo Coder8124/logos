@@ -467,6 +467,53 @@ func Forget(db *sql.DB, id int64) error {
 	return flush(db, Kind(kind))
 }
 
+// ForgetBySource removes every memory learned a particular way and reports how
+// many went. It returns the count rather than nothing so a caller can tell "I
+// removed forty" from "there was nothing there".
+//
+// This is what makes a bulk seeding reversible. `brain bootstrap` writes several
+// memories at once from git history, and a user who dislikes the result should
+// not have to forget them one id at a time — nor should they have to guess which
+// ids were the machine's and which were theirs. Source is the record of how a
+// fact arrived, so it is the honest handle for undoing a whole arrival.
+//
+// Each row goes through Forget, so the timeline records every removal
+// individually and the vault files are flushed. A bulk DELETE would be faster
+// and would leave the vault holding notes the database no longer knows about.
+func ForgetBySource(db *sql.DB, source string) (int, error) {
+	if strings.TrimSpace(source) == "" {
+		return 0, fmt.Errorf("no source given")
+	}
+	rows, err := db.Query("SELECT id FROM memories WHERE source = ?", source)
+	if err != nil {
+		return 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var n int
+	for _, id := range ids {
+		if err := Forget(db, id); err != nil {
+			// Report what was already removed alongside the failure: a caller
+			// that retries needs to know the operation was partial.
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // --- vector helpers (shared shape with the index) ---
 
 func cosine(a, b []float32) float64 {

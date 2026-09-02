@@ -94,9 +94,20 @@ func memoryCmd(args []string) error {
 		fmt.Printf("decayed %d · merged %d duplicates · superseded %d outdated\n", d, m, s)
 		return nil
 	case "forget":
+		// --source undoes a whole arrival at once, which is what a bulk seeding
+		// like `brain bootstrap` needs: the alternative is asking the user to
+		// work out which ids were the machine's.
+		if src := strings.TrimSpace(flagStr(args, "--source", "")); src != "" {
+			n, err := memory.ForgetBySource(ix.DB, src)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("forgot %d memories learned from %s.\n", n, src)
+			return nil
+		}
 		id := parseID(args)
 		if id == 0 {
-			return fmt.Errorf("usage: brain memory forget <id>")
+			return fmt.Errorf("usage: brain memory forget <id> | --source <name>")
 		}
 		if err := memory.Forget(ix.DB, id); err != nil {
 			return err
