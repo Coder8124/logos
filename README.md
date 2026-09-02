@@ -1,9 +1,15 @@
 # Logos
 
-**The memory you own.** A local-first memory and continuity layer for AI agents.
-Work with Claude Code, Cursor, Codex or your own agent; when one stops, another
-picks up exactly where it left off — over MCP, on your machine, nothing uploaded
-unless you say so.
+**When one coding agent stops, the next one continues the work.** Logos is a
+local-first memory and continuity layer that Claude Code, Cursor, Codex and your
+own agents share over MCP. It runs on your machine, against a vault of markdown
+files you own, and uploads nothing unless you say so.
+
+On a handoff suite built for this — 32 scenarios, nine memory systems, one
+machine — Logos passes **84.4%** and the next best system passes 46.9%. Every
+real system retrieves about equally well. What separates them is whether the
+agent that resumes gets the *current* answer, or gets it sitting next to the
+stale one it replaced.
 
 ```
 Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──▶  Cursor
