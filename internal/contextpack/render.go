@@ -230,6 +230,15 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 		fmt.Fprintf(b, ", handed off to **%s**", inline(c.HandoffTo))
 	}
 	b.WriteString(".")
+	// A checkpoint borrowed from the project because this worktree has none of
+	// its own. Said plainly, because the failure it prevents is an agent reading
+	// another tree's stopping place as its own and "continuing" work it never
+	// started.
+	if p.Inherited && p.Worktree != "" {
+		fmt.Fprintf(b, " This is the project's own last checkpoint, not this worktree's — "+
+			"nothing has been checkpointed in **%s** yet, so treat it as where the "+
+			"repository stood, not where you stopped.", inline(p.Worktree))
+	}
 	// What the repository was, as distinct from what the agent said about it.
 	// An arriving agent can check this out and be standing where the decisions
 	// were made, which is the difference between "this was true then" and "this

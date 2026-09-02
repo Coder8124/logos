@@ -67,6 +67,13 @@ type Server struct {
 	roots       []string
 	project     string
 	projectOnce sync.Once
+
+	// worktree is the linked git worktree the host was launched in, empty in a
+	// main checkout. It narrows continuity — sessions and checkpoints — without
+	// touching memory, because two worktrees are one repository being worked on
+	// in two places. Also see scope.go.
+	worktree     string
+	worktreeOnce sync.Once
 }
 
 // New builds a server over an open index. rt may be nil: a machine with no
@@ -279,13 +286,15 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 	case "forget":
 		return s.forget(argStr(args, "id"))
 	case "context":
+		hint, worktree := s.resolveContinuity(argStr(args, "project"))
 		return s.context(contextpack.Request{
-			Task:   argStr(args, "task"),
-			Hint:   s.resolveProject(argStr(args, "project")),
-			Budget: argInt(args, "budget", 0),
+			Task:     argStr(args, "task"),
+			Hint:     hint,
+			Worktree: worktree,
+			Budget:   argInt(args, "budget", 0),
 		})
 	case "resume":
-		return s.resume(s.resolveProject(argStr(args, "project")), argStr(args, "agent"), argInt(args, "budget", 0))
+		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
 	case "before_you_try":
 		// Deliberately not defaulted: before_you_try searches every dead end in
 		// the vault on purpose, and the project only labels which rulings came
@@ -295,7 +304,7 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
-		return s.noteProgress(s.resolveProject(argStr(args, "project")), argStr(args, "agent"), argStr(args, "text"))
+		return s.noteProgress(s.resolveScope(argStr(args, "project")), argStr(args, "agent"), argStr(args, "text"))
 	case "checkpoint":
 		return s.checkpoint(args, "")
 	case "handoff":
@@ -541,7 +550,10 @@ func writeList(b *strings.Builder, label string, items []string) {
 	b.WriteString("\n")
 }
 
-func (s *Server) resume(project, agent string, budget int) (string, error) {
+// resume takes the project argument unresolved, because whether it was given at
+// all decides whether the worktree narrows it — see resolveContinuity.
+func (s *Server) resume(projectArg, agent string, budget int) (string, error) {
+	project, worktree := s.resolveContinuity(projectArg)
 	if strings.TrimSpace(project) == "" {
 		return "", fmt.Errorf("resume needs a project")
 	}
@@ -549,7 +561,7 @@ func (s *Server) resume(project, agent string, budget int) (string, error) {
 		return "", err
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Budget: budget,
+		Task: "resume work on " + project, Hint: project, Worktree: worktree, Budget: budget,
 	})
 	if err != nil {
 		return "", err
@@ -561,8 +573,11 @@ func (s *Server) resume(project, agent string, budget int) (string, error) {
 		out += "\n_No checkpoint has been written for this project yet — " +
 			"this is context, not a handoff. Call checkpoint before you stop._\n"
 	}
-	if strings.TrimSpace(agent) != "" && pack.Project != nil {
-		session.AddNote(s.DB, pack.Project.Slug, agent, "resumed the project")
+	// Filed under the scope the pack itself read, so the note lands in the same
+	// session a checkpoint will later close — in this worktree, not in the
+	// project the worktree belongs to.
+	if scope := pack.Continuity(); strings.TrimSpace(agent) != "" && scope != "" {
+		session.AddNote(s.DB, scope, agent, "resumed the project")
 	}
 	return out, nil
 }
@@ -583,7 +598,7 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 // checkpoint commits the session to the vault. handoffTo is set when the caller
 // came in through the handoff tool — same mechanism, stated intent.
 func (s *Server) checkpoint(args map[string]any, handoffTo string) (string, error) {
-	proj := s.resolveProject(argStr(args, "project"))
+	proj := s.resolveScope(argStr(args, "project"))
 	if strings.TrimSpace(proj) == "" {
 		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory")
 	}

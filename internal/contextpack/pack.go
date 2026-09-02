@@ -40,6 +40,11 @@ type Request struct {
 	// Hint narrows the scope: a project name, a file path, or a topic. Optional
 	// — if empty, the task text is matched against known projects.
 	Hint string
+	// Worktree is the linked git worktree the agent is standing in, empty in a
+	// main checkout. It narrows continuity and nothing else: a worktree is the
+	// same repository and so has the same memory, but its own uncommitted work
+	// and its own place to have stopped.
+	Worktree string
 	// Budget is the approximate token ceiling for the rendered pack. 0 means
 	// DefaultBudget.
 	Budget int
@@ -56,6 +61,11 @@ type Pack struct {
 	Task    string           `json:"task"`
 	Hint    string           `json:"hint"`
 	Project *project.Project `json:"project,omitempty"`
+	// Worktree is the linked worktree continuity was read from, if any, and
+	// Inherited says the checkpoint below came from the project rather than
+	// from this worktree — a distinction the render has to make out loud.
+	Worktree  string `json:"worktree,omitempty"`
+	Inherited bool   `json:"inherited,omitempty"`
 
 	// Checkpoint is where the last agent stopped on this project, and Working is
 	// what has been recorded since without being committed. Together they are the
@@ -126,7 +136,7 @@ const (
 // than useless, it is untrustworthy.
 func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Request) (Pack, error) {
 	db := ix.DB
-	p := Pack{Task: req.Task, Hint: req.Hint}
+	p := Pack{Task: req.Task, Hint: req.Hint, Worktree: req.Worktree}
 	p.Budget.Limit = req.Budget
 	if p.Budget.Limit <= 0 {
 		p.Budget.Limit = DefaultBudget
@@ -157,13 +167,31 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// that agent never wrote and the current checkpoint does not mention. Only
 	// the failures are carried forward: the rest of an old checkpoint is stale
 	// narration, but "we tried this and it did not work" does not expire.
-	if scope := p.scope(); scope != "" && ix.Vault != "" {
-		if all, err := session.History(ix.Vault, scope, checkpointDepth); err == nil && len(all) > 0 {
+	//
+	// Read from the worktree's scope when there is one, and only from the
+	// project's when that turns up nothing. A worktree created this morning has
+	// no checkpoint of its own, and the repository's last one is still the best
+	// account of where the codebase stands — but it is the *project's*, so it is
+	// marked inherited and the render says so. The moment the worktree writes
+	// its own, this stops looking outside it, which is the whole point: two
+	// parallel trees must not hand each other their stopping places.
+	if scope := p.Continuity(); scope != "" && ix.Vault != "" {
+		all, err := session.History(ix.Vault, scope, checkpointDepth)
+		if (err != nil || len(all) == 0) && p.Worktree != "" {
+			if all, err = session.History(ix.Vault, p.scope(), checkpointDepth); err == nil && len(all) > 0 {
+				p.Inherited = true
+			}
+		}
+		if err == nil && len(all) > 0 {
 			p.Checkpoint = &all[0]
 			p.History = all[1:]
 		}
 	}
-	if scope := p.scope(); scope != "" {
+	// Uncommitted notes get no such fallback. A checkpoint is a finished record
+	// of where the codebase was; an open note is another agent's live work in
+	// another tree, and presenting that as this session's own progress is
+	// exactly the wrong handoff worktree scoping exists to prevent.
+	if scope := p.Continuity(); scope != "" {
 		if notes, err := session.Uncommitted(db, scope); err == nil {
 			p.Working = notes
 		}
@@ -303,6 +331,27 @@ func (p Pack) scope() string {
 		return slug
 	}
 	return strings.TrimSpace(p.Hint)
+}
+
+// Continuity is the scope this pack's sessions and checkpoints are filed under:
+// the project, narrowed to the worktree when the agent is standing in a linked
+// one. Exported because a caller that wants to write into the same session — a
+// note saying it resumed, say — has to key it the way the pack read it.
+//
+// A path segment rather than a joined name, because that is what it becomes in
+// the vault: sessions/kestrel/feature-x/, a folder inside the project's rather
+// than a sibling of it. A worktree is not another project — it is the same
+// repository with a second working tree — and the layout should not claim
+// otherwise. It also means a main checkout is untouched by any of this: its
+// history is the files directly inside sessions/kestrel/, and a listing that
+// skips directories cannot see the worktrees at all.
+func (p Pack) Continuity() string {
+	base := p.scope()
+	w := strings.TrimSpace(p.Worktree)
+	if base == "" || w == "" {
+		return base
+	}
+	return base + "/" + w
 }
 
 // graphReach pulls in notes one hop from the project that retrieval did not

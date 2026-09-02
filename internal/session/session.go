@@ -31,7 +31,12 @@ import (
 // working notes something to hang off and to record who was at the keyboard —
 // a handoff is meaningless without knowing who is handing off.
 type Session struct {
-	ID      string // "20260814-143207-claude", lexically sortable by time
+	ID string // "20260814-143207-claude", lexically sortable by time
+	// Project is the scope the work is filed under: a project name, or
+	// "project/worktree" when it is happening in a linked git worktree. Two
+	// parallel worktrees are the same codebase and the same memory, but not the
+	// same working stretch, and resuming into the other one's checkpoint is a
+	// wrong handoff rather than an untidy one.
 	Project string
 	Agent   string // free text: "claude", "cursor", "codex", "pragun"
 	Task    string
@@ -99,7 +104,7 @@ func Start(db *sql.DB, project, agent, task string) (Session, error) {
 	// empty string. Saying "a session needs a project" there blames the caller
 	// for omitting what they supplied, which is how this took a while to
 	// diagnose the first time.
-	slug := safe(project)
+	slug := safeScope(project)
 	if slug == "" {
 		return Session{}, fmt.Errorf(
 			"project name %q has no letters or digits to make a filename from", project)
@@ -140,7 +145,7 @@ func Start(db *sql.DB, project, agent, task string) (Session, error) {
 // under the dead agent's id — so the record of a handoff would name the wrong
 // author. Their uncommitted notes are still picked up; see Commit.
 func Current(db *sql.DB, project, agent string) (Session, error) {
-	project = safe(project)
+	project = safeScope(project)
 	if strings.TrimSpace(agent) == "" {
 		agent = "agent"
 	}
@@ -230,7 +235,7 @@ func Uncommitted(db *sql.DB, project string) ([]Note, error) {
 		`SELECT n.id, n.session, s.agent, n.text, n.ts
 		 FROM session_notes n JOIN sessions s ON s.id = n.session
 		 WHERE s.project = ? AND s.ended = 0
-		 ORDER BY n.ts, n.id`, safe(project)))
+		 ORDER BY n.ts, n.id`, safeScope(project)))
 }
 
 func scanNotes(rows *sql.Rows, err error) ([]Note, error) {
@@ -261,7 +266,7 @@ func scanNotes(rows *sql.Rows, err error) ([]Note, error) {
 func closeProject(db *sql.DB, project, slug string) error {
 	_, err := db.Exec(
 		`UPDATE sessions SET ended = ?, slug = ? WHERE project = ? AND ended = 0`,
-		time.Now().Unix(), slug, safe(project))
+		time.Now().Unix(), slug, safeScope(project))
 	return err
 }
 
@@ -296,4 +301,24 @@ func safe(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+// safeScope is safe for a scope rather than a plain name: "kestrel" is one, and
+// so is "kestrel/feature-x", the same project worked on in a linked worktree.
+//
+// A scope is what sessions are keyed by and what a checkpoint's path is built
+// from, and its two levels have to stay two levels — safe collapses "/" to a
+// dash, which would file a worktree as a sibling project called
+// "kestrel-feature-x" rather than as a folder inside kestrel's. Each segment is
+// still run through safe, so `..` and separators cannot survive and a scope
+// cannot climb out of the vault however it was spelled.
+func safeScope(s string) string {
+	parts := strings.Split(s, "/")
+	kept := parts[:0]
+	for _, p := range parts {
+		if p = safe(p); p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, "/")
 }
