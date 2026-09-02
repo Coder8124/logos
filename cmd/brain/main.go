@@ -5,6 +5,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,47 +39,94 @@ const (
 	defaultBackfillDays = 7
 )
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `brain — local-first memory and continuity for AI agents
+// The help is two surfaces, and the split is a product decision rather than a
+// tidying one. brain grew about forty verbs, and printing all of them was an
+// honest inventory that answered the wrong question: a first-time reader wants
+// to know what this is *for*, and forty lines of episodic capture, voice and
+// benchmarks say "a grab-bag" no matter what the first line claims.
+//
+// So the default is the three journeys the product is actually about — hand
+// off, brief, intercept — plus the three commands that get you there. Nothing
+// is hidden: `brain help all` is the old inventory, grouped, and every verb
+// still works exactly as it did. This changes what help prints, not what brain
+// does.
 
-USAGE
-    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
-                                      connect brain to the AI agents on this machine
-    brain brief                       what the secretary thinks you should know now
-    brain replay [--peek]             catch up on what changed since you were last here
-    brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
-    brain weekly                      Sunday executive briefing: your week in review
-    brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
-    brain name [<name>]               name the assistant — how you address it
-    brain presence [--wake]           the ambient secretary: greets, answers, and speaks up (--wake to talk by name)
-    brain jot <thought>               braindump: capture and auto-file a thought
-    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
-    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
-    brain projects | project <name>   auto-detected projects and their dossiers
-    brain context <task> [--project <p>] [--budget <n>]
-                                      everything bearing on a task, budgeted (also an MCP tool)
+// helpShort is what `brain`, `brain help` and `brain --help` all print. It is
+// deliberately one screen: the handoff is the centre of the product, and it is
+// what a reader should be able to try in the next thirty seconds.
+func helpShort(w io.Writer) {
+	fmt.Fprint(w, `brain — local-first memory and continuity for AI agents
+
+Agents forget the moment a session ends. brain is the memory they hand to one
+another: one stops, the next picks up exactly where it left off.
+
+THE HANDOFF — an agent finishes, and another continues
     brain note <project> <what you did>
                                       record progress; uncommitted until you checkpoint
     brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
-    brain why <file>                  what was being decided when this file was touched
+
+THE BRIEF — what bears on the work, before the work starts
+    brain context <task> [--project <p>] [--budget <n>]
+                                      everything bearing on a task, budgeted (also an MCP tool)
+
+THE INTERCEPT — the dead end nobody remembers recording
     brain tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
-    brain sessions <project>          checkpoint history for a project
-    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
-    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
-                                      register this brain with the MCP hosts found
-    brain graph [focus] [--hops N] [--similar]   memory graph around a note
-    brain loop [add|done|drop]        manage open loops (commitments)
-    brain think [off|low|medium|high]  how much the model reasons before answering
+
+GETTING THERE
+    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
+                                      connect brain to the AI agents on this machine
+    brain mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     brain doctor [--probe] [--integration]
-                                      health of vault, index, hosts; --integration proves a host can reach it
-    brain version                     which build this is
-    brain key set|rm <ref>            manage API keys in the macOS keychain
-    brain index [--watch]             sync vault into the cache and embed
-    brain ask <question…>             retrieve and answer from the vault
+                                      health of vault, index, hosts; --integration proves reach
+
+    BRAIN_VAULT points at the vault (default ~/brain)
+
+`+"`brain help all`"+` lists the rest — memory, capture, rollups, voice, benchmarks.
+`)
+}
+
+// helpAll is the full inventory, grouped. It exists so that demoting the
+// general surface does not amount to hiding it: everything brain has ever
+// accepted is here, spelled the way you type it.
+func helpAll(w io.Writer) {
+	fmt.Fprintf(w, `brain — local-first memory and continuity for AI agents
+
+CONTINUITY
+    brain note <project> <what you did>
+                                      record progress; uncommitted until you checkpoint
+    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+                                      commit where you stopped, as a note in the vault
+    brain resume <project>            pick up where the last agent left off
+    brain sessions <project>          checkpoint history for a project
+    brain context <task> [--project <p>] [--budget <n>]
+                                      everything bearing on a task, budgeted (also an MCP tool)
+    brain tried <approach> [--project X]
+                                      has this already been ruled out? ask before proposing
+    brain why <file>                  what was being decided when this file was touched
+    brain projects | project <name>   auto-detected projects and their dossiers
+
+MEMORY
+    brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
+    brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
+    brain jot <thought>               braindump: capture and auto-file a thought
+    brain loop [add|done|drop]        manage open loops (commitments)
+    brain graph [focus] [--hops N] [--similar]   memory graph around a note
+
+RETRIEVAL
     brain search <query…>             retrieve only, no generation
+    brain ask <question…>             retrieve and answer from the vault
+    brain index [--watch]             sync vault into the cache and embed
+
+BRIEFINGS
+    brain brief                       what the secretary thinks you should know now
+    brain replay [--peek]             catch up on what changed since you were last here
+    brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
+    brain weekly                      Sunday executive briefing: your week in review
+
+THE DAY
     brain capture [--daemon] [--backfill-days N]
                                       pull episodic events
     brain timeline [--verbose]        today's activity
@@ -92,6 +140,26 @@ USAGE
     brain routines [--days N] [--propose]
                                       mine recurring patterns from the timeline
     brain prune [days]                drop raw events past the retention window
+
+THE ASSISTANT
+    brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
+    brain name [<name>]               name the assistant — how you address it
+    brain presence [--wake]           the ambient secretary: greets, answers, and speaks up (--wake to talk by name)
+    brain think [off|low|medium|high]  how much the model reasons before answering
+
+SETUP AND DIAGNOSTICS
+    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
+                                      connect brain to the AI agents on this machine
+    brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
+    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
+                                      register this brain with the MCP hosts found
+    brain doctor [--probe] [--integration]
+                                      health of vault, index, hosts; --integration proves a host can reach it
+    brain key set|rm <ref>            manage API keys in the macOS keychain
+    brain version                     which build this is
+    brain help [all]                  the three core journeys, or this list
+
+BENCHMARKS
     brain bench continuity [list] [--only X] [--verbose] [--brain-only]
                                       the handoff + memory suite, against every system installed
     brain bench memory <file> | bench pipeline
@@ -103,6 +171,14 @@ ENV
     BRAIN_EMBED   embed model (default %s)
     BRAIN_REPOS   colon-separated repos to mine for commits
 `, defaultChatModel, defaultEmbedModel)
+}
+
+// usage is the failure path — no arguments, or a verb nobody recognises. It
+// prints the short help to stderr and exits non-zero, because a command line
+// that could not be parsed is an error even though the text is identical to
+// what `brain help` prints on success.
+func usage() {
+	helpShort(os.Stderr)
 	os.Exit(2)
 }
 
@@ -118,6 +194,15 @@ func main() {
 	switch {
 	case cmd == "version", cmd == "--version", cmd == "-v":
 		fmt.Printf("brain %s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	case cmd == "help", cmd == "--help", cmd == "-h":
+		// Asked for, so it goes to stdout and exits 0 — the difference between
+		// answering a question and reporting a bad command line. `help all`
+		// takes the flag spelling too, so `brain --help all` is not a puzzle.
+		if firstNonFlag(args) == "all" {
+			helpAll(os.Stdout)
+			break
+		}
+		helpShort(os.Stdout)
 	case cmd == "setup":
 		err = setupCmd(args)
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "install":
