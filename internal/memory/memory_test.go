@@ -222,6 +222,39 @@ func TestNearestMemoryDetectsNearDuplicate(t *testing.T) {
 	}
 }
 
+// Agent is how a shared vault tells whose claim a memory is when two coding
+// agents disagree. It has to survive the ordinary paths: a fresh store, a
+// reinforcement of an existing one, and a plain read back — including the
+// legitimate case of no agent at all.
+func TestAgentSurvivesStoreAndRecall(t *testing.T) {
+	db := testDB(t)
+	if _, err := Store(db, nil, "", &Memory{
+		Text: "the deploy key rotates monthly", Kind: Fact, Source: "mcp", Agent: "claude-code",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Store(db, nil, "", &Memory{
+		Text: "prefers dark mode everywhere", Kind: Preference, Source: "manual",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := All(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, m := range all {
+		got[m.Text] = m.Agent
+	}
+	if got["the deploy key rotates monthly"] != "claude-code" {
+		t.Errorf("agent = %q, want claude-code", got["the deploy key rotates monthly"])
+	}
+	if got["prefers dark mode everywhere"] != "" {
+		t.Errorf("a memory stored with no agent should read back empty, got %q", got["prefers dark mode everywhere"])
+	}
+}
+
 func TestPipelineReportAccuracy(t *testing.T) {
 	r := PipelineReport{Cases: 6, RecallHits: 6}
 	if r.Accuracy() != 1.0 {

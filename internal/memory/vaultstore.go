@@ -122,7 +122,7 @@ func Export(db *sql.DB, dir string) error {
 // a file the user reads.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, created, uses
+		`SELECT id, text, salience, confidence, project, source, agent, created, uses
 		 FROM memories WHERE kind = ? AND superseded = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -132,12 +132,12 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	var mems []Memory
 	for rows.Next() {
 		var m Memory
-		var project, source sql.NullString
+		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &m.Created, &m.Uses); err != nil {
+			&project, &source, &agent, &m.Created, &m.Uses); err != nil {
 			return err
 		}
-		m.Kind, m.Project, m.Source = kind, project.String, source.String
+		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
 		mems = append(mems, m)
 	}
 	if err := rows.Err(); err != nil {
@@ -168,6 +168,9 @@ func renderKind(kind Kind, mems []Memory) string {
 			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
 			fmt.Fprintf(&b, " project=%s", m.Project)
+		}
+		if m.Agent != "" {
+			fmt.Fprintf(&b, " agent=%s", strings.ReplaceAll(m.Agent, " ", "-"))
 		}
 		b.WriteString(" -->\n")
 	}
@@ -311,10 +314,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	if m.ID > 0 {
 		res, err := db.Exec(
 			`UPDATE memories SET text=?, kind=?, salience=?, confidence=?, project=?,
-			 source=?, created=?, uses=?, fingerprint=?, vec=COALESCE(?, vec)
+			 source=?, agent=?, created=?, uses=?, fingerprint=?, vec=COALESCE(?, vec)
 			 WHERE id = ?`,
 			m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Created, m.Uses, fingerprint(m.Text), vec, m.ID)
+			m.Agent, m.Created, m.Uses, fingerprint(m.Text), vec, m.ID)
 		if err != nil {
 			return 0, err
 		}
@@ -323,10 +326,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, created, uses, vec, fingerprint)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Created, m.Uses, vec, fingerprint(m.Text))
+			m.Source, m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text))
 		if err == nil {
 			logEvent(db, m.ID, EvCreated, m.Text, 0)
 		}
@@ -335,10 +338,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 
 	// No id in the comment: a line somebody typed by hand. Give it one.
 	res, err := db.Exec(
-		`INSERT INTO memories (text, kind, salience, confidence, project, source, created, uses, vec, fingerprint)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO memories (text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-		m.Created, m.Uses, vec, fingerprint(m.Text))
+		m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text))
 	if err != nil {
 		return 0, err
 	}
@@ -433,6 +436,8 @@ func applyMeta(m *Memory, meta string) {
 			m.Uses = n
 		case "project":
 			m.Project = value
+		case "agent":
+			m.Agent = value
 		case "created":
 			// RFC3339 now; the bare date is what older files carry. Recording
 			// only the date collapsed two memories written hours apart onto the

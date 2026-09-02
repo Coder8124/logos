@@ -296,3 +296,64 @@ func TestTheFileReadsAsADocument(t *testing.T) {
 		t.Errorf("metadata leaked outside its comment:\n%s", text)
 	}
 }
+
+// Agent has to make the same round trip as project and source — written into
+// the bookkeeping comment, read back on import — so who learned a fact
+// survives an `rm -rf .brain`, not just the fact itself.
+func TestAgentSurvivesExportAndImport(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := Store(db, nil, "", &Memory{
+		Text: "the vault path is configurable", Kind: Fact, Source: "mcp", Agent: "cursor",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "agent=cursor") {
+		t.Errorf("agent metadata missing from the exported file:\n%s", raw)
+	}
+
+	wiped := testDB(t)
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	all, err := All(wiped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Agent != "cursor" {
+		t.Fatalf("agent did not survive the round trip: %+v", all)
+	}
+}
+
+// A file written before this field existed has no `agent=` in its bookkeeping
+// comment at all. Importing it must not choke — it is exactly the pre-migration
+// case, at the vault-file layer instead of the database layer.
+func TestOldVaultFileWithNoAgentMetadataImportsCleanly(t *testing.T) {
+	db, dir := vaultDB(t)
+	if err := os.MkdirAll(filepath.Join(dir, Dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n" +
+		"- a fact written before agents were tracked <!-- brain id=1 conf=0.70 sal=0.50 src=manual created=2025-01-01 uses=0 -->\n"
+	if err := os.WriteFile(filepath.Join(dir, Dir, "fact.md"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Import(db, nil, "", dir); err != nil {
+		t.Fatalf("importing a pre-agent vault file failed: %v", err)
+	}
+	all, err := All(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("want 1 memory, got %d", len(all))
+	}
+	if all[0].Agent != "" {
+		t.Errorf("a file with no agent= should import with an empty agent, got %q", all[0].Agent)
+	}
+}

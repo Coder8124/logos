@@ -53,8 +53,14 @@ type Memory struct {
 	// Project scopes a memory to one piece of work, so an assistant helping with
 	// ÉlyséeBot recalls ÉlyséeBot's context and not the whole life. Empty means
 	// global — it applies everywhere.
-	Project      string  `json:"project,omitempty"`
-	Source       string  `json:"source"` // where it was learned (conversation, manual, mcp)
+	Project string `json:"project,omitempty"`
+	Source  string `json:"source"` // where it was learned (conversation, manual, mcp)
+	// Agent names which coding agent learned this — "claude-code", "cursor",
+	// "codex" — when the MCP host said so at handshake. Empty means either the
+	// fact predates this field or arrived somewhere that isn't one agent among
+	// several (the CLI, a dream pass). Never asked of the model: see
+	// internal/mcpserver's clientInfoFromInitialize, which is the only writer.
+	Agent        string  `json:"agent,omitempty"`
 	Created      int64   `json:"created"`
 	LastUsed     int64   `json:"last_used"`
 	Uses         int     `json:"uses"`
@@ -72,6 +78,7 @@ CREATE TABLE IF NOT EXISTS memories (
     confidence    REAL NOT NULL DEFAULT 0.7,
     project       TEXT NOT NULL DEFAULT '',
     source        TEXT,
+    agent         TEXT NOT NULL DEFAULT '',
     created       INTEGER NOT NULL,
     last_used     INTEGER NOT NULL DEFAULT 0,
     uses          INTEGER NOT NULL DEFAULT 0,
@@ -108,6 +115,7 @@ func Init(db *sql.DB) error {
 	db.Exec("ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7")
 	db.Exec("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memories ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE memories ADD COLUMN agent TEXT NOT NULL DEFAULT ''")
 	return nil
 }
 
@@ -178,9 +186,9 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	}
 
 	res, err := db.Exec(
-		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, created, vec, fingerprint)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Created, vec, fingerprint(m.Text))
+		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, agent, created, vec, fingerprint)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Agent, m.Created, vec, fingerprint(m.Text))
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -318,7 +326,7 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 // recalls everything (global view); a named project narrows to that work's own
 // memory plus global memories, which is what project-scoped recall wants.
 func recallScoped(db *sql.DB, query []float32, k int, queryText, project string) ([]Memory, error) {
-	q := `SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec FROM memories WHERE superseded = 0`
 	var args []any
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
@@ -336,7 +344,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &vec); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -398,7 +406,7 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +415,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -425,7 +433,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 		return All(db)
 	}
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by
 		   FROM memories
 		  WHERE superseded = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
@@ -437,7 +445,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
