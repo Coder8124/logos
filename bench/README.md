@@ -118,8 +118,15 @@ psql -h "$PGD" -p 5433 -U letta -d letta    -c "CREATE EXTENSION vector;"
 
 export LETTA_PG_URI="postgresql://letta@127.0.0.1:5433/letta"
 export LETTA_DIR=~/.brain-bench-letta
+export OLLAMA_BASE_URL="http://localhost:11434"   # without this the model list is empty
 .venv-letta/bin/letta server --port 8289
 ```
+
+`OLLAMA_BASE_URL` is the one that fails quietly. Without it the server starts,
+answers `/v1/health/`, and still serves a model list from rows written at a
+previous start — so `/v1/models/` looks right while `agents.create` rejects
+every handle with `must be one of []`. Set it on every start, not just the
+first.
 
 The published wheel carries no Alembic migrations, so the schema has to be
 created once from the ORM metadata, and one column needs a default the ORM does
