@@ -1,4 +1,4 @@
-# brain
+# Logos
 
 **The memory you own.** A local-first memory and continuity layer for AI agents.
 Work with Claude Code, Cursor, Codex or your own agent; when one stops, another
