@@ -190,6 +190,9 @@ func TestMarkdownRoundTrip(t *testing.T) {
 			"holding the 43g weight target",
 		},
 		Failed:    []string{"re-quoting the waveguide: no movement under 10k units"},
+		Verified:  []string{"the $118 target survives the single-mic BOM — scripts/bom.py --line single-mic"},
+		Blockers:  []string{"tariff table is stale, so any landed-cost number is unusable"},
+		Commands:  []string{"scripts/bom.py --line single-mic", "make bom-check"},
 		Questions: []string{"does 71% bonding yield hold on the revised line?"},
 		Files:     []string{"projects/kestrel-one.md", "topics/bom-cost.md"},
 		Next:      "get a firm quote on the single-mic BOM line before Friday",
@@ -201,6 +204,59 @@ func TestMarkdownRoundTrip(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip lost information:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// Every checkpoint already in a vault was written before verification existed.
+// They have to keep parsing, keep rendering, and come back out the same shape
+// they went in — a schema addition that quietly rewrites old notes on the next
+// read is worse than not adding it.
+func TestACheckpointWrittenBeforeVerificationStillRoundTrips(t *testing.T) {
+	old := `---
+type: checkpoint
+title: kestrel-one — cut the BOM
+project: kestrel-one
+agent: claude
+session: 20260814-143207-claude
+first_seen: 2026-08-14
+checkpointed: 2026-08-14T14:32:07Z
+---
+
+## Task
+
+cut the BOM from $141.20 to the $118 target
+
+## Didn't work
+
+- re-quoting the waveguide: no movement under 10k units
+
+## Next
+
+quote the single-mic line
+`
+
+	got := ParseCheckpoint(old)
+	if got.Task != "cut the BOM from $141.20 to the $118 target" {
+		t.Errorf("task lost: %q", got.Task)
+	}
+	if len(got.Failed) != 1 || got.Next != "quote the single-mic line" {
+		t.Errorf("an old-shape note did not survive the parse: %+v", got)
+	}
+	if got.Verified != nil || got.Blockers != nil || got.Commands != nil {
+		t.Errorf("absent sections should stay absent, not become empty claims: %+v", got)
+	}
+
+	// And re-rendering must not invent sections the author never wrote: an empty
+	// "Verified" heading reads as "we checked and found nothing", which is a
+	// different statement from "nobody recorded this".
+	out := got.Markdown("")
+	for _, heading := range []string{secVerified, secBlockers, secCommands} {
+		if strings.Contains(out, "## "+heading) {
+			t.Errorf("re-render invented a %q section:\n%s", heading, out)
+		}
+	}
+	if again := ParseCheckpoint(out); !reflect.DeepEqual(again, got) {
+		t.Errorf("second round trip drifted:\n got %+v\nwant %+v", again, got)
 	}
 }
 

@@ -74,6 +74,9 @@ func (c Checkpoint) Markdown(follows string) string {
 	section(&b, secState, c.State)
 	bullets(&b, secDecisions, c.Decisions)
 	bullets(&b, secFailed, c.Failed)
+	bullets(&b, secVerified, c.Verified)
+	bullets(&b, secBlockers, c.Blockers)
+	bullets(&b, secCommands, c.Commands)
 	bullets(&b, secQuestions, c.Questions)
 	bullets(&b, secFiles, c.Files)
 	section(&b, secNext, c.Next)
@@ -88,6 +91,9 @@ const (
 	secState     = "State"
 	secDecisions = "Decisions"
 	secFailed    = "Didn't work"
+	secVerified  = "Verified"
+	secBlockers  = "Blockers"
+	secCommands  = "Commands run"
 	secQuestions = "Open questions"
 	secFiles     = "Files"
 	secNext      = "Next"
@@ -186,6 +192,15 @@ func ParseCheckpoint(raw string) Checkpoint {
 			c.Decisions = parseBullets(text)
 		case secFailed:
 			c.Failed = parseBullets(text)
+		// Absent from every checkpoint written before these existed, which is
+		// exactly what the switch already handles: an unrecognised heading is
+		// skipped and a missing one leaves its field nil.
+		case secVerified:
+			c.Verified = parseBullets(text)
+		case secBlockers:
+			c.Blockers = parseBullets(text)
+		case secCommands:
+			c.Commands = parseBullets(text)
 		case secQuestions:
 			c.Questions = parseBullets(text)
 		case secFiles:
