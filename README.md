@@ -6,17 +6,22 @@ picks up exactly where it left off — over MCP, on your machine, nothing upload
 unless you say so.
 
 ```
-Claude Code  ──▶  checkpoint  ──▶  brain  ──▶  resume  ──▶  Cursor
+Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──▶  Cursor
                                 (your vault)
 ```
 
 > **Memory is the product, and continuity is the proof.** Chat assistants forget
-> you the moment a session ends. brain doesn't — and the test of that is not
+> you the moment a session ends. Logos doesn't — and the test of that is not
 > whether it can find an old note, it is whether an agent that has never seen
 > your project can continue one that did.
 
 Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
+
+> **On the two names.** Logos is the product. `brain` is the development name and
+> stays one: the repository, the Go module `github.com/Coder8124/brain`, the
+> `brain` command, `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos`
+> and `brain` as the same command, so either spelling works wherever you meet it.
 
 ---
 
@@ -26,7 +31,7 @@ this project dies, you keep a vault.
 
 ```
 /plugin marketplace add Coder8124/brain
-/plugin install brain@brain
+/plugin install logos@logos
 ```
 
 The plugin is not just the MCP server. It also installs a **SessionStart hook**
@@ -37,18 +42,18 @@ teaches it to check `before_you_try` before proposing.
 
 One click, for the other hosts:
 
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9icmFpbiIsIm1jcCIsInNlcnZlIl19)
-[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22brain%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Fbrain%22%2C%22mcp%22%2C%22serve%22%5D%7D)
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9sb2dvcyIsIm1jcCIsInNlcnZlIl19)
+[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
 
 Or one command, for everything else:
 
 ```sh
-npx -y @brainyprime/brain setup
+npx -y @brainyprime/logos setup
 ```
 
 No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
-for your platform (~11 MB, not 55: the platform packages are gated on `os` and
-`cpu`, so you fetch only yours).
+for your platform (~5 MB over the wire: the platform packages are gated on `os`
+and `cpu`, so you fetch one of the five, not all of them).
 
 <details>
 <summary>Other ways in</summary>
@@ -68,9 +73,9 @@ binary on demand:
 ```json
 {
   "mcpServers": {
-    "brain": {
+    "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/brain", "mcp", "serve"]
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
     }
   }
 }
@@ -179,12 +184,14 @@ model throughout.
 
 ```
 system                pass  fidelity  carry   leak  signal
-brain                81.2%    82.8%   89.1%  33.3%   88.9%
+brain                84.4%    85.9%   89.1%  16.7%   88.9%
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%
+full-dump            46.9%    68.8%   84.4%  83.3%   22.2%
 letta                43.8%    67.2%   82.8%  83.3%   22.2%
 mem0                 43.8%    67.2%   82.8%  83.3%   22.2%
 vector-rag           43.8%    67.2%   82.8%  83.3%   22.2%
+static-file           6.2%    22.7%   22.7%   0.0%    0.0%
 none                  0.0%     6.2%    6.2%   0.0%    0.0%
 ```
 
@@ -198,8 +205,10 @@ replaced has handed the next agent a coin flip.
 On the durability family — write, delete every rebuildable artifact, read again
 — brain scores **100%** and every other system scores **0%**.
 
-It loses too: arithmetic and recency-conflict are 0% for everyone, and MemPalace
-beats brain outright on temporal ordering. Full numbers, method and caveats in
+It loses too: arithmetic, recency-conflict and multi-hop are 0%, and temporal
+ordering is 0% for every system measured — retrieval is not computation, and no
+amount of it turns "which came first" into an answer. Full numbers, method and
+caveats in
 [docs/continuity-benchmark.md](docs/continuity-benchmark.md).
 
 ```sh
@@ -410,17 +419,18 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-git clone https://github.com/Coder8124/brain
-# then, in your go.mod:
-#   require github.com/pragun/brain v0.0.0
-#   replace github.com/pragun/brain => ../brain
+go get github.com/Coder8124/brain@latest
 ```
 
-> The module is declared as `github.com/pragun/brain` while the repository lives
-> at `Coder8124/brain`, so `go get` cannot resolve it from the proxy yet — a
-> clone builds fine, because Go builds a local module by its declared path
-> without fetching it. Renaming the module is a tracked change; until then, use
-> the `replace` above.
+The module path and the repository agree, so the proxy can resolve it. Working
+against a local checkout instead:
+
+```sh
+git clone https://github.com/Coder8124/brain
+# then, in your go.mod:
+#   require github.com/Coder8124/brain v0.0.0
+#   replace github.com/Coder8124/brain => ../brain
+```
 
 ```go
 b, err := brain.Open("/path/to/vault", brain.WithAgent("my-agent"))

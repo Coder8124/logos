@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/event"
 	_ "modernc.org/sqlite"
 )
 

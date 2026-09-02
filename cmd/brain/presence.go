@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pragun/brain/internal/flavor"
-	"github.com/pragun/brain/internal/presence"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/voice"
+	"github.com/Coder8124/brain/internal/flavor"
+	"github.com/Coder8124/brain/internal/presence"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/voice"
 )
 
 // runName sets or shows the assistant's name — how you address it and, with a

@@ -233,13 +233,14 @@ Stated plainly, because they bound what these numbers are worth.
   marked as known weaknesses up front and the report prints every wrong
   prediction, but this is not independent evaluation and should not be read as
   one.
-- **mem0 ran with `infer=False` and Letta with its agent loop off.** Both store
-  text verbatim rather than running an LLM over every write. This is favourable
-  to them on retrieval — nothing is lost to a small model's extraction — and
-  unfavourable on reconciliation, which is precisely where their headline
-  weakness (supersession) sits. **This is the caveat most likely to matter.**
-  Running either authentically means one or more local model calls per event,
-  and a single scenario writes upwards of two hundred events.
+- **The headline table runs mem0 with `infer=False` and Letta with its agent
+  loop off.** Both then store text verbatim rather than running an LLM over
+  every write — favourable to them on retrieval, since nothing is lost to a
+  small model's extraction, and unfavourable on reconciliation, which is
+  precisely where their headline weakness (supersession) sits. This was the
+  caveat most likely to matter, so it was measured rather than left standing.
+  `MEM0_INFER=1 LETTA_AGENT_LOOP=1` runs both authentically; see
+  [below](#61-what-changes-when-they-run-authentically).
 - **Budgets are generous relative to scenario size**, which is why dumping the
   whole history still scores 46.9%. A tighter budget would separate the field
   further and would also be a different benchmark.
@@ -247,6 +248,60 @@ Stated plainly, because they bound what these numbers are worth.
   seeds, or embedding choice is reported.
 - **Letta needs PostgreSQL + pgvector and a running server**; it is the only
   system here that cannot be run from a pip install alone.
+
+### 6.1 What changes when they run authentically
+
+Measured on `supersession-current-value` — three statements of a retail price
+($199, then $229, then a final $249) buried in twenty noise facts. The scenario
+requires carrying $249 and suppressing both earlier numbers, so it is the
+single case the caveat most directly predicted. Both modes were run on the same
+machine, back to back. `brain` and MemPalace are unaffected by these flags and
+score identically in both runs, which is what makes the two comparable.
+
+| system | default | authentic | |
+|---|---|---|---|
+| brain | 100% | 100% | control |
+| **letta** | 0% (leaks both) | **50% (leaks one)** | improved |
+| **mem0** | 0% (leaks both) | **0%** | no gain |
+| mempalace | 50% | 50% | control |
+
+Fidelity, on one scenario. Two things worth stating separately:
+
+**Letta's loop does the work the shortcut skips.** In archival mode all three
+prices come back, the same failure as plain vector search. With the loop on,
+`$199` is absent from the output entirely — the agent never filed it, or filed
+it and removed it. That is genuine reconciliation, and the caveat was right that
+turning it off cost Letta credit here. It still leaks `$229`, so the scenario is
+still a fail: `pass` is conjunctive and one surviving leak reads the same as
+leaking everything. The improvement is real and is only visible in `fidelity`.
+
+**mem0's inference made it worse, not better.** With `infer=True` it reconciled
+the three statements into one synthesised fact:
+
+> Retail price is currently $199, but will increase to $229 after the optics
+> quote and then to $249 for launch
+
+It read a history of revisions as a schedule of future increases, and asserts
+the current price is the oldest superseded value. That is worse than storing
+verbatim: `infer=False` at least leaks the old prices as separately dated facts
+an agent could disambiguate, where inference produces one confident sentence
+stating the wrong number. The same pass sprayed duplicates of unchanged noise
+facts into the store — "Design review notes are filed under the sprint folder"
+five times.
+
+**The cost, measured.** The suite is 596 write events across 32 scenarios, 201
+of them in `scale-haystack` alone. Letta's loop took **12m29s for 23 events —
+32.6 s/event, and 108 chat completions for 23 writes, about 4.7 model calls
+each**, because a turn is reason → call a tool → read the result → often step
+again. mem0's `infer=True` ran nearer 10 s/event. Extrapolated, the full
+authentic suite is **~7 hours**, and that is a floor rather than an estimate:
+both systems grow their context as memory accumulates — Letta's context estimate
+climbed 2,379 → 8,917 tokens over these 23 events — so a 201-event scenario is
+superlinear, not 8.7× a 23-event one.
+
+One fairness gap remains open: mem0's `infer=True` path asks for spaCy
+(`mem0ai[nlp]`), which is not installed here, so it falls back with a warning.
+The headline `infer=False` numbers do not touch that path.
 
 ---
 

@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pragun/brain/internal/contextpack"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // The continuity commands, mirroring the MCP tools of the same names.

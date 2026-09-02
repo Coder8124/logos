@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 // CommitsSince returns commits authored after ts.

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pragun/brain/internal/dream"
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/dream"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // dreamHour is the local hour past which the daemon runs the nightly pass. Zero

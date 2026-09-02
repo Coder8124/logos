@@ -1,8 +1,9 @@
 {
-  "name": "@brainyprime/brain",
+  "name": "@brainyprime/logos",
   "version": "0.1.0",
-  "description": "The memory you own. A local-first memory and continuity layer for AI agents, over MCP.",
+  "description": "Logos — cross-tool memory and continuity for AI coding agents, over MCP. Your vault is markdown on your own disk.",
   "keywords": [
+    "logos",
     "mcp",
     "model-context-protocol",
     "memory",
@@ -20,24 +21,27 @@
   },
   "license": "MIT",
   "bin": {
-    "brain": "bin/brain.js"
+    "logos": "bin/logos.js",
+    "brain": "bin/logos.js"
   },
   "files": [
-    "bin/brain.js",
+    "bin/logos.js",
     "README.md"
   ],
   "engines": {
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@brainyprime/brain-darwin-arm64": "0.1.0",
-    "@brainyprime/brain-darwin-x64": "0.1.0",
-    "@brainyprime/brain-linux-x64": "0.1.0",
-    "@brainyprime/brain-linux-arm64": "0.1.0",
-    "@brainyprime/brain-win32-x64": "0.1.0"
+    "@brainyprime/logos-darwin-arm64": "0.1.0",
+    "@brainyprime/logos-darwin-x64": "0.1.0",
+    "@brainyprime/logos-linux-x64": "0.1.0",
+    "@brainyprime/logos-linux-arm64": "0.1.0",
+    "@brainyprime/logos-win32-x64": "0.1.0"
   },
   "scripts": {
     "build": "node scripts/build.js",
-    "test": "node scripts/test.js"
+    "test": "node scripts/test.js",
+    "release:dry": "node scripts/build.js && node scripts/test.js && node scripts/publish.js --dry-run",
+    "release": "node scripts/build.js && node scripts/test.js && node scripts/publish.js"
   }
 }

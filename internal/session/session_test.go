@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/vault"
 
 	_ "modernc.org/sqlite"
 )

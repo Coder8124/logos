@@ -13,17 +13,21 @@
 #
 # Rules this obeys, because a hook that misbehaves poisons every session:
 #   - never fail. Exit 0 no matter what; a broken hook must not block work.
-#   - never stall. Everything is bounded, and brain needs no model for this.
+#   - never stall. Everything is bounded, and Logos needs no model for this.
 #   - say nothing when there is nothing to say. An empty vault or a project with
 #     no history prints nothing rather than noise.
 set -uo pipefail
 
-# Resolve brain without requiring it on PATH: an npx-installed plugin has no
-# binary of its own, and a globally installed one does.
-if command -v brain >/dev/null 2>&1; then
-  BRAIN=(brain)
+# Resolve the binary without requiring it on PATH: an npx-installed plugin has
+# no binary of its own, and a globally installed one does. The npm wrapper
+# installs both names; a source build installs only the development one.
+if command -v logos >/dev/null 2>&1; then
+  LOGOS=(logos)
+elif command -v brain >/dev/null 2>&1; then
+  # The development name, which the binary and a source build still use.
+  LOGOS=(brain)
 elif command -v npx >/dev/null 2>&1; then
-  BRAIN=(npx -y @brainyprime/brain)
+  LOGOS=(npx -y @brainyprime/logos)
 else
   exit 0
 fi
@@ -35,9 +39,9 @@ project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 [ -z "$project" ] && exit 0
 
 # Bounded, and quiet on failure. A vault that does not exist yet, a project with
-# no checkpoints, or a brain that is not installed all land here and print
+# no checkpoints, or a Logos that is not installed all land here and print
 # nothing.
-handoff=$("${BRAIN[@]}" resume "$project" 2>/dev/null) || exit 0
+handoff=$("${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
 [ -z "$handoff" ] && exit 0
 
 # resume on a project with no checkpoint still returns context, and says so.
@@ -48,7 +52,7 @@ case "$handoff" in
 esac
 
 cat <<EOF
-Continuity from brain — the previous session on "$project", including what was
+Continuity from Logos — the previous session on "$project", including what was
 already ruled out. Read the failed approaches before proposing anything; they
 are there to stop you repeating work that has already been paid for.
 

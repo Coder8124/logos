@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/vault"
 	_ "modernc.org/sqlite"
 )
 

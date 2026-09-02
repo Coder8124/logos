@@ -1,0 +1,102 @@
+# Cut a release by pushing a tag. Nothing else, and no credential anywhere.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# That builds the five platform binaries, publishes all six npm packages, and
+# attaches the archives to a GitHub release.
+#
+# Publishing uses npm's trusted publishing: GitHub hands npm a short-lived OIDC
+# token proving which repository and which workflow is asking, and npm checks
+# that against the publisher it has on file for the package. There is no
+# NPM_TOKEN, so there is nothing to leak, rotate, or find expired at the worst
+# moment — and it satisfies npm's 2FA requirement without anybody typing a code.
+# It also means any teammate with push access can cut a release without being
+# handed the keys to the account.
+#
+# One-time setup, per package, at npmjs.com → the package → Settings → Trusted
+# Publisher: repository Coder8124/brain, workflow release.yml. All six need it:
+#
+#   @brainyprime/logos                 the wrapper
+#   @brainyprime/logos-darwin-arm64
+#   @brainyprime/logos-darwin-x64
+#   @brainyprime/logos-linux-x64
+#   @brainyprime/logos-linux-arm64
+#   @brainyprime/logos-win32-x64
+#
+# Until a package exists it cannot be configured, so the very first publish of
+# each is the one manual step — see npm/scripts/publish.js.
+#
+# The repository and the binary keep the development name, brain; only the npm
+# packages carry the product name. npm/bin/logos.js is the seam.
+#
+# npm also records a provenance attestation for anything published this way:
+# a public, verifiable statement of which commit and which workflow produced
+# the tarball. That is worth having on its own for anyone deciding whether to
+# run this inside their editor.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Buildable without publishing, so the packaging can be checked on a branch.
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # mint the OIDC token npm verifies
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # npm 11.5.1 is the floor for trusted publishing. Node 24 ships past it;
+      # the explicit upgrade means a change to the runner image cannot quietly
+      # drop us onto a version that falls back to looking for a token.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+
+      # The gate. A release that ships a failing build helps nobody, and these
+      # are the same commands that run locally.
+      - name: Test
+        run: |
+          gofmt -l . | grep -v '\.venv' | (! grep .) || (echo "unformatted files above"; exit 1)
+          go vet ./...
+          go test ./...
+
+      - name: Build binaries
+        run: ./scripts/release.sh "${GITHUB_REF_NAME:-dev}"
+
+      - name: Build npm packages
+        working-directory: npm
+        run: |
+          node scripts/build.js
+          node scripts/test.js
+
+      # Platform packages before the wrapper: the wrapper pins them by exact
+      # version, so the other order leaves every installer resolving packages
+      # that do not exist yet.
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: npm
+        run: node scripts/publish.js --ci
+
+      - name: GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+          generate_release_notes: true

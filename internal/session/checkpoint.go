@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/gitstate"
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/gitstate"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // A Checkpoint is where an agent stopped, written down well enough that a

@@ -159,13 +159,59 @@ it was driven here.
 - **mem0 telemetry is disabled** in the shim. It ships analytics on by default
   and opens a PostHog client at import; a benchmark claiming every system runs
   locally has to mean it.
-- **Letta** is scored on its **archival memory** (`passages.create` /
-  `passages.search`), which is the part of its three-tier memory that
-  corresponds to what the other systems do. Its full agent loop — a model
-  deciding what enters core memory and when to search — is Letta at its most
-  capable and is not affordable here at 32 scenarios x up to 200 events, the
-  same call made for mem0. As with mem0, the shortcut is favourable on
-  retrieval and unfavourable on reconciliation.
+- **Letta** is scored by default on its **archival memory**
+  (`passages.create` / `passages.search`), which is the part of its three-tier
+  memory that corresponds to what the other systems do. As with mem0, that
+  shortcut is favourable on retrieval and unfavourable on reconciliation.
+  `LETTA_AGENT_LOOP=1` runs it the authentic way: every write becomes a real
+  agent turn with the base memory tools available, and the model decides what
+  belongs in core memory and what gets filed in archival.
+
+  Reads are identical in both modes — archival search, plus core memory when
+  the loop has filled it. The benchmark scores *the context a system hands the
+  next agent*, so asking the agent a question and grading its reply would
+  measure something no other row measures; but discarding core memory would run
+  the loop and then throw away its main output.
+
+  In agent-loop mode the model actually runs, so it must be local. The default
+  is `ollama/glm-4.7-flash:latest`; override with `LETTA_MODEL`, using a handle
+  `client.models.list()` reports, since Letta filters Ollama models by
+  tool-calling support and small ones may not appear.
+
+### What authentic mode costs
+
+The suite is **596 write events** across 32 scenarios, 201 of them in
+`scale-haystack` alone. Measured on one machine:
+
+| Mode | Per write | Whole suite |
+|---|---|---|
+| mem0 `infer=False`, Letta archival | milliseconds | ~3 minutes |
+| `MEM0_INFER=1` | ~10 s | ~1.7 hours |
+| `LETTA_AGENT_LOOP=1` | ~33 s | ~5.4 hours |
+
+Timed on `supersession-current-value`: Letta's loop took 12m29s for 23 events
+and issued **108 chat completions for those 23 writes — about 4.7 model calls
+each**, since a turn is reason → call a tool → read the result → often step
+again. An earlier note here guessed "roughly a turn each", which was low.
+
+Treat ~7 hours for the pair as a **floor, not an estimate**. Both systems grow
+their context as memory accumulates — Letta's context estimate climbed 2,379 →
+8,917 tokens across those 23 events — so `scale-haystack`'s 201 events cost
+more than 8.7× a 23-event scenario, not the same per write.
+
+```sh
+MEM0_INFER=1 LETTA_AGENT_LOOP=1 go run ./cmd/brain bench continuity
+```
+
+What it buys, measured on the scenario the caveat pointed at: Letta goes from
+0% to 50% fidelity, correctly dropping the first superseded price and still
+leaking the second. mem0 stays at 0% and fails in a new way — it synthesises
+"currently $199, but will increase to $229 … then to $249", reading a history
+of revisions as a schedule of increases. Full write-up in
+[docs/continuity-benchmark.md §6.1](../docs/continuity-benchmark.md).
+
+Note that `infer=True` also wants spaCy (`mem0ai[nlp]`), which the install line
+above does not pull; without it that path logs a fallback warning.
 - **Letta embeddings must be given a `/v1` endpoint.** It routes every
   embedding through its OpenAI-compatible client and appends `/embeddings` to
   whatever base it is handed, regardless of `embedding_endpoint_type`, and

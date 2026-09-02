@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // Turn is one message in the conversation.

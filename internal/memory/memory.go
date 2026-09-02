@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/textmatch"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/textmatch"
 )
 
 // Kind categorises a memory so it can be weighted and surfaced appropriately.
@@ -371,12 +371,17 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 
 // RecallInProject is Recall narrowed to a project's memory (plus global memory).
 func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, project string, k int) ([]Memory, error) {
+	// The no-provider fallback must still honour the project, or scoping is a
+	// no-op on every machine without a model runtime — which since the MCP
+	// server learned to start without one is a supported configuration, not an
+	// edge case. Losing relevance ranking is acceptable here; leaking another
+	// project's facts is not.
 	if p == nil {
-		return All(db)
+		return AllInProject(db, project)
 	}
 	vecs, err := p.Embed(embedModel, []string{query})
 	if err != nil || len(vecs) == 0 {
-		return All(db)
+		return AllInProject(db, project)
 	}
 	mems, err := recallScoped(db, vecs[0], k, query, project)
 	if err != nil {
@@ -394,6 +399,36 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
 		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 ORDER BY salience DESC, created DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Memory
+	for rows.Next() {
+		var m Memory
+		var kind string
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
+			return nil, err
+		}
+		m.Kind = Kind(kind)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// AllInProject is All narrowed to one project's memories plus the global ones,
+// which is what a project-scoped view wants: the work's own facts, and the
+// standing truths that apply to every project. An empty project means no
+// narrowing at all, so this degrades to All.
+func AllInProject(db *sql.DB, project string) ([]Memory, error) {
+	if strings.TrimSpace(project) == "" {
+		return All(db)
+	}
+	rows, err := db.Query(
+		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by
+		   FROM memories
+		  WHERE superseded = 0 AND (project = ? OR project = '')
+		  ORDER BY salience DESC, created DESC`, project)
 	if err != nil {
 		return nil, err
 	}

@@ -57,16 +57,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/contextpack"
-	"github.com/pragun/brain/internal/deadend"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/mcpserver"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/brain/internal/deadend"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/mcpserver"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // The domain types. Aliases, not copies — see the package doc.

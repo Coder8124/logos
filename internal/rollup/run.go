@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // Run rolls a single day up into a daily note and a set of proposals.

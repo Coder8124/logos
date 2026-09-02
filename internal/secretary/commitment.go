@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // A Commitment is something you said you would do that is not yet done. The

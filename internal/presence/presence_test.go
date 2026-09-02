@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/secretary"
 	_ "modernc.org/sqlite"
 )
 

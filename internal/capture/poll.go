@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/pragun/brain/internal/capture/sources"
+	"github.com/Coder8124/brain/internal/capture/sources"
 )
 
 // PollOnce runs one pass over the pull-based sources. The frontmost sampler is

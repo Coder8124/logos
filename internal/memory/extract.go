@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // Learning from conversations. After an exchange, the model is asked what — if

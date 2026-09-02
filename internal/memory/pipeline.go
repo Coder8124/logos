@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/router"
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // Testing the full extract→store→recall pipeline, not just retrieval.

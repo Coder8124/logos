@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/pragun/brain/internal/agent"
+	"github.com/Coder8124/brain/internal/agent"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )

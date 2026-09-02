@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // brain why <file> — what was being decided when this file was last worked on.

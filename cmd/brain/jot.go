@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pragun/brain/internal/rollup"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/rollup"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // Braindump: the shortest path from a thought to the vault. These lived in the

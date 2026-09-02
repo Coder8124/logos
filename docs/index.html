@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get Logos</title>
+<meta name="description" content="Download Logos — continuity for AI coding agents. One command, ~5 MB, no account.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<style>
+/* ── Tokens ────────────────────────────────────────────────────────────────
+   Patina on stone. The neutrals carry a green bias so they sit with the
+   verdigris rather than beside it; brass is the one warm note and is spent
+   only on marks that mean "this is the record". */
+:root {
+  --ground:   #F1F4F2;
+  --surface:  #FBFCFB;
+  --sunk:     #E7ECE9;
+  --ink:      #141A1B;
+  --ink-2:    #58635F;
+  --ink-3:    #7D8884;
+  --rule:     #D2DAD6;
+  --rule-2:   #E2E8E5;
+  --verdigris:#0E6A5A;
+  --verdigris-soft: rgba(14,106,90,.09);
+  --brass:    #96690F;
+
+  --shadow: 0 1px 0 var(--rule-2), 0 12px 28px -22px rgba(20,26,27,.5);
+
+  --f-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --margin-w: 8.5rem;
+  --measure: 63ch;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:   #0D1112;
+    --surface:  #141A1B;
+    --sunk:     #191F20;
+    --ink:      #E7EDEA;
+    --ink-2:    #96A29D;
+    --ink-3:    #6E7A76;
+    --rule:     #263030;
+    --rule-2:   #1E2626;
+    --verdigris:#4FC7AC;
+    --verdigris-soft: rgba(79,199,172,.11);
+    --brass:    #DCA84C;
+    --shadow: 0 1px 0 var(--rule-2), 0 14px 30px -24px #000;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:   #0D1112;
+  --surface:  #141A1B;
+  --sunk:     #191F20;
+  --ink:      #E7EDEA;
+  --ink-2:    #96A29D;
+  --ink-3:    #6E7A76;
+  --rule:     #263030;
+  --rule-2:   #1E2626;
+  --verdigris:#4FC7AC;
+  --verdigris-soft: rgba(79,199,172,.11);
+  --brass:    #DCA84C;
+  --shadow: 0 1px 0 var(--rule-2), 0 14px 30px -24px #000;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 16px;
+  line-height: 1.6;
+  font-feature-settings: "kern";
+  -webkit-font-smoothing: antialiased;
+}
+img { max-width: 100%; }
+a { color: var(--verdigris); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--verdigris);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* ── The spine ─────────────────────────────────────────────────────────────
+   A record has a margin. Every section hangs its label in it, and one hairline
+   runs the full height of the page: the line that does not break between
+   sessions is the whole product, so it is also the whole layout. */
+.page {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 5rem;
+}
+.row {
+  display: grid;
+  grid-template-columns: var(--margin-w) minmax(0, 1fr);
+  gap: 0 2.25rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 1.75rem;
+  margin-top: 2.75rem;
+}
+.row > .label {
+  font-family: var(--f-mono);
+  font-size: .6875rem;
+  font-weight: 500;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-top: .28rem;
+  border-right: 1px solid var(--rule-2);
+  margin-right: -1.125rem;
+  min-height: 2.5rem;
+}
+.row > .body { max-width: var(--measure); min-width: 0; }
+.row.wide > .body { max-width: none; }
+
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h2 {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: 1.5rem;
+  line-height: 1.25;
+  letter-spacing: -.008em;
+  margin-bottom: .6rem;
+}
+h3 {
+  font-family: var(--f-body);
+  font-weight: 600;
+  font-size: .9375rem;
+  letter-spacing: .005em;
+  margin-bottom: .35rem;
+}
+p { margin: 0 0 .9rem; color: var(--ink-2); }
+p.lead { color: var(--ink); }
+p:last-child { margin-bottom: 0; }
+strong { color: var(--ink); font-weight: 600; }
+code { font-family: var(--f-mono); font-size: .875em; }
+p code, li code, td code {
+  background: var(--verdigris-soft);
+  color: var(--ink);
+  padding: .08em .34em;
+  border-radius: 2px;
+}
+
+/* ── Masthead ──────────────────────────────────────────────────────────── */
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .85rem 1.25rem;
+  padding: 2.5rem 0 0;
+}
+.wordmark {
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: 1.6rem;
+  letter-spacing: .01em;
+  line-height: 1;
+  color: var(--ink);
+}
+.wordmark::after {
+  content: "";
+  display: inline-block;
+  width: .3rem; height: .3rem;
+  margin-left: .42rem;
+  border-radius: 50%;
+  background: var(--brass);
+  vertical-align: .12em;
+}
+.masthead .tag {
+  font-size: .875rem;
+  color: var(--ink-2);
+  margin-right: auto;
+}
+.masthead nav {
+  display: flex;
+  gap: 1.15rem;
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  letter-spacing: .04em;
+}
+.masthead nav a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--rule); padding-bottom: 1px; }
+.masthead nav a:hover { color: var(--verdigris); border-bottom-color: currentColor; }
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+.hero { padding: 3.25rem 0 .5rem; }
+.hero h1 {
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(2.1rem, 5.4vw, 3.35rem);
+  line-height: 1.08;
+  letter-spacing: -.018em;
+  max-width: 19ch;
+  margin-bottom: 1.15rem;
+}
+.hero h1 em {
+  font-style: italic;
+  color: var(--verdigris);
+}
+.hero .sub {
+  max-width: 54ch;
+  font-size: 1.0625rem;
+  color: var(--ink-2);
+  margin-bottom: 2.25rem;
+}
+
+/* ── Command blocks ────────────────────────────────────────────────────── */
+.cmd {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.cmd pre {
+  margin: 0;
+  padding: .95rem 1.1rem;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  font-family: var(--f-mono);
+  font-size: .875rem;
+  line-height: 1.7;
+  color: var(--ink);
+  tab-size: 2;
+}
+.cmd.primary pre { font-size: 1.0625rem; padding: 1.2rem 1.3rem; }
+.cmd .prompt { color: var(--ink-3); user-select: none; }
+.cmd .flag { color: var(--ink-2); }
+.cmd .pkg { color: var(--verdigris); }
+.copy {
+  flex: none;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--f-mono);
+  font-size: .6875rem;
+  font-weight: 500;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 0 1.05rem;
+  cursor: pointer;
+  transition: background .13s, color .13s;
+}
+.copy:hover { background: var(--verdigris-soft); color: var(--verdigris); }
+.copy[data-state="done"] { color: var(--verdigris); }
+.note {
+  font-size: .8125rem;
+  color: var(--ink-3);
+  margin-top: .7rem;
+}
+.note strong { color: var(--ink-2); font-weight: 500; }
+
+/* ── The handoff record — the page's one figure ─────────────────────────── */
+.record {
+  margin-top: 2.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.record .strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .55rem 1.05rem;
+  border-bottom: 1px solid var(--rule-2);
+  background: var(--sunk);
+  font-family: var(--f-mono);
+  font-size: .6875rem;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.record .strip b { color: var(--brass); font-weight: 500; letter-spacing: .11em; }
+.leg {
+  padding: 1.05rem 1.15rem;
+  font-family: var(--f-mono);
+  font-size: .8125rem;
+  line-height: 1.75;
+}
+.leg + .leg { border-top: 1px solid var(--rule-2); }
+.leg .who {
+  display: block;
+  font-size: .6875rem;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: .5rem;
+}
+.leg dl { margin: 0; display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: .1rem .9rem; }
+.leg dt { color: var(--ink-3); }
+.leg dd { margin: 0; color: var(--ink); }
+.leg dd.ruled { color: var(--brass); }
+.record .between {
+  padding: .5rem 1.15rem;
+  border-top: 1px solid var(--rule-2);
+  border-bottom: 1px solid var(--rule-2);
+  background: var(--sunk);
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  color: var(--ink-2);
+}
+.record .between span { color: var(--verdigris); }
+
+/* ── Steps (only where order is real) ──────────────────────────────────── */
+ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+ol.steps > li { counter-increment: s; position: relative; padding-left: 1.9rem; }
+ol.steps > li + li { margin-top: 1rem; }
+ol.steps > li::before {
+  content: counter(s);
+  position: absolute;
+  left: 0; top: .1rem;
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  color: var(--ink-3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.btns { display: flex; flex-wrap: wrap; gap: .6rem; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .55rem .95rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: .875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color .13s, background .13s;
+}
+.btn:hover { border-color: var(--verdigris); background: var(--verdigris-soft); }
+.btn .mk { font-family: var(--f-mono); font-size: .75rem; color: var(--ink-3); }
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+th, td { text-align: left; padding: .58rem .8rem .58rem 0; border-bottom: 1px solid var(--rule-2); }
+th {
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: .6875rem;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom-color: var(--rule);
+  white-space: nowrap;
+}
+td { color: var(--ink-2); }
+td:first-child { color: var(--ink); white-space: nowrap; }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td a { font-family: var(--f-mono); font-size: .8125rem; word-break: break-all; }
+tr:last-child td { border-bottom: 0; }
+
+/* ── Fact list ─────────────────────────────────────────────────────────── */
+ul.facts { margin: 0; padding: 0; list-style: none; }
+ul.facts > li {
+  padding-left: 1.2rem;
+  position: relative;
+  color: var(--ink-2);
+}
+ul.facts > li + li { margin-top: .65rem; }
+ul.facts > li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: .68em;
+  width: .45rem; height: 1px;
+  background: var(--brass);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1.5rem;
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  color: var(--ink-3);
+  letter-spacing: .03em;
+}
+footer a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--rule); }
+footer a:hover { color: var(--verdigris); }
+footer .sp { margin-left: auto; }
+
+@media (max-width: 46rem) {
+  .row { grid-template-columns: 1fr; gap: .8rem; }
+  .row > .label { border-right: 0; margin-right: 0; min-height: 0; padding-top: 0; }
+  .leg dl { grid-template-columns: 1fr; gap: 0; }
+  .leg dt { margin-top: .45rem; }
+  .cmd { flex-direction: column; }
+  .copy { border-left: 0; border-top: 1px solid var(--rule); padding: .6rem; text-align: left; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fade { animation: rise .5s cubic-bezier(.22,.68,.4,1) both; }
+  .fade:nth-child(2) { animation-delay: .07s; }
+  .fade:nth-child(3) { animation-delay: .14s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <span class="wordmark">Logos</span>
+    <span class="tag">Continuity for AI coding agents</span>
+    <nav>
+      <a href="https://github.com/Coder8124/brain">Source</a>
+      <a href="https://www.npmjs.com/package/@brainyprime/logos">npm</a>
+      <a href="https://github.com/Coder8124/brain/blob/main/docs/continuity-benchmark.md">Benchmark</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1 class="fade">Your agent forgets. <em>The record doesn&rsquo;t.</em></h1>
+    <p class="sub fade">
+      A session ends and everything it learned goes with it &mdash; the three approaches
+      it ruled out, the decision made at 2am, the reason the obvious fix does not work
+      here. Logos keeps that as markdown on your disk and hands it to whichever agent
+      picks up next.
+    </p>
+
+    <div class="cmd primary fade">
+      <pre><span class="prompt">$ </span>npx <span class="flag">-y</span> <span class="pkg">@brainyprime/logos</span> setup</pre>
+      <button class="copy" type="button" data-copy="npx -y @brainyprime/logos setup">Copy</button>
+    </div>
+    <p class="note">
+      <strong>~5 MB download.</strong> No Go toolchain, no clone, no build, no account.
+      macOS, Linux and Windows. Setup shows you which agents it would wire and
+      asks before touching any of them.
+    </p>
+
+    <div class="record">
+      <div class="strip"><span>Vault &mdash; <code>~/brain</code></span> <b>markdown, on your disk</b></div>
+      <div class="leg">
+        <span class="who">Monday &mdash; Claude Code writes a checkpoint</span>
+        <dl>
+          <dt>project</dt><dd>kestrel-one</dd>
+          <dt>decided</dt><dd>aluminium frame, 6061</dd>
+          <dt>ruled out</dt><dd class="ruled">plastic frame &mdash; fails drop test at 1.2&nbsp;m</dd>
+          <dt>next</dt><dd>quote the single-mic line</dd>
+        </dl>
+      </div>
+      <div class="between">the session ends. the index is deleted. <span>the file is still there.</span></div>
+      <div class="leg">
+        <span class="who">Thursday &mdash; Cursor asks to resume</span>
+        <dl>
+          <dt>carried</dt><dd>the decision, the open questions, the next step</dd>
+          <dt>and</dt><dd class="ruled">what was already tried, so it isn&rsquo;t paid for twice</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <div class="row">
+    <div class="label">Claude Code</div>
+    <div class="body">
+      <h2>Install the plugin instead</h2>
+      <p>
+        More than the MCP server: it adds a <strong>SessionStart hook</strong> that puts the
+        last handoff in front of the model before it does anything &mdash; the difference
+        between continuity that works and continuity that works when the model
+        remembers to ask for it.
+      </p>
+      <ol class="steps">
+        <li>
+          <div class="cmd">
+            <pre>/plugin marketplace add Coder8124/brain</pre>
+            <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/brain">Copy</button>
+          </div>
+        </li>
+        <li>
+          <div class="cmd">
+            <pre>/plugin install logos@logos</pre>
+            <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
+          </div>
+        </li>
+      </ol>
+      <p class="note">The marketplace is the repository, which keeps the development name.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">One click</div>
+    <div class="body">
+      <h2>Cursor and VS&nbsp;Code</h2>
+      <p>These deeplinks carry the whole server config, so there is no JSON to paste and no absolute path to get wrong.</p>
+      <div class="btns">
+        <a class="btn" href="cursor://anysphere.cursor-deeplink/mcp/install?name=logos&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBicmFpbnlwcmltZS9sb2dvcyIsIm1jcCIsInNlcnZlIl19">Add to Cursor <span class="mk">&rarr;</span></a>
+        <a class="btn" href="vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40brainyprime%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D">Add to VS&nbsp;Code <span class="mk">&rarr;</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">By hand</div>
+    <div class="body">
+      <h2>Any MCP host</h2>
+      <p>No install at all &mdash; <code>npx</code> resolves the binary on demand, so this config is portable between machines in a way an absolute path is not.</p>
+      <div class="cmd">
+<pre>{
+  "mcpServers": {
+    "logos": {
+      "command": "npx",
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
+    }
+  }
+}</pre>
+        <button class="copy" type="button" data-copy='{
+  "mcpServers": {
+    "logos": {
+      "command": "npx",
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
+    }
+  }
+}'>Copy</button>
+      </div>
+      <p class="note">Add <code>"env": { "BRAIN_VAULT": "/path/to/vault" }</code> to keep the vault somewhere other than <code>~/brain</code>.</p>
+    </div>
+  </div>
+
+  <div class="row wide">
+    <div class="label">Binaries</div>
+    <div class="body">
+      <h2>Or just take the binary</h2>
+      <p>One static executable, pure Go with <code>CGO_ENABLED=0</code> &mdash; so a single Linux build covers glibc and musl alike. Checksums travel with the release.</p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th scope="col">Platform</th><th scope="col">Archive</th><th scope="col">Download</th><th scope="col">Unpacked</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_arm64.tar.gz">brain_v0.1.0_darwin_arm64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.2 MB</td></tr>
+            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_amd64.tar.gz">brain_v0.1.0_darwin_amd64.tar.gz</a></td><td class="num">5.3 MB</td><td class="num">11.9 MB</td></tr>
+            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_amd64.tar.gz">brain_v0.1.0_linux_amd64.tar.gz</a></td><td class="num">5.2 MB</td><td class="num">11.7 MB</td></tr>
+            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_arm64.tar.gz">brain_v0.1.0_linux_arm64.tar.gz</a></td><td class="num">4.8 MB</td><td class="num">11.0 MB</td></tr>
+            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_windows_amd64.zip">brain_v0.1.0_windows_amd64.zip</a></td><td class="num">5.3 MB</td><td class="num">12.0 MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        Verify against <a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a>
+        &middot; the executable inside keeps the development name, <code>brain</code>.
+      </p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">From source</div>
+    <div class="body">
+      <h2>If you have Go</h2>
+      <div class="cmd">
+<pre><span class="prompt">$ </span>git clone https://github.com/Coder8124/brain &amp;&amp; cd brain
+<span class="prompt">$ </span>go build <span class="flag">-o</span> bin/brain ./cmd/brain &amp;&amp; ./bin/brain setup</pre>
+        <button class="copy" type="button" data-copy="git clone https://github.com/Coder8124/brain && cd brain
+go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
+      </div>
+      <p class="note">Go 1.26.5 or newer. Or straight from the proxy: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">Scope</div>
+    <div class="body">
+      <h2>One vault, one project per folder</h2>
+      <p>
+        Every host points at the same vault &mdash; that is what makes continuity work
+        <em>across</em> tools. Facts are still kept apart: the project comes from the
+        directory the agent is working in, so two repositories open in two windows
+        do not write into each other&rsquo;s memory.
+      </p>
+      <div class="cmd">
+<pre>~/code/kestrel    <span class="flag">&rarr;</span> project "kestrel"
+~/code/acme-api   <span class="flag">&rarr;</span> project "acme-api"   <span class="prompt"># cannot see kestrel's decisions</span></pre>
+      </div>
+      <p class="note">
+        Nothing to configure, and the agent never has to remember which project it is
+        on &mdash; a rule a model can forget is not isolation. Override with
+        <code>BRAIN_PROJECT</code>, mark a fact global when it genuinely applies
+        everywhere, and ask for <code>all_projects</code> on the rare occasion you
+        want to search across all of them.
+      </p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">What lands</div>
+    <div class="body">
+      <h2>What installing actually does to your machine</h2>
+      <ul class="facts">
+        <li><strong>A directory of markdown files</strong>, at <code>~/brain</code> unless you say otherwise. Open them, grep them, commit them, delete them.</li>
+        <li><strong>Nothing is wired without a yes.</strong> Setup lists the agents it found and what it would write to each, and <code>--dry-run</code> prints the plan without touching anything.</li>
+        <li><strong>No <code>postinstall</code> script.</strong> The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs both work.</li>
+        <li><strong>No AI runtime required.</strong> Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical, which for identifiers and stack traces is arguably the right tool anyway.</li>
+        <li><strong>No account, no server, no telemetry.</strong> <code>.brain/index.db</code> is a cache; delete it and it rebuilds from the files.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">Optional</div>
+    <div class="body">
+      <h2>One model, if you want fuzzy recall</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th scope="col">You code with</th><th scope="col">Extra download</th><th scope="col">You get</th></tr></thead>
+          <tbody>
+            <tr><td>Claude Code, Cursor, Codex</td><td class="num">0 MB</td><td>Continuity plus lexical search</td></tr>
+            <tr><td>&hellip;and want paraphrase-tolerant recall</td><td class="num">274 MB</td><td>Adds semantic retrieval</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Ollama, LM Studio, Jan and Msty are auto-discovered if present. Nothing an MCP host calls ever needs a chat model.</p>
+    </div>
+  </div>
+
+  <footer>
+    <span>Logos v0.1.0 &middot; MIT</span>
+    <a href="https://github.com/Coder8124/brain">Coder8124/brain</a>
+    <a href="https://www.npmjs.com/package/@brainyprime/logos">@brainyprime/logos</a>
+    <span class="sp">&ldquo;brain&rdquo; is the development name and stays one.</span>
+  </footer>
+
+</div>
+
+<script>
+// Copy buttons. The clipboard API is unavailable in some embedded contexts, so
+// fall back to a selection-based copy and, if even that is refused, say what to
+// do rather than silently doing nothing.
+document.querySelectorAll(".copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var text = btn.getAttribute("data-copy") || "";
+    var done = function (ok) {
+      btn.textContent = ok ? "Copied" : "Select it";
+      btn.dataset.state = ok ? "done" : "";
+      setTimeout(function () {
+        btn.textContent = "Copy";
+        btn.dataset.state = "";
+      }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { legacy(); });
+      return;
+    }
+    legacy();
+
+    function legacy() {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      done(ok);
+    }
+  });
+});
+</script>
+</body>
+</html>

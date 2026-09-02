@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 // Support thresholds. A pattern must clear all of these before it is ever shown.

@@ -31,16 +31,17 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/pragun/brain/internal/contextpack"
-	"github.com/pragun/brain/internal/deadend"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/project"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/session"
+	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/brain/internal/deadend"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 const protocolVersion = "2024-11-05"
@@ -58,6 +59,14 @@ type Server struct {
 	embed      *provider.Provider
 	embedModel string
 	out        *json.Encoder
+
+	// project is the work this session defaults to, derived from the folder the
+	// host was launched in rather than from the model remembering to say so.
+	// See scope.go. Resolved once, on first use, because the working directory
+	// cannot change under a served process.
+	roots       []string
+	project     string
+	projectOnce sync.Once
 }
 
 // New builds a server over an open index. rt may be nil: a machine with no
@@ -202,10 +211,18 @@ func rawID(line string) json.RawMessage {
 func (s *Server) handle(req request) {
 	switch req.Method {
 	case "initialize":
+		// Roots, when the host sends them, say which folder the user actually
+		// has open — better evidence than cwd for a host serving several
+		// windows from one process. Captured before the first tool call, which
+		// is when the project is resolved.
+		s.roots = rootsFromInitialize(req.Params)
 		s.reply(req.ID, map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "brain-memory", "version": "0.1.0"},
+			// The product name: this is the string a host shows the user in its
+			// server list. The repository, the Go module and the binary keep the
+			// development name.
+			"serverInfo": map[string]any{"name": "logos", "version": "0.1.0"},
 		})
 	case "notifications/initialized":
 		// notification, no reply
@@ -252,9 +269,11 @@ func (s *Server) callTool(req request) {
 func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 	switch name {
 	case "remember":
-		return s.remember(argStr(args, "text"), argStr(args, "kind"))
+		return s.remember(argStr(args, "text"), argStr(args, "kind"),
+			argStr(args, "project"), argBool(args, "global", false))
 	case "recall":
-		return s.recall(argStr(args, "query"), argInt(args, "limit", 5))
+		return s.recall(argStr(args, "query"), argInt(args, "limit", 5),
+			argStr(args, "project"), argBool(args, "all_projects", false))
 	case "list_memories":
 		return s.listMemories()
 	case "forget":
@@ -262,17 +281,21 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 	case "context":
 		return s.context(contextpack.Request{
 			Task:   argStr(args, "task"),
-			Hint:   argStr(args, "project"),
+			Hint:   s.resolveProject(argStr(args, "project")),
 			Budget: argInt(args, "budget", 0),
 		})
 	case "resume":
-		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
+		return s.resume(s.resolveProject(argStr(args, "project")), argStr(args, "agent"), argInt(args, "budget", 0))
 	case "before_you_try":
+		// Deliberately not defaulted: before_you_try searches every dead end in
+		// the vault on purpose, and the project only labels which rulings came
+		// from elsewhere. Scoping it to the current folder would suppress the
+		// cross-project warnings that are the whole reason it exists.
 		return s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
-		return s.noteProgress(argStr(args, "project"), argStr(args, "agent"), argStr(args, "text"))
+		return s.noteProgress(s.resolveProject(argStr(args, "project")), argStr(args, "agent"), argStr(args, "text"))
 	case "checkpoint":
 		return s.checkpoint(args, "")
 	case "handoff":
@@ -287,9 +310,17 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 
 // --- memory operations ---
 
-func (s *Server) remember(text, kindStr string) (string, error) {
+// remember stores a fact scoped to the project the session is working on.
+// global=true opts out, for the things that really do apply everywhere — a
+// standing preference about how the user likes replies is not a fact about
+// this repository.
+func (s *Server) remember(text, kindStr, projectArg string, global bool) (string, error) {
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("remember needs text")
+	}
+	project := ""
+	if !global {
+		project = s.resolveProject(projectArg)
 	}
 	kind := memory.Fact
 	switch memory.Kind(kindStr) {
@@ -301,37 +332,69 @@ func (s *Server) remember(text, kindStr string) (string, error) {
 		kind = memory.Context
 	}
 	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
-		Text: text, Kind: kind, Salience: 0.7, Source: "mcp",
+		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project,
 	})
 	if err != nil {
 		return "", err
+	}
+	// Name the scope in the receipt. The host shows this to the user, and
+	// "which pile did that go in" is the one thing they cannot otherwise see.
+	where := "everywhere"
+	if project != "" {
+		where = project
 	}
 	// A receipt rather than "Remembered." — the host is about to tell the user
 	// what happened, and creating a fact is not the same as confirming one it
 	// already had.
 	switch r.Outcome {
 	case memory.EvReinforced:
-		return fmt.Sprintf("Already knew that — reinforced memory #%d (%s).", r.Ref, kind), nil
+		return fmt.Sprintf("Already knew that — reinforced memory #%d (%s, %s).", r.Ref, kind, where), nil
 	case memory.EvCreated:
-		return fmt.Sprintf("Created memory #%d (%s).", r.ID, kind), nil
+		return fmt.Sprintf("Created memory #%d (%s, %s).", r.ID, kind, where), nil
 	}
 	return "Nothing stored.", nil
 }
 
-func (s *Server) recall(query string, k int) (string, error) {
+// recall searches this project's memories plus the global ones. allProjects
+// widens it to everything, which is the "unless explicitly asked" half — an
+// agent that genuinely wants another project's history can have it, but has to
+// say so rather than getting it by accident.
+func (s *Server) recall(query string, k int, projectArg string, allProjects bool) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("recall needs a query")
 	}
-	mems, err := memory.Recall(s.DB, s.embed, s.embedModel, query, k)
+	var (
+		mems []memory.Memory
+		err  error
+	)
+	project := ""
+	if !allProjects {
+		project = s.resolveProject(projectArg)
+	}
+	if project == "" {
+		mems, err = memory.Recall(s.DB, s.embed, s.embedModel, query, k)
+	} else {
+		mems, err = memory.RecallInProject(s.DB, s.embed, s.embedModel, query, project, k)
+	}
 	if err != nil {
 		return "", err
 	}
 	if len(mems) == 0 {
+		if project != "" {
+			return fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project), nil
+		}
 		return "No relevant memories.", nil
 	}
 	var b strings.Builder
 	for _, m := range mems {
-		fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, m.Text)
+		// Tag anything from outside the current project, so a fact borrowed
+		// from elsewhere cannot be read as this project's own settled truth.
+		switch {
+		case m.Project == "" || m.Project == project:
+			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, m.Text)
+		default:
+			fmt.Fprintf(&b, "- (%s, from %s) %s\n", m.Kind, m.Project, m.Text)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -520,9 +583,9 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 // checkpoint commits the session to the vault. handoffTo is set when the caller
 // came in through the handoff tool — same mechanism, stated intent.
 func (s *Server) checkpoint(args map[string]any, handoffTo string) (string, error) {
-	proj := argStr(args, "project")
+	proj := s.resolveProject(argStr(args, "project"))
 	if strings.TrimSpace(proj) == "" {
-		return "", fmt.Errorf("checkpoint needs a project")
+		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory")
 	}
 	if err := session.Init(s.DB); err != nil {
 		return "", err
@@ -613,6 +676,21 @@ func argStr(args map[string]any, k string) string {
 		return v
 	}
 	return ""
+}
+
+// argBool accepts a real bool or the string a model emits when it is being
+// loose about JSON types, which is often enough to matter on a flag that
+// changes which memories come back.
+func argBool(args map[string]any, k string, def bool) bool {
+	switch v := args[k].(type) {
+	case bool:
+		return v
+	case string:
+		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			return b
+		}
+	}
+	return def
 }
 
 func argInt(args map[string]any, k string, def int) int {

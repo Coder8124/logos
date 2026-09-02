@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/pragun/brain/internal/flavor"
+	"github.com/Coder8124/brain/internal/flavor"
 )
 
 // Identity is who the two parties in the conversation are: what the assistant

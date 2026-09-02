@@ -6,7 +6,7 @@
 // capture.Event working as the natural spelling at call sites.
 package capture
 
-import "github.com/pragun/brain/internal/event"
+import "github.com/Coder8124/brain/internal/event"
 
 type (
 	Event = event.Event

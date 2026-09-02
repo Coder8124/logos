@@ -1,116 +1,199 @@
-# brain on npm
+<h1 align="center">Logos</h1>
 
-`npx` is the shortest path from nothing to brain answering inside an agent, and
-it is the convention MCP hosts already use. No Go toolchain, no clone, no build.
+<p align="center">
+  <strong>The memory you own.</strong><br>
+  Continuity for AI coding agents — checkpoint in one tool, resume in another.
+</p>
 
-```bash
-npx -y @brainyprime/brain setup
+<p align="center">
+  <a href="https://www.npmjs.com/package/@brainyprime/logos"><img alt="npm" src="https://img.shields.io/npm/v/@brainyprime/logos?style=flat-square&color=0b7285"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+  <img alt="platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-arm64%20%2B%20x64-555?style=flat-square">
+  <img alt="download" src="https://img.shields.io/badge/download-~5%20MB-555?style=flat-square">
+</p>
+
+```
+Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──▶  Cursor
+                                (your vault)
 ```
 
-Or wire a host by hand, with no install at all:
+Your agent finishes a session and everything it learned goes with it — the three
+approaches it ruled out, the decision it made at 2am, the reason the obvious fix
+does not work here. The next agent starts from nothing and tries the first dead
+end again.
+
+Logos is the layer that survives the session. It stores what happened as
+**markdown on your disk**, and serves it back over MCP to whichever agent picks
+up next.
+
+---
+
+## Install
+
+```bash
+npx -y @brainyprime/logos setup
+```
+
+That is the whole thing. No Go toolchain, no clone, no build — this package
+carries a prebuilt binary for your platform, about 5 MB.
+
+`setup` picks a vault (`~/brain` unless you say otherwise), runs the first index,
+then **shows you which agents it would wire and asks before touching any of
+them.** Decline everything and you still have a working install.
+
+<details>
+<summary><b>Wire a host by hand instead</b></summary>
+
+No install at all — `npx` resolves the binary on demand:
 
 ```json
 {
   "mcpServers": {
-    "brain": {
+    "logos": {
       "command": "npx",
-      "args": ["-y", "@brainyprime/brain", "mcp", "serve"],
-      "env": { "BRAIN_VAULT": "/Users/you/brain" }
+      "args": ["-y", "@brainyprime/logos", "mcp", "serve"]
     }
   }
 }
 ```
 
-That config is portable between machines, which the binary-path form is not.
+That config is portable between machines, which an absolute binary path is not.
+Add `"env": { "BRAIN_VAULT": "/path/to/vault" }` to point it somewhere other
+than `~/brain`.
 
-## How it is packaged
+</details>
 
-One wrapper package plus five platform packages, the pattern esbuild and swc
-use:
-
-```
-@brainyprime/brain                 the launcher, a few KB
-  ├─ @brainyprime/brain-darwin-arm64      os: darwin  cpu: arm64
-  ├─ @brainyprime/brain-darwin-x64        os: darwin  cpu: x64
-  ├─ @brainyprime/brain-linux-x64         os: linux   cpu: x64
-  ├─ @brainyprime/brain-linux-arm64       os: linux   cpu: arm64
-  └─ @brainyprime/brain-win32-x64         os: win32   cpu: x64
-```
-
-The platform packages are `optionalDependencies` carrying `os` and `cpu` fields,
-so npm evaluates them at install time and fetches only the one that matches —
-about 11 MB, not 55.
-
-**No `postinstall` script.** The common alternative downloads a binary after
-install, which breaks under `--ignore-scripts` (increasingly the default in CI),
-breaks offline installs, and asks users to trust a network fetch at install time.
-Shipping the binaries as real package contents costs nothing and avoids all
-three.
-
-The binaries are pure Go with `CGO_ENABLED=0`, so one linux build covers glibc
-and musl alike.
-
-### The launcher
-
-`bin/brain.js` resolves the platform package and hands over with `stdio:
-"inherit"`, so the child gets the real file descriptors. This matters more than
-it looks: `brain mcp serve` speaks newline-delimited JSON-RPC over stdin/stdout,
-and a wrapper that buffers or writes one stray byte to stdout corrupts the
-stream. Node is not in the data path, and every diagnostic goes to stderr.
-
-Exit codes and signals are propagated, so a host that kills its servers sees
-what actually happened.
-
-## Releasing
-
-Platform packages must be published **before** the wrapper — its
-`optionalDependencies` pin exact versions, and publishing the wrapper first
-leaves everyone with a broken install until the rest land.
-
-```bash
-../scripts/release.sh v0.1.0     # cross-compile, checksum
-node scripts/build.js            # generate platforms/ from dist/
-node scripts/test.js             # handshake through the wrapper
-
-for d in platforms/*/; do (cd "$d" && npm publish --access public); done
-npm publish --access public
-```
-
-`build.js` extracts the binaries from the release archives rather than compiling
-its own, so what npm ships is byte-identical to the GitHub release and covered
-by the same `SHA256SUMS`.
-
-Bump the version in `package.json` — `build.js` reads it, stamps every platform
-package with it, and looks for `dist/brain_v<version>_*` archives, so a mismatch
-between the tag and the package version is caught as a missing archive rather
-than shipping quietly.
-
-### What `test.js` checks
-
-Beyond "does it run": it drives a real `initialize` handshake through the
-launcher and asserts stdout carries only JSON-RPC. That check is the reason this
-directory has a test at all — it is the failure mode a wrapper introduces, and
-it is invisible until a host reports an unhelpful protocol error.
-
-It also caught a bug in `brain mcp serve` itself: the server opened the SQLite
-file directly instead of going through `index.Open`, so it failed on a vault
-that had never been indexed, ran without `busy_timeout`, and never registered
-the vault for memory writes.
-
-## Scope
-
-`@brainyprime` must match the npm account or org publishing it. If the scope
-differs, change it in `package.json`, in the `PLATFORMS` table in
-`bin/brain.js`, and in `TARGETS` in `scripts/build.js` — all three must agree or
-the launcher will not resolve its own binary.
-
-## Layout
+<details>
+<summary><b>Claude Code users: prefer the plugin</b></summary>
 
 ```
-npm/
-  package.json          the wrapper
-  bin/brain.js          resolve the platform package, exec it, pass stdio through
-  scripts/build.js      generate platforms/ from ../dist
-  scripts/test.js       run the launcher, drive an MCP handshake
-  platforms/            generated, gitignored
+/plugin marketplace add Coder8124/brain
+/plugin install logos@logos
 ```
+
+The plugin is more than the MCP server. It installs a **SessionStart hook** that
+puts the last handoff in front of the model before it does anything — the
+difference between continuity that works and continuity that works when the
+model remembers to ask for it.
+
+</details>
+
+---
+
+## What it actually does
+
+```console
+$ logos checkpoint kestrel-one --agent claude \
+    --decided "aluminium frame, 6061" \
+    --failed  "plastic frame — fails drop test at 1.2m" \
+    --next    "quote the single-mic line"
+
+$ logos resume kestrel-one          # from Cursor. From Codex. From anywhere.
+```
+
+The second agent gets the decisions, the dead ends, and the next step — and is
+told, in the pack itself, that the dead ends are there so it does not pay for
+them twice.
+
+| | |
+|---|---|
+| **Negative knowledge** | Records what was *ruled out*, not just what is true. `before_you_try` answers "has this been tried?" before the agent proposes it. |
+| **Structured handoff** | A checkpoint is decisions, failures, open questions and a next step — not a summary paragraph. |
+| **Scope isolation** | Memory is scoped to the folder you are working in, derived from the directory — not from the agent remembering to say which project it is on. Another repository's facts do not surface unless you ask for them. |
+| **Provenance** | Every fact carries where it came from, when, and how confident. |
+| **Stale-plan suppression** | A next step that later work has overtaken is withdrawn, not repeated. |
+| **Durability** | Delete the index, the cache, every derived artifact — the vault is markdown and nothing is lost. |
+
+---
+
+## It works with no AI runtime at all
+
+Continuity — checkpoint, resume, dead ends, handoff — is markdown, SQL and
+string matching. **No model on any path.** Retrieval falls back to lexical
+search, which for code (identifiers, error strings, paths) is arguably the right
+tool anyway.
+
+Install a 274 MB embedding model later if you want semantic recall. Nothing
+requires the 22 GB one.
+
+| You code with | Extra download | You get |
+|---|---|---|
+| Claude Code / Cursor / Codex | **0 MB** | continuity + lexical search |
+| …and want fuzzy recall | 274 MB | + semantic retrieval |
+
+---
+
+## One vault, one project per folder
+
+Every host points at one vault, because that is what makes continuity work
+across tools. Facts are still kept apart: the project is taken from the folder
+the agent is working in, so two repositories open in two windows do not write
+into each other's memory.
+
+```
+~/code/kestrel   →  project "kestrel"
+~/code/acme-api  →  project "acme-api"     # cannot see kestrel's decisions
+```
+
+Nothing has to be configured, and the agent does not have to remember to say
+which project it is on — a rule a model can forget is not isolation. Override
+with `BRAIN_PROJECT`, mark a fact `global` when it really does apply everywhere
+(how you like replies written), and pass `all_projects` to search across all of
+them when you actually want that.
+
+---
+
+## Local-first, meant literally
+
+- Your memory is **markdown files in a directory you chose.** Open them, grep
+  them, commit them, delete them.
+- `.brain/index.db` is a **cache.** Delete it and it rebuilds.
+- Nothing is uploaded. There is no account, no server, no telemetry.
+- If this project disappears tomorrow, **you keep a vault** that every text
+  editor on earth can read.
+
+---
+
+## Supported platforms
+
+| | |
+|---|---|
+| macOS | arm64 · x64 |
+| Linux | x64 · arm64 (glibc and musl — pure Go, `CGO_ENABLED=0`) |
+| Windows | x64 |
+
+The platform packages are `optionalDependencies` gated on `os` and `cpu`, so npm
+fetches **one** of them, not five: about **5 MB over the wire, 11 MB on disk**.
+There is **no `postinstall` script** — the binaries ship as real package
+contents, so `--ignore-scripts` and offline installs both work.
+
+---
+
+## Common commands
+
+```sh
+logos setup                    # pick a vault, wire your agents (asks first)
+logos doctor                   # what is working, what is not, what it cannot check
+logos doctor --integration     # prove a host round-trips through to the vault
+logos resume <project>         # the handoff, as a human can read it
+logos tried "<approach>"       # has this already been ruled out?
+logos mcp serve                # the MCP server, over stdio
+```
+
+`brain` is installed as an alias for `logos` — same command, either spelling.
+
+---
+
+## Two names
+
+**Logos** is the product. **brain** is the development name, and stays one: the
+repository, the Go module `github.com/Coder8124/brain`, the `brain` command,
+`BRAIN_VAULT`, and `.brain/`. Both spellings work everywhere you meet them.
+
+---
+
+<p align="center">
+  <a href="https://github.com/Coder8124/brain">Source &amp; full documentation</a> ·
+  <a href="https://github.com/Coder8124/brain/blob/main/docs/continuity-benchmark.md">Benchmark</a> ·
+  MIT
+</p>

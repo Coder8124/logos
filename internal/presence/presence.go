@@ -19,8 +19,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pragun/brain/internal/dream"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/dream"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // Kind is which of the three things a nudge is about.

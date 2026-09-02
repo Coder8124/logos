@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 // Frontmost reads the active application and window title.

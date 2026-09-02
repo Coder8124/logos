@@ -13,10 +13,10 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/pragun/brain/internal/dream"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/project"
-	"github.com/pragun/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/dream"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/secretary"
 )
 
 // defaultLookbackDays is the window used on the very first replay, when there is

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 func TestUpcomingWithinFiltersAndSortsSoonestFirst(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // Entity resolution: "Sam", "Sameer" and "@sam" must converge on one note.

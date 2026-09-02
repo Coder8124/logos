@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/capture"
-	"github.com/pragun/brain/internal/rollup"
-	"github.com/pragun/brain/internal/router"
-	"github.com/pragun/brain/internal/routine"
+	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/rollup"
+	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/routine"
 )
 
 // runRoutines mines the episodic tier for recurring structure.

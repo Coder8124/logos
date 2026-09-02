@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/memory"
 )
 
 // Ref is a lightweight pointer to a note.

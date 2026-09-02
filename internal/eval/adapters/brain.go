@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/contextpack"
-	"github.com/pragun/brain/internal/eval"
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/memory"
-	"github.com/pragun/brain/internal/provider"
-	"github.com/pragun/brain/internal/secretary"
-	"github.com/pragun/brain/internal/session"
-	"github.com/pragun/brain/internal/vault"
+	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/brain/internal/eval"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // Brain drives this project through the same entry points the MCP server and
@@ -161,7 +161,7 @@ func (b *Brain) Read(q eval.Query) (eval.Response, error) {
 		b.dirty = false
 	}
 	pack, err := contextpack.Build(b.ix, b.embed, b.model, contextpack.Request{
-		Task: q.Task, Hint: q.Project, Budget: q.Budget,
+		Task: q.Task, Hint: q.Project, Budget: q.Budget, Now: q.Now,
 	})
 	if err != nil {
 		return eval.Response{}, err

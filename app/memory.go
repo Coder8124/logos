@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/pragun/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/memory"
 )
 
 // The visible face of persistent memory: what the assistant has learned about

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pragun/brain/internal/graph"
+	"github.com/Coder8124/brain/internal/graph"
 )
 
 // runGraph prints the ego-graph as text — the CLI counterpart to the app's

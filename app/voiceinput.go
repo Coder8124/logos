@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pragun/brain/internal/voice"
+	"github.com/Coder8124/brain/internal/voice"
 )
 
 // Speak-to-type: the same text conversation, entered by voice. It records a short

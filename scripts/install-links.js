@@ -15,7 +15,12 @@
 const fs = require("fs");
 const path = require("path");
 
-const PKG = "@brainyprime/brain";
+const PKG = "@brainyprime/logos";
+
+// The server name the host will show, and the prefix every tool appears under.
+// It is the product name, not the development one: this is a surface the user
+// reads. BRAIN_VAULT and the binary keep the development name; see npm/bin.
+const NAME = "logos";
 
 // No BRAIN_VAULT here on purpose. The binary defaults to ~/brain (an absolute
 // path), so omitting it keeps the link portable between machines — and a link
@@ -29,10 +34,10 @@ const b64 = Buffer.from(JSON.stringify(config)).toString("base64");
 
 // Cursor's documented format. Deeplinks cap at 8,000 characters; this is two
 // orders of magnitude under, but check rather than assume.
-const cursor = `cursor://anysphere.cursor-deeplink/mcp/install?name=brain&config=${b64}`;
+const cursor = `cursor://anysphere.cursor-deeplink/mcp/install?name=${NAME}&config=${b64}`;
 
 // VS Code takes the config as URL-encoded JSON rather than base64.
-const vscodeCfg = encodeURIComponent(JSON.stringify({ name: "brain", ...config }));
+const vscodeCfg = encodeURIComponent(JSON.stringify({ name: NAME, ...config }));
 const vscode = `vscode:mcp/install?${vscodeCfg}`;
 
 for (const [name, url] of [["cursor", cursor], ["vscode", vscode]]) {

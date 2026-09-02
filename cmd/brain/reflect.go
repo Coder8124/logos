@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pragun/brain/internal/reflection"
+	"github.com/Coder8124/brain/internal/reflection"
 )
 
 // runReflect prints descriptive statistics over the memory — what it knows, how

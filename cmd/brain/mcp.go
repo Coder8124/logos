@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pragun/brain/internal/index"
-	"github.com/pragun/brain/internal/mcpserver"
+	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/mcpserver"
 
 	_ "modernc.org/sqlite"
 )

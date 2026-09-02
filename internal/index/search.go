@@ -6,13 +6,19 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pragun/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/provider"
 )
 
 // Hit is one retrieved note.
 type Hit struct {
 	Slug, Title, Kind, Body string
 	Score                   float64
+	// FirstSeen is the note's date from its frontmatter, unix seconds, or zero
+	// when it has none. Carried on the hit rather than looked up later because a
+	// caller filtering "what did I do last month" needs it for every candidate,
+	// and a per-hit query to answer that would be the retrieval path's slowest
+	// step for the sake of one integer already sitting in the row.
+	FirstSeen int64
 	// Via is set when the note was pulled in as a graph neighbour rather than
 	// matched directly, so the UI can show why it is in context.
 	Via string
@@ -49,7 +55,7 @@ func (ix *Index) Search(p *provider.Provider, model, query string, k int) ([]Hit
 	q := vecs[0]
 
 	rows, err := ix.DB.Query(`
-		SELECT n.slug, n.title, n.kind, n.body, e.vec
+		SELECT n.slug, n.title, n.kind, n.body, n.first_seen, e.vec
 		FROM embeddings e JOIN notes n ON n.slug = e.slug`)
 	if err != nil {
 		return nil, err
@@ -60,7 +66,7 @@ func (ix *Index) Search(p *provider.Provider, model, query string, k int) ([]Hit
 	for rows.Next() {
 		var h Hit
 		var blob []byte
-		if err := rows.Scan(&h.Slug, &h.Title, &h.Kind, &h.Body, &blob); err != nil {
+		if err := rows.Scan(&h.Slug, &h.Title, &h.Kind, &h.Body, &h.FirstSeen, &blob); err != nil {
 			return nil, err
 		}
 		h.Score = cosine(q, blobToFloats(blob))
@@ -89,7 +95,7 @@ func (ix *Index) Expand(hits []Hit, minConf float64, limit int) ([]Hit, error) {
 			break
 		}
 		rows, err := ix.DB.Query(`
-			SELECT n.slug, n.title, n.kind, n.body, e.pred
+			SELECT n.slug, n.title, n.kind, n.body, n.first_seen, e.pred
 			FROM edges e JOIN notes n ON n.slug = e.obj OR n.slug LIKE '%/' || e.obj
 			WHERE e.src_slug = ? AND e.conf >= ?`, hit.Slug, minConf)
 		if err != nil {
@@ -98,7 +104,7 @@ func (ix *Index) Expand(hits []Hit, minConf float64, limit int) ([]Hit, error) {
 		for rows.Next() {
 			var h Hit
 			var pred string
-			if err := rows.Scan(&h.Slug, &h.Title, &h.Kind, &h.Body, &pred); err != nil {
+			if err := rows.Scan(&h.Slug, &h.Title, &h.Kind, &h.Body, &h.FirstSeen, &pred); err != nil {
 				rows.Close()
 				return nil, err
 			}

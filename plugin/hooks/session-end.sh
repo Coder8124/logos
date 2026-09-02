@@ -11,13 +11,16 @@
 # What a hook *can* do is close the loop honestly: note that work happened and
 # was never committed. That is a fact, it needs no model, and it turns "the agent
 # forgot to checkpoint" from something invisible into something the next session
-# and `brain doctor` can both see.
+# and `logos doctor` can both see.
 set -uo pipefail
 
-if command -v brain >/dev/null 2>&1; then
-  BRAIN=(brain)
+if command -v logos >/dev/null 2>&1; then
+  LOGOS=(logos)
+elif command -v brain >/dev/null 2>&1; then
+  # The development name, which the binary and a source build still use.
+  LOGOS=(brain)
 elif command -v npx >/dev/null 2>&1; then
-  BRAIN=(npx -y @brainyprime/brain)
+  LOGOS=(npx -y @brainyprime/logos)
 else
   exit 0
 fi
@@ -31,8 +34,8 @@ project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 # It deliberately does not say "ended without checkpointing" — a hook cannot see
 # whether the model committed one, and asserting it either way would be a claim
 # with nothing behind it. The absence of a checkpoint after this note is itself
-# the signal, and it is one `brain doctor` can read off the vault without
+# the signal, and it is one `logos doctor` can read off the vault without
 # anybody having to guess.
-"${BRAIN[@]}" note "$project" "claude-code session ended" >/dev/null 2>&1 || true
+"${LOGOS[@]}" note "$project" "claude-code session ended" >/dev/null 2>&1 || true
 
 exit 0

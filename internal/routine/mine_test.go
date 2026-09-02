@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pragun/brain/internal/event"
+	"github.com/Coder8124/brain/internal/event"
 )
 
 // at builds a focus event on a given day at a given local time.
