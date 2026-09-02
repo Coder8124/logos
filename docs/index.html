@@ -550,11 +550,11 @@ footer .sp { margin-left: auto; }
             <tr><th scope="col">Platform</th><th scope="col">Archive</th><th scope="col">Download</th><th scope="col">Unpacked</th></tr>
           </thead>
           <tbody>
-            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_arm64.tar.gz">brain_v0.1.0_darwin_arm64.tar.gz</a></td><td class="num">4.7 MB</td><td class="num">11.2 MB</td></tr>
-            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_amd64.tar.gz">brain_v0.1.0_darwin_amd64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.8 MB</td></tr>
-            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_amd64.tar.gz">brain_v0.1.0_linux_amd64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.6 MB</td></tr>
-            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_arm64.tar.gz">brain_v0.1.0_linux_arm64.tar.gz</a></td><td class="num">4.6 MB</td><td class="num">11.0 MB</td></tr>
-            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_windows_amd64.zip">brain_v0.1.0_windows_amd64.zip</a></td><td class="num">5.1 MB</td><td class="num">11.9 MB</td></tr>
+            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_arm64.tar.gz">brain_v0.1.0_darwin_arm64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.2 MB</td></tr>
+            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_amd64.tar.gz">brain_v0.1.0_darwin_amd64.tar.gz</a></td><td class="num">5.3 MB</td><td class="num">11.9 MB</td></tr>
+            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_amd64.tar.gz">brain_v0.1.0_linux_amd64.tar.gz</a></td><td class="num">5.2 MB</td><td class="num">11.7 MB</td></tr>
+            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_arm64.tar.gz">brain_v0.1.0_linux_arm64.tar.gz</a></td><td class="num">4.8 MB</td><td class="num">11.0 MB</td></tr>
+            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_windows_amd64.zip">brain_v0.1.0_windows_amd64.zip</a></td><td class="num">5.3 MB</td><td class="num">12.0 MB</td></tr>
           </tbody>
         </table>
       </div>
@@ -576,6 +576,30 @@ footer .sp { margin-left: auto; }
 go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
       </div>
       <p class="note">Go 1.26.5 or newer. Or straight from the proxy: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">Scope</div>
+    <div class="body">
+      <h2>One vault, one project per folder</h2>
+      <p>
+        Every host points at the same vault &mdash; that is what makes continuity work
+        <em>across</em> tools. Facts are still kept apart: the project comes from the
+        directory the agent is working in, so two repositories open in two windows
+        do not write into each other&rsquo;s memory.
+      </p>
+      <div class="cmd">
+<pre>~/code/kestrel    <span class="flag">&rarr;</span> project "kestrel"
+~/code/acme-api   <span class="flag">&rarr;</span> project "acme-api"   <span class="prompt"># cannot see kestrel's decisions</span></pre>
+      </div>
+      <p class="note">
+        Nothing to configure, and the agent never has to remember which project it is
+        on &mdash; a rule a model can forget is not isolation. Override with
+        <code>BRAIN_PROJECT</code>, mark a fact global when it genuinely applies
+        everywhere, and ask for <code>all_projects</code> on the rare occasion you
+        want to search across all of them.
+      </p>
     </div>
   </div>
 

@@ -1,0 +1,59 @@
+# Publishes docs/ to GitHub Pages.
+#
+# The site is one self-contained file — docs/index.html, no build step, no
+# generator, no dependencies. So this uploads the directory as-is rather than
+# running anything over it. The other files in docs/ are markdown the site
+# links to; Pages serves them alongside, which is why the whole directory goes
+# up instead of just the one page.
+#
+# Before the first run, set Settings → Pages → Source to "GitHub Actions".
+# Without that, this workflow succeeds and deploys nothing, which is a
+# confusing way to fail.
+#
+# workflow_dispatch is here so the site can be published from a branch while
+# the release it describes is still being prepared on that branch.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Read the repo, mint the Pages deployment token. No secrets involved.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. A queued run is allowed to finish rather than being
+# cancelled, so a half-uploaded site is never what stays live.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if the page is missing
+        # Pages will happily publish an empty site. Catching it here means the
+        # failure names the cause instead of showing up as a 404 later.
+        run: test -f docs/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
