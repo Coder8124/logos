@@ -89,7 +89,7 @@ func TestRootsFromInitializeReadsBothShapes(t *testing.T) {
 }
 
 func TestExplicitArgumentOutranksEverything(t *testing.T) {
-	s := &Server{roots: []string{"/a/from-roots"}}
+	s := &Session{roots: []string{"/a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "from-env")
 	if got := s.resolveProject("explicit"); got != "explicit" {
 		t.Fatalf("explicit argument must win, got %q", got)
@@ -97,7 +97,7 @@ func TestExplicitArgumentOutranksEverything(t *testing.T) {
 }
 
 func TestEnvOutranksRootsAndCwd(t *testing.T) {
-	s := &Server{roots: []string{"/a/from-roots"}}
+	s := &Session{roots: []string{"/a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "from-env")
 	if got := s.resolveProject(""); got != "from-env" {
 		t.Fatalf("BRAIN_PROJECT must win over roots, got %q", got)
@@ -105,7 +105,7 @@ func TestEnvOutranksRootsAndCwd(t *testing.T) {
 }
 
 func TestRootsOutrankCwd(t *testing.T) {
-	s := &Server{roots: []string{"file:///a/from-roots"}}
+	s := &Session{roots: []string{"file:///a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "")
 	if got := s.resolveProject(""); got != "from-roots" {
 		t.Fatalf("roots must win over cwd, got %q", got)
@@ -119,7 +119,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{roots: []string{real}}
+	s := &Session{roots: []string{real}}
 	t.Setenv("BRAIN_PROJECT", "")
 	first := s.resolveProject("")
 	s.roots = []string{"/somewhere/else"}
@@ -129,7 +129,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 }
 
 func TestFallsBackToGlobalWhenNothingIdentifiesAProject(t *testing.T) {
-	s := &Server{roots: []string{"/"}}
+	s := &Session{roots: []string{"/"}}
 	t.Setenv("BRAIN_PROJECT", "")
 	t.Chdir("/")
 	if got := s.resolveProject(""); got != "" {
@@ -158,14 +158,15 @@ func TestArgBoolAcceptsStringsModelsActuallyEmit(t *testing.T) {
 // The end-to-end claim: what one folder remembers, another folder does not see.
 func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	db := testDB(t)
-	s := &Server{DB: db, vault: t.TempDir()}
+	srv := &Server{DB: db, vault: t.TempDir()}
+	s := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "alpha")
 	if _, err := s.remember("the alpha frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// A second session, in a different folder.
-	other := &Server{DB: db, vault: s.vault}
+	other := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "beta")
 	out, err := other.recall("frame material", 10, "", false)
 	if err != nil {
@@ -187,13 +188,14 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 
 func TestGlobalMemoriesReachEveryProject(t *testing.T) {
 	db := testDB(t)
-	s := &Server{DB: db, vault: t.TempDir()}
+	srv := &Server{DB: db, vault: t.TempDir()}
+	s := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "alpha")
 	if _, err := s.remember("the user prefers short replies", "preference", "", true); err != nil {
 		t.Fatal(err)
 	}
 
-	other := &Server{DB: db, vault: s.vault}
+	other := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "beta")
 	out, err := other.recall("how should I reply", 10, "", false)
 	if err != nil {

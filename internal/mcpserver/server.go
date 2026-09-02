@@ -58,12 +58,36 @@ type Server struct {
 	vault      string
 	embed      *provider.Provider
 	embedModel string
-	out        *json.Encoder
+}
 
-	// project is the work this session defaults to, derived from the folder the
-	// host was launched in rather than from the model remembering to say so.
-	// See scope.go. Resolved once, on first use, because the working directory
-	// cannot change under a served process.
+// Session is one client's connection to the Server: the state that belongs to
+// a conversation rather than to the process.
+//
+// Everything here used to live on Server, which was true enough while stdio was
+// the only transport — one process served exactly one client, so process state
+// and session state were the same thing. They are not the same thing, and the
+// conflation was two latent bugs rather than one simplification:
+//
+//   - the response encoder was a field, so two clients answered concurrently
+//     would interleave frames onto one stream and corrupt both;
+//   - the project was resolved once from the launch directory, so any client
+//     that did not share that directory would be scoped to it silently, with
+//     writes landing in the wrong project rather than failing.
+//
+// Splitting them costs nothing on stdio — Serve makes one Session and the
+// behaviour is identical — and it is the precondition for any transport where
+// the client is not the process that started us. See docs/http-transport.md.
+//
+// The embedded *Server is deliberate: the shared, immutable half (database,
+// vault, embedding backend) promotes through, so only the handful of methods
+// that genuinely read session state need to say so in their receiver.
+type Session struct {
+	*Server
+
+	// project is the work this session defaults to, derived from the roots the
+	// client advertised or the folder the host was launched in, rather than
+	// from the model remembering to say so. See scope.go. Resolved once, on
+	// first use.
 	roots       []string
 	project     string
 	projectOnce sync.Once
@@ -98,11 +122,23 @@ type request struct {
 
 // Serve runs the request loop until stdin closes. Read errors end the loop;
 // per-request errors become JSON-RPC error responses so the host stays healthy.
+//
+// One reader, one writer, one Session, one goroutine: on stdio the connection
+// *is* the process, so this is the whole of the concurrency story. The encoder
+// is a local rather than a field so that stays true by construction — a second
+// caller of Serve gets its own stream and its own session state instead of
+// quietly sharing this one's.
 func (s *Server) Serve(in io.Reader, w io.Writer) error {
 	if err := memory.Init(s.DB); err != nil {
 		return err
 	}
-	s.out = json.NewEncoder(w)
+	out := json.NewEncoder(w)
+	sess := &Session{Server: s}
+	send := func(r *response) {
+		if r != nil {
+			out.Encode(r)
+		}
+	}
 
 	// A bufio.Scanner gives up permanently on a line longer than its buffer,
 	// which ends the session for every later request too. A Reader lets an
@@ -115,8 +151,8 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			// The id is unreachable inside a frame we refused to hold, so this
 			// cannot be answered in-band. Say so on the transport and carry on;
 			// the alternative was silently serving nothing from here onwards.
-			s.replyErr(json.RawMessage("null"), -32600,
-				"request too large; split the payload or raise the client's limit")
+			send(replyErr(json.RawMessage("null"), -32600,
+				"request too large; split the payload or raise the client's limit"))
 			continue
 		}
 		if err != nil {
@@ -135,10 +171,10 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			// on. Dropping it silently left that host waiting forever, so dig
 			// the id out of the raw bytes and answer with the parse error
 			// JSON-RPC defines for exactly this.
-			s.replyErr(rawID(line), -32700, "parse error: "+jsonErr.Error())
+			send(replyErr(rawID(line), -32700, "parse error: "+jsonErr.Error()))
 			continue
 		}
-		s.handle(req)
+		send(sess.handle(req))
 	}
 }
 
@@ -208,7 +244,7 @@ func rawID(line string) json.RawMessage {
 	return json.RawMessage(candidate)
 }
 
-func (s *Server) handle(req request) {
+func (s *Session) handle(req request) *response {
 	switch req.Method {
 	case "initialize":
 		// Roots, when the host sends them, say which folder the user actually
@@ -216,7 +252,7 @@ func (s *Server) handle(req request) {
 		// windows from one process. Captured before the first tool call, which
 		// is when the project is resolved.
 		s.roots = rootsFromInitialize(req.Params)
-		s.reply(req.ID, map[string]any{
+		return reply(req.ID, map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			// The product name: this is the string a host shows the user in its
@@ -227,26 +263,26 @@ func (s *Server) handle(req request) {
 	case "notifications/initialized":
 		// notification, no reply
 	case "ping":
-		s.reply(req.ID, map[string]any{})
+		return reply(req.ID, map[string]any{})
 	case "tools/list":
-		s.reply(req.ID, map[string]any{"tools": toolDefs})
+		return reply(req.ID, map[string]any{"tools": toolDefs})
 	case "tools/call":
-		s.callTool(req)
+		return s.callTool(req)
 	default:
 		if len(req.ID) > 0 {
-			s.replyErr(req.ID, -32601, "method not found: "+req.Method)
+			return replyErr(req.ID, -32601, "method not found: "+req.Method)
 		}
 	}
+	return nil
 }
 
-func (s *Server) callTool(req request) {
+func (s *Session) callTool(req request) *response {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(req.Params, &p); err != nil {
-		s.replyErr(req.ID, -32602, "bad params")
-		return
+		return replyErr(req.ID, -32602, "bad params")
 	}
 	var args map[string]any
 	json.Unmarshal(p.Arguments, &args)
@@ -255,18 +291,17 @@ func (s *Server) callTool(req request) {
 	if err != nil {
 		// MCP convention: tool errors are results with isError, not protocol
 		// errors, so the model sees them and can react.
-		s.reply(req.ID, map[string]any{
+		return reply(req.ID, map[string]any{
 			"content": []map[string]any{{"type": "text", "text": err.Error()}},
 			"isError": true,
 		})
-		return
 	}
-	s.reply(req.ID, map[string]any{
+	return reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	})
 }
 
-func (s *Server) dispatch(name string, args map[string]any) (string, error) {
+func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	switch name {
 	case "remember":
 		return s.remember(argStr(args, "text"), argStr(args, "kind"),
@@ -314,7 +349,7 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 // global=true opts out, for the things that really do apply everywhere — a
 // standing preference about how the user likes replies is not a fact about
 // this repository.
-func (s *Server) remember(text, kindStr, projectArg string, global bool) (string, error) {
+func (s *Session) remember(text, kindStr, projectArg string, global bool) (string, error) {
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("remember needs text")
 	}
@@ -359,7 +394,7 @@ func (s *Server) remember(text, kindStr, projectArg string, global bool) (string
 // widens it to everything, which is the "unless explicitly asked" half — an
 // agent that genuinely wants another project's history can have it, but has to
 // say so rather than getting it by accident.
-func (s *Server) recall(query string, k int, projectArg string, allProjects bool) (string, error) {
+func (s *Session) recall(query string, k int, projectArg string, allProjects bool) (string, error) {
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("recall needs a query")
 	}
@@ -582,7 +617,7 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 
 // checkpoint commits the session to the vault. handoffTo is set when the caller
 // came in through the handoff tool — same mechanism, stated intent.
-func (s *Server) checkpoint(args map[string]any, handoffTo string) (string, error) {
+func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, error) {
 	proj := s.resolveProject(argStr(args, "project"))
 	if strings.TrimSpace(proj) == "" {
 		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory")
@@ -660,15 +695,31 @@ func (s *Server) listProjects() (string, error) {
 
 // --- json-rpc plumbing ---
 
-func (s *Server) reply(id json.RawMessage, result any) {
-	if len(id) == 0 {
-		return // notification: no response
-	}
-	s.out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+// response is one JSON-RPC reply. It is returned rather than written, so the
+// caller owns the stream: the stdio loop encodes to stdout under a single
+// goroutine, and any future transport encodes to whatever it is answering on.
+// A nil *response means there is nothing to send.
+type response struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  any             `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
 }
 
-func (s *Server) replyErr(id json.RawMessage, code int, msg string) {
-	s.out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}})
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func reply(id json.RawMessage, result any) *response {
+	if len(id) == 0 {
+		return nil // notification: no response
+	}
+	return &response{JSONRPC: "2.0", ID: id, Result: result}
+}
+
+func replyErr(id json.RawMessage, code int, msg string) *response {
+	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg}}
 }
 
 func argStr(args map[string]any, k string) string {

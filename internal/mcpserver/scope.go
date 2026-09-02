@@ -39,7 +39,7 @@ import (
 // resolveProject picks the project for one tool call. arg is the tool's own
 // project argument, which outranks everything because it is the caller being
 // explicit.
-func (s *Server) resolveProject(arg string) string {
+func (s *Session) resolveProject(arg string) string {
 	if p := strings.TrimSpace(arg); p != "" {
 		return p
 	}
@@ -51,7 +51,7 @@ func (s *Server) resolveProject(arg string) string {
 // Computed once: the working directory cannot change under a served process,
 // and re-deriving it per call would let a stray chdir silently re-scope a
 // session halfway through.
-func (s *Server) sessionProject() string {
+func (s *Session) sessionProject() string {
 	s.projectOnce.Do(func() {
 		s.project = firstNonEmpty(
 			strings.TrimSpace(os.Getenv("BRAIN_PROJECT")),
