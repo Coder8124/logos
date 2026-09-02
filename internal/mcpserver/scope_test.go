@@ -91,7 +91,7 @@ func TestRootsFromInitializeReadsBothShapes(t *testing.T) {
 }
 
 func TestExplicitArgumentOutranksEverything(t *testing.T) {
-	s := &Server{roots: []string{"/a/from-roots"}}
+	s := &Session{roots: []string{"/a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "from-env")
 	if got := s.resolveProject("explicit"); got != "explicit" {
 		t.Fatalf("explicit argument must win, got %q", got)
@@ -99,7 +99,7 @@ func TestExplicitArgumentOutranksEverything(t *testing.T) {
 }
 
 func TestEnvOutranksRootsAndCwd(t *testing.T) {
-	s := &Server{roots: []string{"/a/from-roots"}}
+	s := &Session{roots: []string{"/a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "from-env")
 	if got := s.resolveProject(""); got != "from-env" {
 		t.Fatalf("BRAIN_PROJECT must win over roots, got %q", got)
@@ -107,7 +107,7 @@ func TestEnvOutranksRootsAndCwd(t *testing.T) {
 }
 
 func TestRootsOutrankCwd(t *testing.T) {
-	s := &Server{roots: []string{"file:///a/from-roots"}}
+	s := &Session{roots: []string{"file:///a/from-roots"}}
 	t.Setenv("BRAIN_PROJECT", "")
 	if got := s.resolveProject(""); got != "from-roots" {
 		t.Fatalf("roots must win over cwd, got %q", got)
@@ -121,7 +121,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{roots: []string{real}}
+	s := &Session{roots: []string{real}}
 	t.Setenv("BRAIN_PROJECT", "")
 	first := s.resolveProject("")
 	s.roots = []string{"/somewhere/else"}
@@ -131,7 +131,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 }
 
 func TestFallsBackToGlobalWhenNothingIdentifiesAProject(t *testing.T) {
-	s := &Server{roots: []string{"/"}}
+	s := &Session{roots: []string{"/"}}
 	t.Setenv("BRAIN_PROJECT", "")
 	t.Chdir("/")
 	if got := s.resolveProject(""); got != "" {
@@ -160,14 +160,15 @@ func TestArgBoolAcceptsStringsModelsActuallyEmit(t *testing.T) {
 // The end-to-end claim: what one folder remembers, another folder does not see.
 func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	db := testDB(t)
-	s := &Server{DB: db, vault: t.TempDir()}
+	srv := &Server{DB: db, vault: t.TempDir()}
+	s := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "alpha")
 	if _, err := s.remember("the alpha frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// A second session, in a different folder.
-	other := &Server{DB: db, vault: s.vault}
+	other := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "beta")
 	out, err := other.recall("frame material", 10, "", false)
 	if err != nil {
@@ -189,13 +190,14 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 
 func TestGlobalMemoriesReachEveryProject(t *testing.T) {
 	db := testDB(t)
-	s := &Server{DB: db, vault: t.TempDir()}
+	srv := &Server{DB: db, vault: t.TempDir()}
+	s := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "alpha")
 	if _, err := s.remember("the user prefers short replies", "preference", "", true); err != nil {
 		t.Fatal(err)
 	}
 
-	other := &Server{DB: db, vault: s.vault}
+	other := &Session{Server: srv}
 	t.Setenv("BRAIN_PROJECT", "beta")
 	out, err := other.recall("how should I reply", 10, "", false)
 	if err != nil {
@@ -261,7 +263,7 @@ func linkedTree(t *testing.T, repo, name string) string {
 // worktrees is scoped exactly as it was, by its folder and nothing else.
 func TestAMainCheckoutIsScopedAsBefore(t *testing.T) {
 	dir := gitRepo(t)
-	s := &Server{roots: []string{dir}}
+	s := &Session{roots: []string{dir}}
 	t.Setenv("BRAIN_PROJECT", "")
 	if got, want := s.resolveScope(""), filepath.Base(dir); got != want {
 		t.Fatalf("scope = %q, want %q — the main checkout must not move", got, want)
@@ -273,7 +275,7 @@ func TestAMainCheckoutIsScopedAsBefore(t *testing.T) {
 func TestANonGitDirectoryIsStillScoped(t *testing.T) {
 	detectWorktrees(t)
 	dir := t.TempDir()
-	s := &Server{roots: []string{dir}}
+	s := &Session{roots: []string{dir}}
 	t.Setenv("BRAIN_PROJECT", "")
 	if got, want := s.resolveScope(""), filepath.Base(dir); got != want {
 		t.Fatalf("scope = %q, want %q", got, want)
@@ -287,7 +289,7 @@ func TestTwoWorktreesOfOneRepoGetDistinctContinuity(t *testing.T) {
 	// Both told they are the same project. This is the case folder names cannot
 	// save you from: one BRAIN_PROJECT, two trees.
 	t.Setenv("BRAIN_PROJECT", "kestrel")
-	sa, sb := &Server{roots: []string{a}}, &Server{roots: []string{b}}
+	sa, sb := &Session{roots: []string{a}}, &Session{roots: []string{b}}
 	got, other := sa.resolveScope(""), sb.resolveScope("")
 	if got == other {
 		t.Fatalf("both worktrees resolved to %q, so they share one continuity", got)
@@ -306,14 +308,14 @@ func TestTwoWorktreesOfOneRepoGetDistinctContinuity(t *testing.T) {
 // and no model can be expected to know which of two identical trees it is in.
 func TestAnExplicitProjectIsStillNarrowedByTheWorktree(t *testing.T) {
 	wt := linkedTree(t, gitRepo(t), "feature-a")
-	s := &Server{roots: []string{wt}}
+	s := &Session{roots: []string{wt}}
 	t.Setenv("BRAIN_PROJECT", "")
 	if got := s.resolveScope("kestrel"); got != "kestrel/feature-a" {
 		t.Fatalf("scope = %q, want kestrel/feature-a", got)
 	}
 	// …unless the caller qualified the scope itself, which is how one tree
 	// addresses another's continuity, or a file path reaches context untouched.
-	other := &Server{roots: []string{wt}}
+	other := &Session{roots: []string{wt}}
 	if got := other.resolveScope("kestrel/feature-b"); got != "kestrel/feature-b" {
 		t.Fatalf("scope = %q, want the scope as given", got)
 	}
@@ -327,7 +329,7 @@ func TestBrainWorktreeTurnsTheNarrowingOff(t *testing.T) {
 	a, b := linkedTree(t, repo, "feature-a"), linkedTree(t, repo, "feature-b")
 	t.Setenv("BRAIN_PROJECT", "kestrel")
 	t.Setenv("BRAIN_WORKTREE", "")
-	sa, sb := &Server{roots: []string{a}}, &Server{roots: []string{b}}
+	sa, sb := &Session{roots: []string{a}}, &Session{roots: []string{b}}
 	if got, other := sa.resolveScope(""), sb.resolveScope(""); got != "kestrel" || other != "kestrel" {
 		t.Fatalf("scopes = %q and %q, want both kestrel", got, other)
 	}
@@ -345,8 +347,8 @@ func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
 	repo := gitRepo(t)
 	t.Setenv("BRAIN_PROJECT", "kestrel")
 
-	a := &Server{DB: db, vault: vault, roots: []string{linkedTree(t, repo, "feature-a")}}
-	b := &Server{DB: db, vault: vault, roots: []string{linkedTree(t, repo, "feature-b")}}
+	a := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-a")}}
+	b := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-b")}}
 
 	if _, err := a.remember("the frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
@@ -408,14 +410,14 @@ func TestAFreshWorktreeInheritsTheProjectsCheckpointAndSaysSo(t *testing.T) {
 	repo := gitRepo(t)
 	t.Setenv("BRAIN_PROJECT", "kestrel")
 
-	main := &Server{DB: db, vault: vault, roots: []string{repo}}
+	main := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{repo}}
 	if _, err := main.checkpoint(map[string]any{
 		"agent": "claude", "task": "re-quote the waveguide", "next": "a firm quote",
 	}, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	fresh := &Server{DB: db, vault: vault, roots: []string{linkedTree(t, repo, "feature-a")}}
+	fresh := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-a")}}
 	out, err := fresh.resume("", "cursor", 0)
 	if err != nil {
 		t.Fatal(err)

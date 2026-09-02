@@ -64,7 +64,7 @@ import (
 // resolveProject picks the project for one tool call. arg is the tool's own
 // project argument, which outranks everything because it is the caller being
 // explicit.
-func (s *Server) resolveProject(arg string) string {
+func (s *Session) resolveProject(arg string) string {
 	if p := strings.TrimSpace(arg); p != "" {
 		return p
 	}
@@ -76,7 +76,7 @@ func (s *Server) resolveProject(arg string) string {
 // Computed once: the working directory cannot change under a served process,
 // and re-deriving it per call would let a stray chdir silently re-scope a
 // session halfway through.
-func (s *Server) sessionProject() string {
+func (s *Session) sessionProject() string {
 	s.projectOnce.Do(func() {
 		s.project = firstNonEmpty(
 			strings.TrimSpace(os.Getenv("BRAIN_PROJECT")),
@@ -104,7 +104,7 @@ func (s *Server) sessionProject() string {
 // An argument that already contains a separator is taken as a scope the caller
 // has qualified itself — "kestrel/feature-a", or a file path handed to context
 // — and is left exactly as given.
-func (s *Server) resolveContinuity(arg string) (project, worktree string) {
+func (s *Session) resolveContinuity(arg string) (project, worktree string) {
 	project = s.resolveProject(arg)
 	if strings.Contains(strings.TrimSpace(arg), "/") {
 		return project, ""
@@ -114,7 +114,7 @@ func (s *Server) resolveContinuity(arg string) (project, worktree string) {
 
 // resolveScope is resolveContinuity as the single name the session store and
 // the vault key on.
-func (s *Server) resolveScope(arg string) string {
+func (s *Session) resolveScope(arg string) string {
 	return scopeName(s.resolveContinuity(arg))
 }
 
@@ -141,7 +141,7 @@ func scopeName(project, worktree string) string {
 // turns worktree scoping off: two trees they want to treat as one piece of work
 // have no other way to say so, because nothing else here takes the model's word
 // for which tree it is in.
-func (s *Server) sessionWorktree() string {
+func (s *Session) sessionWorktree() string {
 	s.worktreeOnce.Do(func() {
 		if name, ok := os.LookupEnv("BRAIN_WORKTREE"); ok {
 			s.worktree = strings.TrimSpace(name)
