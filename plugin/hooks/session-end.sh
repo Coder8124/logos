@@ -12,6 +12,12 @@
 # was never committed. That is a fact, it needs no model, and it turns "the agent
 # forgot to checkpoint" from something invisible into something the next session
 # and `logos doctor` can both see.
+#
+# And it says so on the way out. This used to send every byte to /dev/null,
+# which meant the one moment Logos does its quietest and most important job —
+# recording that a session happened at all — looked exactly like Logos doing
+# nothing. A product whose work is invisible is a product users assume is not
+# working. One line on stderr, and one line when it fails, is the whole fix.
 set -uo pipefail
 
 if command -v logos >/dev/null 2>&1; then
@@ -36,6 +42,15 @@ project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 # with nothing behind it. The absence of a checkpoint after this note is itself
 # the signal, and it is one `logos doctor` can read off the vault without
 # anybody having to guess.
-"${LOGOS[@]}" note "$project" "claude-code session ended" >/dev/null 2>&1 || true
+if "${LOGOS[@]}" note "$project" "claude-code session ended" >/dev/null 2>&1; then
+  echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2
+else
+  # Named, not swallowed. A vault that cannot be written to is a continuity
+  # layer that has stopped working, and the user finding that out tomorrow —
+  # when the handoff they were counting on is not there — is the expensive way
+  # to learn it. Still exit 0: reporting the failure must not become the
+  # failure.
+  echo "Logos: could not record the end of this session on \"$project\" — run 'logos doctor'." >&2
+fi
 
 exit 0

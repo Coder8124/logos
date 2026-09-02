@@ -16,6 +16,11 @@
 #   - never stall. Everything is bounded, and Logos needs no model for this.
 #   - say nothing when there is nothing to say. An empty vault or a project with
 #     no history prints nothing rather than noise.
+#   - say it out loud when there *is* something to say. A hook that silently
+#     improves an answer is, from the user's chair, indistinguishable from a
+#     hook that never ran; a continuity layer nobody sees restore anything is a
+#     continuity layer nobody believes in. So the block below opens with a
+#     receipt and asks the model to hand that receipt to the user, once.
 set -uo pipefail
 
 # Resolve the binary without requiring it on PATH: an npx-installed plugin has
@@ -51,10 +56,57 @@ case "$handoff" in
   *"no checkpoint yet"*) exit 0 ;;
 esac
 
+# What the receipt is allowed to claim, counted off the handoff itself rather
+# than guessed at.
+carried=$(printf '%s\n' "$handoff" | awk '
+# Reads a context pack on stdin and prints one line naming what it carries.
+#
+# The markers are the literal strings internal/contextpack/render.go writes, and
+# a count is the run of "- " bullets under one of them. Counting anything looser
+# — every bullet in the pack, say — would inflate the receipt, and a receipt
+# that overstates what was restored is worse than none: the user checks it once,
+# finds half the promised items missing, and never reads it again.
+/^\*\*Verified — safe to continue from:\*\*/  { k = "1verified fact";        next }
+/^\*\*Known broken — do not build on it:\*\*/ { k = "2known blocker";        next }
+/^## Not settled/                             { k = "3open question";        next }
+/^## Recorded since, not yet checkpointed/    { k = "4uncheckpointed note";  next }
+/^(## |\*\*)/                                 { k = "";                      next }
+k != "" && /^- /                              { n[k]++ }
+END {
+    m = 0
+    for (k in n) key[++m] = k
+    for (i = 1; i < m; i++) for (j = i + 1; j <= m; j++)
+        if (key[j] < key[i]) { t = key[i]; key[i] = key[j]; key[j] = t }
+    for (i = 1; i <= m; i++) {
+        c = n[key[i]]
+        label = substr(key[i], 2)          # drop the sort prefix
+        if (c != 1) label = label "s"
+        out = out (out ? ", " : "") c " " label
+    }
+    print out
+}
+' 2>/dev/null) || carried=""
+[ -z "$carried" ] && carried="the previous session's stopping place"
+
+# Whose checkpoint, and how old. The most convincing line on the receipt,
+# because it is the one claim the user can check against their own memory of
+# when they last sat down — so it is lifted from the pack verbatim rather than
+# recomputed here, where it could drift out of agreement with the very text
+# sitting underneath it.
+when=$(printf '%s\n' "$handoff" \
+  | sed -n 's/^Last checkpoint by \(.*\)\.$/from \1/p' \
+  | sed -e 's/\*\*//g' -e 's/, handed off to .*//' \
+  | head -1) || when=""
+
 cat <<EOF
 Continuity from Logos — the previous session on "$project", including what was
 already ruled out. Read the failed approaches before proposing anything; they
 are there to stop you repeating work that has already been paid for.
+
+FIRST, in one short line before anything else, tell the user that Logos restored
+context for "$project"${when:+ $when}, carrying $carried. They cannot see this
+block, and a restore they never hear about reads to them as a restore that never
+happened. One line, then get on with the work.
 
 $handoff
 EOF
