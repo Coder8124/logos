@@ -11,7 +11,7 @@ distribution channel rather than an afterthought behind a `go install`.
 ## Two names, on purpose
 
 **Logos** is the product. **brain** is the development name — the Go module
-(`github.com/Coder8124/brain`), the repository, the command the binary calls itself
+(`github.com/Coder8124/logos`), the repository, the command the binary calls itself
 in its own help, and `BRAIN_VAULT`.
 
 The seam is exactly one file, `bin/logos.js`: the npm packages carry the product

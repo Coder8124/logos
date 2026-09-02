@@ -18,10 +18,11 @@ Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──�
 Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
 
-> **On the two names.** Logos is the product. `brain` is the development name and
-> stays one: the repository, the Go module `github.com/Coder8124/brain`, the
-> `brain` command, `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos`
-> and `brain` as the same command, so either spelling works wherever you meet it.
+> **On the two names.** Logos is the product — the repository, the npm packages,
+> the MCP server hosts see. `brain` is the development name and stays one
+> internally: the Go module `github.com/Coder8124/brain`, the `brain` command,
+> `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos` and `brain` as
+> the same command, so either spelling works wherever you meet it.
 
 ---
 
@@ -30,7 +31,7 @@ this project dies, you keep a vault.
 **Claude Code** — two commands, and this is the version to prefer:
 
 ```
-/plugin marketplace add Coder8124/brain
+/plugin marketplace add Coder8124/logos
 /plugin install logos@logos
 ```
 
@@ -60,11 +61,11 @@ and `cpu`, so you fetch one of the five, not all of them).
 
 ```sh
 # From source, if you have Go
-git clone https://github.com/Coder8124/brain && cd brain
+git clone https://github.com/Coder8124/logos && cd brain
 go build -o bin/brain ./cmd/brain && ./bin/brain setup
 
 # Or a release binary — no runtime at all
-# github.com/Coder8124/brain/releases
+# github.com/Coder8124/logos/releases
 ```
 
 Wiring a host by hand needs no install whatsoever, because `npx` resolves the
@@ -419,17 +420,17 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-go get github.com/Coder8124/brain@latest
+go get github.com/Coder8124/logos@latest
 ```
 
 The module path and the repository agree, so the proxy can resolve it. Working
 against a local checkout instead:
 
 ```sh
-git clone https://github.com/Coder8124/brain
+git clone https://github.com/Coder8124/logos
 # then, in your go.mod:
-#   require github.com/Coder8124/brain v0.0.0
-#   replace github.com/Coder8124/brain => ../brain
+#   require github.com/Coder8124/logos v0.0.0
+#   replace github.com/Coder8124/logos => ../brain
 ```
 
 ```go

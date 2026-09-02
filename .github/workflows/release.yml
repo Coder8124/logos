@@ -14,7 +14,7 @@
 # handed the keys to the account.
 #
 # One-time setup, per package, at npmjs.com → the package → Settings → Trusted
-# Publisher: repository Coder8124/brain, workflow release.yml. All six need it:
+# Publisher: repository Coder8124/logos, workflow release.yml. All six need it:
 #
 #   @brainyprime/logos                 the wrapper
 #   @brainyprime/logos-darwin-arm64

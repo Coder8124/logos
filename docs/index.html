@@ -19,7 +19,7 @@
   --sunk:     #E7ECE9;
   --ink:      #141A1B;
   --ink-2:    #58635F;
-  --ink-3:    #7D8884;
+  --ink-3:    #616C68;
   --rule:     #D2DAD6;
   --rule-2:   #E2E8E5;
   --verdigris:#0E6A5A;
@@ -43,7 +43,7 @@
     --sunk:     #191F20;
     --ink:      #E7EDEA;
     --ink-2:    #96A29D;
-    --ink-3:    #6E7A76;
+    --ink-3:    #838F8A;
     --rule:     #263030;
     --rule-2:   #1E2626;
     --verdigris:#4FC7AC;
@@ -59,7 +59,7 @@
   --sunk:     #191F20;
   --ink:      #E7EDEA;
   --ink-2:    #96A29D;
-  --ink-3:    #6E7A76;
+  --ink-3:    #838F8A;
   --rule:     #263030;
   --rule-2:   #1E2626;
   --verdigris:#4FC7AC;
@@ -263,6 +263,25 @@ p code, li code, td code {
 }
 .note strong { color: var(--ink-2); font-weight: 500; }
 
+/* Three claims a reader can check, set as a rule-separated strip rather than
+   badges — the page earns trust by being quiet about it. */
+.proof {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: .75rem 0 0;
+  border-top: 1px solid var(--rule-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1.4rem;
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.proof b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.proof a { color: var(--verdigris); text-decoration-color: var(--rule); text-underline-offset: 2px; }
+.proof a:hover { text-decoration-color: currentColor; }
+
 /* ── The handoff record — the page's one figure ─────────────────────────── */
 .record {
   margin-top: 2.75rem;
@@ -425,9 +444,9 @@ footer .sp { margin-left: auto; }
     <span class="wordmark">Logos</span>
     <span class="tag">Continuity for AI coding agents</span>
     <nav>
-      <a href="https://github.com/Coder8124/brain">Source</a>
+      <a href="https://github.com/Coder8124/logos">Source</a>
       <a href="https://www.npmjs.com/package/@brainyprime/logos">npm</a>
-      <a href="https://github.com/Coder8124/brain/blob/main/docs/continuity-benchmark.md">Benchmark</a>
+      <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Benchmark</a>
     </nav>
   </header>
 
@@ -449,6 +468,12 @@ footer .sp { margin-left: auto; }
       macOS, Linux and Windows. Setup shows you which agents it would wire and
       asks before touching any of them.
     </p>
+
+    <ul class="proof fade">
+      <li>Claude Code &middot; Cursor &middot; Codex &middot; Claude Desktop, over MCP</li>
+      <li><b>96.0%</b> recall@5 on LongMemEval-S <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">how this was measured</a></li>
+      <li>Continuity works with <b>no model runtime at all</b></li>
+    </ul>
 
     <div class="record">
       <div class="strip"><span>Vault &mdash; <code>~/brain</code></span> <b>markdown, on your disk</b></div>
@@ -485,8 +510,8 @@ footer .sp { margin-left: auto; }
       <ol class="steps">
         <li>
           <div class="cmd">
-            <pre>/plugin marketplace add Coder8124/brain</pre>
-            <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/brain">Copy</button>
+            <pre>/plugin marketplace add Coder8124/logos</pre>
+            <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
           </div>
         </li>
         <li>
@@ -496,7 +521,7 @@ footer .sp { margin-left: auto; }
           </div>
         </li>
       </ol>
-      <p class="note">The marketplace is the repository, which keeps the development name.</p>
+      <p class="note">The marketplace is the repository; the plugin inside it is named <code>logos</code>.</p>
     </div>
   </div>
 
@@ -550,16 +575,16 @@ footer .sp { margin-left: auto; }
             <tr><th scope="col">Platform</th><th scope="col">Archive</th><th scope="col">Download</th><th scope="col">Unpacked</th></tr>
           </thead>
           <tbody>
-            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_arm64.tar.gz">brain_v0.1.0_darwin_arm64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.2 MB</td></tr>
-            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_darwin_amd64.tar.gz">brain_v0.1.0_darwin_amd64.tar.gz</a></td><td class="num">5.3 MB</td><td class="num">11.9 MB</td></tr>
-            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_amd64.tar.gz">brain_v0.1.0_linux_amd64.tar.gz</a></td><td class="num">5.2 MB</td><td class="num">11.7 MB</td></tr>
-            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_linux_arm64.tar.gz">brain_v0.1.0_linux_arm64.tar.gz</a></td><td class="num">4.8 MB</td><td class="num">11.0 MB</td></tr>
-            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/brain_v0.1.0_windows_amd64.zip">brain_v0.1.0_windows_amd64.zip</a></td><td class="num">5.3 MB</td><td class="num">12.0 MB</td></tr>
+            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/brain_v0.1.0_darwin_arm64.tar.gz">brain_v0.1.0_darwin_arm64.tar.gz</a></td><td class="num">5.0 MB</td><td class="num">11.2 MB</td></tr>
+            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/brain_v0.1.0_darwin_amd64.tar.gz">brain_v0.1.0_darwin_amd64.tar.gz</a></td><td class="num">5.3 MB</td><td class="num">11.9 MB</td></tr>
+            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/brain_v0.1.0_linux_amd64.tar.gz">brain_v0.1.0_linux_amd64.tar.gz</a></td><td class="num">5.2 MB</td><td class="num">11.7 MB</td></tr>
+            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/brain_v0.1.0_linux_arm64.tar.gz">brain_v0.1.0_linux_arm64.tar.gz</a></td><td class="num">4.8 MB</td><td class="num">11.0 MB</td></tr>
+            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/brain_v0.1.0_windows_amd64.zip">brain_v0.1.0_windows_amd64.zip</a></td><td class="num">5.3 MB</td><td class="num">12.0 MB</td></tr>
           </tbody>
         </table>
       </div>
       <p class="note">
-        Verify against <a href="https://github.com/Coder8124/brain/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a>
+        Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.1.0/SHA256SUMS">SHA256SUMS</a>
         &middot; the executable inside keeps the development name, <code>brain</code>.
       </p>
     </div>
@@ -570,9 +595,9 @@ footer .sp { margin-left: auto; }
     <div class="body">
       <h2>If you have Go</h2>
       <div class="cmd">
-<pre><span class="prompt">$ </span>git clone https://github.com/Coder8124/brain &amp;&amp; cd brain
+<pre><span class="prompt">$ </span>git clone https://github.com/Coder8124/logos &amp;&amp; cd brain
 <span class="prompt">$ </span>go build <span class="flag">-o</span> bin/brain ./cmd/brain &amp;&amp; ./bin/brain setup</pre>
-        <button class="copy" type="button" data-copy="git clone https://github.com/Coder8124/brain && cd brain
+        <button class="copy" type="button" data-copy="git clone https://github.com/Coder8124/logos && cd brain
 go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
       </div>
       <p class="note">Go 1.26.5 or newer. Or straight from the proxy: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.</p>
@@ -636,7 +661,7 @@ go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
 
   <footer>
     <span>Logos v0.1.0 &middot; MIT</span>
-    <a href="https://github.com/Coder8124/brain">Coder8124/brain</a>
+    <a href="https://github.com/Coder8124/logos">Coder8124/logos</a>
     <a href="https://www.npmjs.com/package/@brainyprime/logos">@brainyprime/logos</a>
     <span class="sp">&ldquo;brain&rdquo; is the development name and stays one.</span>
   </footer>

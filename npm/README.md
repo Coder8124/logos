@@ -67,7 +67,7 @@ than `~/brain`.
 <summary><b>Claude Code users: prefer the plugin</b></summary>
 
 ```
-/plugin marketplace add Coder8124/brain
+/plugin marketplace add Coder8124/logos
 /plugin install logos@logos
 ```
 
@@ -186,14 +186,15 @@ logos mcp serve                # the MCP server, over stdio
 
 ## Two names
 
-**Logos** is the product. **brain** is the development name, and stays one: the
-repository, the Go module `github.com/Coder8124/brain`, the `brain` command,
-`BRAIN_VAULT`, and `.brain/`. Both spellings work everywhere you meet them.
+**Logos** is the product — the repository, this package, and the MCP server your
+host talks to. **brain** is the development name and stays one internally: the Go
+module `github.com/Coder8124/brain`, the `brain` command, `BRAIN_VAULT`, and
+`.brain/`. Both spellings work everywhere you meet them.
 
 ---
 
 <p align="center">
-  <a href="https://github.com/Coder8124/brain">Source &amp; full documentation</a> ·
-  <a href="https://github.com/Coder8124/brain/blob/main/docs/continuity-benchmark.md">Benchmark</a> ·
+  <a href="https://github.com/Coder8124/logos">Source &amp; full documentation</a> ·
+  <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Benchmark</a> ·
   MIT
 </p>

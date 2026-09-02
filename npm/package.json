@@ -13,10 +13,10 @@
     "cursor",
     "codex"
   ],
-  "homepage": "https://github.com/Coder8124/brain",
+  "homepage": "https://github.com/Coder8124/logos",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Coder8124/brain.git",
+    "url": "git+https://github.com/Coder8124/logos.git",
     "directory": "npm"
   },
   "license": "MIT",
