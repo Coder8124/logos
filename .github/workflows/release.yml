@@ -83,14 +83,11 @@ jobs:
           node scripts/build.js
           node scripts/test.js
 
-      # Platform packages before the wrapper: the wrapper pins them by exact
-      # version, so the other order leaves every installer resolving packages
-      # that do not exist yet.
-      - name: Publish to npm
-        if: startsWith(github.ref, 'refs/tags/v')
-        working-directory: npm
-        run: node scripts/publish.js --ci
-
+      # The GitHub release goes first, and deliberately. The download page links
+      # these archives by name, so a tag that builds them and then fails to
+      # attach them leaves the site pointing at five 404s. npm can be retried
+      # against an unchanged tag; a broken download page is the more visible
+      # failure, so it is the one that gets the earlier, less fragile step.
       - name: GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -100,3 +97,11 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
           generate_release_notes: true
+
+      # Platform packages before the wrapper: the wrapper pins them by exact
+      # version, so the other order leaves every installer resolving packages
+      # that do not exist yet.
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: npm
+        run: node scripts/publish.js --ci
