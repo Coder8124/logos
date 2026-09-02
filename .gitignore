@@ -60,3 +60,7 @@ bench/results/
 
 # Python bytecode from the benchmark adapters.
 __pycache__/
+
+# Agent worktrees and local session state. Never committed: a worktree is a
+# second checkout of this repo, and committing one nests the repo inside itself.
+.claude/

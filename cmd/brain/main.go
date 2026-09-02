@@ -112,6 +112,7 @@ CONTINUITY
 
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
+    brain memory log [--project P] [--n N]   what changed in what it knows, newest first
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     brain jot <thought>               braindump: capture and auto-file a thought
     brain loop [add|done|drop]        manage open loops (commitments)
@@ -354,6 +355,28 @@ func flagStr(args []string, name, def string) string {
 		}
 	}
 	return def
+}
+
+// dropFlag removes a value flag and its value from an argument list, so a
+// command whose remaining words are free text can take flags at all.
+//
+// Without it, `memory add <fact> --project kestrel` stores the flag as part of
+// the fact — the memory reads as though it were scoped and is in fact scoped to
+// nothing, which is worse than the flag simply not existing.
+func dropFlag(args []string, name string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == name {
+			// Skip the value too, unless the flag was given last with nothing
+			// after it — in which case there is no value to skip.
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
 }
 
 // flagStrs collects a flag that may be given more than once, and also accepts a

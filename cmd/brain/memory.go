@@ -51,7 +51,7 @@ func memoryCmd(args []string) error {
 
 	switch args[0] {
 	case "log":
-		return memoryLog(ix.DB, flagInt(args, "--n", 40))
+		return memoryLog(ix.DB, strings.TrimSpace(flagStr(args, "--project", "")), flagInt(args, "--n", 40))
 	case "history":
 		id := parseID(args)
 		if id == 0 {
@@ -65,22 +65,42 @@ func memoryCmd(args []string) error {
 	case "health":
 		return memoryHealth(ix.DB)
 	case "add":
-		text := strings.TrimSpace(strings.Join(args[1:], " "))
+		project := strings.TrimSpace(flagStr(args, "--project", ""))
+		// The flag and its value have to come out of the words, or they end up
+		// *inside* the fact: "the build runs on arm only --project harrier" was
+		// stored verbatim, and the memory then belonged to no project while
+		// reading as though it did.
+		text := strings.TrimSpace(strings.Join(dropFlag(args[1:], "--project"), " "))
 		if text == "" {
-			return fmt.Errorf("usage: brain memory add <fact>")
+			return fmt.Errorf("usage: brain memory add <fact> [--project <name>]")
 		}
 		rt, err := openRouter()
 		if err != nil {
 			return err
 		}
 		embed, _ := rt.Model(router.T0)
-		_, err = memory.Store(ix.DB, rt.Local(), embed, &memory.Memory{
-			Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual", Created: time.Now().Unix(),
+		r, err := memory.Store(ix.DB, rt.Local(), embed, &memory.Memory{
+			Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual",
+			Project: project, Created: time.Now().Unix(),
 		})
 		if err != nil {
 			return err
 		}
-		fmt.Println("remembered.")
+		// Which of the three things happened, not just "done". Storing a fact
+		// the vault already held is a different outcome from learning a new
+		// one, and a user who cannot tell them apart will keep re-adding.
+		where := ""
+		if project != "" {
+			where = " in " + project
+		}
+		switch {
+		case r.Created():
+			fmt.Printf("remembered%s — memory #%d.\n", where, r.ID)
+		case r.Outcome == memory.EvReinforced:
+			fmt.Printf("already knew that%s — reinforced memory #%d.\n", where, r.Ref)
+		default:
+			fmt.Println("nothing to remember.")
+		}
 	case "consolidate":
 		rt, err := openRouter()
 		if err != nil {
@@ -114,7 +134,7 @@ func memoryCmd(args []string) error {
 		}
 		fmt.Println("forgotten.")
 	default:
-		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | diff | health | consolidate]")
+		return fmt.Errorf("usage: brain memory [add <fact> [--project P] | forget <id> | log [--project P] | history <id> | diff | health | consolidate]")
 	}
 	return nil
 }
@@ -259,24 +279,61 @@ func confBar(c float64) string {
 	return fmt.Sprintf("%s %.2f", bar, c)
 }
 
-// memoryLog prints the timeline — git history for memory, newest first.
-func memoryLog(db *sql.DB, n int) error {
-	entries, err := memory.Timeline(db, n)
+// memoryLog prints the timeline — git history for memory, newest first. With a
+// project it prints that project's timeline instead: what changed in what the
+// assistant knows about this particular work.
+//
+// The per-project view is the one people actually ask for. A global log mixes
+// every repo a person has ever opened, and at that point the honest answer to
+// "what has it learned about kestrel this week" is to scroll and squint.
+func memoryLog(db *sql.DB, project string, n int) error {
+	var entries []memory.LogEntry
+	var err error
+	if project != "" {
+		entries, err = memory.TimelineInProject(db, project, n)
+	} else {
+		entries, err = memory.Timeline(db, n)
+	}
 	if err != nil {
 		return err
 	}
 	if len(entries) == 0 {
+		if project != "" {
+			fmt.Printf("nothing recorded for %q yet.\n", project)
+			fmt.Println("  Either no memory has been stored against that project, or it is spelled differently —")
+			fmt.Println("  `brain memory log` with no --project shows every project's events together.")
+			return nil
+		}
 		fmt.Println("no memory history yet — it fills in as the assistant learns, corroborates, and revises.")
 		return nil
 	}
-	fmt.Printf("memory timeline · %d most recent events\n\n", len(entries))
+	scope := "memory timeline"
+	if project != "" {
+		scope = fmt.Sprintf("memory timeline · %s", project)
+	}
+	fmt.Printf("%s · %d most recent events\n\n", scope, len(entries))
 	for _, e := range entries {
 		when := time.Unix(e.TS, 0).Format("Jan 02 15:04")
 		ref := ""
 		if e.RefID != 0 {
 			ref = fmt.Sprintf(" (→ #%d)", e.RefID)
 		}
-		fmt.Printf("  %s  %-11s #%-4d %s%s\n", when, e.Event, e.MemID, truncateLine(e.Detail, 60), ref)
+		// The project column only earns its width in the unscoped view, where
+		// it is the thing that makes a mixed log readable. In a scoped one it
+		// would be the same word on every line.
+		where := ""
+		if project == "" && e.Project != "" {
+			where = fmt.Sprintf(" [%s]", e.Project)
+		}
+		fmt.Printf("  %s  %-11s #%-4d %s%s%s\n", when, e.Event, e.MemID, truncateLine(e.Detail, 60), ref, where)
+	}
+	// Said plainly, and only when it is true. A timeline that silently omits
+	// part of the past is the failure this whole system exists to avoid, so a
+	// partial one announces itself rather than passing as complete.
+	if project != "" {
+		if n, err := memory.UnattributedCount(db); err == nil && n > 0 {
+			fmt.Printf("\n%d older events carry no project and are not shown here; `brain memory log` includes them.\n", n)
+		}
 	}
 	return nil
 }

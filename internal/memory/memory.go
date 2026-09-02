@@ -100,9 +100,16 @@ CREATE TABLE IF NOT EXISTS memory_log (
     mem_id INTEGER NOT NULL,
     event  TEXT NOT NULL,
     detail TEXT,
-    ref_id INTEGER NOT NULL DEFAULT 0
+    ref_id INTEGER NOT NULL DEFAULT 0,
+    -- The project the memory belonged to, copied onto the line rather than
+    -- joined to at read time. A join would be tidier and would also lose every
+    -- forgotten memory, because forgetting deletes the row there is nothing
+    -- left to join to — and the events a person most wants out of a project
+    -- timeline are exactly the ones where something went away.
+    project TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS memory_log_ts ON memory_log(ts);
+CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts);
 `
 
 func Init(db *sql.DB) error {
@@ -116,6 +123,17 @@ func Init(db *sql.DB) error {
 	db.Exec("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memories ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE memories ADD COLUMN agent TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
+	// Backfill what is still knowable. A log line written before the column
+	// existed can be attributed if its memory is still there; one whose memory
+	// has since been forgotten cannot, and stays blank rather than being
+	// guessed at. That is the honest half-answer: an old timeline is partial,
+	// and TimelineInProject says so rather than silently presenting it as whole.
+	db.Exec(`UPDATE memory_log SET project = (
+	             SELECT m.project FROM memories m WHERE m.id = memory_log.mem_id)
+	         WHERE project = ''
+	           AND EXISTS (SELECT 1 FROM memories m WHERE m.id = memory_log.mem_id)`)
 	return nil
 }
 
@@ -463,13 +481,16 @@ func Count(db *sql.DB) (int, error) {
 func Forget(db *sql.DB, id int64) error {
 	// Snapshot the text into the log first, so the timeline records what was
 	// forgotten even though the row is about to vanish.
-	var text, kind string
-	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
+	// The project comes out in the same snapshot: after the DELETE below there
+	// is no row left to ask, and a forgotten memory that drops out of its own
+	// project's timeline is the one omission a person would actually notice.
+	var text, kind, proj string
+	db.QueryRow("SELECT text, kind, project FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj)
 	_, err := db.Exec("DELETE FROM memories WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
-	logEvent(db, id, EvForgotten, text, 0)
+	logEventIn(db, id, EvForgotten, text, 0, proj)
 	// Forgetting has to reach the file too, or the next import restores it —
 	// which makes a failure here worth reporting rather than swallowing.
 	return flush(db, Kind(kind))
