@@ -74,11 +74,22 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 	if from == to {
 		return res, fmt.Errorf("%q is already the name", to)
 	}
-	// A name becomes a directory under sessions/, so it has to survive being
+	// Both names become a path under sessions/, so both have to survive being
 	// one. Rejecting up front beats writing half a rename and discovering the
 	// target is unusable.
+	//
+	// `from` is checked for the same reason as `to`, and it is the more
+	// dangerous of the two: it is joined onto the vault path and then read,
+	// rewritten and os.Rename'd. A "../.." in it walks straight out of the
+	// vault, and this function would happily rewrite frontmatter in someone's
+	// home directory and then move the whole directory inside the vault. The
+	// name is user input on a command line and a tool argument over MCP, so it
+	// is never trusted for a path.
+	if err := checkName(from); err != nil {
+		return res, fmt.Errorf("old name: %w", err)
+	}
 	if err := checkName(to); err != nil {
-		return res, err
+		return res, fmt.Errorf("new name: %w", err)
 	}
 
 	res.Dir = filepath.Join(vaultDir, "sessions", from)
@@ -116,15 +127,39 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 	return res, nil
 }
 
-// checkName rejects a name that cannot be a directory under sessions/. A
-// separator is the one that matters: sessions/<project>/<worktree> is a real
-// scope this product uses, and a name containing "/" would forge one.
+// checkName rejects a name that cannot be one directory under sessions/.
+//
+// A separator is the one that matters most, twice over: sessions/<project>/
+// <worktree> is a real scope this product uses, so a name containing "/" would
+// forge one — and the name is joined onto the vault path, so "../.." would
+// escape the vault entirely.
+//
+// A whitelist would be tighter still, but it would also reject names that work
+// today: internal/session's safe() already allows any Unicode letter, and a
+// project legitimately named in Japanese or Greek must keep working. So this
+// rejects the constructs that mean something to a filesystem, and leaves the
+// rest alone.
 func checkName(name string) error {
+	if name == "" {
+		return fmt.Errorf("a project name cannot be empty")
+	}
 	if strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("a project name cannot contain a path separator: %q", name)
 	}
-	if name == "." || name == ".." || strings.HasPrefix(name, ".") {
+	// Not just "..": a leading dot hides the directory, and a name that is all
+	// dots is a relative path however many there are.
+	if strings.HasPrefix(name, ".") {
 		return fmt.Errorf("a project name cannot start with a dot: %q", name)
+	}
+	// A NUL truncates the path at the syscall boundary, so a name carrying one
+	// is not the name the caller sees in the error message.
+	if strings.ContainsRune(name, 0) {
+		return fmt.Errorf("a project name cannot contain a null byte")
+	}
+	// filepath.Join cleans as it joins, so the only way to be sure the name is
+	// one path element is to ask whether it survives being treated as one.
+	if filepath.Clean(name) != name || filepath.Base(name) != name {
+		return fmt.Errorf("a project name must be a single path element: %q", name)
 	}
 	return nil
 }

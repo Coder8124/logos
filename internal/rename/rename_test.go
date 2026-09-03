@@ -265,3 +265,33 @@ func read(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// The source name is joined onto the vault path and then read, rewritten and
+// os.Rename'd, so a "../.." in it walked out of the vault: a real run moved an
+// arbitrary directory from elsewhere on disk *into* sessions/ and rewrote the
+// frontmatter of the files in it. Both names are path input and neither is
+// trusted.
+func TestRenameRefusesToEscapeTheVault(t *testing.T) {
+	v := seedVault(t)
+	outside := t.TempDir()
+	victim := filepath.Join(outside, "note.md")
+	const body = "---\ntype: checkpoint\nproject: escape\n---\n"
+	if err := os.WriteFile(victim, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(filepath.Join(v, "sessions"), outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, from := range []string{rel, "../..", "../../etc", `..\..`, ".hidden", ""} {
+		if _, err := Run(nil, v, from, "stolen", false); err == nil {
+			t.Errorf("rename from %q should have been rejected", from)
+		}
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Error("a file outside the vault was moved or deleted by a rename")
+	}
+	if got := read(t, victim); got != body {
+		t.Errorf("a file outside the vault was rewritten by a rename:\n%s", got)
+	}
+}
