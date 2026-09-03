@@ -19,6 +19,16 @@ import (
 // message.
 var ErrNoRuntime = errors.New("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
 
+// ErrNoModel means a runtime is answering but none of its models can serve the
+// tier that was asked for.
+//
+// Like ErrNoRuntime it is a condition rather than a failure, and it exists for
+// the same reason: a caller that treats "you have no reasoning model" the same
+// as "the database is corrupt" either refuses to run on a small machine or
+// reports a real fault as a quiet zero. Callers test for it instead of matching
+// on the message.
+var ErrNoModel = errors.New("no model available for this tier")
+
 // Capability is what a probe actually established about a model, as opposed to
 // what the runtime advertised.
 type Capability struct {
@@ -134,7 +144,7 @@ func (r *Router) Model(t Tier) (string, error) {
 			break
 		}
 	}
-	return "", fmt.Errorf("no model available for %s or any lower tier", t)
+	return "", fmt.Errorf("%w: %s or any lower tier", ErrNoModel, t)
 }
 
 // ModelFor is Model plus a structured-output requirement. Extraction callers use
@@ -159,7 +169,7 @@ func (r *Router) ModelFor(t Tier, needSchema bool) (string, error) {
 				return tc.Model, nil
 			}
 		}
-		return "", fmt.Errorf("no model available that honours JSON schemas (tried %s)", m)
+		return "", fmt.Errorf("%w: none that honours JSON schemas (tried %s)", ErrNoModel, m)
 	}
 	return m, nil
 }

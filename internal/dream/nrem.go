@@ -2,12 +2,14 @@ package dream
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/event"
 	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/routine"
 )
@@ -38,9 +40,19 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 	//    is simply when it runs. It mutates, so it is skipped under dry run.
 	if !dryRun {
 		merged, superseded, err := memory.Consolidate(db, rt)
-		if err == nil {
+		switch {
+		case err == nil:
 			res.Merged, res.Superseded = merged, superseded
 			res.Replayed = merged + superseded
+		case errors.Is(err, router.ErrNoRuntime), errors.Is(err, router.ErrNoModel):
+			// Replay needs a model to judge whether two memories say the same
+			// thing. Not having one is a condition, reported as a skip.
+			res.ReplaySkipped = true
+		default:
+			// Anything else is a real failure, and swallowing it printed
+			// "0 consolidated" — a night that did nothing, indistinguishable
+			// from a night that had nothing to do.
+			return fmt.Errorf("replaying memories: %w", err)
 		}
 	}
 
@@ -54,16 +66,14 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 	if err != nil {
 		return err
 	}
-	p := rt.Local()
-	for _, g := range gists {
-		if dryRun {
-			res.Gists++
-			continue
+	if dryRun {
+		res.Gists += len(gists)
+	} else {
+		learned, err := storeGists(db, rt.Local(), embedModel, gists)
+		if err != nil {
+			return err
 		}
-		m := &memory.Memory{Text: g, Kind: memory.Context, Salience: 0.4, Source: "dream"}
-		if r, _ := memory.Store(db, p, embedModel, m); r.Created() {
-			res.Gists++
-		}
+		res.Gists += learned
 	}
 
 	// 3. Homeostatic downscaling — renormalise the whole field.
@@ -79,6 +89,28 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 	//    conversations; for now this counts what a full pass would wire up.
 	res.Linked = countArtifacts(events)
 	return nil
+}
+
+// storeGists learns each mined gist, reporting how many were new.
+//
+// A gist that could not be written is not a gist that was already known.
+// Dropping the store error counted a failed write as "nothing new tonight",
+// which is exactly the report a working night gives — the failure mode this
+// codebase treats as the worst one available: an operation that failed and
+// returned a success-shaped result.
+func storeGists(db *sql.DB, p *provider.Provider, embedModel string, gists []string) (int, error) {
+	var learned int
+	for _, g := range gists {
+		m := &memory.Memory{Text: g, Kind: memory.Context, Salience: 0.4, Source: "dream"}
+		r, err := memory.Store(db, p, embedModel, m)
+		if err != nil {
+			return learned, fmt.Errorf("learning %q: %w", g, err)
+		}
+		if r.Created() {
+			learned++
+		}
+	}
+	return learned, nil
 }
 
 // gistsFromRoutines mines a recent window for stable structure and phrases the
