@@ -287,3 +287,43 @@ func kindCount(t *testing.T, db *sql.DB, kind Kind) int {
 	}
 	return n
 }
+
+// An id that comes back after the memory holding it is forgotten merges two
+// unrelated lifecycles into one timeline, and `brain memory history <id>` then
+// reads as the assistant changing its mind about a single fact.
+func TestAForgottenIDIsNeverHandedOutAgain(t *testing.T) {
+	db, _ := store(t)
+
+	first, err := Store(db, nil, "", &Memory{Text: "the first fact", Kind: Fact, Source: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Forget(db, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Store(db, nil, "", &Memory{Text: "an unrelated second fact", Kind: Fact, Source: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("memory #%d was forgotten and its id reissued to a different memory", first.ID)
+	}
+
+	// And the log still reads as two separate stories rather than one.
+	for id, want := range map[int64]string{first.ID: "the first fact", second.ID: "an unrelated second fact"} {
+		rows, err := db.Query("SELECT detail FROM memory_log WHERE mem_id = ?", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var detail string
+			if err := rows.Scan(&detail); err != nil {
+				t.Fatal(err)
+			}
+			if detail != want {
+				t.Errorf("memory #%d's history mentions %q, which belongs to another memory", id, detail)
+			}
+		}
+		rows.Close()
+	}
+}

@@ -43,6 +43,37 @@ type LogEntry struct {
 	Project string `json:"project,omitempty"`
 }
 
+// nextID picks an id no memory has ever held.
+//
+// SQLite's default rowid is max(id) + 1, which means an id is handed straight
+// back out the moment the row holding it is deleted. That is fine for a table
+// and wrong for this one, because memory_log outlives the row: forget #7, store
+// something unrelated, and it is also #7 — so `brain memory history 7` prints
+// one timeline in which a fact was created, forgotten, and then created again
+// as a completely different fact. The two lifecycles are indistinguishable, and
+// the reading a person naturally takes from it — that the assistant changed its
+// mind about one thing — is false.
+//
+// The obvious fix is AUTOINCREMENT, which would require rebuilding the table on
+// every vault that already exists. This gets the same guarantee from data
+// already on disk: the audit log records every id ever created, so the high
+// water mark is derivable rather than stored. It needs no migration and repairs
+// itself on an existing vault at the next write.
+//
+// A vault whose index is deleted and rebuilt loses the log along with the rows
+// and starts from 1 again — correct, because the history that could have been
+// misread went with it.
+func nextID(db *sql.DB) int64 {
+	var live, ever sql.NullInt64
+	db.QueryRow("SELECT MAX(id) FROM memories").Scan(&live)
+	db.QueryRow("SELECT MAX(mem_id) FROM memory_log").Scan(&ever)
+	high := live.Int64
+	if ever.Int64 > high {
+		high = ever.Int64
+	}
+	return high + 1
+}
+
 // logEvent appends one line. It is a bare INSERT with no open cursor, safe to
 // call from anywhere including right after a mutation — never from inside an
 // open rows loop (the single-connection pool would deadlock).

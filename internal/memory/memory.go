@@ -254,15 +254,18 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		}
 	}
 
+	// The id is chosen rather than left to the rowid counter, so a forgotten
+	// memory's number is never handed to an unrelated one. See nextID.
+	id := nextID(db)
 	res, err := db.Exec(
-		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Agent, m.Created, vec, fingerprint(m.Text), boolToInt(m.Quarantined))
+		`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Agent, m.Created, vec, fingerprint(m.Text), boolToInt(m.Quarantined))
 	if err != nil {
 		return Receipt{}, err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		m.ID, _ = res.LastInsertId()
+		m.ID = id
 		if m.Quarantined {
 			// Quarantined arrivals get their own event, not EvCreated — the
 			// timeline should be able to say "proposed" and "accepted" as two
@@ -278,12 +281,12 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	// The fingerprint already existed — the same sentence, word for word. That
 	// is corroboration too, and reporting it as a silent no-op is how a caller
 	// ends up telling the user it saved something that was already there.
-	var id int64
-	if db.QueryRow("SELECT id FROM memories WHERE fingerprint = ?", fingerprint(m.Text)).Scan(&id) == nil && id > 0 {
-		db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", id)
-		logEvent(db, id, EvReinforced, m.Text, 0)
-		m.ID = id
-		return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, nil
+	var dup int64
+	if db.QueryRow("SELECT id FROM memories WHERE fingerprint = ?", fingerprint(m.Text)).Scan(&dup) == nil && dup > 0 {
+		db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", dup)
+		logEvent(db, dup, EvReinforced, m.Text, 0)
+		m.ID = dup
+		return Receipt{Outcome: EvReinforced, ID: dup, Ref: dup}, nil
 	}
 	return Receipt{Outcome: OutcomeNoop}, nil
 }

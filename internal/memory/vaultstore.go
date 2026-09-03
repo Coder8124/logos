@@ -519,16 +519,18 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		return m.ID, err
 	}
 
-	// No id in the comment: a line somebody typed by hand. Give it one.
-	res, err := db.Exec(
-		`INSERT INTO memories (text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint, pin)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
+	// No id in the comment: a line somebody typed by hand. Give it one — a fresh
+	// one, never a number some earlier memory has already been known by. See
+	// nextID.
+	id := nextID(db)
+	_, err := db.Exec(
+		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint, pin)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
 		m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
 	logEvent(db, id, EvCreated, m.Text, 0)
 	return id, nil
 }
