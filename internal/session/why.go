@@ -56,7 +56,15 @@ func Touching(vaultDir, path string, limit int) ([]Mention, error) {
 			continue // one unreadable project must not hide the rest
 		}
 		for _, c := range history {
-			if matched, ok := mentions(c.Files, path); ok {
+			// The agent's claim first, then what git observed. Both are searched
+			// because either can be the only one present: a CLI checkpoint has no
+			// way to state a file list, and a clean tree at checkpoint time
+			// observes nothing.
+			matched, ok := mentions(c.Files, path)
+			if !ok {
+				matched, ok = mentions(c.Git.Files, path)
+			}
+			if ok {
 				out = append(out, Mention{Checkpoint: c, Matched: matched})
 			}
 		}

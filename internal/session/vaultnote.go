@@ -56,6 +56,23 @@ func (c Checkpoint) Markdown(follows string) string {
 		if c.Git.Worktree != "" {
 			fmt.Fprintf(&b, "worktree: %s\n", yamlStr(c.Git.Worktree))
 		}
+		// The paths git observed as changed. Collected since gitstate existed and
+		// then dropped on the floor here, which quietly cost `brain why` its best
+		// input: that command joins a path against what a checkpoint touched, and
+		// the only list it could see was the agent's own `files` — optional over
+		// MCP and not settable from the CLI at all. So the feature reported "no
+		// checkpoint mentions this file" about files named in the checkpoint
+		// sitting right in front of it.
+		//
+		// Separate from `## Files` on purpose. That section is what the agent
+		// says it worked on; this is what the repository says changed. When they
+		// disagree the difference is worth being able to see.
+		if len(c.Git.Files) > 0 {
+			b.WriteString("touched:\n")
+			for _, f := range c.Git.Files {
+				fmt.Fprintf(&b, "  - %s\n", yamlStr(f))
+			}
+		}
 	}
 	b.WriteString("relations:\n")
 	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", c.Project)
@@ -141,11 +158,12 @@ type checkpointFM struct {
 	Checkpointed string `yaml:"checkpointed"`
 	// The observed half, round-tripped so a rebuilt index and a hand-read file
 	// agree with each other.
-	Branch        string `yaml:"branch"`
-	Commit        string `yaml:"commit"`
-	CommitSubject string `yaml:"commit_subject"`
-	Uncommitted   int    `yaml:"uncommitted"`
-	Worktree      string `yaml:"worktree"`
+	Branch        string   `yaml:"branch"`
+	Commit        string   `yaml:"commit"`
+	CommitSubject string   `yaml:"commit_subject"`
+	Uncommitted   int      `yaml:"uncommitted"`
+	Worktree      string   `yaml:"worktree"`
+	Touched       []string `yaml:"touched"`
 }
 
 // ParseCheckpoint reads a checkpoint back from its note. It is forgiving in the
@@ -170,6 +188,7 @@ func ParseCheckpoint(raw string) Checkpoint {
 			Subject:  fm.CommitSubject,
 			Dirty:    fm.Uncommitted,
 			Worktree: fm.Worktree,
+			Files:    fm.Touched,
 		},
 	}
 	// Prefer the precise instant; fall back to the date for checkpoints written

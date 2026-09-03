@@ -2,9 +2,13 @@ package session
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Coder8124/brain/internal/gitstate"
 	_ "modernc.org/sqlite"
 )
 
@@ -176,5 +180,54 @@ func TestTouchingOnAnEmptyVault(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("found %d checkpoints in an empty vault", len(got))
+	}
+}
+
+// `brain why` joins a path against what a checkpoint touched. Before git's
+// observed file list was persisted, the only list it could search was the
+// agent's own `Files` — which the CLI cannot set and MCP leaves optional — so
+// the command reported "no checkpoint mentions this file" about a file the
+// checkpoint in front of it had recorded as changed.
+func TestWhyFindsAFileOnlyGitObserved(t *testing.T) {
+	v := t.TempDir()
+	c := Checkpoint{
+		Project: "kestrel",
+		Agent:   "cli",
+		Session: "20260101-000000-cli",
+		Task:    "add annual billing",
+		TS:      time.Now().Unix(),
+		Git: gitstate.State{
+			Branch: "feat/annual-billing",
+			Commit: "e30c6b5",
+			Dirty:  1,
+			Files:  []string{"src/lib/pricing.ts"},
+		},
+	}
+	dir := filepath.Join(v, "sessions", "kestrel")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	note := c.Markdown("")
+	if !strings.Contains(note, "touched:") {
+		t.Fatalf("the observed file list was not written to the note:\n%s", note)
+	}
+	if err := os.WriteFile(filepath.Join(dir, c.Session+".md"), []byte(note), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// It has to survive the round trip, not merely be written.
+	if got := ParseCheckpoint(note); len(got.Git.Files) != 1 || got.Git.Files[0] != "src/lib/pricing.ts" {
+		t.Fatalf("touched did not round-trip: %+v", got.Git.Files)
+	}
+
+	hits, err := Touching(v, "src/lib/pricing.ts", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("why found %d checkpoints for a file git recorded as changed; want 1", len(hits))
+	}
+	if hits[0].Task != "add annual billing" {
+		t.Errorf("matched the wrong checkpoint: %q", hits[0].Task)
 	}
 }
