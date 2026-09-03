@@ -113,6 +113,10 @@ CONTINUITY
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
     brain memory log [--project P] [--n N]   what changed in what it knows, newest first
+    brain activity [--project P] [--kind K] [--tool T] [--days N] [--json]
+                                      every prompt, tool call and turn the host reported —
+                                      recorded automatically, not by the model's choice
+    brain activity --projects         which projects are being recorded
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     brain jot <thought>               braindump: capture and auto-file a thought
     brain loop [add|done|drop]        manage open loops (commitments)
@@ -254,6 +258,8 @@ func main() {
 		err = runThink(rest)
 	case cmd == "capture":
 		err = runCapture(hasFlag(args, "--daemon"), flagInt(args, "--backfill-days", defaultBackfillDays))
+	case cmd == "activity":
+		err = runActivity(args)
 	case cmd == "timeline":
 		err = timeline(hasFlag(args, "--verbose"))
 	case cmd == "rollup":
