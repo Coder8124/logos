@@ -3,6 +3,8 @@ package contextpack
 import (
 	"strings"
 	"testing"
+
+	"github.com/Coder8124/brain/internal/memory"
 )
 
 func TestSpenderStopsAtTheAllowance(t *testing.T) {
@@ -91,5 +93,86 @@ func TestSkippedSectionReleasesItsShare(t *testing.T) {
 	}
 	if want := int(shares[secCheckpoint]*1000) + bare; after != want {
 		t.Errorf("allowance after skip = %d, want %d", after, want)
+	}
+}
+
+// A pin is a promise: it must survive a ranked memory that would otherwise
+// outrank it, and it must appear even when the memories section's whole
+// allowance is tiny — the entire point of pinning is that relevance and
+// budget pressure do not get a vote.
+func TestPinnedMemoriesAreNeverDroppedForBudget(t *testing.T) {
+	p := &Pack{}
+	p.Pinned = []memory.Memory{{ID: 1, Kind: memory.Fact, Text: "always show this", Source: "manual"}}
+	for i := 2; i < 40; i++ {
+		p.Related = append(p.Related, memory.Memory{
+			ID: int64(i), Kind: memory.Fact, Source: "conversation",
+			Text: strings.Repeat("x", 200), // large enough to fill the section alone
+		})
+	}
+
+	sp := newSpender(200) // a small total budget, so secMemories' share is tiny
+	kept := p.spendMemories(sp)
+
+	found := false
+	for _, s := range kept {
+		if strings.Contains(s, "always show this") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a pinned memory must never be dropped for budget, kept: %v", kept)
+	}
+}
+
+// If pinned items alone exceed the section's whole share, the documented
+// behaviour is that the ranked tail gets nothing this pass — not a half-cut
+// pinned item, not an undefined truncation.
+func TestPinnedMemoriesThatExceedTheBudgetStillAllRender(t *testing.T) {
+	p := &Pack{}
+	for i := 0; i < 5; i++ {
+		p.Pinned = append(p.Pinned, memory.Memory{
+			ID: int64(i + 1), Kind: memory.Fact, Source: "manual",
+			Text: strings.Repeat("pinned content ", 50),
+		})
+	}
+	p.Related = []memory.Memory{{ID: 99, Kind: memory.Fact, Source: "conversation", Text: "a ranked fact"}}
+
+	sp := newSpender(100) // far too small to hold five long pinned entries
+	kept := p.spendMemories(sp)
+
+	if len(kept) != len(p.Pinned) {
+		t.Fatalf("all pinned memories should render even over budget, got %d of %d", len(kept), len(p.Pinned))
+	}
+	for _, s := range kept {
+		if strings.Contains(s, "a ranked fact") {
+			t.Error("the ranked tail should get no room when pinned items alone exceed the allowance")
+		}
+	}
+	// The ranked drop has to be visible, or the budget looks fine when it is
+	// not — the same rule renderBudget enforces for every other section.
+	if len(p.Excluded) == 0 {
+		t.Error("dropping the ranked tail entirely should still be reported in Excluded")
+	}
+}
+
+// A memory that is both pinned and would also have ranked must render once,
+// tagged as pinned — not twice.
+func TestPinnedMemoryIsNotDuplicatedInTheRankedTail(t *testing.T) {
+	p := &Pack{}
+	m := memory.Memory{ID: 7, Kind: memory.Preference, Text: "short replies please", Source: "manual"}
+	p.Pinned = []memory.Memory{m}
+	p.Preferences = []memory.Memory{m}
+
+	sp := newSpender(4000)
+	kept := p.spendMemories(sp)
+
+	count := 0
+	for _, s := range kept {
+		if strings.Contains(s, "short replies please") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("a pinned-and-ranked memory should render once, rendered %d times: %v", count, kept)
 	}
 }

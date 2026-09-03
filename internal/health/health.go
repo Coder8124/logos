@@ -107,6 +107,7 @@ func Run(in Input) Report {
 	r.Add(checkEmbeddings(in.DB, in.Runtime))
 	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
+	r.Add(checkAbandonment(in.DB))
 	r.Add(checkCapture(in.DB, in.RetentionDays, in.KeepForever))
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
@@ -294,6 +295,48 @@ func checkContinuity(vault string) Check {
 	}
 	c.State = OK
 	c.Detail = fmt.Sprintf("last checkpoint %s ago — %s, by %s", roughly(time.Since(latest)), project, who)
+	return c
+}
+
+// Abandonment is the failure checkContinuity cannot see. A checkpoint being
+// recent says the *product* of continuity is happening; it says nothing about
+// work that started and never made it that far. session.Uncommitted already
+// holds those notes — they are not lost — but nothing surfaced them as a
+// problem, so a session that died mid-task looked identical to one that simply
+// had not been checkpointed yet. This is what tells the two apart.
+func checkAbandonment(db *sql.DB) Check {
+	c := Check{Name: "abandoned sessions"}
+	if db == nil {
+		c.State, c.Detail = Unknown, "no index open"
+		return c
+	}
+	abandoned, err := session.FindAbandoned(db, session.AbandonAfter)
+	if err != nil {
+		// A vault that has never run a session command has no sessions table
+		// yet — nothing has been abandoned because nothing has been tried.
+		c.State, c.Detail = Unknown, "could not read sessions: "+err.Error()
+		return c
+	}
+	if len(abandoned) == 0 {
+		c.State, c.Detail = OK, "none"
+		return c
+	}
+	c.State = Failed
+	lines := make([]string, 0, len(abandoned))
+	for _, a := range abandoned {
+		who := a.Agent
+		if who == "" {
+			who = "an agent"
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s, %d notes, %s ago)",
+			a.Project, who, a.Notes, roughly(time.Since(time.Unix(a.LastActivity, 0)))))
+	}
+	suffix := "s"
+	if len(abandoned) == 1 {
+		suffix = ""
+	}
+	c.Detail = fmt.Sprintf("%d session%s never checkpointed — %s", len(abandoned), suffix, strings.Join(lines, "; "))
+	c.Fix = "run `brain sessions <project>` to see the notes, then checkpoint them or let the session go"
 	return c
 }
 

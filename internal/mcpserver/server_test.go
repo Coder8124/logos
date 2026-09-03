@@ -185,6 +185,7 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 	want := map[string]bool{
 		// memory: what do you know about X
 		"remember": true, "recall": true, "list_memories": true, "forget": true,
+		"pin_memory": true, "exclude_memory": true,
 		"memory_diff": true, "list_projects": true,
 		// continuity: where were we
 		"context": true, "resume": true, "note_progress": true,
@@ -282,6 +283,75 @@ func TestForgetRemovesMemory(t *testing.T) {
 	if strings.Contains(after, "Temporary note") {
 		t.Errorf("memory survived forget; list:\n%s", after)
 	}
+}
+
+func TestPinMemoryAndExcludeMemoryRoundTrip(t *testing.T) {
+	// Pinning is an act on something the user already believes, so this test
+	// needs active memories, not proposals: an MCP client's remember is
+	// quarantined by default and a quarantined memory is not listable, let
+	// alone recallable.
+	t.Setenv("BRAIN_TRUST_MCP", "1")
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	c.callText(t, "remember", map[string]any{"text": "Always keep this in mind.", "kind": "fact"})
+	c.callText(t, "remember", map[string]any{"text": "Never surface this again.", "kind": "fact"})
+	list, _ := c.callText(t, "list_memories", nil)
+	pinID := idForText(t, list, "Always keep this in mind.")
+	excludeID := idForText(t, list, "Never surface this again.")
+
+	if out, isErr := c.callText(t, "pin_memory", map[string]any{"id": pinID}); isErr {
+		t.Fatalf("pin_memory reported error: %s", out)
+	}
+	if out, isErr := c.callText(t, "exclude_memory", map[string]any{"id": excludeID}); isErr {
+		t.Fatalf("exclude_memory reported error: %s", out)
+	}
+
+	after, _ := c.callText(t, "list_memories", nil)
+	if !strings.Contains(after, "[pinned]") {
+		t.Errorf("pinned memory should be visibly tagged in list_memories:\n%s", after)
+	}
+	if !strings.Contains(after, "[excluded]") {
+		t.Errorf("excluded memory should be visibly tagged in list_memories:\n%s", after)
+	}
+
+	// A pin should survive an irrelevant recall query — that is the entire
+	// point of pinning over relying on relevance.
+	recalled, _ := c.callText(t, "recall", map[string]any{"query": "something about weather patterns entirely unrelated"})
+	if !strings.Contains(recalled, "Always keep this in mind.") {
+		t.Errorf("a pinned memory should recall regardless of query relevance, got:\n%s", recalled)
+	}
+	if strings.Contains(recalled, "Never surface this again.") {
+		t.Errorf("an excluded memory must never come back from recall, got:\n%s", recalled)
+	}
+
+	// Unpin should return the pinned memory to normal ranking (it stops
+	// appearing for an unrelated query) without deleting it.
+	if out, isErr := c.callText(t, "pin_memory", map[string]any{"id": pinID, "unpin": true}); isErr {
+		t.Fatalf("pin_memory unpin reported error: %s", out)
+	}
+	after, _ = c.callText(t, "list_memories", nil)
+	if strings.Contains(after, "[pinned]") {
+		t.Errorf("unpin should clear the pinned tag:\n%s", after)
+	}
+	if !strings.Contains(after, "Always keep this in mind.") {
+		t.Errorf("unpin must not delete the memory:\n%s", after)
+	}
+}
+
+func idForText(t *testing.T, listing, text string) string {
+	t.Helper()
+	for _, line := range strings.Split(listing, "\n") {
+		if strings.Contains(line, text) {
+			start := strings.Index(line, "[")
+			end := strings.Index(line, "]")
+			if start >= 0 && end > start {
+				return line[start+1 : end]
+			}
+		}
+	}
+	t.Fatalf("no memory line found containing %q in:\n%s", text, listing)
+	return ""
 }
 
 func TestToolErrorsAreResultsNotProtocolErrors(t *testing.T) {

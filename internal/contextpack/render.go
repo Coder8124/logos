@@ -33,7 +33,6 @@ func (p *Pack) Render() string {
 	// 1. Gather each section's candidates.
 	working := p.wantWorking()
 	proj := p.wantProject()
-	mems := p.wantMemories()
 	loops := p.wantLoops()
 	notes, noteSlugs := p.wantNotes()
 
@@ -43,7 +42,7 @@ func (p *Pack) Render() string {
 	checkpoint := p.spendCheckpoint(sp)
 	keptWorking := sp.take(secWorking, working)
 	keptProj := sp.take(secProject, proj)
-	keptMems := sp.take(secMemories, mems)
+	keptMems := p.spendMemories(sp)
 	keptLoops := sp.take(secLoops, loops)
 	keptNotes := sp.take(secNotes, notes)
 
@@ -70,7 +69,9 @@ func (p *Pack) Render() string {
 	}
 	p.noteDropped(secWorking, len(working)-len(keptWorking))
 	p.noteDropped(secProject, len(proj)-len(keptProj))
-	p.noteDropped(secMemories, len(mems)-len(keptMems))
+	// secMemories' own dropped count is reported inside spendMemories, since
+	// only that function knows the split between the pinned tier (never
+	// dropped) and the ranked tail (dropped by the ordinary cutoff).
 	p.noteDropped(secLoops, len(loops)-len(keptLoops))
 
 	p.renderSources(&b)
@@ -402,9 +403,11 @@ func normalizeKey(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
-// all is every memory the pack is carrying, preferences included.
+// all is every memory the pack is carrying, preferences and pins included.
 func (p *Pack) all() []memory.Memory {
-	return append(append([]memory.Memory{}, p.Related...), p.Preferences...)
+	out := append([]memory.Memory{}, p.Related...)
+	out = append(out, p.Preferences...)
+	return append(out, p.Pinned...)
 }
 
 func (p *Pack) oldestWorking() int64 {
@@ -501,7 +504,16 @@ func (p *Pack) wantNotes() ([]string, []string) {
 func (p *Pack) wantMemories() []string {
 	var want []string
 	seen := map[int64]bool{}
+	// Pinned memories get their own tier in spendMemories and their own
+	// "pinned" framing in wantPinned; skip them here so a pinned preference or
+	// fact does not print twice.
+	for _, m := range p.Pinned {
+		seen[m.ID] = true
+	}
 	for _, m := range p.Preferences {
+		if seen[m.ID] {
+			continue
+		}
 		want = append(want, fmt.Sprintf("- preference: %s  _(%s)_", oneLine(m.Text), inline(m.Source)))
 		seen[m.ID] = true
 	}
@@ -517,6 +529,68 @@ func (p *Pack) wantMemories() []string {
 			m.Kind, oneLine(m.Text), meta, m.Confidence))
 	}
 	return want
+}
+
+// wantPinned renders what the user pinned, tagged as such — the tag is the
+// point: an agent reading "pinned" alongside a memory should read it as an
+// instruction the user made deliberately, not as a strong ranking result.
+func (p *Pack) wantPinned() []string {
+	want := make([]string, 0, len(p.Pinned))
+	for _, m := range p.Pinned {
+		want = append(want, fmt.Sprintf("- %s (pinned): %s  _(%s)_", m.Kind, oneLine(m.Text), inline(m.Source)))
+	}
+	return want
+}
+
+// spendMemories charges the memories section in two tiers, the same shape as
+// spendCheckpoint and for the same reason: one part of this section has no
+// natural size limit relative to the other.
+//
+// A pin is a promise, not a suggestion — the whole feature is "include this
+// regardless of relevance score", and a context pack that pins something and
+// then drops it for space would make pinning indistinguishable from a very
+// high salience score, which is a feature that already existed. So pinned
+// items are charged unconditionally, in full, before anything else touches
+// this section's allowance. If pinned items alone exceed the section's entire
+// share, the ranked tail simply gets nothing this pass — an explicit, reported
+// choice (see the Dropped count below) rather than a half-trimmed pinned
+// memory or a silent truncation nobody could predict.
+func (p *Pack) spendMemories(sp *spender) []string {
+	pinned := p.wantPinned()
+	ranked := p.wantMemories()
+
+	allowance := sp.allowance(secMemories)
+	pinnedCost := 0
+	for _, s := range pinned {
+		pinnedCost += estimate(s)
+	}
+
+	var keptRanked []string
+	used := pinnedCost
+	if room := allowance - pinnedCost; room > 0 {
+		rankedUsed := 0
+		for _, chunk := range ranked {
+			cost := estimate(chunk)
+			if rankedUsed+cost > room && len(keptRanked) > 0 {
+				break
+			}
+			keptRanked = append(keptRanked, chunk)
+			rankedUsed += cost
+		}
+		used += rankedUsed
+	}
+
+	sp.carry = max(0, allowance-used)
+	sp.spent += used
+	dropped := len(ranked) - len(keptRanked)
+	if len(pinned) > 0 || len(ranked) > 0 {
+		sp.lines = append(sp.lines, Line{
+			Section: secMemories, Tokens: used, Items: len(pinned) + len(keptRanked), Dropped: dropped,
+		})
+	}
+	p.noteDropped(secMemories, dropped)
+
+	return append(append([]string{}, pinned...), keptRanked...)
 }
 
 func (p *Pack) wantLoops() []string {

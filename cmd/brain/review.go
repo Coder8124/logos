@@ -240,6 +240,11 @@ func reviewMemories(ix *index.Index, in *bufio.Reader, pending []memory.Memory, 
 	return accepted, rejected, skipped, false
 }
 
+// pluralS is the bare plural suffix — "" or "s" — for a word the caller has
+// already written out. Distinct from activity.go's plural(n, word), which
+// builds the whole word; both exist because both readings are natural at a
+// call site and neither collapses into the other without making one of them
+// awkward.
 func pluralS(n int) string {
 	if n == 1 {
 		return ""

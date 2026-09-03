@@ -413,7 +413,12 @@ type memRow struct {
 }
 
 func loadMemories(db *sql.DB) ([]memRow, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created FROM memories WHERE superseded = 0`)
+	// A dossier is a surfacing path exactly like recall — pin=PinNever means
+	// never surface, and this feeds straight into a project's context, so the
+	// exclusion has to apply here too or "never include" would have a hole in
+	// it exactly where a project dossier reads the memory table directly
+	// instead of going through Recall.
+	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created FROM memories WHERE superseded = 0 AND pin != ?`, memory.PinNever)
 	if err != nil {
 		return nil, nil
 	}

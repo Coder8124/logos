@@ -70,8 +70,23 @@ type Memory struct {
 	// invisible to Recall/All until a human accepts it. See quarantine.go.
 	Quarantined bool    `json:"quarantined,omitempty"`
 	Score       float64 `json:"score"` // set on recall: relevance to the query
-	vec         []byte  // embedding, loaded only for consolidation; not serialised
+	// Pin overrides ranking entirely: PinAlways forces inclusion in a context
+	// pack regardless of relevance score, PinNever removes a memory from
+	// recall while leaving it on record. See PinAlways and PinNever.
+	Pin int    `json:"pin,omitempty"`
+	vec []byte // embedding, loaded only for consolidation; not serialised
 }
+
+// Pin states. PinNone is the default: ranked normally, neither forced in nor
+// held out. Deliberately two states rather than a bool, because "always show
+// me this" and "never show me this" are different user intents, not opposites
+// of the same one — a memory can need overriding in either direction, and a
+// single flag can only say one of them.
+const (
+	PinNone   = 0 // ranked normally
+	PinAlways = 1 // always included in a context pack, budget permitting — see spendMemories
+	PinNever  = 2 // excluded from recall entirely; still on record, still listed by All
+)
 
 const Schema = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -90,7 +105,8 @@ CREATE TABLE IF NOT EXISTS memories (
     fingerprint   TEXT UNIQUE,
     superseded    INTEGER NOT NULL DEFAULT 0,
     superseded_by INTEGER NOT NULL DEFAULT 0,
-    quarantined   INTEGER NOT NULL DEFAULT 0
+    quarantined   INTEGER NOT NULL DEFAULT 0,
+    pin           INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
 
@@ -134,6 +150,7 @@ func Init(db *sql.DB) error {
 	db.Exec("CREATE INDEX IF NOT EXISTS memories_project ON memories(project)")
 	db.Exec("ALTER TABLE memories ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE memories ADD COLUMN agent TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0")
 	// Stage 4: quarantine. Defaulting existing rows to 0 (not quarantined) is
 	// what makes this additive — every memory anyone already has stays exactly
 	// as visible and recallable as it was before this column existed.
@@ -354,11 +371,13 @@ func sameFact(incoming, existing string) bool {
 // in the ranking.
 func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) ([]Memory, error) {
 	if p == nil {
-		return All(db) // no embedding backend: fall back to everything, salience-first
+		mems, err := All(db) // no embedding backend: fall back to everything, salience-first
+		return excludeNever(mems), err
 	}
 	vecs, err := p.Embed(embedModel, []string{query})
 	if err != nil || len(vecs) == 0 {
-		return All(db)
+		mems, err := All(db)
+		return excludeNever(mems), err
 	}
 	mems, err := recallByVec(db, vecs[0], k, query)
 	if err != nil {
@@ -387,8 +406,13 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 	// not be returned by normal recall" — every read path funnels through here
 	// or through All/AllInProject below, so this one line is what makes the
 	// guarantee real rather than aspirational.
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec FROM memories WHERE superseded = 0 AND quarantined = 0`
-	var args []any
+	//
+	// PinNever is excluded in the same clause and for the same reason, rather
+	// than after ranking: it is what "never include" is for, and a memory that
+	// never reaches the candidate list cannot leak in via a generous k or a
+	// scoring quirk.
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
+	args := []any{PinNever}
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
 		args = append(args, project)
@@ -405,7 +429,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -432,6 +456,10 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 		mems[i].Score = rel*0.85 + EffectiveSalience(mems[i], now)*mems[i].Confidence*0.15
 	}
 	sortByScore(mems)
+	// A pinned memory belongs in the pack regardless of where it lands here —
+	// pack assembly asks for it separately (see contextpack's use of Pinned)
+	// rather than depending on it surviving this cutoff, so no special case is
+	// needed in this function for PinAlways.
 	if len(mems) > k {
 		mems = mems[:k]
 	}
@@ -446,11 +474,13 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 	// edge case. Losing relevance ranking is acceptable here; leaking another
 	// project's facts is not.
 	if p == nil {
-		return AllInProject(db, project)
+		mems, err := AllInProject(db, project)
+		return excludeNever(mems), err
 	}
 	vecs, err := p.Embed(embedModel, []string{query})
 	if err != nil || len(vecs) == 0 {
-		return AllInProject(db, project)
+		mems, err := AllInProject(db, project)
+		return excludeNever(mems), err
 	}
 	mems, err := recallScoped(db, vecs[0], k, query, project)
 	if err != nil {
@@ -467,7 +497,7 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +506,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -494,7 +524,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 		return All(db)
 	}
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin
 		   FROM memories
 		  WHERE superseded = 0 AND quarantined = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
@@ -506,7 +536,54 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
+			return nil, err
+		}
+		m.Kind = Kind(kind)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// excludeNever drops PinNever memories from a slice that was not already
+// filtered at the SQL level — the no-embedding fallback paths, which read
+// through All/AllInProject rather than recallScoped. All itself stays
+// unfiltered: it also backs the CLI listing, where a user managing what is
+// excluded needs to be able to see it.
+func excludeNever(mems []Memory) []Memory {
+	out := mems[:0]
+	for _, m := range mems {
+		if m.Pin != PinNever {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Pinned returns every active PinAlways memory in scope for a project — its
+// own plus the global ones, the same scoping AllInProject uses. This is the
+// list contextpack must include regardless of relevance score; ranking never
+// gets a vote on whether a pinned memory appears; only the budget does, and
+// only in the sense of how much of it fits — see spendMemories.
+func Pinned(db *sql.DB, project string) ([]Memory, error) {
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin
+	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ?`
+	args := []any{PinAlways}
+	if strings.TrimSpace(project) != "" {
+		q += " AND (project = ? OR project = '')"
+		args = append(args, project)
+	}
+	q += " ORDER BY created ASC"
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Memory
+	for rows.Next() {
+		var m Memory
+		var kind string
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -584,6 +661,38 @@ func ForgetBySource(db *sql.DB, source string) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// Pin marks a memory always-include: a context pack carries it regardless of
+// relevance score. For the handful of things that are always worth having on
+// hand — the standing instruction, the fact that governs everything else — and
+// that a ranking model might otherwise rate as unremarkable on any given query.
+func Pin(db *sql.DB, id int64) error { return setPin(db, id, PinAlways, "pinned") }
+
+// Unpin returns a memory to normal ranking, whichever direction it was set —
+// pinned or excluded.
+func Unpin(db *sql.DB, id int64) error { return setPin(db, id, PinNone, "unpinned") }
+
+// Exclude marks a memory never-include: it is dropped from recall entirely,
+// but stays on record rather than being deleted. For the case Forget is too
+// blunt for — a memory that is not wrong, just not something that should
+// surface (something sensitive, something the user would rather manage by
+// hand) — where the honest action is "stop showing me this", not "erase it".
+func Exclude(db *sql.DB, id int64) error { return setPin(db, id, PinNever, "excluded") }
+
+// setPin is Forget's pattern without the delete: snapshot for the log, change
+// the row, log the event, flush to the vault so the state survives `rm -rf
+// .brain`. Silently a no-op on an id that does not exist, matching Forget —
+// see there for why that asymmetry (permissive here, not an error) is the
+// existing behaviour rather than a gap introduced by this function.
+func setPin(db *sql.DB, id int64, pin int, verb string) error {
+	var text, kind string
+	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
+	if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
+		return err
+	}
+	logEvent(db, id, EvUpdated, verb+": "+text, 0)
+	return flush(db, Kind(kind))
 }
 
 // --- vector helpers (shared shape with the index) ---

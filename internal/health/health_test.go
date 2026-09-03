@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/session"
 
 	_ "modernc.org/sqlite"
 )
@@ -123,6 +125,58 @@ func TestContinuityFindsNestedCheckpoints(t *testing.T) {
 		if !strings.Contains(c.Detail, want) {
 			t.Errorf("continuity detail %q does not name %q", c.Detail, want)
 		}
+	}
+}
+
+// checkContinuity can be all-clear — a recent checkpoint exists — while a
+// second, different session died mid-task and never made it that far. The two
+// checks have to disagree in that case, or the second session's work stays
+// invisible exactly the way this feature exists to prevent.
+func TestAbandonedSessionsAreReported(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-2 * session.AbandonAfter).Unix()
+	if _, err := session.AddNoteAt(ix.DB, "kestrel", "codex", "found the bad batch", old); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
+	if c.State != Failed {
+		t.Fatalf("abandoned sessions state = %q, want %q", c.State, Failed)
+	}
+	if !strings.Contains(c.Detail, "kestrel") || !strings.Contains(c.Detail, "codex") {
+		t.Errorf("detail %q does not name the abandoned session", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Error("a failed abandonment check should say what to do about it")
+	}
+}
+
+func TestNoAbandonedSessionsIsOK(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.AddNote(ix.DB, "kestrel", "codex", "just started"); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
+	if c.State != OK {
+		t.Errorf("abandoned sessions state = %q on a fresh session, want %q", c.State, OK)
 	}
 }
 
