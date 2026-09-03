@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
@@ -88,10 +89,27 @@ func Open(vaultDir string) (*Index, error) {
 	// connection per process keeps this process's own writes serialised.
 	db.SetMaxOpenConns(1)
 
-	for _, pragma := range []string{"PRAGMA journal_mode=WAL", "PRAGMA foreign_keys=ON"} {
-		if _, err := db.Exec(pragma); err != nil {
-			return nil, err
+	// Switching a database into WAL takes a brief exclusive lock, and — unlike
+	// an ordinary write — busy_timeout does not make a caller wait for it. So
+	// when several processes open a fresh vault at the same moment, which is
+	// exactly what happens the first time someone starts a coding agent, the
+	// editor and the CLI together, all but one get SQLITE_BUSY. That used to
+	// abort Open, so the user's first command failed with "database is locked"
+	// and no way to tell that trying again would work.
+	//
+	// Retry briefly, then carry on. Once any process has made the conversion
+	// every other process sees WAL, so the loop nearly always ends on the first
+	// or second attempt. Failing all of them is still not fatal: a database in
+	// the journal mode it already has is slower under concurrent reads and
+	// entirely correct, and the next open converts it.
+	for attempt := range 10 {
+		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err == nil {
+			break
 		}
+		time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return nil, err
 	}
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
