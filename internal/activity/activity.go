@@ -38,6 +38,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	vaultpkg "github.com/Coder8124/brain/internal/vault"
 )
 
 // Dir is the vault subdirectory holding the log.
@@ -94,7 +96,7 @@ func Append(vault string, e Event) error {
 		return fmt.Errorf("activity: an event needs a kind")
 	}
 	dir := filepath.Join(vault, Dir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := vaultpkg.MkdirPrivate(dir); err != nil {
 		return err
 	}
 	line, err := json.Marshal(e)
@@ -105,7 +107,7 @@ func Append(vault string, e Event) error {
 	// enough for concurrent hooks: two agents in two terminals will interleave
 	// whole lines, never half of one. That is the property that matters — a
 	// torn line would poison every reader of the file, including jq.
-	f, err := os.OpenFile(monthFile(dir, e.TS), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(monthFile(dir, e.TS), os.O_APPEND|os.O_CREATE|os.O_WRONLY, vaultpkg.FileMode)
 	if err != nil {
 		return err
 	}

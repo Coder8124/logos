@@ -14,6 +14,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
+	vaultpkg "github.com/Coder8124/brain/internal/vault"
 )
 
 // `brain demo` — the ninety seconds that show what this is for.
@@ -44,7 +45,7 @@ func runDemo(args []string) error {
 		}
 		defer os.RemoveAll(dir)
 		vault = dir
-	} else if err := os.MkdirAll(vault, 0o755); err != nil {
+	} else if err := vaultpkg.MkdirPrivate(vault); err != nil {
 		return err
 	}
 
@@ -227,7 +228,7 @@ func pause(slow bool, d time.Duration) {
 }
 
 func openEventsAt(vault string) (*index.Index, error) {
-	if err := os.MkdirAll(filepath.Join(vault, ".brain"), 0o755); err != nil {
+	if err := vaultpkg.MkdirPrivate(filepath.Join(vault, ".brain")); err != nil {
 		return nil, err
 	}
 	old := os.Getenv("BRAIN_VAULT")

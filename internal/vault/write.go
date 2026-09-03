@@ -14,7 +14,7 @@ import (
 // writer means one set of guarantees, rather than each caller reinventing how
 // carefully it wants to be interrupted.
 func WriteAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
 
@@ -34,6 +34,13 @@ func WriteAtomic(path string, data []byte) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp already makes 0600 files, so this changes nothing today. It
+	// is here because "notes are private" was true only as a side effect of that
+	// choice, and a side effect is not a guarantee — the next person to swap the
+	// temp file for something else would silently widen every note in the vault.
+	if err := os.Chmod(tmpName, FileMode); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)

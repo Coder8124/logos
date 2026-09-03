@@ -26,6 +26,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	vaultpkg "github.com/Coder8124/brain/internal/vault"
 )
 
 // Level is how much to say.
@@ -92,10 +94,10 @@ func Store(vault string, l Level) error {
 		}
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := vaultpkg.MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(l.String()+"\n"), 0o644)
+	return os.WriteFile(path, []byte(l.String()+"\n"), vaultpkg.FileMode)
 }
 
 func (l Level) String() string {

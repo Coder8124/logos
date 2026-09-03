@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	vaultpkg "github.com/Coder8124/brain/internal/vault"
 )
 
 // Tier orders jobs by how much capability they need. Small local models are
@@ -144,7 +146,7 @@ func Load(vault string) (*Config, error) {
 }
 
 func (c *Config) Save(vault string) error {
-	if err := os.MkdirAll(filepath.Dir(ConfigPath(vault)), 0o755); err != nil {
+	if err := vaultpkg.MkdirPrivate(filepath.Dir(ConfigPath(vault))); err != nil {
 		return err
 	}
 	raw, err := jsonMarshalIndent(c)

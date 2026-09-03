@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	vaultpkg "github.com/Coder8124/brain/internal/vault"
 )
 
 // Config is the assistant's slice of the vault's .brain directory. Kept in its
@@ -75,7 +77,7 @@ func Load(vault string) (*Config, error) {
 }
 
 func (c *Config) Save(vault string) error {
-	if err := os.MkdirAll(filepath.Dir(path(vault)), 0o755); err != nil {
+	if err := vaultpkg.MkdirPrivate(filepath.Dir(path(vault))); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(c, "", "  ")

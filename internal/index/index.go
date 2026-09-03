@@ -65,7 +65,7 @@ type SyncReport struct {
 
 func Open(vaultDir string) (*Index, error) {
 	dir := filepath.Join(vaultDir, ".brain")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := vault.MkdirPrivate(dir); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", dir, err)
 	}
 
@@ -99,6 +99,15 @@ func Open(vaultDir string) (*Index, error) {
 		return nil, err
 	}
 	migrate(db)
+	// The driver creates index.db with its own mode, and the -wal file — which
+	// holds the most recent writes, not yet checkpointed back — with another. The
+	// database is a full copy of every note, memory and checkpoint in the vault,
+	// so leaving it 0644 undid the 0600 on the markdown it was built from.
+	//
+	// Advisory: a vault on a filesystem that cannot represent these modes still
+	// works, and refusing to open it would be a worse answer than opening it.
+	// `brain doctor` reports what it finds either way.
+	_ = vault.PrivateSiblings(filepath.Join(dir, "index.db"))
 	// Pair the memory store with the vault it belongs to. This is the one place
 	// that holds both, and doing it here means every write path gets a durable
 	// copy without each caller having to remember to ask for one. The binding is
@@ -133,8 +142,30 @@ func migrate(db *sql.DB) {
 	db.QueryRow("SELECT COUNT(*) FROM notes").Scan(&notesN)
 	db.QueryRow("SELECT COUNT(*) FROM notes_fts").Scan(&ftsN)
 	if notesN > 0 && ftsN < notesN {
-		db.Exec("DELETE FROM notes_fts")
-		db.Exec(`INSERT INTO notes_fts (slug, title, body) SELECT slug, title, body FROM notes`)
+		// The two statements are one operation. Run loose, a DELETE that succeeds
+		// followed by an INSERT that fails leaves the FTS table *empty* — and the
+		// count check above then reads it as needing a rebuild on every subsequent
+		// open, so the vault settles into a state where lexical search returns
+		// nothing and nothing ever says why. A transaction makes the pair all or
+		// nothing; the worst case becomes "search is as stale as it already was".
+		tx, err := db.Begin()
+		if err == nil {
+			_, err = tx.Exec("DELETE FROM notes_fts")
+			if err == nil {
+				_, err = tx.Exec(`INSERT INTO notes_fts (slug, title, body) SELECT slug, title, body FROM notes`)
+			}
+			if err == nil {
+				err = tx.Commit()
+			} else {
+				tx.Rollback()
+			}
+		}
+		if err != nil {
+			// Not fatal: a vault with a stale search index still opens, still
+			// writes, and still answers semantically. Silence is what made this a
+			// bug, not the failure itself.
+			fmt.Fprintf(os.Stderr, "brain: could not rebuild the search index: %v\n", err)
+		}
 	}
 }
 

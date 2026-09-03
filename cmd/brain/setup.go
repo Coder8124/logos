@@ -14,6 +14,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/setup"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // brain setup — the one command between cloning this and an agent answering
@@ -68,7 +69,10 @@ func chooseVault(args []string) (dir string, created bool, err error) {
 		return "", false, err
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
-		if err := os.MkdirAll(abs, 0o755); err != nil {
+		// Private from the first mkdir. A vault created world-readable and
+		// tightened later is a vault that was world-readable for however long the
+		// user took to run `brain doctor`.
+		if err := vault.MkdirPrivate(abs); err != nil {
 			return "", false, fmt.Errorf("creating %s: %w", abs, err)
 		}
 		created = true

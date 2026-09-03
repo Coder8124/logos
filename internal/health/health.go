@@ -102,6 +102,7 @@ type Input struct {
 func Run(in Input) Report {
 	var r Report
 	r.Add(checkVault(in.Vault))
+	r.Add(checkPrivacy(in.Vault))
 	r.Add(checkNotes(in.DB))
 	r.Add(checkFreshness(in.Vault, in.DB))
 	r.Add(checkEmbeddings(in.DB, in.Runtime))
@@ -520,4 +521,57 @@ func roughly(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%d days", int(d.Hours()/24))
 	}
+}
+
+// checkPrivacy reports what the rest of the machine can read.
+//
+// Everything Logos knows lives in one directory in the user's home. On a
+// personal laptop that is nobody but them; on a shared box, a work machine with
+// a management agent, or anything with another account on it, the mode bits are
+// the only thing standing between a second user and every prompt the first one
+// typed. That is worth one line in `brain doctor` whether or not it is worth
+// worrying about, because "who can read this" is not a question you can answer
+// by looking at the app.
+//
+// It reports rather than repairs. New files and directories are created private
+// (see internal/vault.FileMode), but a vault that predates that, or one the user
+// deliberately opened up to sync it, is theirs — silently chmod-ing somebody's
+// filesystem is exactly the kind of unrequested help this product does not do.
+// So: name the paths, give the command, let them decide.
+func checkPrivacy(dir string) Check {
+	c := Check{Name: "privacy"}
+	if strings.TrimSpace(dir) == "" {
+		c.State, c.Detail = Unknown, "no vault path resolved"
+		return c
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		c.State, c.Detail = Unknown, "vault not readable: "+err.Error()
+		return c
+	}
+	if info.Mode().Perm()&0o077 == 0 {
+		c.State, c.Detail = OK, "the vault is readable only by you"
+		return c
+	}
+	// Name what is actually exposed rather than the directory alone. "0755 on a
+	// folder" means nothing to most people; "your prompt log and the database
+	// holding every note" means something.
+	var open []string
+	for _, rel := range []string{"activity", ".brain/index.db", ".brain/index.db-wal", "memories", "sessions"} {
+		p := filepath.Join(dir, rel)
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if fi.Mode().Perm()&0o077 != 0 {
+			open = append(open, rel)
+		}
+	}
+	c.State = Failed
+	c.Detail = fmt.Sprintf("%s is readable by other users on this machine", dir)
+	if len(open) > 0 {
+		c.Detail += " — so is " + strings.Join(open, ", ")
+	}
+	c.Fix = "run `chmod -R go-rwx " + dir + "` if this machine has other accounts on it"
+	return c
 }
