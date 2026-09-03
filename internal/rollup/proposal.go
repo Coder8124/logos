@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 )
@@ -79,6 +80,13 @@ func InitQueue(db *sql.DB) error {
 
 // Validate enforces the invariants that make the queue trustworthy. Called on
 // every insert rather than trusted from the model.
+//
+// Every field here is model output, written by a small local model reading
+// captured text — web pages, other people's messages, whatever was on the
+// clipboard. So the target is checked for staying inside the vault (joining it
+// on unchecked made accepting a proposal a way to write a file anywhere the
+// user can write) and the one-line fields are checked for the newlines that
+// would let a note's frontmatter be forged from its own title.
 func (p *Proposal) Validate() error {
 	if len(p.Evidence) == 0 {
 		return fmt.Errorf("proposal for %q has no evidence — refusing to queue it", p.Target)
@@ -86,8 +94,25 @@ func (p *Proposal) Validate() error {
 	if strings.TrimSpace(p.Target) == "" {
 		return fmt.Errorf("proposal has no target")
 	}
+	if err := checkTarget(p.Target); err != nil {
+		return err
+	}
 	if p.Conf < 0 || p.Conf > 1 {
 		return fmt.Errorf("proposal for %q has confidence %v outside 0..1", p.Target, p.Conf)
+	}
+	for name, v := range map[string]string{
+		"title": p.Payload.Title, "type": p.Payload.Type,
+		"pred": p.Payload.Pred, "obj": p.Payload.Obj,
+	} {
+		if strings.ContainsAny(v, "\n\r") {
+			return fmt.Errorf("proposal for %q has a line break in its %s, which no name has",
+				p.Target, name)
+		}
+	}
+	if p.Payload.Into != "" {
+		if err := checkTarget(p.Payload.Into); err != nil {
+			return err
+		}
 	}
 	switch p.Kind {
 	case NewNote, Append:
@@ -104,6 +129,26 @@ func (p *Proposal) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown proposal kind %q", p.Kind)
+	}
+	return nil
+}
+
+// checkTarget refuses a note slug that would not land inside the vault.
+//
+// Checked here as well as at write time on purpose: a proposal that could never
+// be safely applied has no business sitting in the review queue looking like a
+// decision the user gets to make.
+func checkTarget(slug string) error {
+	clean := path.Clean("/" + strings.ReplaceAll(strings.TrimSpace(slug), `\`, "/"))
+	if clean == "/" {
+		return fmt.Errorf("proposal target %q names no note", slug)
+	}
+	// path.Clean on a rooted path resolves every ".." it can; what is left after
+	// trimming the root must be the slug itself, or the slug was reaching out of
+	// the vault (or in by an absolute path, which is the same escape spelled
+	// differently).
+	if strings.TrimPrefix(clean, "/") != strings.TrimSpace(slug) {
+		return fmt.Errorf("proposal target %q would write outside the vault", slug)
 	}
 	return nil
 }
