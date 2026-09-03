@@ -1,7 +1,10 @@
 package main
 
 import (
+	"time"
+
 	"github.com/Coder8124/brain/internal/agent"
+	"github.com/Coder8124/brain/internal/consent"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -44,11 +47,37 @@ func (a *App) Send(message string) {
 
 		// The reply is delivered; now quietly learn any durable facts from it,
 		// while this handle is still open. Persistent memory is what makes the
-		// next session start already knowing the user.
-		if n, _ := agent.Learn(ix.DB, rt, conversation); n > 0 {
-			runtime.EventsEmit(a.ctx, "memory:learned", n)
+		// next session start already knowing the user — but writing to that
+		// memory without asking is the exact thing Stage 4 exists to stop.
+		// consent.Allowed reports whether the user has already said "go ahead"
+		// (a one-off grant or a timed "stop asking for an hour"); if not, skip
+		// Learn entirely and tell the frontend to ask, rather than learning
+		// silently and rather than blocking the reply on a prompt no one has
+		// answered yet.
+		if consent.Allowed() {
+			if n, _ := agent.Learn(ix.DB, rt, conversation); n > 0 {
+				runtime.EventsEmit(a.ctx, "memory:learned", n)
+			}
+		} else {
+			runtime.EventsEmit(a.ctx, "memory:consent-needed", "")
 		}
 	}()
+}
+
+// GrantLearning allows automatic learning from chat without asking again,
+// for the next `minutes` minutes. minutes <= 0 means for the rest of this
+// run — see consent.Grant. This is the backend half of "disable asks for an
+// hour and allow all writes": the frontend calls it once the user answers
+// the consent prompt, and every Send after that skips the prompt until the
+// grant runs out.
+func (a *App) GrantLearning(minutes int) {
+	consent.Grant(time.Duration(minutes) * time.Minute)
+}
+
+// RevokeLearning withdraws any standing grant, so the next chat exchange
+// asks again before it learns.
+func (a *App) RevokeLearning() {
+	consent.Revoke()
 }
 
 // History returns the conversation so the UI can restore it when reopened.

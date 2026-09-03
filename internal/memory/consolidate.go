@@ -44,7 +44,10 @@ func EffectiveSalience(m Memory, now int64) float64 {
 // store's own sense of importance drifts toward what is actually exercised.
 // Idempotent enough to run periodically; the floor stops anything vanishing.
 func Decay(db *sql.DB, now int64) (int, error) {
-	rows, err := db.Query(`SELECT id, salience, created, last_used, uses FROM memories WHERE superseded = 0`)
+	// quarantined = 0: nothing waiting for review has earned an opinion about
+	// its own importance yet — that is a judgement Accept hands it, not one it
+	// should drift into on its own while sitting in the queue.
+	rows, err := db.Query(`SELECT id, salience, created, last_used, uses FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return 0, err
 	}
@@ -100,10 +103,14 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 	return filtered, nil
 }
 
-// activeMemories loads non-superseded memories with their vectors, for the
-// consolidation pass.
+// activeMemories loads non-superseded, non-quarantined memories with their
+// vectors, for the consolidation pass. Excluding the quarantined ones matters
+// here specifically: Consolidate can supersede or merge a memory on the
+// model's say-so alone, and running that against something nobody has
+// reviewed yet would let the model adjudicate its own unreviewed proposal —
+// exactly the unsupervised write this whole stage exists to prevent.
 func activeMemories(db *sql.DB) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return nil, err
 	}

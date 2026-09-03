@@ -9,6 +9,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/rollup"
 	"github.com/Coder8124/brain/internal/router"
 )
@@ -68,6 +69,12 @@ func runRollup(dateArg string, dryRun bool) error {
 	return nil
 }
 
+// runReview is the one review command for everything waiting on a human:
+// rollup's proposed vault notes and Stage 4's quarantined memories. Two
+// different queues, two different payloads, but the same question each
+// time — accept, reject, or skip — so they share one command and one final
+// tally instead of asking the user to remember two commands for "things I
+// haven't looked at yet".
 func runReview(all bool) error {
 	ix, err := openEvents()
 	if err != nil {
@@ -78,20 +85,55 @@ func runReview(all bool) error {
 	if err := rollup.InitQueue(ix.DB); err != nil {
 		return err
 	}
+	if err := memory.Init(ix.DB); err != nil {
+		return err
+	}
 
-	pending, err := rollup.List(ix.DB, rollup.Pending)
+	notes, err := rollup.List(ix.DB, rollup.Pending)
 	if err != nil {
 		return err
 	}
-	if len(pending) == 0 {
-		fmt.Println("note queue is empty")
+	memories, err := memory.Pending(ix.DB)
+	if err != nil {
+		return err
+	}
+	if len(notes) == 0 && len(memories) == 0 {
+		fmt.Println("review queue is empty")
 		return nil
 	}
 
-	fmt.Printf("%d pending · [a]ccept  [r]eject  [s]kip  [e]vidence  [q]uit\n\n", len(pending))
 	in := bufio.NewReader(os.Stdin)
+	var accepted, rejected, skipped int
 
-	accepted, rejected, skipped := 0, 0, 0
+	if len(notes) > 0 {
+		a, r, s, quit := reviewNotes(ix, in, notes, all)
+		accepted, rejected, skipped = accepted+a, rejected+r, skipped+s
+		if quit {
+			fmt.Printf("\n%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
+			return nil
+		}
+	}
+	if len(memories) > 0 {
+		a, r, s, quit := reviewMemories(ix, in, memories, all)
+		accepted, rejected, skipped = accepted+a, rejected+r, skipped+s
+		if quit {
+			fmt.Printf("\n%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
+			return nil
+		}
+	}
+
+	fmt.Printf("%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
+	if accepted > 0 {
+		fmt.Println("run `brain index` to pick up the new notes")
+	}
+	return nil
+}
+
+// reviewNotes runs the accept/reject/skip loop over rollup's proposed vault
+// notes. quit reports whether the user asked to stop early (q), in which
+// case runReview must not go on to the memory queue behind their back.
+func reviewNotes(ix *index.Index, in *bufio.Reader, pending []rollup.Proposal, all bool) (accepted, rejected, skipped int, quit bool) {
+	fmt.Printf("%d pending note%s · [a]ccept  [r]eject  [s]kip  [e]vidence  [q]uit\n\n", len(pending), pluralS(len(pending)))
 
 	for i, p := range pending {
 		if !all && i >= 20 {
@@ -107,7 +149,7 @@ func runReview(all bool) error {
 			line, err := in.ReadString('\n')
 			if err != nil {
 				fmt.Println()
-				return nil
+				return accepted, rejected, skipped, true
 			}
 
 			switch strings.TrimSpace(strings.ToLower(line)) {
@@ -131,8 +173,7 @@ func runReview(all bool) error {
 				printEvidence(ix, p)
 				continue // stay on this proposal
 			case "q":
-				fmt.Printf("\n%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
-				return nil
+				return accepted, rejected, skipped, true
 			default:
 				continue
 			}
@@ -140,12 +181,77 @@ func runReview(all bool) error {
 		}
 		fmt.Println()
 	}
+	return accepted, rejected, skipped, false
+}
 
-	fmt.Printf("%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
-	if accepted > 0 {
-		fmt.Println("run `brain index` to pick up the new notes")
+// reviewMemories runs the same accept/reject/skip loop over Stage 4's
+// quarantined memories — the queue that MCP's remember tool fills so that no
+// agent writes straight into the vault (see internal/mcpserver's
+// quarantineMCP and internal/memory/quarantine.go). Accept releases the
+// memory into active memory and flushes it to the vault; reject discards it
+// for good. There is no "evidence" view here the way rollup has one — a
+// memory is already the atomic fact, not a summary of events behind it.
+func reviewMemories(ix *index.Index, in *bufio.Reader, pending []memory.Memory, all bool) (accepted, rejected, skipped int, quit bool) {
+	fmt.Printf("%d pending memor%s · [a]ccept  [r]eject  [s]kip  [q]uit\n\n", len(pending), pluralY(len(pending)))
+
+	for i, m := range pending {
+		if !all && i >= 20 {
+			fmt.Printf("\n… %d more, run again to continue\n", len(pending)-i)
+			break
+		}
+
+		fmt.Printf("[%d/%d] (%s) %s\n", i+1, len(pending), m.Kind, m.Text)
+		fmt.Printf("        conf %.2f · %s\n", m.Confidence, m.Source)
+
+		for {
+			fmt.Print("      > ")
+			line, err := in.ReadString('\n')
+			if err != nil {
+				fmt.Println()
+				return accepted, rejected, skipped, true
+			}
+
+			switch strings.TrimSpace(strings.ToLower(line)) {
+			case "a", "y":
+				if err := memory.Accept(ix.DB, m.ID); err != nil {
+					fmt.Printf("      ! %v\n", err)
+					break
+				}
+				accepted++
+				fmt.Println("      ✓ accepted")
+			case "r", "n":
+				if err := memory.Reject(ix.DB, m.ID); err != nil {
+					fmt.Printf("      ! %v\n", err)
+					break
+				}
+				rejected++
+				fmt.Println("      ✗ rejected")
+			case "s", "":
+				skipped++
+			case "q":
+				return accepted, rejected, skipped, true
+			default:
+				continue
+			}
+			break
+		}
+		fmt.Println()
 	}
-	return nil
+	return accepted, rejected, skipped, false
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func pluralY(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // printEvidence is the answer to "why does it think that". Every proposal can

@@ -120,10 +120,16 @@ func Export(db *sql.DB, dir string) error {
 // memory_log already records that they existed and what replaced them, and
 // carrying them here would put values the user has already corrected back into
 // a file the user reads.
+//
+// Quarantined memories are left out too, and for a stronger reason: they are
+// not yet knowledge at all. A machine proposed them and nobody has said yes.
+// Writing them to the file the user reads as "what the assistant knows" would
+// make quarantine theatre — reviewable in principle, already believed in
+// practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
 		`SELECT id, text, salience, confidence, project, source, agent, created, uses
-		 FROM memories WHERE kind = ? AND superseded = 0 ORDER BY created, id`, string(kind))
+		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
 	}
@@ -278,7 +284,12 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 		return 0, Export(db, dir)
 	}
 
-	rows, err := db.Query("SELECT id, kind FROM memories WHERE superseded = 0")
+	// quarantined = 0: a pending memory was never written to the file (see
+	// ExportKind), so it cannot appear in `keep` no matter how thoroughly the
+	// file was read. Without this exclusion, every `brain index` would read
+	// that absence as "the user deleted this line" and Forget the whole review
+	// queue out from under them before they ever saw it.
+	rows, err := db.Query("SELECT id, kind FROM memories WHERE superseded = 0 AND quarantined = 0")
 	if err != nil {
 		return imported, err
 	}

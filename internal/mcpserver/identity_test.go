@@ -27,7 +27,11 @@ func TestRememberRecordsClientAgentFromHandshake(t *testing.T) {
 		t.Fatalf("remember reported error: %s", out)
 	}
 
-	mems, err := memory.All(db)
+	// Read the review queue, not active memory: an MCP client's remember is
+	// quarantined by default (quarantineMCP in server.go), and attribution has
+	// to survive the wait — knowing which agent proposed a fact is part of
+	// deciding whether to accept it.
+	mems, err := memory.Pending(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +60,7 @@ func TestRememberToleratesMissingClientInfo(t *testing.T) {
 		t.Fatalf("remember reported error: %s", out)
 	}
 
-	mems, err := memory.All(db)
+	mems, err := memory.Pending(db)
 	if err != nil {
 		t.Fatal(err)
 	}

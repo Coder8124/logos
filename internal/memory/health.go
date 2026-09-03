@@ -40,8 +40,11 @@ type HealthReport struct {
 // checks need directly (activeMemories omits confidence), including the vectors
 // the duplicate check compares.
 func Health(db *sql.DB) (HealthReport, error) {
+	// quarantined = 0: a pending memory's low confidence is expected, not a
+	// defect — flagging it here would tell the user to fix something that
+	// `brain review` already covers.
 	rows, err := db.Query(
-		`SELECT id, salience, confidence, created, last_used, uses, vec FROM memories WHERE superseded = 0`)
+		`SELECT id, salience, confidence, created, last_used, uses, vec FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return HealthReport{}, err
 	}

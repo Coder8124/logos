@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -393,6 +394,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	}
 	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
 		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
+		Quarantined: quarantineMCP(),
 	})
 	if err != nil {
 		return "", err
@@ -405,14 +407,46 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	}
 	// A receipt rather than "Remembered." — the host is about to tell the user
 	// what happened, and creating a fact is not the same as confirming one it
-	// already had.
+	// already had, or queuing one that still needs a yes.
 	switch r.Outcome {
 	case memory.EvReinforced:
 		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
+	case memory.EvQuarantined:
+		return s.receipt(fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `brain review` to accept or reject it before it becomes active", r.ID, kind, where)), nil
 	case memory.EvCreated:
 		return s.receipt(fmt.Sprintf("stored in brain — memory #%d (%s, %s)", r.ID, kind, where)), nil
 	}
 	return "Nothing stored.", nil
+}
+
+// quarantineMCP decides whether a `remember` call from an MCP client lands in
+// active memory immediately or waits in the review queue.
+//
+// Default: quarantined. This is the exact tool the "any agent that calls
+// remember mutates the user's vault with no review" problem is about — an MCP
+// client is, by construction, a different process than this one, and the user
+// is not necessarily watching when it writes. Defaulting to quarantine here is
+// the same call brain already made for rollup's proposals
+// (internal/rollup): a machine's inference waits for a human before it counts
+// as settled truth.
+//
+// It is deliberately not the default for every memory write — internal/memory
+// Store's Quarantined field is opt-in per call, and this is the only caller
+// that sets it. A fact typed by hand (source=manual) or learned from a
+// conversation the user just had and explicitly allowed (see
+// internal/consent) never passes through here, because quarantining those
+// would recreate the exact failure this stage exists to prevent: an agent
+// whose every write silently queues has lost its memory just as thoroughly as
+// one that writes with no oversight at all, only slower and quieter about it.
+// Scoping the gate to the one path that is genuinely unattended keeps the fix
+// proportional to the actual problem.
+//
+// BRAIN_TRUST_MCP opts back into the old direct-write behaviour, for someone
+// who has decided, deliberately, that their MCP clients do not need a human in
+// the loop. This matches the codebase's existing BRAIN_* environment escape
+// hatches rather than adding a config file surface for a one-bit decision.
+func quarantineMCP() bool {
+	return os.Getenv("BRAIN_TRUST_MCP") == ""
 }
 
 // recall searches this project's memories plus the global ones. allProjects

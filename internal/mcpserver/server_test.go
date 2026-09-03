@@ -211,6 +211,10 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 // The broadened memory-layer surface: what an external app writes via remember
 // shows up when it asks memory_diff what changed.
 func TestMemoryDiffTool(t *testing.T) {
+	// The diff tool, not quarantine, is under test — a quarantined memory has
+	// no EvCreated entry in the timeline, which would fail this for the wrong
+	// reason. See quarantine_test.go for the quarantine path itself.
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 
@@ -230,6 +234,9 @@ func TestMemoryDiffTool(t *testing.T) {
 }
 
 func TestRememberRecallRoundTrip(t *testing.T) {
+	// Recall itself is under test, not quarantine — a quarantined memory is
+	// invisible to recall by design (see quarantine_test.go for that).
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 
@@ -258,6 +265,9 @@ func TestRememberRecallRoundTrip(t *testing.T) {
 }
 
 func TestForgetRemovesMemory(t *testing.T) {
+	// forget is under test, which needs the memory to be listable first — a
+	// quarantined memory would not appear in list_memories at all.
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 
@@ -408,6 +418,9 @@ func TestResumeWithoutACheckpointSaysSo(t *testing.T) {
 
 // remember returns a receipt, so the host can tell the user whether it learned
 // something new or confirmed something it already had.
+// An MCP client's remember is quarantined by default — see quarantineMCP in
+// server.go. The receipt has to say so, not claim the fact is already
+// remembered when it is really just waiting for `brain review`.
 func TestRememberReturnsAReceipt(t *testing.T) {
 	c, _, _ := startServer(t)
 	handshake(t, c)
@@ -415,14 +428,30 @@ func TestRememberReturnsAReceipt(t *testing.T) {
 	first, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(first, "stored in brain — memory #") {
-		t.Errorf("first store should report creation, got %q", first)
+	if !strings.Contains(first, "queued memory #") {
+		t.Errorf("first store from an MCP client should be quarantined, got %q", first)
 	}
 	second, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
 	if !strings.Contains(second, "already knew that") {
-		t.Errorf("restating a known fact should report reinforcement, got %q", second)
+		t.Errorf("restating a fact still pending review should report reinforcement, got %q", second)
+	}
+}
+
+// BRAIN_TRUST_MCP is the escape hatch for someone who has decided their MCP
+// clients do not need a human in the loop — the pre-quarantine behaviour,
+// available on purpose rather than lost.
+func TestRememberTrustedSkipsQuarantine(t *testing.T) {
+	t.Setenv("BRAIN_TRUST_MCP", "1")
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	first, _ := c.callText(t, "remember", map[string]any{
+		"text": "The BOM target is $118.", "kind": "fact",
+	})
+	if !strings.Contains(first, "stored in brain — memory #") {
+		t.Errorf("BRAIN_TRUST_MCP should skip quarantine and create directly, got %q", first)
 	}
 }
 

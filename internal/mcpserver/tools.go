@@ -16,7 +16,7 @@ package mcpserver
 var toolDefs = []map[string]any{
 	{
 		"name":        "remember",
-		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded.",
+		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded. By default this queues the memory for the user's review rather than storing it immediately — say so plainly rather than telling the user it is already remembered; the response text tells you which happened.",
 		"inputSchema": obj(map[string]any{
 			"text":    str("the thing to remember, as a clear standalone statement"),
 			"kind":    enumStr("what kind of memory it is", "preference", "person", "context", "fact"),

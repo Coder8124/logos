@@ -142,7 +142,7 @@ THE DAY
     brain timeline [--verbose]        today's activity
     brain rollup [--date YYYY-MM-DD] [--dry-run]
                                       distil a day into a note and proposals
-    brain review [--all]              accept or reject queued proposals
+    brain review [--all]              accept or reject queued proposals and quarantined memories
     brain dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
                                       nightly consolidation: replay, gist, downscale, recombine
     brain dream review | accept|reject <id>
