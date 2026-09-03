@@ -189,6 +189,11 @@ func TestBeforeYouTryWithoutModel(t *testing.T) {
 // remember/recall degrade rather than fail: memory.Store skips the vector when
 // the provider is nil and memory.Recall falls back to salience order.
 func TestMemoryDegradesWithoutModel(t *testing.T) {
+	// This test is about recall surviving with no embeddings, not about
+	// quarantine — a quarantined memory is invisible to recall by design, which
+	// would fail this test for an unrelated reason. See TestRememberReturnsAReceipt
+	// and quarantine_test.go for the quarantine behaviour itself.
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	c, _ := startNoModel(t)
 
 	if _, ok := call(t, c, 7, "remember", map[string]any{

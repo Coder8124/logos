@@ -159,6 +159,10 @@ func TestArgBoolAcceptsStringsModelsActuallyEmit(t *testing.T) {
 
 // The end-to-end claim: what one folder remembers, another folder does not see.
 func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
+	// Project scoping, not quarantine, is under test here — quarantine already
+	// hides a memory from recall for a different reason, which would make this
+	// test pass for the wrong one.
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	db := testDB(t)
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
@@ -189,6 +193,7 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 }
 
 func TestGlobalMemoriesReachEveryProject(t *testing.T) {
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	db := testDB(t)
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
@@ -339,6 +344,7 @@ func TestBrainWorktreeTurnsTheNarrowingOff(t *testing.T) {
 // one worktree checkpoints, the other does not resume into — while both keep
 // the memory of the repository they are both working on.
 func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
+	t.Setenv("BRAIN_TRUST_MCP", "1")
 	db := testDB(t)
 	if err := session.Init(db); err != nil {
 		t.Fatal(err)
