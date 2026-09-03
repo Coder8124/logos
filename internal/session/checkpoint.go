@@ -223,17 +223,27 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
-	if n > 0 && len(names) > n {
-		names = names[:n]
-	}
 
+	// Take the newest n that actually say something, rather than the newest n
+	// files. A torn write — a crash or a full disk partway through a save —
+	// leaves a file that parses to an empty checkpoint, and truncating the list
+	// before parsing meant one such file at the front hid every intact
+	// checkpoint behind it. `resume` then reported nothing at all for a project
+	// with a year of history, which is the worst possible reading of a damaged
+	// file: not "this one is broken" but "there is nothing here".
 	out := make([]Checkpoint, 0, len(names))
 	for _, name := range names {
+		if n > 0 && len(out) >= n {
+			break
+		}
 		raw, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue // a checkpoint we cannot read must not hide the ones we can
 		}
 		c := ParseCheckpoint(string(raw))
+		if c.Empty() {
+			continue
+		}
 		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(name, ".md")))
 		out = append(out, c)
 	}

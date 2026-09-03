@@ -209,3 +209,37 @@ func TestStrayFilesAreNotMistakenForTheLatestCheckpoint(t *testing.T) {
 		t.Errorf("Latest returned a file that is not a checkpoint: %+v", latest)
 	}
 }
+
+// A crash or a full disk partway through a save leaves a checkpoint file that
+// parses to nothing. Because it is the newest filename, it used to be the only
+// one History looked at — so one torn write made resume report that a project
+// with a full history had none.
+func TestATornCheckpointDoesNotHideTheGoodOnes(t *testing.T) {
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	good := Checkpoint{Project: "kestrel", Agent: "claude", State: "annual billing shipped", Next: "monitor"}
+	if err := Commit(db, v, &good); err != nil {
+		t.Fatal(err)
+	}
+	// A later file, truncated mid-frontmatter.
+	dir := filepath.Join(v, CheckpointDir, "kestrel")
+	torn := filepath.Join(dir, "29991231-235959-claude.md")
+	if err := os.WriteFile(torn, []byte("---\ntype: checkpoint\ntitle: kestrel —"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	latest, err := Latest(v, "kestrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest == nil {
+		t.Fatal("a torn checkpoint made an intact history look empty")
+	}
+	if !strings.Contains(latest.State, "annual billing shipped") {
+		t.Errorf("Latest returned the torn file: %+v", latest)
+	}
+	if hist, _ := History(v, "kestrel", 20); len(hist) != 1 {
+		t.Errorf("history has %d entries, want only the intact checkpoint", len(hist))
+	}
+}
