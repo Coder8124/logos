@@ -107,9 +107,18 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 	}
 	res.Checkpoints = n
 
-	if res.Checkpoints > 0 && !dryRun {
-		if err := os.Rename(res.Dir, res.NewDir); err != nil {
-			return res, fmt.Errorf("moving sessions/%s: %w", from, err)
+	// Move the directory if there is one, not if we happened to rewrite
+	// something inside it. A project can own a session directory without owning
+	// a checkpoint yet — working notes live there too, and so does anything a
+	// user filed beside their history — and gating the move on the rewrite
+	// count left all of it behind under a name that no longer exists, while the
+	// index had already moved on. The two then disagreed, and `brain index`
+	// resolved the disagreement in favour of the stale copy.
+	if !dryRun {
+		if _, err := os.Stat(res.Dir); err == nil {
+			if err := os.Rename(res.Dir, res.NewDir); err != nil {
+				return res, fmt.Errorf("moving sessions/%s: %w", from, err)
+			}
 		}
 	}
 
@@ -401,6 +410,13 @@ func rewriteIndex(db *sql.DB, from, to string, dryRun bool) (int, error) {
 	for _, s := range stmts {
 		var n int
 		if err := db.QueryRow(s.count, s.args...).Scan(&n); err != nil {
+			// A vault that has never stored a memory has no table yet, which is
+			// not a rename failure — and reporting it as one is worse than
+			// unhelpful here, because the vault half of the rename has already
+			// happened by the time this runs.
+			if missingTable(err) {
+				continue
+			}
 			return total, err
 		}
 		total += n
@@ -415,9 +431,7 @@ func rewriteIndex(db *sql.DB, from, to string, dryRun bool) (int, error) {
 	var n int
 	if err := db.QueryRow(
 		`SELECT COUNT(*) FROM sessions WHERE project = ? OR project LIKE ? || '/%'`, from, from).Scan(&n); err != nil {
-		// A vault that has never held a session has no table yet, and that is
-		// not a rename failure.
-		if strings.Contains(err.Error(), "no such table") {
+		if missingTable(err) {
 			return total, nil
 		}
 		return total, err
@@ -431,4 +445,10 @@ func rewriteIndex(db *sql.DB, from, to string, dryRun bool) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// missingTable reports whether an error is a vault that simply has not created
+// this part of the index yet.
+func missingTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table")
 }

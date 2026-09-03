@@ -295,3 +295,63 @@ func TestRenameRefusesToEscapeTheVault(t *testing.T) {
 		t.Errorf("a file outside the vault was rewritten by a rename:\n%s", got)
 	}
 }
+
+// A project can own a session directory before it owns a checkpoint: working
+// notes are filed there as they are written. Gating the move on the number of
+// checkpoints rewritten left that directory — and the notes in it — behind
+// under the old name, while the index had already been renamed. The next
+// `brain index` then restored them under a project that no longer exists.
+func TestRenameMovesADirectoryThatHasNoCheckpointsYet(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "kestrel")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const notes = "# uncommitted — kestrel\n\n- the toggle lives in PricingTable <!-- ts=1 agent=claude -->\n"
+	if err := os.WriteFile(filepath.Join(dir, "uncommitted.md"), []byte(notes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Run(nil, v, "kestrel", "falcon", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("the old session directory was left behind by the rename")
+	}
+	if got := read(t, filepath.Join(v, "sessions", "falcon", "uncommitted.md")); got != notes {
+		t.Errorf("working notes did not travel intact:\n%s", got)
+	}
+}
+
+// A dry run still must not move it.
+func TestDryRunDoesNotMoveACheckpointlessDirectory(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "kestrel")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(nil, v, "kestrel", "falcon", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Error("a dry run moved the session directory")
+	}
+}
+
+// The vault is rewritten before the index, so an index that has never created
+// a table must not turn a completed vault rename into a reported failure.
+func TestRenameSucceedsOnAnIndexWithNoTablesYet(t *testing.T) {
+	v := seedVault(t)
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if _, err := Run(db, v, "brain", "logos", false); err != nil {
+		t.Fatalf("rename against an empty index failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(v, "sessions", "logos")); err != nil {
+		t.Error("the vault half of the rename did not happen")
+	}
+}
