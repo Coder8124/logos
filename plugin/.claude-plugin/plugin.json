@@ -3,7 +3,7 @@
   "name": "logos",
   "displayName": "Logos \u2014 continuity across agents",
   "description": "Checkpoint and resume work across Claude Code, Cursor and Codex. Records what was ruled out so the next agent does not repeat it. Local-first: your memory is markdown on your disk.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": {
     "name": "Coder8124",
     "url": "https://github.com/Coder8124"
