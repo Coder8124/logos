@@ -99,7 +99,9 @@ func Day(db *sql.DB, vaultDir string, rt *router.Router, date time.Time, dryRun 
 	}
 
 	dailySlug := "daily/" + dateStr
-	res.DailyPath = notePath(vaultDir, dailySlug)
+	if res.DailyPath, err = notePath(vaultDir, dailySlug); err != nil {
+		return res, err
+	}
 
 	if !dryRun {
 		if err := writeDaily(vaultDir, dailySlug, dateStr, body, sessions); err != nil {
@@ -196,7 +198,11 @@ func writeDaily(vaultDir, slug, date, body string, sessions []Session) error {
 	for _, s := range sessions {
 		b = append(b, fmt.Sprintf("- %s–%s (%dm)\n", hhmm(s.Start), hhmm(s.End), s.DurS()/60)...)
 	}
-	return writeAtomic(notePath(vaultDir, slug), b)
+	path, err := notePath(vaultDir, slug)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, b)
 }
 
 func normalise(name string) string {

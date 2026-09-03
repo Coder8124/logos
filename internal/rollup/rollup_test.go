@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Coder8124/brain/internal/event"
+	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -350,5 +351,100 @@ func TestDigestForEntitiesOmitsHosts(t *testing.T) {
 	}
 	if !strings.Contains(d, "reviewing the API design") {
 		t.Errorf("window titles must reach the entity extractor:\n%s", d)
+	}
+}
+
+// ---------- what a proposal is not allowed to do ----------
+
+// A proposal's target is model output: it is written by a small local model
+// reading captured text that came from web pages, other people's messages and
+// anything else on the clipboard. Joining it onto the vault path unchecked made
+// "accept" a way to write a file anywhere the user can write.
+func TestAProposalCannotWriteOutsideTheVault(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Dir(dir)
+
+	for _, target := range []string{
+		"../escaped",
+		"people/../../escaped",
+		"people/../../../escaped",
+	} {
+		p := Proposal{Kind: NewNote, Target: target, Conf: 0.8, Evidence: []int64{1},
+			Payload: Payload{Type: "person", Body: "x"}}
+
+		if err := p.Validate(); err == nil {
+			t.Errorf("target %q queued without complaint", target)
+		}
+		if err := Apply(nil, dir, p); err == nil {
+			t.Errorf("target %q was applied", target)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "escaped.md")); err == nil {
+			t.Fatalf("target %q wrote outside the vault", target)
+		}
+	}
+}
+
+// An absolute target is the same escape by another spelling.
+func TestAnAbsoluteTargetIsRefused(t *testing.T) {
+	p := Proposal{Kind: NewNote, Target: "/etc/brain", Conf: 0.8, Evidence: []int64{1},
+		Payload: Payload{Type: "person", Body: "x"}}
+	if err := p.Validate(); err == nil {
+		t.Fatal("an absolute target was accepted")
+	}
+}
+
+// The title is model output too, and it is written straight into the note's
+// frontmatter. A newline in it ends the frontmatter block early, so everything
+// the proposal says after that is parsed as note body — or as further keys.
+func TestATitleCannotForgeFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	p := Proposal{Kind: NewNote, Target: "people/sam", Conf: 0.8, Evidence: []int64{1},
+		Payload: Payload{Title: "Sam\npinned: true\n---\ninjected body", Type: "person",
+			Body: "worked on the api"}, Created: 1752883200}
+
+	// Refusing it and writing it safely are both acceptable; writing a note
+	// whose frontmatter the title invented is not.
+	if err := Apply(nil, dir, p); err != nil {
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "people", "sam.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _, _ := strings.Cut(strings.TrimPrefix(string(raw), "---\n"), "\n---")
+	if strings.Contains(fm, "pinned: true") {
+		t.Errorf("the title forged a frontmatter key:\n%s", raw)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(fm), &parsed); err != nil {
+		t.Errorf("the title broke the frontmatter: %v\n%s", err, raw)
+	}
+}
+
+// The same hole on the edge path, where pred and obj are interpolated into a
+// YAML sequence entry.
+func TestAnEdgeCannotForgeFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "people"), 0o755)
+	os.WriteFile(filepath.Join(dir, "people", "sam.md"),
+		[]byte("---\ntype: person\n---\n\nprose\n"), 0o644)
+
+	p := Proposal{Kind: NewEdge, Target: "people/sam", Conf: 0.9, Evidence: []int64{1},
+		Payload: Payload{Pred: "works_at", Obj: "acme\"]] }\npinned: true\nx: \"[[y"}}
+
+	if err := Apply(nil, dir, p); err != nil {
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "people", "sam.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _, _ := strings.Cut(strings.TrimPrefix(string(raw), "---\n"), "\n---")
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(fm), &parsed); err != nil {
+		t.Errorf("the edge broke the frontmatter: %v\n%s", err, raw)
+	}
+	if _, forged := parsed["pinned"]; forged {
+		t.Errorf("the edge forged a frontmatter key:\n%s", raw)
 	}
 }

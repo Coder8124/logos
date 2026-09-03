@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,8 +43,49 @@ func Apply(db *sql.DB, vaultDir string, p Proposal) error {
 	return fmt.Errorf("unknown proposal kind %q", p.Kind)
 }
 
-func notePath(vaultDir, slug string) string {
-	return filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
+// notePath is where a proposal's target lands, and it is the last place that
+// can stop a slug from leaving the vault. Validate already refuses these, but
+// this path is what actually opens a file, so it checks the result rather than
+// trusting that every caller validated first.
+func notePath(vaultDir, slug string) (string, error) {
+	if err := checkTarget(slug); err != nil {
+		return "", err
+	}
+	path := filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
+	root, err := filepath.Abs(vaultDir)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		return "", fmt.Errorf("proposal target %q resolves to %s, outside the vault", slug, abs)
+	}
+	return path, nil
+}
+
+// yamlValue renders a frontmatter scalar so a name cannot end the frontmatter
+// block and continue as keys of its own. Validate rejects the line breaks that
+// make that possible; this is what keeps the quotes, colons and leading markers
+// in an ordinary name from breaking the file anyway.
+//
+// Plain values are left plain. These notes are read and edited by hand in
+// Obsidian, and quoting every title to defend against the rare one makes every
+// file worse to read.
+func yamlValue(s string) string {
+	if s == "" || s != strings.TrimSpace(s) || strings.ContainsAny(s, ":#\"'{}[]&*!|>%@`,\n\r\t") {
+		return strconv.Quote(s)
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return strconv.Quote(s) // a name that would otherwise parse as a number
+	}
+	switch strings.ToLower(s) {
+	case "true", "false", "null", "yes", "no", "on", "off", "~":
+		return strconv.Quote(s)
+	}
+	return s
 }
 
 // writeAtomic delegates to the vault's single writer, so proposals and agent
@@ -51,7 +93,10 @@ func notePath(vaultDir, slug string) string {
 func writeAtomic(path string, data []byte) error { return vault.WriteAtomic(path, data) }
 
 func applyNewNote(vaultDir string, p Proposal) error {
-	path := notePath(vaultDir, p.Target)
+	path, err := notePath(vaultDir, p.Target)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(path); err == nil {
 		// Resolution should have caught this upstream; refuse rather than
 		// clobber a note that already exists.
@@ -66,9 +111,9 @@ func applyNewNote(vaultDir string, p Proposal) error {
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "type: %s\n", kind)
+	fmt.Fprintf(&b, "type: %s\n", yamlValue(kind))
 	if p.Payload.Title != "" {
-		fmt.Fprintf(&b, "title: %s\n", p.Payload.Title)
+		fmt.Fprintf(&b, "title: %s\n", yamlValue(p.Payload.Title))
 	}
 	fmt.Fprintf(&b, "first_seen: %s\n", today)
 	fmt.Fprintf(&b, "observations: %d\n", len(p.Evidence))
@@ -80,7 +125,10 @@ func applyNewNote(vaultDir string, p Proposal) error {
 }
 
 func applyAppend(vaultDir string, p Proposal) error {
-	path := notePath(vaultDir, p.Target)
+	path, err := notePath(vaultDir, p.Target)
+	if err != nil {
+		return err
+	}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -111,7 +159,10 @@ func applyAppend(vaultDir string, p Proposal) error {
 // applyEdge adds a typed relation to frontmatter, carrying the confidence and
 // provenance that keep the graph honest.
 func applyEdge(vaultDir string, p Proposal) error {
-	path := notePath(vaultDir, p.Target)
+	path, err := notePath(vaultDir, p.Target)
+	if err != nil {
+		return err
+	}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -119,8 +170,11 @@ func applyEdge(vaultDir string, p Proposal) error {
 	}
 	content := string(raw)
 
-	rel := fmt.Sprintf("  - { pred: %s, obj: \"[[%s]]\", conf: %.2f, src: inferred }\n",
-		p.Payload.Pred, p.Payload.Obj, p.Conf)
+	// The object is wrapped in a wiki link inside a quoted scalar, so it is
+	// quoted as a whole rather than interpolated: an obj containing a quote or a
+	// closing bracket would otherwise end the entry and start writing keys.
+	rel := fmt.Sprintf("  - { pred: %s, obj: %s, conf: %.2f, src: inferred }\n",
+		yamlValue(p.Payload.Pred), strconv.Quote("[["+p.Payload.Obj+"]]"), p.Conf)
 
 	if !strings.HasPrefix(content, "---\n") {
 		// No frontmatter at all — give the note one rather than silently
