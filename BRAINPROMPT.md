@@ -62,6 +62,26 @@ you ran something that showed it, and name what you ran in `commands`.
 Do not write a checkpoint that says more than you know. An empty `verified` is
 an honest answer and a useful one.
 
+## Say what you did, in one line
+
+Every write tool returns a receipt as the first line of its result — `✓ Logos ·
+stored in brain — memory #41`, `✓ Logos · checkpoint saved to brain`. **Pass it
+on to the user.** Not as a block, not as a summary at the end: one short line, in
+your own text, at the moment it happened.
+
+This is not politeness. Most hosts collapse a tool result to a single grey line,
+so a receipt you do not repeat is a receipt nobody reads — and a memory layer
+whose work is invisible is indistinguishable, from the user's chair, from one
+that is silently broken. They stop trusting it long before they can say why.
+
+The rule is the same for restores. When you open a session with `resume` or
+`context` and it comes back with a previous agent's checkpoint, tell the user
+that Logos restored context and roughly what it carried, before you start
+working. They cannot see the pack.
+
+If `LOGOS_ANNOUNCE=off` the marker is gone and the result is plain text. Relay it
+anyway — the setting turns the decoration down, not the reporting off.
+
 ## What not to do
 
 - Do not call `remember` for things the code already says. The repository is not
