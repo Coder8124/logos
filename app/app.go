@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -57,6 +58,18 @@ func (a *App) Show() {
 // short-lived handle avoids holding the SQLite file open while the user has
 // Obsidian writing to the same vault.
 func (a *App) open() (*index.Index, error) {
+	// index.Open creates the directory it is pointed at, which is right for the
+	// index but wrong as a way to acquire a vault: pointed somewhere the user
+	// never chose, it makes an empty one and every view then truthfully reports
+	// zero of everything. That is indistinguishable from a working install with
+	// nothing in it, and it is how the app spent its life reading ~/brain-vault
+	// while the real memory was in ~/brain. Say the path instead of inventing
+	// a store — the same refusal `brain doctor` and the MCP server already make.
+	if _, err := os.Stat(a.vault); err != nil {
+		return nil, fmt.Errorf(
+			"no vault at %s — run `brain setup --vault <path>`, which records the "+
+				"location for this app, then relaunch", a.vault)
+	}
 	ix, err := index.Open(a.vault)
 	if err != nil {
 		return nil, err
