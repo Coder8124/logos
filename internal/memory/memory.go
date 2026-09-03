@@ -53,14 +53,18 @@ type Memory struct {
 	// Project scopes a memory to one piece of work, so an assistant helping with
 	// ÉlyséeBot recalls ÉlyséeBot's context and not the whole life. Empty means
 	// global — it applies everywhere.
-	Project      string  `json:"project,omitempty"`
-	Source       string  `json:"source"` // where it was learned (conversation, manual, mcp)
-	Created      int64   `json:"created"`
-	LastUsed     int64   `json:"last_used"`
-	Uses         int     `json:"uses"`
-	SupersededBy int64   `json:"superseded_by,omitempty"` // id of the memory that replaced this one
-	Score        float64 `json:"score"`                   // set on recall: relevance to the query
-	vec          []byte  // embedding, loaded only for consolidation; not serialised
+	Project      string `json:"project,omitempty"`
+	Source       string `json:"source"` // where it was learned (conversation, manual, mcp)
+	Created      int64  `json:"created"`
+	LastUsed     int64  `json:"last_used"`
+	Uses         int    `json:"uses"`
+	SupersededBy int64  `json:"superseded_by,omitempty"` // id of the memory that replaced this one
+	// Quarantined means a machine proposed this and nobody has looked at it yet.
+	// A quarantined memory is a real row — same table, same shape — it is just
+	// invisible to Recall/All until a human accepts it. See quarantine.go.
+	Quarantined bool    `json:"quarantined,omitempty"`
+	Score       float64 `json:"score"` // set on recall: relevance to the query
+	vec         []byte  // embedding, loaded only for consolidation; not serialised
 }
 
 const Schema = `
@@ -78,7 +82,8 @@ CREATE TABLE IF NOT EXISTS memories (
     vec           BLOB,
     fingerprint   TEXT UNIQUE,
     superseded    INTEGER NOT NULL DEFAULT 0,
-    superseded_by INTEGER NOT NULL DEFAULT 0
+    superseded_by INTEGER NOT NULL DEFAULT 0,
+    quarantined   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
 CREATE INDEX IF NOT EXISTS memories_project ON memories(project);
@@ -108,6 +113,11 @@ func Init(db *sql.DB) error {
 	db.Exec("ALTER TABLE memories ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7")
 	db.Exec("ALTER TABLE memories ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memories ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0")
+	// Stage 4: quarantine. Defaulting existing rows to 0 (not quarantined) is
+	// what makes this additive — every memory anyone already has stays exactly
+	// as visible and recallable as it was before this column existed.
+	db.Exec("ALTER TABLE memories ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0")
+	db.Exec("CREATE INDEX IF NOT EXISTS memories_quarantined ON memories(quarantined)")
 	return nil
 }
 
@@ -118,12 +128,13 @@ func fingerprint(text string) string {
 // A Receipt says what actually happened to a memory that was stored.
 //
 // "Saved" is not one outcome. The same call can create a memory, corroborate
-// one that already existed, or do nothing — and a caller that cannot tell those
-// apart will report all three as success. That matters most across MCP, where
-// an agent tells the user it remembered something: it should be able to say
-// whether it learned a new fact or confirmed an old one.
+// one that already existed, land in quarantine awaiting review, or do nothing
+// — and a caller that cannot tell those apart will report all four as success.
+// That matters most across MCP, where an agent tells the user it remembered
+// something: it should be able to say whether it learned a new fact, confirmed
+// an old one, or just queued something for the user to look at.
 type Receipt struct {
-	Outcome string `json:"outcome"` // EvCreated, EvReinforced, or OutcomeNoop
+	Outcome string `json:"outcome"` // EvCreated, EvReinforced, EvQuarantined, or OutcomeNoop
 	ID      int64  `json:"id"`
 	// Ref is the memory that was reinforced, when the store folded into an
 	// existing one instead of adding a twin.
@@ -133,9 +144,16 @@ type Receipt struct {
 // OutcomeNoop means nothing was stored — there was nothing to store.
 const OutcomeNoop = "noop"
 
-// Created reports whether the store added a new memory, which is what most
-// callers actually want to branch on.
+// Created reports whether the store added a new, immediately-active memory,
+// which is what most callers actually want to branch on. A quarantined
+// arrival is deliberately excluded — it exists in the store, but nothing may
+// treat it as learned until a human accepts it.
 func (r Receipt) Created() bool { return r.Outcome == EvCreated }
+
+// Queued reports whether the store landed in quarantine rather than going
+// active — the signal a caller uses to tell the user "queued for review"
+// instead of "remembered".
+func (r Receipt) Queued() bool { return r.Outcome == EvQuarantined }
 
 // Store embeds a memory and saves it, deduplicated on its normalised text so
 // the same fact learned twice does not accumulate. The receipt distinguishes a
@@ -178,14 +196,22 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	}
 
 	res, err := db.Exec(
-		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, created, vec, fingerprint)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Created, vec, fingerprint(m.Text))
+		`INSERT OR IGNORE INTO memories (text, kind, salience, confidence, project, source, created, vec, fingerprint, quarantined)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Created, vec, fingerprint(m.Text), boolToInt(m.Quarantined))
 	if err != nil {
 		return Receipt{}, err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
 		m.ID, _ = res.LastInsertId()
+		if m.Quarantined {
+			// Quarantined arrivals get their own event, not EvCreated — the
+			// timeline should be able to say "proposed" and "accepted" as two
+			// distinct moments, the same way it already distinguishes created
+			// from reinforced. See Accept in quarantine.go for the other half.
+			logEvent(db, m.ID, EvQuarantined, m.Text, 0)
+			return Receipt{Outcome: EvQuarantined, ID: m.ID}, nil
+		}
 		logEvent(db, m.ID, EvCreated, m.Text, 0)
 		return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)
 	}
@@ -240,6 +266,13 @@ const DedupThreshold = 0.87
 // asserts a different value is rejected however close its vector is. See
 // sameFact for why. Candidates are considered in similarity order, so a genuine
 // restatement sitting just behind a value-differing twin is still found.
+//
+// Deliberately not filtered on quarantined: a fresh arrival that restates an
+// already-accepted memory should corroborate it, same as always, and an
+// arrival that restates something still sitting in the queue should reinforce
+// that pending entry rather than queuing a second copy of the same proposal.
+// Either way the review queue stays one line per fact instead of growing every
+// time an agent repeats itself.
 func nearestMemory(db *sql.DB, query []float32, text string, threshold float64) (int64, bool) {
 	rows, err := db.Query(`SELECT id, text, vec FROM memories WHERE superseded = 0 AND vec IS NOT NULL`)
 	if err != nil {
@@ -318,7 +351,11 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 // recalls everything (global view); a named project narrows to that work's own
 // memory plus global memories, which is what project-scoped recall wants.
 func recallScoped(db *sql.DB, query []float32, k int, queryText, project string) ([]Memory, error) {
-	q := `SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`
+	// quarantined = 0 is the enforcement point for "a quarantined memory must
+	// not be returned by normal recall" — every read path funnels through here
+	// or through All/AllInProject below, so this one line is what makes the
+	// guarantee real rather than aspirational.
+	q := `SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec FROM memories WHERE superseded = 0 AND quarantined = 0`
 	var args []any
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
@@ -398,7 +435,7 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +464,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	rows, err := db.Query(
 		`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, superseded_by
 		   FROM memories
-		  WHERE superseded = 0 AND (project = ? OR project = '')
+		  WHERE superseded = 0 AND quarantined = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
 	if err != nil {
 		return nil, err
@@ -508,4 +545,14 @@ func sortByScore(m []Memory) {
 			m[j], m[j-1] = m[j-1], m[j]
 		}
 	}
+}
+
+// boolToInt matches the rest of the package's raw-SQL style, which spells
+// every other flag column (superseded, and every literal written into it) as
+// a plain 0/1 rather than relying on the driver's bool coercion.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

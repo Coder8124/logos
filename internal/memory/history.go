@@ -15,12 +15,15 @@ import (
 // Event names for the log. Kept as plain strings so the log stays readable and
 // new event types never require a migration.
 const (
-	EvCreated    = "created"    // a new memory was stored
-	EvReinforced = "reinforced" // a re-statement corroborated an existing memory
-	EvSuperseded = "superseded" // a newer memory replaced this one (ref_id is the newer)
-	EvMerged     = "merged"     // a duplicate was folded into this one (ref_id is the dropped)
-	EvForgotten  = "forgotten"  // the memory was deleted
-	EvUpdated    = "updated"    // an attribute (confidence, project, salience) changed
+	EvCreated     = "created"     // a new memory was stored
+	EvReinforced  = "reinforced"  // a re-statement corroborated an existing memory
+	EvSuperseded  = "superseded"  // a newer memory replaced this one (ref_id is the newer)
+	EvMerged      = "merged"      // a duplicate was folded into this one (ref_id is the dropped)
+	EvForgotten   = "forgotten"   // the memory was deleted
+	EvUpdated     = "updated"     // an attribute (confidence, project, salience) changed
+	EvQuarantined = "quarantined" // a machine proposed this and it is waiting for review
+	EvAccepted    = "accepted"    // a quarantined memory was reviewed and released into active memory
+	EvRejected    = "rejected"    // a quarantined memory was reviewed and discarded
 )
 
 // LogEntry is one line of the timeline.
