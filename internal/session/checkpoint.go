@@ -175,8 +175,18 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 		follows = prev.Session
 	}
 
-	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, s.ID))
-	path := filepath.Join(vaultDir, filepath.FromSlash(c.Slug)+".md")
+	// Claim the filename before writing it. Start already refuses to reuse a
+	// session id, but Current hands the *same* open session to every caller for
+	// one project and agent — so two agents checkpointing at once both arrive
+	// here holding one id, and both wrote to one path. WriteAtomic renames into
+	// place, so the second silently replaced the first: a handoff nobody was
+	// told had been lost, in the one file this product exists to keep.
+	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, s.ID)
+	if err != nil {
+		return err
+	}
+	c.Session = id
+	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, id))
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
@@ -188,6 +198,57 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// outstanding. Removed after the markdown is written, never before: a
 	// failure above this line must leave the notes where they were.
 	return removeNotes(vaultDir, c.Project)
+}
+
+// claimCheckpoint reserves a checkpoint filename and returns the id that goes
+// with it.
+//
+// The reservation is an O_EXCL create, not a stat: two writers that both look
+// and both find nothing is exactly the race this exists to close, and it has to
+// hold across processes as well as goroutines, because two editors each running
+// their own MCP server is the ordinary way this product is used. WriteAtomic
+// then renames over the placeholder we already own.
+//
+// On a collision the clock walks forward a second at a time, the same way Start
+// allocates a session id — the timestamp stops being the moment of the write and
+// becomes an ordering key, which is all any reader uses it for. Sixty seconds is
+// as far as it goes: past that, something is wrong that a different filename
+// will not fix.
+func claimCheckpoint(vaultDir, project, agent, id string) (string, string, error) {
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(project))
+	if err := vault.MkdirPrivate(dir); err != nil {
+		return "", "", err
+	}
+	start, err := time.Parse("20060102-150405", firstN(id, 15))
+	if err != nil {
+		// An id from somewhere that does not carry a timestamp. Nothing to walk
+		// forward, so take it or fail — better than inventing an ordering key.
+		start = time.Now()
+	}
+	for i := range 60 {
+		candidate := id
+		if i > 0 {
+			candidate = idFor(agent, start.Add(time.Duration(i)*time.Second))
+		}
+		path := filepath.Join(dir, candidate+".md")
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, vault.FileMode)
+		if err == nil {
+			f.Close()
+			return candidate, path, nil
+		}
+		if !os.IsExist(err) {
+			return "", "", fmt.Errorf("reserving %s: %w", path, err)
+		}
+	}
+	return "", "", fmt.Errorf(
+		"could not find a free checkpoint filename for %s in a minute of names starting at %s", project, id)
+}
+
+func firstN(s string, n int) string {
+	if len(s) < n {
+		return s
+	}
+	return s[:n]
 }
 
 // Latest returns the most recent checkpoint for a project, or nil if there is

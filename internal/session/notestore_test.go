@@ -2,9 +2,11 @@ package session
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -18,6 +20,11 @@ func boundDB(t *testing.T, vault string) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// One connection, as internal/index configures it. Concurrent writers are
+	// then serialised by the pool rather than colliding on the file, which is
+	// what the product actually does — a test that let them collide would be
+	// measuring SQLite's locking, not this package's.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close(); SetVault(db, "") })
 	if err := Init(db); err != nil {
 		t.Fatal(err)
@@ -241,5 +248,88 @@ func TestATornCheckpointDoesNotHideTheGoodOnes(t *testing.T) {
 	}
 	if hist, _ := History(v, "kestrel", 20); len(hist) != 1 {
 		t.Errorf("history has %d entries, want only the intact checkpoint", len(hist))
+	}
+}
+
+// Two agents checkpointing the same project at the same moment used to produce
+// one file. Current hands the same open session to every caller for one project
+// and agent, the session id is the filename, and WriteAtomic renames into place
+// — so the second checkpoint replaced the first and nothing said so. A lost
+// handoff is the one failure this whole product exists to prevent.
+func TestSimultaneousCheckpointsDoNotOverwriteEachOther(t *testing.T) {
+	t.Chdir(t.TempDir())
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	const n = 6
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := &Checkpoint{
+				Project: "kestrel",
+				Agent:   "claude",
+				Task:    fmt.Sprintf("task %d", i),
+				Next:    fmt.Sprintf("next step %d", i),
+			}
+			if err := Commit(db, v, c); err != nil {
+				t.Errorf("checkpoint %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	got, err := History(v, "kestrel", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != n {
+		t.Fatalf("%d checkpoints survived, want %d", len(got), n)
+	}
+	// Every one is a distinct record, not the same one counted twice.
+	seen := map[string]bool{}
+	for _, c := range got {
+		if seen[c.Next] {
+			t.Errorf("two checkpoints share %q", c.Next)
+		}
+		seen[c.Next] = true
+		if c.Session == "" {
+			t.Error("a checkpoint came back with no session id")
+		}
+	}
+}
+
+// The filename a checkpoint claims and the session id inside it have to be the
+// same string. They are what `resume` follows backwards through a chain of
+// handoffs, and a walked-forward name that did not update the frontmatter would
+// break that link silently.
+func TestAWalkedForwardCheckpointNamesItselfConsistently(t *testing.T) {
+	t.Chdir(t.TempDir())
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	for i := range 3 {
+		c := &Checkpoint{Project: "kestrel", Agent: "claude", Task: fmt.Sprintf("t%d", i), Next: fmt.Sprintf("n%d", i)}
+		if err := Commit(db, v, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(v, CheckpointDir, "kestrel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !isCheckpointFile(e.Name()) {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(v, CheckpointDir, "kestrel", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := ParseCheckpoint(string(raw))
+		if want := strings.TrimSuffix(e.Name(), ".md"); c.Session != want {
+			t.Errorf("%s carries session %q", e.Name(), c.Session)
+		}
 	}
 }
