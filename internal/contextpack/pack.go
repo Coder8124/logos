@@ -80,9 +80,13 @@ type Pack struct {
 	// through the graph rather than matched directly carry Via.
 	Notes []index.Hit `json:"notes"`
 
-	Preferences []memory.Memory        `json:"preferences"`
-	Related     []memory.Memory        `json:"related"`
-	OpenLoops   []secretary.Commitment `json:"open_loops"`
+	Preferences []memory.Memory `json:"preferences"`
+	Related     []memory.Memory `json:"related"`
+	// Pinned holds memories the user marked always-include (see memory.Pin).
+	// They bypass ranking entirely — see spendMemories — which is the whole
+	// difference between a pin and simply having high salience.
+	Pinned    []memory.Memory        `json:"pinned,omitempty"`
+	OpenLoops []secretary.Commitment `json:"open_loops"`
 
 	// Superseded holds recalled memories a later statement replaced. They are
 	// kept out of the answer but reported, so the agent knows the value moved
@@ -218,6 +222,14 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		if mems, err := memory.Recall(db, embed, embedModel, query, maxRelated); err == nil {
 			p.Related, p.Superseded = supersede(req.Task, mems)
 		}
+	}
+	// Pinned memories are not retrieved, they are asserted: fetched
+	// unconditionally, independent of query and embedding model, because a
+	// user who pinned something wants it present whether or not this
+	// particular task happens to be relevant to it. No embed, no query, no
+	// project resolved — none of that should be able to make a pin disappear.
+	if pinned, err := memory.Pinned(db, p.scope()); err == nil {
+		p.Pinned = pinned
 	}
 	p.Conflicts = contradictions(p.Notes)
 	p.OpenLoops = openLoops(db, p.Project)

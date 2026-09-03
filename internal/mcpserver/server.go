@@ -320,6 +320,10 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.listMemories()
 	case "forget":
 		return s.forget(argStr(args, "id"))
+	case "pin_memory":
+		return s.pinMemory(argStr(args, "id"), argBool(args, "unpin", false))
+	case "exclude_memory":
+		return s.excludeMemory(argStr(args, "id"))
 	case "context":
 		hint, worktree := s.resolveContinuity(argStr(args, "project"))
 		return s.context(contextpack.Request{
@@ -453,7 +457,17 @@ func (s *Server) listMemories() (string, error) {
 	}
 	var b strings.Builder
 	for _, m := range mems {
-		fmt.Fprintf(&b, "[%d] (%s) %s\n", m.ID, m.Kind, m.Text)
+		tag := ""
+		// Pin state has to be visible here too, not just in the CLI — a host's
+		// model deciding whether to pin/exclude something needs to see what
+		// already is, or it will keep re-pinning the same memory every session.
+		switch m.Pin {
+		case memory.PinAlways:
+			tag = " [pinned]"
+		case memory.PinNever:
+			tag = " [excluded]"
+		}
+		fmt.Fprintf(&b, "[%d] (%s)%s %s\n", m.ID, m.Kind, tag, m.Text)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -467,6 +481,37 @@ func (s *Server) forget(idStr string) (string, error) {
 		return "", err
 	}
 	return "Forgotten.", nil
+}
+
+// pinMemory sets or clears always-include. unpin covers both directions of
+// override (see memory.Unpin) so a host does not need a third tool just to
+// walk back an exclude_memory call.
+func (s *Server) pinMemory(idStr string, unpin bool) (string, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("pin_memory needs a numeric memory id")
+	}
+	if unpin {
+		if err := memory.Unpin(s.DB, id); err != nil {
+			return "", err
+		}
+		return "Unpinned — back to normal ranking.", nil
+	}
+	if err := memory.Pin(s.DB, id); err != nil {
+		return "", err
+	}
+	return "Pinned — always included in context packs, budget permitting.", nil
+}
+
+func (s *Server) excludeMemory(idStr string) (string, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("exclude_memory needs a numeric memory id")
+	}
+	if err := memory.Exclude(s.DB, id); err != nil {
+		return "", err
+	}
+	return "Excluded — kept on record, never surfaced.", nil
 }
 
 // --- memory-layer operations: the surface other applications build on ---

@@ -45,6 +45,19 @@ var toolDefs = []map[string]any{
 		"inputSchema": obj(map[string]any{"id": str("the memory id to forget")}, "id"),
 	},
 	{
+		"name":        "pin_memory",
+		"description": "Mark a memory by its id (from list_memories) as always-include: it will be carried into every context pack for its project regardless of relevance score. Use when the user says something should always be kept in mind — a standing instruction or a fact everything else depends on. To undo, call it again with unpin true.",
+		"inputSchema": obj(map[string]any{
+			"id":    str("the memory id to pin or unpin"),
+			"unpin": boolSchema("set true to return this memory to normal ranking instead of pinning it"),
+		}, "id"),
+	},
+	{
+		"name":        "exclude_memory",
+		"description": "Mark a memory by its id (from list_memories) as never-include: it stays on record but is dropped from recall and context packs entirely. Use when the user wants a memory kept but never surfaced again — softer than forget, which deletes it outright. Call pin_memory with unpin true to reverse.",
+		"inputSchema": obj(map[string]any{"id": str("the memory id to exclude")}, "id"),
+	},
+	{
 		"name":        "context",
 		"description": "Assemble everything needed to do a task: where the last agent stopped, the project's goals and recent progress, the actual text of the relevant vault notes, related notes reached through the user's own links, what the user has told this memory, standing preferences, and open commitments — budgeted to fit a token ceiling and cited by source. Use this at the START of any task involving the user's own work, instead of recall. Prefer it over asking the user to re-explain: they have written this down already.",
 		"inputSchema": obj(map[string]any{

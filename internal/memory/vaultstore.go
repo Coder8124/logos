@@ -122,7 +122,7 @@ func Export(db *sql.DB, dir string) error {
 // a file the user reads.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, created, uses
+		`SELECT id, text, salience, confidence, project, source, created, uses, pin
 		 FROM memories WHERE kind = ? AND superseded = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -134,7 +134,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var m Memory
 		var project, source sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &m.Created, &m.Uses); err != nil {
+			&project, &source, &m.Created, &m.Uses, &m.Pin); err != nil {
 			return err
 		}
 		m.Kind, m.Project, m.Source = kind, project.String, source.String
@@ -168,6 +168,13 @@ func renderKind(kind Kind, mems []Memory) string {
 			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
 			fmt.Fprintf(&b, " project=%s", m.Project)
+		}
+		// Omitted for the common case (PinNone) so an untouched memory's
+		// comment reads exactly as it always has — pin is the one piece of
+		// bookkeeping here a person is expected to want to see and edit by
+		// hand, not just round-trip.
+		if m.Pin != PinNone {
+			fmt.Fprintf(&b, " pin=%d", m.Pin)
 		}
 		b.WriteString(" -->\n")
 	}
@@ -311,10 +318,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	if m.ID > 0 {
 		res, err := db.Exec(
 			`UPDATE memories SET text=?, kind=?, salience=?, confidence=?, project=?,
-			 source=?, created=?, uses=?, fingerprint=?, vec=COALESCE(?, vec)
+			 source=?, created=?, uses=?, fingerprint=?, vec=COALESCE(?, vec), pin=?
 			 WHERE id = ?`,
 			m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Created, m.Uses, fingerprint(m.Text), vec, m.ID)
+			m.Created, m.Uses, fingerprint(m.Text), vec, m.Pin, m.ID)
 		if err != nil {
 			return 0, err
 		}
@@ -323,10 +330,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, created, uses, vec, fingerprint)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, created, uses, vec, fingerprint, pin)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Created, m.Uses, vec, fingerprint(m.Text))
+			m.Source, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
 		if err == nil {
 			logEvent(db, m.ID, EvCreated, m.Text, 0)
 		}
@@ -335,10 +342,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 
 	// No id in the comment: a line somebody typed by hand. Give it one.
 	res, err := db.Exec(
-		`INSERT INTO memories (text, kind, salience, confidence, project, source, created, uses, vec, fingerprint)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO memories (text, kind, salience, confidence, project, source, created, uses, vec, fingerprint, pin)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-		m.Created, m.Uses, vec, fingerprint(m.Text))
+		m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
 	if err != nil {
 		return 0, err
 	}
@@ -433,6 +440,13 @@ func applyMeta(m *Memory, meta string) {
 			m.Uses = n
 		case "project":
 			m.Project = value
+		case "pin":
+			// Tolerant of a hand-typed value out of range: a person editing the
+			// file might type anything, and refusing to import over it would
+			// contradict "the file is the record, not the database".
+			if n, err := strconv.Atoi(value); err == nil && n >= PinNone && n <= PinNever {
+				m.Pin = n
+			}
 		case "created":
 			// RFC3339 now; the bare date is what older files carry. Recording
 			// only the date collapsed two memories written hours apart onto the

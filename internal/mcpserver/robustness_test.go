@@ -276,6 +276,7 @@ func TestToolListMatchesTheDocumentedSurface(t *testing.T) {
 
 	documented := map[string]bool{
 		"remember": true, "recall": true, "list_memories": true, "forget": true,
+		"pin_memory": true, "exclude_memory": true,
 		"memory_diff": true, "list_projects": true, "context": true, "resume": true,
 		"note_progress": true, "checkpoint": true, "handoff": true, "before_you_try": true,
 		"why": true,

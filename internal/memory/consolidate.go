@@ -88,6 +88,11 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 	now := time.Now().Unix()
 	var filtered []Memory
 	for _, m := range mems {
+		// PinNever means never surface, and Surface is a surfacing path — the
+		// same reasoning that keeps it out of Recall keeps it out of here.
+		if m.Pin == PinNever {
+			continue
+		}
 		if len(want) == 0 || want[m.Kind] {
 			m.Score = EffectiveSalience(m, now)
 			filtered = append(filtered, m)
@@ -103,7 +108,7 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 // activeMemories loads non-superseded memories with their vectors, for the
 // consolidation pass.
 func activeMemories(db *sql.DB) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec FROM memories WHERE superseded = 0`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +117,7 @@ func activeMemories(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)

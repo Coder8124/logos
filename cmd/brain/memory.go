@@ -42,6 +42,15 @@ func memoryCmd(args []string) error {
 			if m.Project != "" {
 				meta += " · " + m.Project
 			}
+			// Pin state has to show up here or "pin" is invisible the moment you
+			// close the terminal that set it — the same reason abandonment and
+			// continuity surface where they'll actually be seen.
+			switch m.Pin {
+			case memory.PinAlways:
+				meta += " · pinned"
+			case memory.PinNever:
+				meta += " · excluded"
+			}
 			// salience = how much it matters; conf = how sure we are it's true.
 			fmt.Printf("  [%d] (%-10s sal %.2f · conf %s) %s%s\n",
 				m.ID, m.Kind, m.Salience, confBar(m.Confidence), m.Text, meta)
@@ -102,8 +111,35 @@ func memoryCmd(args []string) error {
 			return err
 		}
 		fmt.Println("forgotten.")
+	case "pin":
+		id := parseID(args)
+		if id == 0 {
+			return fmt.Errorf("usage: brain memory pin <id>")
+		}
+		if err := memory.Pin(ix.DB, id); err != nil {
+			return err
+		}
+		fmt.Println("pinned — always included in context packs, budget permitting.")
+	case "unpin":
+		id := parseID(args)
+		if id == 0 {
+			return fmt.Errorf("usage: brain memory unpin <id>")
+		}
+		if err := memory.Unpin(ix.DB, id); err != nil {
+			return err
+		}
+		fmt.Println("unpinned — back to normal ranking.")
+	case "exclude":
+		id := parseID(args)
+		if id == 0 {
+			return fmt.Errorf("usage: brain memory exclude <id>")
+		}
+		if err := memory.Exclude(ix.DB, id); err != nil {
+			return err
+		}
+		fmt.Println("excluded — kept on record, never surfaced. `brain memory unpin` to reverse.")
 	default:
-		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | log | history <id> | diff | health | consolidate]")
+		return fmt.Errorf("usage: brain memory [add <fact> | forget <id> | pin <id> | unpin <id> | exclude <id> | log | history <id> | diff | health | consolidate]")
 	}
 	return nil
 }
