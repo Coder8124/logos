@@ -47,7 +47,42 @@ import (
 	"github.com/Coder8124/brain/internal/session"
 )
 
-const protocolVersion = "2024-11-05"
+// protocolVersion is what this server speaks when the host asks for something
+// it does not recognise. The supported list is newest first.
+//
+// This used to be one hard-coded string, and it was the *oldest* revision —
+// which quietly cost the server a feature it needs. Tool annotations, the
+// protocol's only way to say "this tool just reads", were added in 2025-03-26.
+// A host told the session is 2024-11-05 is entitled to ignore them, and a host
+// that cannot tell a read from a write has to assume every tool writes. That is
+// what makes `resume` — a pure read — unavailable in an editor's read-only
+// mode, where recalling where you left off is exactly what you want.
+const protocolVersion = "2025-06-18"
+
+// supportedVersions are the revisions this server implements. Nothing in the
+// newer ones is mandatory for a tools-only server: the additions they carry
+// (elicitation, completions, structured output) are optional capabilities, and
+// this server does not advertise them.
+var supportedVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// negotiateVersion echoes the client's requested revision when this server
+// speaks it, and otherwise answers with the newest one it does — which is what
+// the specification asks for, and what lets an old host keep working while a
+// current one gets the annotations.
+func negotiateVersion(params json.RawMessage) string {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	for _, v := range supportedVersions {
+		if v == p.ProtocolVersion {
+			return v
+		}
+	}
+	return protocolVersion
+}
 
 // Server holds the memory store and the embedding backend it recalls against.
 // embed may be nil — the store then works without vectors (recall falls back to
@@ -270,7 +305,7 @@ func (s *Session) handle(req request) *response {
 		s.roots = rootsFromInitialize(req.Params)
 		s.clientAgent = clientInfoFromInitialize(req.Params)
 		return reply(req.ID, map[string]any{
-			"protocolVersion": protocolVersion,
+			"protocolVersion": negotiateVersion(req.Params),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			// The product name: this is the string a host shows the user in its
 			// server list. The repository, the Go module and the binary keep the

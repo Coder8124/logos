@@ -154,8 +154,10 @@ func handshake(t *testing.T, c *testClient) {
 	if err := json.Unmarshal(raw, &init); err != nil {
 		t.Fatalf("initialize result: %v", err)
 	}
-	if init.ProtocolVersion != protocolVersion {
-		t.Errorf("protocolVersion = %q, want %q", init.ProtocolVersion, protocolVersion)
+	// The handshake echoes the revision the client asked for when the server
+	// speaks it, which is what keeps an older host working unchanged.
+	if init.ProtocolVersion != "2024-11-05" {
+		t.Errorf("protocolVersion = %q, want the requested %q", init.ProtocolVersion, "2024-11-05")
 	}
 	// The product name, which is what a host displays in its server list.
 	if init.ServerInfo.Name != "logos" {

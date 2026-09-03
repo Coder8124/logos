@@ -27,9 +27,45 @@ package mcpserver
 // so a rule that lives only there is a rule that applies only in some editors.
 const relay = " The first line of the result is a receipt for the user — repeat it to them in one short line of your own, at the moment it happens, then carry on. Do not skip it: the host hides this result from them, so a receipt you do not pass on is one they never see."
 
+// Annotations tell the host what a tool does before it runs one, and they are
+// the only thing that distinguishes reading from writing in this protocol.
+//
+// Without them a host has to assume the worst of every tool, and the editors
+// that offer a read-only chat mode — Cursor's Ask, and every "plan before you
+// act" mode that followed it — block the lot. That is precisely backwards for
+// this server: the read tools are the ones a person most wants in a mode where
+// nothing may be changed, because "where did we leave off" is a question you
+// ask *before* you touch anything.
+//
+// openWorldHint is false throughout. Every one of these reads or writes one
+// directory on the user's own disk; none of them reaches a network, and a host
+// deciding how much to trust a call should know that.
+func reads() map[string]any {
+	return map[string]any{
+		"readOnlyHint":    true,
+		"idempotentHint":  true,
+		"openWorldHint":   false,
+		"destructiveHint": false,
+	}
+}
+
+// writes describes a tool that changes the vault. destructive says whether it
+// can remove or overwrite something that was already there, as opposed to
+// adding to it; idempotent says whether calling it twice with the same
+// arguments leaves the same state as calling it once.
+func writes(destructive, idempotent bool) map[string]any {
+	return map[string]any{
+		"readOnlyHint":    false,
+		"idempotentHint":  idempotent,
+		"openWorldHint":   false,
+		"destructiveHint": destructive,
+	}
+}
+
 var toolDefs = []map[string]any{
 	{
 		"name":        "remember",
+		"annotations": writes(false, false),
 		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded. By default this queues the memory for the user's review rather than storing it immediately — say so plainly rather than telling the user it is already remembered; the response text tells you which happened." + relay,
 		"inputSchema": obj(map[string]any{
 			"text":    str("the thing to remember, as a clear standalone statement"),
@@ -40,6 +76,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "recall",
+		"annotations": reads(),
 		"description": "Retrieve what is known about the user relevant to a query, from their private local memory. Use this at the start of a task or whenever the user's preferences, people, or prior context would help — so you act on what they've told you before instead of asking again. Searches the project you are working in plus facts marked global; anything returned from a different project is labelled as such. Set all_projects only when the user explicitly asks about other work.",
 		"inputSchema": obj(map[string]any{
 			"query":        str("what you want to recall about the user"),
@@ -50,16 +87,19 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "list_memories",
+		"annotations": reads(),
 		"description": "List everything currently in the user's memory, with ids. Use to review or before forgetting something.",
 		"inputSchema": obj(map[string]any{}),
 	},
 	{
 		"name":        "forget",
+		"annotations": writes(true, true),
 		"description": "Delete a memory by its id (from list_memories). Use when the user asks to forget something or a memory is wrong." + relay,
 		"inputSchema": obj(map[string]any{"id": str("the memory id to forget")}, "id"),
 	},
 	{
 		"name":        "pin_memory",
+		"annotations": writes(false, true),
 		"description": "Mark a memory by its id (from list_memories) as always-include: it will be carried into every context pack for its project regardless of relevance score. Use when the user says something should always be kept in mind — a standing instruction or a fact everything else depends on. To undo, call it again with unpin true." + relay,
 		"inputSchema": obj(map[string]any{
 			"id":    str("the memory id to pin or unpin"),
@@ -68,11 +108,13 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "exclude_memory",
+		"annotations": writes(false, true),
 		"description": "Mark a memory by its id (from list_memories) as never-include: it stays on record but is dropped from recall and context packs entirely. Use when the user wants a memory kept but never surfaced again — softer than forget, which deletes it outright. Call pin_memory with unpin true to reverse." + relay,
 		"inputSchema": obj(map[string]any{"id": str("the memory id to exclude")}, "id"),
 	},
 	{
 		"name":        "context",
+		"annotations": reads(),
 		"description": "Assemble everything needed to do a task: where the last agent stopped, the project's goals and recent progress, the actual text of the relevant vault notes, related notes reached through the user's own links, what the user has told this memory, standing preferences, and open commitments — budgeted to fit a token ceiling and cited by source. Use this at the START of any task involving the user's own work, instead of recall. Prefer it over asking the user to re-explain: they have written this down already." + relay,
 		"inputSchema": obj(map[string]any{
 			"task":    str("what you are about to do, in a sentence — this decides what gets retrieved"),
@@ -82,6 +124,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "resume",
+		"annotations": reads(),
 		"description": "Pick up a project where the last agent — possibly a different tool entirely — left off. Returns their last checkpoint (what they were doing, what they decided, what they already tried that did NOT work, what is still open, and the next step) followed by full project context. Use this when the user says 'continue', 'pick up where we left off', or names a project you have no history with. Read the 'already tried' section before proposing anything: it is there to stop you repeating work." + relay,
 		"inputSchema": obj(map[string]any{
 			"project": str("the project to resume"),
@@ -90,7 +133,8 @@ var toolDefs = []map[string]any{
 		}, "project"),
 	},
 	{
-		"name": "before_you_try",
+		"name":        "before_you_try",
+		"annotations": reads(),
 		// Written as an instruction rather than a description, because this is
 		// the one tool the model has no reason to reach for on its own. Every
 		// other tool answers a question the model already has; this one answers
@@ -103,7 +147,8 @@ var toolDefs = []map[string]any{
 		}, "approach"),
 	},
 	{
-		"name": "why",
+		"name":        "why",
+		"annotations": reads(),
 		// The counterpart to before_you_try. That one fires on a proposal; this
 		// one fires on a file — the other moment an agent is about to act on
 		// something whose history it cannot see. `git blame` answers who and
@@ -117,6 +162,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "note_progress",
+		"annotations": writes(false, false),
 		"description": "Record one line of what you just did or learned while working. Cheap and meant to be called often — after a decision, a dead end, or a surprising discovery. These stay uncommitted until checkpoint folds them into a durable record, so use them freely rather than saving everything for the end." + relay,
 		"inputSchema": obj(map[string]any{
 			"project": str("the project being worked on"),
@@ -126,6 +172,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "checkpoint",
+		"annotations": writes(false, false),
 		"description": "Write down where you are stopping, as a permanent note in the user's vault. Call this BEFORE you finish a work session, when the user says they are wrapping up, or when context is running short. The 'failed' field matters most: approaches that did not work are the expensive knowledge, and without them the next agent will repeat them. Anything you omit is lost." + relay,
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being worked on"),
@@ -144,6 +191,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "handoff",
+		"annotations": writes(false, false),
 		"description": "Checkpoint and explicitly hand the work to another agent or person. Same fields as checkpoint, plus who is taking over. Use when the user is switching tools ('finish this in Cursor') or delegating. The recipient calls resume(project) and continues without the user re-explaining anything." + relay,
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being handed off"),
@@ -163,6 +211,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "memory_diff",
+		"annotations": reads(),
 		"description": "Report what the user's memory has learned, dropped, or corroborated over a recent window, optionally about one subject (e.g. 'Sarah'). Use to answer 'what changed?' or to catch up on how the user's context has shifted. Instant and offline.",
 		"inputSchema": obj(map[string]any{
 			"subject": str("optional: narrow to changes mentioning this person, project, or topic"),
@@ -171,6 +220,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "list_projects",
+		"annotations": reads(),
 		"description": "Enumerate the projects brain has detected from the user's activity, most recently active first. Use to discover what the user is working on, or before calling context or resume for one.",
 		"inputSchema": obj(map[string]any{}),
 	},
