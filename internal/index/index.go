@@ -16,6 +16,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/vault"
 	_ "modernc.org/sqlite"
 )
@@ -113,6 +114,10 @@ func Open(vaultDir string) (*Index, error) {
 	// copy without each caller having to remember to ask for one. The binding is
 	// per-database, so a process holding two vaults keeps them apart.
 	memory.SetVault(db, vaultDir)
+	// Working notes get the same treatment, for the same reason: note_progress
+	// promises a note survives the agent's context running out, and a note held
+	// only here does not survive the user being told to delete this file.
+	session.SetVault(db, vaultDir)
 	return &Index{Vault: vaultDir, DB: db}, nil
 }
 
@@ -126,6 +131,18 @@ func Open(vaultDir string) (*Index, error) {
 // Returns how many memories the vault held.
 func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (int, error) {
 	return memory.Import(ix.DB, p, embedModel, ix.Vault)
+}
+
+// SyncNotes restores working notes the vault holds and the index does not.
+//
+// The third half of the same guarantee. Checkpoints were always safe because
+// they are read from markdown; memories became safe when Import landed; notes
+// were the last thing that existed only in the database, so `rm -rf .brain`
+// silently threw away exactly the in-flight work note_progress exists to keep.
+//
+// Returns how many it restored.
+func (ix *Index) SyncNotes() (int, error) {
+	return session.ImportNotes(ix.DB, ix.Vault)
 }
 
 // migrate adds columns to databases created before they existed. ALTER TABLE
@@ -173,6 +190,7 @@ func (ix *Index) Close() error {
 	// Drop the vault binding with the handle, so a long-lived process that opens
 	// and closes many vaults does not accumulate them.
 	memory.SetVault(ix.DB, "")
+	session.SetVault(ix.DB, "")
 	return ix.DB.Close()
 }
 

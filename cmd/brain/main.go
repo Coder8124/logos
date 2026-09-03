@@ -713,6 +713,17 @@ func runIndex(watch bool) error {
 		notes, _ := ix.NoteCount()
 		edges, _ := ix.EdgeCount()
 
+		// Working notes come back before anything that needs a model, because
+		// restoring them needs nothing but the file — and this is the command a
+		// user runs after deleting the index, which is precisely when they are
+		// gone. Announced when there were any: a rebuild that silently recovered
+		// in-flight work is indistinguishable from one that lost it.
+		if restored, err := ix.SyncNotes(); err != nil {
+			fmt.Fprintln(os.Stderr, "· could not restore working notes:", err)
+		} else if restored > 0 {
+			fmt.Printf("restored %d uncommitted working %s\n", restored, plural(restored, "note"))
+		}
+
 		if p == nil {
 			fmt.Printf("+%d ~%d -%d =%d · %d notes, %d edges · lexical only\n",
 				rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges)

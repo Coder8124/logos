@@ -180,7 +180,14 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
-	return closeProject(db, c.Project, c.Slug)
+	if err := closeProject(db, c.Project, c.Slug); err != nil {
+		return err
+	}
+	// The notes are inside the checkpoint now, so the working-notes file has
+	// done its job and its contents would otherwise be claimed as still
+	// outstanding. Removed after the markdown is written, never before: a
+	// failure above this line must leave the notes where they were.
+	return removeNotes(vaultDir, c.Project)
 }
 
 // Latest returns the most recent checkpoint for a project, or nil if there is

@@ -206,6 +206,21 @@ func AddNote(db *sql.DB, project, agent, text string) (Note, error) {
 // benchmark that needs "thirteen days ago" to actually be thirteen days ago.
 // Anything that reasons about how old a note is depends on this being real.
 func AddNoteAt(db *sql.DB, project, agent, text string, ts int64) (Note, error) {
+	n, err := addNoteNoFlush(db, project, agent, text, ts)
+	if err != nil {
+		return Note{}, err
+	}
+	// And then to the vault, because a note that lives only in the index is a
+	// note that `brain index` is entitled to throw away. The note is returned
+	// alongside the error: it is in the cache and usable, it is just not yet
+	// durable, and the caller deserves to be told which of those is true.
+	if err := flushNotes(db, project); err != nil {
+		return n, fmt.Errorf("note saved to the index but not to the vault: %w", err)
+	}
+	return n, nil
+}
+
+func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, error) {
 	if strings.TrimSpace(text) == "" {
 		return Note{}, fmt.Errorf("an empty note records nothing")
 	}
@@ -216,7 +231,7 @@ func AddNoteAt(db *sql.DB, project, agent, text string, ts int64) (Note, error) 
 	if ts == 0 {
 		ts = time.Now().Unix()
 	}
-	n := Note{Session: s.ID, Text: strings.TrimSpace(text), TS: ts}
+	n := Note{Session: s.ID, Agent: s.Agent, Text: strings.TrimSpace(text), TS: ts}
 	res, err := db.Exec(
 		`INSERT INTO session_notes (session, text, ts) VALUES (?,?,?)`, n.Session, n.Text, n.TS)
 	if err != nil {
