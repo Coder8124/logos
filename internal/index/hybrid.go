@@ -12,7 +12,7 @@ import (
 // retrieval. Pure cosine is good at concepts but blind to exact tokens — a name,
 // an error code, an ID that never made it into the embedding's notion of
 // "meaning". FTS catches those; fusion keeps the conceptual recall of vectors.
-// See CREDITS.md.
+// See systemmd/CREDITS.md.
 
 const ftsSchema = `
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

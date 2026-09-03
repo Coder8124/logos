@@ -1,7 +1,10 @@
-// Package brain_test is deliberately external: it can only reach what an
-// embedder can reach. If something here needs an internal import, the facade is
-// incomplete and that is the bug this file exists to catch.
-package brain_test
+// Package enginetest exercises the module's public facade from outside it.
+//
+// It lives in its own directory, and imports github.com/Coder8124/brain like
+// any other consumer, so it can only reach what an embedder can reach. If
+// something here needs an internal import, the facade is incomplete and that is
+// the bug these files exist to catch.
+package enginetest
 
 import (
 	"os"

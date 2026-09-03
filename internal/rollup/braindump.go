@@ -12,7 +12,7 @@ import (
 // Braindump: a scrap of text in, a classified, routed proposal out.
 //
 // Inspired by COG-second-brain's braindump-with-auto-classification (MIT, see
-// CREDITS.md). The point is capture friction: a thought you have to file
+// systemmd/CREDITS.md). The point is capture friction: a thought you have to file
 // correctly is a thought you don't write down. You dump it raw; the system
 // decides whether it is a task, a note about someone, or a topic, and proposes
 // where it goes — you approve.

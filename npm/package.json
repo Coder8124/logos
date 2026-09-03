@@ -19,7 +19,7 @@
     "url": "git+https://github.com/Coder8124/logos.git",
     "directory": "npm"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bin": {
     "logos": "bin/logos.js",
     "brain": "bin/logos.js"

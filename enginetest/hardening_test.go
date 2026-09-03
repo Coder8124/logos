@@ -1,13 +1,13 @@
 // Hardening tests: the claims, under hostile conditions.
 //
-// brain_test.go proves the API works. This file tries to break the promises
-// made in README.md and DESIGN.md — the ones a user is entitled to rely on:
+// api_test.go proves the API works. This file tries to break the promises made
+// in README.md and systemmd/DESIGN.md — the ones a user is entitled to rely on:
 // that markdown is truth, that the cache is disposable, that nothing leaves the
 // machine, that a missing model degrades rather than breaks.
 //
-// External test package on purpose: a claim a user can check is a claim that
-// must hold from outside.
-package brain_test
+// Outside the module's own package on purpose: a claim a user can check is a
+// claim that must hold from outside.
+package enginetest
 
 import (
 	"os"

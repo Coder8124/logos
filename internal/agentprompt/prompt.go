@@ -14,7 +14,7 @@
 //     anything at all. This is the one that matters; the others are for people
 //     who want the text somewhere they can edit it.
 //   - `brain prompt`, to paste into a CLAUDE.md or a system prompt.
-//   - BRAINPROMPT.md in the repository, which is the same bytes.
+//   - systemmd/BRAINPROMPT.md in the repository, which is the same bytes.
 package agentprompt
 
 import _ "embed"
