@@ -28,8 +28,11 @@ func main() {
 		Title: "brain",
 		// Panel-sized, not a window. It is a dropdown, invoked dozens of times
 		// a day; it should feel like part of the menubar, not an application.
-		Width:  420,
-		Height: 640,
+		// Wider than the original chat-first layout: the sessions tab is a
+		// two-pane inspector (checkpoint list beside its full record), and that
+		// needs room a 420px popover never had to give it.
+		Width:  840,
+		Height: 680,
 		// Frameless: no OS title bar and no traffic-light buttons on screen.
 		// The panel is a clean floating surface; it is dragged by its own header
 		// and dismissed with Esc (see the frontend), the way a menubar dropdown
