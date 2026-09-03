@@ -327,3 +327,34 @@ func TestAForgottenIDIsNeverHandedOutAgain(t *testing.T) {
 		rows.Close()
 	}
 }
+
+// Twenty facts sharing a sentence frame and differing by one noun embed at well
+// over the dedup threshold. Before AssertsSomethingNew they collapsed to a
+// handful, and every destroyed one reported "already knew that — reinforced
+// memory #1" about a memory concerning something else. The receipt is what makes
+// this worse than a plain loss: it is the thing that stops the user checking.
+func TestFactsThatShareAFrameAreNotOneFact(t *testing.T) {
+	areas := []string{"pricing", "checkout", "billing", "invoices", "refunds"}
+	const frame = "kestrel handles %s through a dedicated service owned by the platform team"
+
+	for i, a := range areas {
+		for _, b := range areas[i+1:] {
+			if !sameFact(fmt.Sprintf(frame, a), fmt.Sprintf(frame, b)) {
+				continue
+			}
+			t.Errorf("%q and %q were judged the same fact", a, b)
+		}
+	}
+	// And the genuine restatements still collapse, or dedup has been disabled
+	// rather than corrected.
+	full := fmt.Sprintf(frame, "pricing")
+	for _, restatement := range []string{
+		full,
+		"kestrel handles pricing through a dedicated service",
+		"pricing is handled by a dedicated kestrel service",
+	} {
+		if !sameFact(restatement, full) {
+			t.Errorf("%q should still count as a restatement of the full sentence", restatement)
+		}
+	}
+}

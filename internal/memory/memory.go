@@ -374,8 +374,24 @@ func nearestMemory(db *sql.DB, query []float32, text string, threshold float64) 
 // a line in a file the user can delete, and a fact merged away is gone for good
 // — the text is never written, so neither the vault copy nor the log can bring
 // it back.
+//
+// That reasoning was applied to numbers and stopped there, which left the same
+// hole open for every other kind of distinguishing word. Twenty facts of the
+// form "kestrel handles <area> through a dedicated service" collapse to five,
+// and each destroyed one reports "already knew that — reinforced memory #1"
+// about a memory concerning a different area entirely. A silent loss is bad; a
+// silent loss with a confident receipt denying it is worse, because it is the
+// receipt that stops the user checking.
+//
+// So the second condition is now the general one: when each statement names
+// something the other does not, they are two facts whatever their vectors say.
+// A restatement that merely adds or drops words still collapses, because one
+// side's subject is contained in the other's — see DifferentSubjects.
 func sameFact(incoming, existing string) bool {
-	return !textmatch.DifferingValues(incoming, existing)
+	if textmatch.DifferingValues(incoming, existing) {
+		return false
+	}
+	return !textmatch.DifferentSubjects(incoming, existing)
 }
 
 // Recall returns the memories most relevant to a query, by embedding similarity.

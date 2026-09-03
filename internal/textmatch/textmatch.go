@@ -36,6 +36,19 @@ var Stopwords = map[string]bool{
 	"want": true, "know": true, "tell": true, "keep": true, "come": true,
 	"going": true, "doing": true, "being": true, "said": true, "says": true,
 	"try": true, "trying": true, "tried": true, "instead": true, "maybe": true,
+	// The verbs of preference and possession. Two statements that differ only
+	// in which of these they use — "likes short emails" against "prefers short
+	// emails" — are one fact said twice, and leaving them in makes the choice of
+	// verb look like the subject of the sentence. That matters most to
+	// AssertsSomethingNew, where a word the other statement lacks is taken as
+	// evidence of a second fact and so keeps a duplicate.
+	"like": true, "likes": true, "liked": true, "prefer": true, "prefers": true,
+	"preferred": true, "love": true, "loves": true, "hate": true, "hates": true,
+	"dislike": true, "dislikes": true, "enjoy": true, "enjoys": true,
+	"wants": true, "wanted": true, "uses": true, "used": true, "using": true,
+	// Frequency adverbs are deliberately NOT here. "always deploy on Friday" and
+	// "never deploy on Friday" reduce to the same subject without them, and a
+	// guard that merges a rule with its opposite is worse than no guard.
 }
 
 // Subject reduces a statement to its distinctive content words.
@@ -137,6 +150,76 @@ func DifferingValues(a, b string) bool {
 		}
 	}
 	return true
+}
+
+// DifferentSubjects reports that each statement names something the other does
+// not — the sign of two parallel facts rather than one fact restated.
+//
+// The sibling of DifferingValues, for the case where the difference is a noun
+// rather than a number. "kestrel handles checkout through a dedicated service"
+// and "kestrel handles pricing through a dedicated service" share every word
+// but one, embed at well over any dedup threshold, and are two facts. Values()
+// finds no numbers in either, so the numeric guard waves them through and one of
+// them is destroyed.
+//
+// The test is mutual difference, not "the incoming says something new". That
+// distinction is the whole of it, and getting it wrong the other way makes the
+// guard useless:
+//
+//   - A restatement may add words. "I like my replies terse, without any
+//     preamble" says everything "I prefer terse replies with no preamble" says
+//     and one thing more. One subject set contains the other, and containment in
+//     either direction is a restatement.
+//   - A parallel fact swaps one thing for another. "pricing" sits exactly where
+//     "checkout" sat, so each set holds a word the other lacks. Neither contains
+//     the other, and nothing but keeping both is safe.
+//
+// Requiring mutual difference also means this never fires on a statement that
+// merely elaborates, which is what a model does every time it re-extracts a fact
+// it has already stated — the case the dedup threshold exists to catch.
+func DifferentSubjects(a, b string) bool {
+	sa, sb := Subject(a), Subject(b)
+	if len(sa) == 0 || len(sb) == 0 {
+		// Nothing distinctive on one side: no evidence either way, so this guard
+		// abstains and leaves the decision to similarity and Values.
+		return false
+	}
+	return hasNovel(sa, sb) && hasNovel(sb, sa)
+}
+
+// hasNovel reports whether any word in have is absent from want.
+func hasNovel(have, want map[string]bool) bool {
+	for w := range have {
+		found := false
+		for v := range want {
+			if stemLike(w, v) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
+}
+
+// stemLike is Akin with a fixed prefix instead of a relative one: five shared
+// leading characters, whatever the two lengths are. Akin compares a prefix of
+// the *shorter* word's length, which for two words of equal length collapses to
+// exact equality, so "handled" and "handles" read there as different words.
+// That is harmless where Akin scores overlap and not harmless here, where a
+// spurious difference keeps a duplicate. Akin is left alone because conflict
+// detection and dead-end matching are tuned against it.
+func stemLike(a, b string) bool {
+	if a == b {
+		return true
+	}
+	const stem = 5
+	if len(a) < stem || len(b) < stem {
+		return false
+	}
+	return a[:stem] == b[:stem]
 }
 
 // Negations are the ways people call something off. Cheap and blunt, but the
