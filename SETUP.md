@@ -533,7 +533,9 @@ relevant is often the one whose words never match your query.
 vault/
   daily/  people/  projects/  topics/  routines/  sources/
   sessions/<project>/<timestamp>-<agent>.md      # checkpoints
+  sessions/<project>/uncommitted.md              # notes not yet checkpointed
   memories/<kind>.md                             # what it knows about you
+  memories/pending.md                            # proposed, awaiting `brain review`
   .brain/                                        # index.db, config — do not sync
 ```
 

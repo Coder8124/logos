@@ -20,6 +20,15 @@ import (
 
 func whyVault(t *testing.T) (string, *sql.DB) {
 	t.Helper()
+	// Commit reads the git state of the working directory, so a checkpoint
+	// written from inside this repository absorbs whatever the developer has
+	// uncommitted — and Touching matches on those paths too, by design (a file
+	// git noticed you changed is a file the session touched). That made these
+	// tests pass or fail on the state of someone's editor: editing
+	// internal/memory/vaultstore.go and running the suite matched a checkpoint
+	// that never named it. Somewhere with no repository at all is the only
+	// place the join under test is the only thing being tested.
+	t.Chdir(t.TempDir())
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "s.db"))
 	if err != nil {

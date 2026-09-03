@@ -168,6 +168,24 @@ func (ix *Index) SyncNotes() (int, error) {
 	return session.ImportNotes(ix.DB, ix.Vault)
 }
 
+// SyncPending restores the memory review queue from the vault.
+//
+// The fourth thing that only the database knew. A memory an agent proposed sits
+// in quarantine until a person accepts it, and quarantine's whole point is that
+// it is *not* written into memories/<kind>.md — so the queue lived in
+// .brain/index.db alone, and the documented-safe rebuild threw away proposals
+// nobody had reviewed yet, with `brain doctor` afterwards reporting "nothing
+// pending" as though they had been.
+//
+// Must run after SyncMemories: a proposal accepted since the last flush is an
+// active memory now, and Import has to have restored it before the queue is
+// allowed to have an opinion about that id.
+//
+// Returns how many proposals it put back.
+func (ix *Index) SyncPending() (int, error) {
+	return memory.ImportPending(ix.DB, ix.Vault)
+}
+
 // migrate adds columns to databases created before they existed. ALTER TABLE
 // ADD COLUMN is idempotent-safe here because we swallow the "duplicate column"
 // error — cheaper and clearer than querying the schema first.

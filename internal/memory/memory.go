@@ -272,7 +272,11 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 			// distinct moments, the same way it already distinguishes created
 			// from reinforced. See Accept in quarantine.go for the other half.
 			logEvent(db, m.ID, EvQuarantined, m.Text, 0)
-			return Receipt{Outcome: EvQuarantined, ID: m.ID}, nil
+			// A proposal is written down too. Not into memories/<kind>.md —
+			// that would defeat quarantine — but into the queue file, so a
+			// review the user has not got to yet survives deleting the cache.
+			// See internal/memory/pendingstore.go.
+			return Receipt{Outcome: EvQuarantined, ID: m.ID}, flushPending(db)
 		}
 		logEvent(db, m.ID, EvCreated, m.Text, 0)
 		return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)

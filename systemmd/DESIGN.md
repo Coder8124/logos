@@ -68,6 +68,7 @@ vault/
   people/…  projects/…  topics/…  routines/…  sources/…
   sessions/<project>/     # checkpoints: where an agent stopped
   memories/<kind>.md      # what it knows about you, one line each
+  memories/pending.md     # proposed by an agent, awaiting review — not yet known
   .brain/                 # index.db, config.toml, queue.jsonl — do not sync
 ```
 
@@ -76,6 +77,12 @@ indexer skips it as prose and reconciles it as memories. The bookkeeping —
 id, confidence, salience, provenance — rides in an HTML comment, which Obsidian
 does not render, so the file reads as a plain bullet list you can edit. Correct
 a line to correct the fact; delete a line to forget it.
+
+`pending.md` is the same format for memories an agent proposed and nobody has
+accepted yet. It is deliberately not one of the kinds, so every path that feeds
+recall, `All`, or a context pack skips it — but it is written down all the same,
+because a review queue that lives only in the cache is destroyed by the rebuild
+this design tells you is free.
 
 ### Note frontmatter
 

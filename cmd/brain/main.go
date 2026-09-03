@@ -725,17 +725,34 @@ func runIndex(watch bool) error {
 			fmt.Printf("restored %d uncommitted working %s\n", restored, plural(restored, "note"))
 		}
 
+		// Memories and the review queue come back with or without a model.
+		// Import needs a provider only to re-embed, and passing a nil one skips
+		// exactly that — so this used to sit behind the `p == nil` return
+		// below, which meant a rebuild on a machine with no runtime restored
+		// the notes and left every remembered fact out of the cache until some
+		// later run happened to have Ollama up. "Delete the index, lose
+		// nothing" cannot depend on a model being reachable.
+		mems, err := ix.SyncMemories(p, embedModel)
+		if err != nil {
+			return err
+		}
+
+		// The review queue, after the memories, so an accepted proposal is
+		// already an active memory before the queue is consulted about its id.
+		if queued, err := ix.SyncPending(); err != nil {
+			fmt.Fprintln(os.Stderr, "· could not restore the review queue:", err)
+		} else if queued > 0 {
+			fmt.Printf("restored %d memor%s awaiting review — run `brain review`\n",
+				queued, pluralY(queued))
+		}
+
 		if p == nil {
-			fmt.Printf("+%d ~%d -%d =%d · %d notes, %d edges · lexical only\n",
-				rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges)
+			fmt.Printf("+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
+				rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
 			return nil
 		}
 
 		embedded, err := ix.EmbedPending(p, embedModel, 32)
-		if err != nil {
-			return err
-		}
-		mems, err := ix.SyncMemories(p, embedModel)
 		if err != nil {
 			return err
 		}

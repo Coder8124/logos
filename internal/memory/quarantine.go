@@ -93,8 +93,15 @@ func Accept(db *sql.DB, id int64) error {
 	}
 	logEvent(db, id, EvAccepted, text, 0)
 	// Now that it is active, it belongs in the vault the same as anything else
-	// — this is the moment it stops being cache-only.
-	return flush(db, Kind(kind))
+	// — this is the moment it moves out of the review queue and into memory.
+	// Both files change, and the memory file is written first: a crash between
+	// the two leaves a proposal that is already remembered still listed as
+	// pending, which a second accept resolves. The other order would drop it
+	// from the queue with nothing holding it.
+	if err := flush(db, Kind(kind)); err != nil {
+		return err
+	}
+	return flushPending(db)
 }
 
 // Reject discards a quarantined memory outright. Unlike Forget, this only
@@ -117,8 +124,10 @@ func Reject(db *sql.DB, id int64) error {
 		return err
 	}
 	logEvent(db, id, EvRejected, text, 0)
-	// No flush needed: Store never exports a quarantined memory to the vault
-	// (see the Quarantined branch in Store), so there is nothing on disk that
-	// a rejection needs to clean up.
-	return nil
+	// The rejection has to reach the queue file too. It is the only record of
+	// what is pending that survives deleting the cache, so a proposal left
+	// there would come back on the next `brain index` — a memory the user
+	// explicitly rejected, reappearing, which is the failure mode Reconcile
+	// exists to prevent for active memories.
+	return flushPending(db)
 }

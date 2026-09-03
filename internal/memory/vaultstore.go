@@ -619,6 +619,16 @@ func applyMeta(m *Memory, meta string) {
 		case "uses":
 			n, _ := strconv.Atoi(value)
 			m.Uses = n
+		case "kind":
+			// Only the review queue writes this: memories/<kind>.md takes the
+			// kind from its filename, but pending.md holds every kind at once.
+			// Validated rather than trusted, so a typo in a hand-edited line
+			// cannot invent a kind nothing else in the system knows about.
+			for _, k := range kinds {
+				if Kind(value) == k {
+					m.Kind = k
+				}
+			}
 		case "project":
 			m.Project = value
 		case "agent":
