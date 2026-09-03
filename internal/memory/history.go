@@ -2,6 +2,8 @@ package memory
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 	"time"
 )
 
@@ -55,8 +57,23 @@ func logEvent(db *sql.DB, memID int64, event, detail string, refID int64) {
 // the time logEvent would look the project up there is nothing to look up. The
 // project has to be carried in from the snapshot the caller took beforehand.
 func logEventIn(db *sql.DB, memID int64, event, detail string, refID int64, project string) {
-	db.Exec(`INSERT INTO memory_log (ts, mem_id, event, detail, ref_id, project) VALUES (?,?,?,?,?,?)`,
+	_, err := db.Exec(`INSERT INTO memory_log (ts, mem_id, event, detail, ref_id, project) VALUES (?,?,?,?,?,?)`,
 		time.Now().Unix(), memID, event, detail, refID, project)
+	if err == nil {
+		return
+	}
+	// The audit log is what `why`, `memory history` and `memory_diff` read, so a
+	// dropped line does not look like an error to anyone downstream — it looks
+	// like the event never happened, which is the one thing a record of what
+	// changed must never be able to say.
+	//
+	// It is still not worth failing the caller over. By the time this runs the
+	// memory itself is already committed to the vault, and returning an error
+	// here would report a write that did in fact succeed as a failure, which
+	// costs the user a memory to protect a note about it. So: never silent,
+	// never fatal. stderr is the right channel — the CLI shows it, and an MCP
+	// host logs it, while stdout carries the protocol and cannot be written to.
+	fmt.Fprintf(os.Stderr, "brain: the audit log dropped a %q event for memory #%d: %v\n", event, memID, err)
 }
 
 // Timeline returns the most recent log entries, newest first, up to limit
