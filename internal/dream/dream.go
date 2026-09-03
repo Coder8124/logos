@@ -28,6 +28,10 @@ type Result struct {
 	Linked     int  // artifacts tied to their work
 	Insights   int  // REM connections proposed for review
 	REMSkipped bool // REM could not run (no reasoning model)
+	// ReplaySkipped is true when consolidation could not run because no model
+	// was reachable. Distinct from "nothing to consolidate", which is what a
+	// swallowed error used to look like.
+	ReplaySkipped bool
 }
 
 // Run executes the consolidation pass for one day. NREM's structural edits are

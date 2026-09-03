@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -172,13 +173,28 @@ func (a *App) Status() (Status, error) {
 	}
 	defer ix.Close()
 
+	// Every count is checked. A dropped error here renders as a zero, and a
+	// zero in this panel is a claim: it says the vault holds nothing. That is
+	// the same sentence a broken index would produce, and the app has already
+	// shipped one bug whose whole symptom was a confident, healthy zero.
 	s := Status{Vault: a.vault}
-	s.Notes, _ = ix.NoteCount()
-	s.Edges, _ = ix.EdgeCount()
-	s.Events, _ = capture.Count(ix.DB)
-	s.Pending, _ = rollup.PendingCount(ix.DB)
-	if memory.Init(ix.DB) == nil {
-		s.Memories, _ = memory.Count(ix.DB)
+	if s.Notes, err = ix.NoteCount(); err != nil {
+		return s, fmt.Errorf("counting notes: %w", err)
+	}
+	if s.Edges, err = ix.EdgeCount(); err != nil {
+		return s, fmt.Errorf("counting links: %w", err)
+	}
+	if s.Events, err = capture.Count(ix.DB); err != nil {
+		return s, fmt.Errorf("counting captured events: %w", err)
+	}
+	if s.Pending, err = rollup.PendingCount(ix.DB); err != nil {
+		return s, fmt.Errorf("counting the review queue: %w", err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		return s, fmt.Errorf("opening memory: %w", err)
+	}
+	if s.Memories, err = memory.Count(ix.DB); err != nil {
+		return s, fmt.Errorf("counting memories: %w", err)
 	}
 	s.Recording = recorderRunning()
 
@@ -222,17 +238,30 @@ func (a *App) Overview() (OverviewView, error) {
 	}
 	defer ix.Close()
 
+	// As in Status: a swallowed error here is displayed as a zero, and a zero
+	// in the state strip is read as "nothing has been recorded", which is the
+	// one thing this strip exists to disprove.
 	v := OverviewView{Vault: a.vault, Recording: recorderRunning()}
-	v.Notes, _ = ix.NoteCount()
-	if memory.Init(ix.DB) == nil {
-		v.Memories, _ = memory.Count(ix.DB)
+	if v.Notes, err = ix.NoteCount(); err != nil {
+		return v, fmt.Errorf("counting notes: %w", err)
 	}
-	if session.Init(ix.DB) == nil {
-		v.OpenSessions, _ = session.OpenCount(ix.DB)
+	if err := memory.Init(ix.DB); err != nil {
+		return v, fmt.Errorf("opening memory: %w", err)
 	}
-	if projects, err := session.Projects(a.vault); err == nil {
-		v.Projects = len(projects)
+	if v.Memories, err = memory.Count(ix.DB); err != nil {
+		return v, fmt.Errorf("counting memories: %w", err)
 	}
+	if err := session.Init(ix.DB); err != nil {
+		return v, fmt.Errorf("opening sessions: %w", err)
+	}
+	if v.OpenSessions, err = session.OpenCount(ix.DB); err != nil {
+		return v, fmt.Errorf("counting open sessions: %w", err)
+	}
+	projects, err := session.Projects(a.vault)
+	if err != nil {
+		return v, fmt.Errorf("listing projects: %w", err)
+	}
+	v.Projects = len(projects)
 	v.Checkpoints, v.VaultWritten = vaultStats(a.vault)
 	v.IndexBuilt = indexBuiltAt(a.vault)
 	return v, nil

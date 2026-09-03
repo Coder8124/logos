@@ -83,7 +83,11 @@ func runDream(dateArg, phase string, dryRun bool) error {
 func printDream(res dream.Result, phase string) {
 	if phase == "all" || phase == "nrem" {
 		fmt.Println("\nNREM — stabilise")
-		fmt.Printf("  replay:     %d consolidated (%d merged, %d superseded)\n", res.Replayed, res.Merged, res.Superseded)
+		if res.ReplaySkipped {
+			fmt.Println("  replay:     skipped — no model available to judge duplicates")
+		} else {
+			fmt.Printf("  replay:     %d consolidated (%d merged, %d superseded)\n", res.Replayed, res.Merged, res.Superseded)
+		}
 		fmt.Printf("  gist:       %d standing fact(s) learned\n", res.Gists)
 		fmt.Printf("  downscale:  %d memories renormalised\n", res.Downscaled)
 		fmt.Printf("  artifacts:  %d tied to their work\n", res.Linked)
