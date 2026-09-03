@@ -82,6 +82,12 @@ func Accept(db *sql.DB, id int64) error {
 	if quarantined == 0 {
 		return fmt.Errorf("memory #%d is not pending review", id)
 	}
+	// A quarantined memory is not in the file yet, so accepting it is the moment
+	// it starts being written there — and that write is a whole-file rewrite.
+	// Adopt any hand edits first.
+	if err := Reconcile(db, Kind(kind)); err != nil {
+		return err
+	}
 	if _, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ?", id); err != nil {
 		return err
 	}

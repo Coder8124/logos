@@ -221,6 +221,16 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		m.Confidence = defaultConfidence(m.Source)
 	}
 
+	// Adopt anything the user changed in the file by hand before this write
+	// regenerates it. Ordered before the insert, not after: once the new row is
+	// in the index, nothing can tell it apart from a line the user deleted.
+	// A failure here is not fatal to the store — see Reconcile — but it is
+	// returned, because writing over an edit the user made is exactly what this
+	// call exists to prevent and doing it anyway would be worse than refusing.
+	if err := Reconcile(db, m.Kind); err != nil {
+		return Receipt{Outcome: OutcomeNoop}, err
+	}
+
 	var vec []byte
 	var qvec []float32
 	if p != nil {
@@ -599,6 +609,28 @@ func Count(db *sql.DB) (int, error) {
 }
 
 func Forget(db *sql.DB, id int64) error {
+	var k string
+	db.QueryRow("SELECT kind FROM memories WHERE id = ?", id).Scan(&k)
+	if err := Reconcile(db, Kind(k)); err != nil {
+		return err
+	}
+	kind, err := forgetRow(db, id)
+	if err != nil {
+		return err
+	}
+	// Forgetting has to reach the file too, or the next import restores it —
+	// which makes a failure here worth reporting rather than swallowing.
+	return flush(db, kind)
+}
+
+// forgetRow is Forget without the file write, for callers that are going to
+// write the file themselves once at the end.
+//
+// Reconcile is the one that needs this: it deletes every memory the user
+// removed from the file by hand, and flushing inside that loop would rewrite
+// the file once per deletion — each time from a half-reconciled index, and each
+// time over the very file still being read as the source of truth.
+func forgetRow(db *sql.DB, id int64) (Kind, error) {
 	// Snapshot the text into the log first, so the timeline records what was
 	// forgotten even though the row is about to vanish.
 	// The project comes out in the same snapshot: after the DELETE below there
@@ -606,14 +638,11 @@ func Forget(db *sql.DB, id int64) error {
 	// project's timeline is the one omission a person would actually notice.
 	var text, kind, proj string
 	db.QueryRow("SELECT text, kind, project FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj)
-	_, err := db.Exec("DELETE FROM memories WHERE id = ?", id)
-	if err != nil {
-		return err
+	if _, err := db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
+		return Kind(kind), err
 	}
 	logEventIn(db, id, EvForgotten, text, 0, proj)
-	// Forgetting has to reach the file too, or the next import restores it —
-	// which makes a failure here worth reporting rather than swallowing.
-	return flush(db, Kind(kind))
+	return Kind(kind), nil
 }
 
 // ForgetBySource removes every memory learned a particular way and reports how
@@ -688,6 +717,11 @@ func Exclude(db *sql.DB, id int64) error { return setPin(db, id, PinNever, "excl
 func setPin(db *sql.DB, id int64, pin int, verb string) error {
 	var text, kind string
 	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
+	// Same reason as Store: this ends in a whole-file rewrite, so whatever the
+	// user edited by hand has to be adopted before it, not lost by it.
+	if err := Reconcile(db, Kind(kind)); err != nil {
+		return err
+	}
 	if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
 		return err
 	}

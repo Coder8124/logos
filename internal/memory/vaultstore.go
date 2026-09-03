@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"os"
@@ -64,6 +65,7 @@ func SetVault(db *sql.DB, dir string) {
 	defer vaultMu.Unlock()
 	if dir == "" {
 		delete(vaults, db)
+		dropStamps(db)
 		return
 	}
 	vaults[db] = dir
@@ -74,6 +76,57 @@ func vaultFor(db *sql.DB) string {
 	vaultMu.RLock()
 	defer vaultMu.RUnlock()
 	return vaults[db]
+}
+
+// The hash of each kind's file as this process last saw it, so a reconcile can
+// tell "nobody has touched this since we wrote it" from "there is something to
+// adopt" without doing any of the work.
+//
+// This exists because reconciling on every mutation is quadratic without it. A
+// full pass upserts every line in the file, so storing n memories in a row
+// re-upserts 1 + 2 + ... + n rows — at two thousand memories that is four
+// million SQLite writes and a run that never finishes. The stamp turns the
+// common case, where the only writer is us, into one file read.
+//
+// Deliberately a hash rather than size-and-mtime. Cheaper checks assume a clock
+// resolution the filesystem does not promise, and the failure they admit — an
+// edit of the same length inside the same mtime tick — is silently losing the
+// user's correction, which is the exact bug reconciling exists to fix. Reading
+// the file is not the expensive half.
+//
+// Process-local by design. A stamp we do not have means a full pass, so another
+// process editing the vault costs one reconcile, never a missed edit.
+var (
+	stampMu sync.Mutex
+	stamps  = map[stampKey][sha256.Size]byte{}
+)
+
+type stampKey struct {
+	db   *sql.DB
+	kind Kind
+}
+
+func stamp(db *sql.DB, kind Kind, sum [sha256.Size]byte) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	stamps[stampKey{db, kind}] = sum
+}
+
+func stamped(db *sql.DB, kind Kind, sum [sha256.Size]byte) bool {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	got, ok := stamps[stampKey{db, kind}]
+	return ok && got == sum
+}
+
+func dropStamps(db *sql.DB) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	for k := range stamps {
+		if k.db == db {
+			delete(stamps, k)
+		}
+	}
 }
 
 // kinds is the fixed set, so exporting is deterministic and a kind with no
@@ -101,6 +154,118 @@ func flush(db *sql.DB, kind Kind) error {
 	if err := ExportKind(db, dir, kind); err != nil {
 		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
 	}
+	// Remember the file we just produced, so the next reconcile can recognise it
+	// as ours and skip a full pass. Read back rather than hashing what we think
+	// we wrote: if the export and the file on disk ever disagree, the stamp must
+	// describe the disk.
+	if raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
+		stamp(db, kind, sha256.Sum256(raw))
+	}
+	return nil
+}
+
+// Reconcile adopts whatever the user did to one kind's file by hand, before
+// anything overwrites it.
+//
+// This closes a data loss, and the file itself is what made it one. Every
+// memories/<kind>.md says, in its own header, "Edit any line to correct it.
+// Delete a line to forget it." Users did — and then the next thing any agent
+// stored called flush, which regenerates the whole file from the index, and the
+// correction was reverted or the deleted line came back. Silently, with the
+// instruction still printed at the top. A memory someone deliberately deleted
+// reappearing is the worst version of that: they deleted it because they did not
+// want an agent repeating it.
+//
+// So every mutating path reconciles first and writes second. Callers do this at
+// the *start* of their work rather than inside flush, and that ordering is the
+// whole design: by the time flush runs, the row it is about to export is already
+// in the index but not yet in the file, and nothing downstream could tell that
+// apart from a line the user had just deleted.
+//
+// Conservative by construction, sharing every guard Import has:
+//
+//   - a missing file says nothing about intent. A sync client mid-restore or a
+//     vault that has never been exported both look like this, and treating it as
+//     "the user deleted everything" is the failure this must never cause.
+//   - a truncated file is an interrupted write, not an edit, and acting on it
+//     would delete every memory the missing tail held.
+//   - quarantined memories are never in the file (see ExportKind), so their
+//     absence is not a deletion.
+//
+// A provider is not required. An edited line keeps its old vector — COALESCE in
+// upsert — so search is briefly stale for that one memory until `brain index`
+// re-embeds it. Stale ranking is a small, self-correcting cost; a lost edit is
+// permanent.
+func Reconcile(db *sql.DB, kind Kind) error {
+	dir := vaultFor(db)
+	if dir == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Unchanged since we last wrote it, so there is nothing of the user's to
+	// adopt and the whole pass below would be a no-op costing one upsert per
+	// line. See the stamps comment for why this check is what makes reconciling
+	// on every mutation affordable at all.
+	sum := sha256.Sum256(raw)
+	if stamped(db, kind, sum) {
+		return nil
+	}
+	if looksTruncated(string(raw)) {
+		// Reported by Import, which the user reaches through `brain index`.
+		// Here it is a reason to leave the file alone, not to fail the write
+		// that prompted the reconcile: refusing to store a memory because an
+		// unrelated file is damaged helps nobody.
+		return nil
+	}
+
+	keep := map[int64]bool{}
+	for _, m := range parseKind(kind, string(raw)) {
+		id, err := upsert(db, nil, "", m)
+		if err != nil {
+			return err
+		}
+		keep[id] = true
+	}
+
+	rows, err := db.Query(
+		`SELECT id FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0`, string(kind))
+	if err != nil {
+		return err
+	}
+	var deleted []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		if !keep[id] {
+			deleted = append(deleted, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, id := range deleted {
+		// forgetRow, not Forget: the same delete and the same memory_log entry,
+		// so a deletion made in a text editor leaves the trail one made through
+		// the CLI does — but without flushing inside the loop, which would
+		// rewrite the file from a half-reconciled index once per deletion.
+		if _, err := forgetRow(db, id); err != nil {
+			return err
+		}
+	}
+	// The file has now been adopted. Stamping it here matters for the case where
+	// the caller reconciles but never flushes; where a flush follows, it stamps
+	// again with the regenerated bytes.
+	stamp(db, kind, sum)
 	return nil
 }
 
