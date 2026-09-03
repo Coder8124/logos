@@ -13,10 +13,24 @@ package mcpserver
 // They say *when* to reach for each tool, because a tool the model never thinks
 // to call is a tool that does not exist.
 
+// relay is appended to every tool whose result opens with a receipt.
+//
+// The receipt exists so a person can see that their memory layer did something.
+// It reaches them only if the model repeats it, because hosts render a tool
+// result collapsed — Claude Code shows a grey one-liner, and the receipt sits
+// inside the part nobody opens. A continuity layer nobody sees restore anything
+// is one they stop believing in, and they stop long before they can say why.
+//
+// It lives in the tool description rather than only in the server instructions
+// because descriptions are the one channel every host puts in front of its
+// model. `instructions` is optional in the protocol and several hosts drop it,
+// so a rule that lives only there is a rule that applies only in some editors.
+const relay = " The first line of the result is a receipt for the user — repeat it to them in one short line of your own, at the moment it happens, then carry on. Do not skip it: the host hides this result from them, so a receipt you do not pass on is one they never see."
+
 var toolDefs = []map[string]any{
 	{
 		"name":        "remember",
-		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded. By default this queues the memory for the user's review rather than storing it immediately — say so plainly rather than telling the user it is already remembered; the response text tells you which happened.",
+		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded. By default this queues the memory for the user's review rather than storing it immediately — say so plainly rather than telling the user it is already remembered; the response text tells you which happened." + relay,
 		"inputSchema": obj(map[string]any{
 			"text":    str("the thing to remember, as a clear standalone statement"),
 			"kind":    enumStr("what kind of memory it is", "preference", "person", "context", "fact"),
@@ -41,12 +55,12 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "forget",
-		"description": "Delete a memory by its id (from list_memories). Use when the user asks to forget something or a memory is wrong.",
+		"description": "Delete a memory by its id (from list_memories). Use when the user asks to forget something or a memory is wrong." + relay,
 		"inputSchema": obj(map[string]any{"id": str("the memory id to forget")}, "id"),
 	},
 	{
 		"name":        "pin_memory",
-		"description": "Mark a memory by its id (from list_memories) as always-include: it will be carried into every context pack for its project regardless of relevance score. Use when the user says something should always be kept in mind — a standing instruction or a fact everything else depends on. To undo, call it again with unpin true.",
+		"description": "Mark a memory by its id (from list_memories) as always-include: it will be carried into every context pack for its project regardless of relevance score. Use when the user says something should always be kept in mind — a standing instruction or a fact everything else depends on. To undo, call it again with unpin true." + relay,
 		"inputSchema": obj(map[string]any{
 			"id":    str("the memory id to pin or unpin"),
 			"unpin": boolSchema("set true to return this memory to normal ranking instead of pinning it"),
@@ -54,12 +68,12 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "exclude_memory",
-		"description": "Mark a memory by its id (from list_memories) as never-include: it stays on record but is dropped from recall and context packs entirely. Use when the user wants a memory kept but never surfaced again — softer than forget, which deletes it outright. Call pin_memory with unpin true to reverse.",
+		"description": "Mark a memory by its id (from list_memories) as never-include: it stays on record but is dropped from recall and context packs entirely. Use when the user wants a memory kept but never surfaced again — softer than forget, which deletes it outright. Call pin_memory with unpin true to reverse." + relay,
 		"inputSchema": obj(map[string]any{"id": str("the memory id to exclude")}, "id"),
 	},
 	{
 		"name":        "context",
-		"description": "Assemble everything needed to do a task: where the last agent stopped, the project's goals and recent progress, the actual text of the relevant vault notes, related notes reached through the user's own links, what the user has told this memory, standing preferences, and open commitments — budgeted to fit a token ceiling and cited by source. Use this at the START of any task involving the user's own work, instead of recall. Prefer it over asking the user to re-explain: they have written this down already.",
+		"description": "Assemble everything needed to do a task: where the last agent stopped, the project's goals and recent progress, the actual text of the relevant vault notes, related notes reached through the user's own links, what the user has told this memory, standing preferences, and open commitments — budgeted to fit a token ceiling and cited by source. Use this at the START of any task involving the user's own work, instead of recall. Prefer it over asking the user to re-explain: they have written this down already." + relay,
 		"inputSchema": obj(map[string]any{
 			"task":    str("what you are about to do, in a sentence — this decides what gets retrieved"),
 			"project": str("optional: narrow to one project, file path, or topic"),
@@ -68,7 +82,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "resume",
-		"description": "Pick up a project where the last agent — possibly a different tool entirely — left off. Returns their last checkpoint (what they were doing, what they decided, what they already tried that did NOT work, what is still open, and the next step) followed by full project context. Use this when the user says 'continue', 'pick up where we left off', or names a project you have no history with. Read the 'already tried' section before proposing anything: it is there to stop you repeating work.",
+		"description": "Pick up a project where the last agent — possibly a different tool entirely — left off. Returns their last checkpoint (what they were doing, what they decided, what they already tried that did NOT work, what is still open, and the next step) followed by full project context. Use this when the user says 'continue', 'pick up where we left off', or names a project you have no history with. Read the 'already tried' section before proposing anything: it is there to stop you repeating work." + relay,
 		"inputSchema": obj(map[string]any{
 			"project": str("the project to resume"),
 			"agent":   str("optional: your name, e.g. 'claude' or 'cursor', recorded in the trail"),
@@ -103,7 +117,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "note_progress",
-		"description": "Record one line of what you just did or learned while working. Cheap and meant to be called often — after a decision, a dead end, or a surprising discovery. These stay uncommitted until checkpoint folds them into a durable record, so use them freely rather than saving everything for the end.",
+		"description": "Record one line of what you just did or learned while working. Cheap and meant to be called often — after a decision, a dead end, or a surprising discovery. These stay uncommitted until checkpoint folds them into a durable record, so use them freely rather than saving everything for the end." + relay,
 		"inputSchema": obj(map[string]any{
 			"project": str("the project being worked on"),
 			"text":    str("what happened, in one line"),
@@ -112,7 +126,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "checkpoint",
-		"description": "Write down where you are stopping, as a permanent note in the user's vault. Call this BEFORE you finish a work session, when the user says they are wrapping up, or when context is running short. The 'failed' field matters most: approaches that did not work are the expensive knowledge, and without them the next agent will repeat them. Anything you omit is lost.",
+		"description": "Write down where you are stopping, as a permanent note in the user's vault. Call this BEFORE you finish a work session, when the user says they are wrapping up, or when context is running short. The 'failed' field matters most: approaches that did not work are the expensive knowledge, and without them the next agent will repeat them. Anything you omit is lost." + relay,
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being worked on"),
 			"task":      str("what you were trying to do"),
@@ -130,7 +144,7 @@ var toolDefs = []map[string]any{
 	},
 	{
 		"name":        "handoff",
-		"description": "Checkpoint and explicitly hand the work to another agent or person. Same fields as checkpoint, plus who is taking over. Use when the user is switching tools ('finish this in Cursor') or delegating. The recipient calls resume(project) and continues without the user re-explaining anything.",
+		"description": "Checkpoint and explicitly hand the work to another agent or person. Same fields as checkpoint, plus who is taking over. Use when the user is switching tools ('finish this in Cursor') or delegating. The recipient calls resume(project) and continues without the user re-explaining anything." + relay,
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being handed off"),
 			"to":        str("who is taking over, e.g. 'cursor', 'codex', or a person's name"),
