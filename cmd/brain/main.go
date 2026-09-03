@@ -117,6 +117,9 @@ MEMORY
                                       every prompt, tool call and turn the host reported —
                                       recorded automatically, not by the model's choice
     brain activity --projects         which projects are being recorded
+    brain announce [on|quiet|off]     how loudly Logos reports its own work
+    brain prompt                      the instructions agents are given (BRAINPROMPT.md)
+    brain demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     brain jot <thought>               braindump: capture and auto-file a thought
     brain loop [add|done|drop]        manage open loops (commitments)
@@ -258,6 +261,12 @@ func main() {
 		err = runThink(rest)
 	case cmd == "capture":
 		err = runCapture(hasFlag(args, "--daemon"), flagInt(args, "--backfill-days", defaultBackfillDays))
+	case cmd == "demo":
+		err = runDemo(args)
+	case cmd == "prompt":
+		err = runPrompt(args)
+	case cmd == "announce":
+		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
 	case cmd == "timeline":

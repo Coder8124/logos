@@ -34,6 +34,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Coder8124/brain/internal/agentprompt"
+	"github.com/Coder8124/brain/internal/announce"
 	"github.com/Coder8124/brain/internal/contextpack"
 	"github.com/Coder8124/brain/internal/deadend"
 	"github.com/Coder8124/brain/internal/index"
@@ -273,6 +275,13 @@ func (s *Session) handle(req request) *response {
 			// server list. The repository, the Go module and the binary keep the
 			// development name.
 			"serverInfo": map[string]any{"name": "logos", "version": "0.1.0"},
+			// The protocol's own channel for "here is how to use this server",
+			// which conforming hosts put in front of the model with no action
+			// from the user. That is the whole reason it lives here rather
+			// than in a README nobody wires up: a memory layer the agent has
+			// to be told about by hand is one that works only for the person
+			// who installed it. See internal/agentprompt.
+			"instructions": agentprompt.Text(),
 		})
 	case "notifications/initialized":
 		// notification, no reply
@@ -399,9 +408,9 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	// already had.
 	switch r.Outcome {
 	case memory.EvReinforced:
-		return fmt.Sprintf("Already knew that — reinforced memory #%d (%s, %s).", r.Ref, kind, where), nil
+		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
 	case memory.EvCreated:
-		return fmt.Sprintf("Created memory #%d (%s, %s).", r.ID, kind, where), nil
+		return s.receipt(fmt.Sprintf("stored in brain — memory #%d (%s, %s)", r.ID, kind, where)), nil
 	}
 	return "Nothing stored.", nil
 }
@@ -489,7 +498,22 @@ func (s *Server) context(req contextpack.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return pack.Render(), nil
+	return s.lead(pack) + pack.Render(), nil
+}
+
+// lead puts the receipt above the pack rather than below it. A person skimming
+// a tool result reads the first line and stops; a summary underneath a page of
+// markdown is a summary nobody sees.
+func (s *Server) lead(pack contextpack.Pack) string {
+	carried := pack.Carried()
+	if carried == "" {
+		return ""
+	}
+	r := announce.Say(s.vault, "recalled "+carried)
+	if r == "" {
+		return ""
+	}
+	return r + "\n\n"
 }
 
 // --- continuity ---
@@ -608,7 +632,7 @@ func (s *Session) resume(projectArg, agent string, budget int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out := pack.Render()
+	out := s.lead(pack) + pack.Render()
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and
 		// finds none will invent continuity that never existed.
@@ -634,7 +658,33 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 	if _, err := session.AddNote(s.DB, project, agent, text); err != nil {
 		return "", err
 	}
-	return "Noted. It stays uncommitted until you call checkpoint.", nil
+	return s.receipt("noted in brain — uncommitted until you checkpoint"), nil
+}
+
+// receipt marks a line as ours so the person watching the transcript can find
+// it without reading it. See internal/announce for why this is a setting and
+// not a constant.
+//
+// It lives on Server rather than Session because the tools that write are split
+// across both, and a receipt that appeared on half of them would be worse than
+// none: an inconsistent marker teaches people the absence of a marker means
+// nothing happened.
+func (s *Server) receipt(what string) string {
+	if r := announce.Say(s.vault, what); r != "" {
+		return r
+	}
+	// At LOGOS_ANNOUNCE=off the model still needs to know what happened, even
+	// though the user has asked not to be told about it. Silence towards the
+	// user is not silence towards the caller.
+	return upperFirst(what)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	return strings.ToUpper(string(r[0])) + string(r[1:])
 }
 
 // checkpoint commits the session to the vault. handoffTo is set when the caller
@@ -665,7 +715,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
-	msg := fmt.Sprintf("Checkpoint written to %s.md in the vault.", c.Slug)
+	msg := s.receipt(fmt.Sprintf("checkpoint saved to brain — %s.md", c.Slug))
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}

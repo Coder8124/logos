@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -507,3 +508,47 @@ func resolve(db *sql.DB, req Request) *project.Project {
 	}
 	return nil
 }
+
+// Carried is a one-line inventory of what this pack actually contains: the
+// receipt a host shows the user so a restore is something they can see happen
+// rather than something they have to take on faith.
+//
+// It counts and never characterises. "4 memories" is checkable against the
+// text below it; "the important context" is not, and the moment a receipt says
+// something the body does not support, every later receipt is worth less.
+//
+// Empty when the pack carries nothing, so a caller can tell "restored nothing"
+// from "restored things I did not enumerate" and say the honest one.
+func (p Pack) Carried() string {
+	var parts []string
+	add := func(n int, one, many string) {
+		if n <= 0 {
+			return
+		}
+		if n == 1 {
+			parts = append(parts, "1 "+one)
+			return
+		}
+		parts = append(parts, itoa(n)+" "+many)
+	}
+	if p.Checkpoint != nil {
+		parts = append(parts, "the last checkpoint")
+	}
+	add(len(p.Working), "uncommitted note", "uncommitted notes")
+	add(len(p.Notes), "note", "notes")
+	add(len(p.Preferences)+len(p.Related), "memory", "memories")
+	add(len(p.OpenLoops), "open loop", "open loops")
+	// Worth naming separately: a superseded value that was *kept out* is the
+	// single most distinctive thing this system does, and it is invisible in
+	// the body precisely because it was excluded.
+	add(len(p.Superseded), "stale value held back", "stale values held back")
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"github.com/Coder8124/brain/internal/announce"
 	"io"
 	"os"
 	"path/filepath"
@@ -414,14 +415,43 @@ func TestRememberReturnsAReceipt(t *testing.T) {
 	first, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(first, "Created memory #") {
+	if !strings.Contains(first, "stored in brain — memory #") {
 		t.Errorf("first store should report creation, got %q", first)
 	}
 	second, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(second, "Already knew that") {
+	if !strings.Contains(second, "already knew that") {
 		t.Errorf("restating a known fact should report reinforcement, got %q", second)
+	}
+}
+
+// The receipt is a product decision, so it gets a switch. What must not change
+// with the switch is the *information*: a user who turns the marker off has
+// asked to be told less loudly, not to be told less.
+func TestAnnounceLevelChangesTheMarkerNotTheFacts(t *testing.T) {
+	for _, tc := range []struct {
+		level  string
+		marker bool
+	}{
+		{"on", true},
+		{"quiet", false},
+		{"off", false},
+	} {
+		t.Run(tc.level, func(t *testing.T) {
+			t.Setenv("LOGOS_ANNOUNCE", tc.level)
+			c, _, _ := startServer(t)
+			handshake(t, c)
+			got, _ := c.callText(t, "remember", map[string]any{
+				"text": "The BOM target is $118.", "kind": "fact",
+			})
+			if strings.Contains(got, announce.Marker) != tc.marker {
+				t.Errorf("level %q: marker presence wrong in %q", tc.level, got)
+			}
+			if !strings.Contains(strings.ToLower(got), "memory #") {
+				t.Errorf("level %q dropped the fact itself: %q", tc.level, got)
+			}
+		})
 	}
 }
 
