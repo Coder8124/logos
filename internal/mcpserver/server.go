@@ -37,6 +37,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/agentprompt"
 	"github.com/Coder8124/brain/internal/announce"
+	"github.com/Coder8124/brain/internal/buildinfo"
 	"github.com/Coder8124/brain/internal/contextpack"
 	"github.com/Coder8124/brain/internal/deadend"
 	"github.com/Coder8124/brain/internal/index"
@@ -310,7 +311,7 @@ func (s *Session) handle(req request) *response {
 			// The product name: this is the string a host shows the user in its
 			// server list. The repository, the Go module and the binary keep the
 			// development name.
-			"serverInfo": map[string]any{"name": "logos", "version": "0.1.0"},
+			"serverInfo": map[string]any{"name": "logos", "version": buildinfo.Version},
 			// The protocol's own channel for "here is how to use this server",
 			// which conforming hosts put in front of the model with no action
 			// from the user. That is the whole reason it lives here rather

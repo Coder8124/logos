@@ -26,7 +26,7 @@ mkdir -p "$OUT"
 # binary; -s -w drops the symbol table and DWARF, roughly halving the size of
 # something nobody is going to debug from a tarball.
 export CGO_ENABLED=0
-LDFLAGS="-s -w -X main.version=${VERSION}"
+LDFLAGS="-s -w -X github.com/Coder8124/brain/internal/buildinfo.Version=${VERSION}"
 
 platforms=(
   "darwin arm64"    # Apple silicon

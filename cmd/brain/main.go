@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Coder8124/brain/internal/buildinfo"
 	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/capture/sources"
 	"github.com/Coder8124/brain/internal/health"
@@ -25,13 +26,13 @@ import (
 	"github.com/Coder8124/brain/internal/voice"
 )
 
-// version is stamped at build time by scripts/release.sh:
-//
-//	-ldflags "-X main.version=v0.1.0"
+// version is what `brain version` prints. It comes from internal/buildinfo so
+// that this and the version the MCP handshake announces are the same string —
+// they used to be two, and one of them was a literal nobody remembered to bump.
 //
 // "dev" is what a plain `go build` produces, and saying so is more useful than
 // printing a number that is not tied to a release.
-var version = "dev"
+var version = buildinfo.Version
 
 const (
 	defaultEmbedModel = "nomic-embed-text"

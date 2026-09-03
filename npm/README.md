@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@noeton/logos"><img alt="npm" src="https://img.shields.io/npm/v/@noeton/logos?style=flat-square&color=0b7285"></a>
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square">
+  <img alt="license" src="https://img.shields.io/badge/license-Apache_2.0-blue?style=flat-square">
   <img alt="platforms" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-arm64%20%2B%20x64-555?style=flat-square">
   <img alt="download" src="https://img.shields.io/badge/download-~5%20MB-555?style=flat-square">
 </p>
@@ -196,5 +196,5 @@ module `github.com/Coder8124/brain`, the `brain` command, `BRAIN_VAULT`, and
 <p align="center">
   <a href="https://github.com/Coder8124/logos">Source &amp; full documentation</a> ·
   <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Benchmark</a> ·
-  MIT
+  Apache 2.0
 </p>
