@@ -228,6 +228,22 @@ func runSessionLog(args []string) error {
 			fmt.Printf("    %s\n", oneLineOf(n.Text))
 		}
 	}
+
+	// Uncommitted notes alone do not say whether the session behind them is
+	// still live or simply dead. This is the difference: a session silent past
+	// AbandonAfter is not "in progress", it is work nobody is coming back to
+	// unless someone is told about it.
+	if abandoned, err := session.FindAbandonedInProject(ix.DB, project, session.AbandonAfter); err == nil && len(abandoned) > 0 {
+		fmt.Printf("\nabandoned (%d) — opened, never checkpointed:\n", len(abandoned))
+		for _, a := range abandoned {
+			who := a.Agent
+			if who == "" {
+				who = "agent"
+			}
+			fmt.Printf("    %s by %s, silent %s, %d note(s)\n",
+				a.Session, who, roughAge(a.LastActivity), a.Notes)
+		}
+	}
 	return nil
 }
 

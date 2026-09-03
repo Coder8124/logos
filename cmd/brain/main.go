@@ -21,6 +21,7 @@ import (
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/voice"
 )
 
@@ -100,7 +101,8 @@ CONTINUITY
     brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
-    brain sessions <project>          checkpoint history for a project
+    brain sessions <project>          checkpoint history for a project, and any abandoned ones
+    brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
     brain context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     brain tried <approach> [--project X]
@@ -235,6 +237,8 @@ func main() {
 		err = runTried(args)
 	case cmd == "sessions":
 		err = runSessionLog(args)
+	case cmd == "continuity":
+		err = runContinuity(args)
 	case cmd == "say" && rest != "":
 		err = runSay(rest)
 	case cmd == "listen":
@@ -578,6 +582,7 @@ func gatherHealth() health.Report {
 	if ix, err := index.Open(vault); err == nil {
 		defer ix.Close()
 		capture.InitStore(ix.DB) // so the capture check reads a table rather than an error
+		session.Init(ix.DB)      // so the abandonment check reads a table rather than an error
 		in.DB = ix.DB
 	}
 	if found := provider.Discover(); len(found) > 0 {
