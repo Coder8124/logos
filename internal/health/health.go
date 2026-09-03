@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/setup"
@@ -107,6 +108,7 @@ func Run(in Input) Report {
 	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
 	r.Add(checkCapture(in.DB, in.RetentionDays, in.KeepForever))
+	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
 	return r
 }
@@ -319,6 +321,43 @@ func checkCapture(db *sql.DB, retentionDays int, keepForever bool) Check {
 	c.State = OK
 	c.Detail = fmt.Sprintf("%d events, pruned after %d days", n, retentionDays)
 	return c
+}
+
+// checkMemoryReview is the PRODUCT RULE applied to quarantine: a feature that
+// silently queues machine-proposed memories and never says so is no better
+// than the unreviewed writes it replaced — the queue just fills up somewhere
+// nobody looks. This is what makes the backlog visible on every `brain
+// doctor`, the same way stale capture or a stale index already are.
+func checkMemoryReview(db *sql.DB) Check {
+	c := Check{Name: "memory review"}
+	if db == nil {
+		c.State, c.Detail = Unknown, "no index open"
+		return c
+	}
+	if err := memory.Init(db); err != nil {
+		c.State, c.Detail = Unknown, "could not open the memory store: "+err.Error()
+		return c
+	}
+	n, err := memory.PendingCount(db)
+	if err != nil {
+		c.State, c.Detail = Unknown, "could not read the review queue: "+err.Error()
+		return c
+	}
+	if n == 0 {
+		c.State, c.Detail = OK, "nothing pending"
+		return c
+	}
+	c.State = OK
+	c.Detail = fmt.Sprintf("%d memor%s awaiting review", n, plural(n))
+	c.Fix = "run `brain review` to accept or reject them"
+	return c
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // Hosts is the difference between "brain is installed" and "your agents can
