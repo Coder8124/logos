@@ -173,3 +173,39 @@ func TestUnboundDatabaseStillTakesNotes(t *testing.T) {
 		t.Fatalf("an unbound database refused a note: %v", err)
 	}
 }
+
+// "Most recent checkpoint" is a reverse sort of the filenames in a session
+// directory, so any file that is not a timestamped checkpoint sorts ahead of
+// every real one and becomes what resume reports. uncommitted.md is such a
+// file, and so is anything a user leaves beside their history.
+func TestStrayFilesAreNotMistakenForTheLatestCheckpoint(t *testing.T) {
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	c := Checkpoint{Project: "kestrel", Agent: "claude", State: "shipped billing", Next: "ship"}
+	if err := Commit(db, v, &c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddNote(db, "kestrel", "claude", "and then this happened"); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(v, CheckpointDir, "kestrel")
+	if err := os.WriteFile(filepath.Join(dir, "zz-notes-to-self.md"), []byte("mine\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	hist, err := History(v, "kestrel", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 {
+		t.Fatalf("history has %d entries, want only the real checkpoint", len(hist))
+	}
+	latest, err := Latest(v, "kestrel")
+	if err != nil || latest == nil {
+		t.Fatalf("Latest returned %v, %v", latest, err)
+	}
+	if !strings.Contains(latest.State, "shipped billing") {
+		t.Errorf("Latest returned a file that is not a checkpoint: %+v", latest)
+	}
+}

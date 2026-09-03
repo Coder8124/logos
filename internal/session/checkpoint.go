@@ -218,7 +218,7 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+		if !e.IsDir() && isCheckpointFile(e.Name()) {
 			names = append(names, e.Name())
 		}
 	}
@@ -238,6 +238,27 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// isCheckpointFile decides whether a file in a session directory is one of
+// ours.
+//
+// Not every .md here is a checkpoint: uncommitted.md holds working notes, and
+// a user is free to leave a stray file of their own beside their history. The
+// name is the test because the name is also the sort key — "most recent" is a
+// reverse sort of these filenames, so anything not stamped with a timestamp
+// does not merely add a bad row, it sorts to the front and becomes what
+// `resume` reports as the last thing that happened.
+func isCheckpointFile(name string) bool {
+	if !strings.HasSuffix(name, ".md") || len(name) < 9 || name[8] != '-' {
+		return false
+	}
+	for i := range 8 {
+		if name[i] < '0' || name[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Projects lists the projects that have at least one checkpoint. Worktree
