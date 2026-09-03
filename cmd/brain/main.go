@@ -275,6 +275,8 @@ func main() {
 		err = runActivity(args)
 	case cmd == "project-name":
 		err = runProjectName(args)
+	case cmd == "project" && len(args) > 0 && args[0] == "rename":
+		err = runProjectRename(args[1:])
 	case cmd == "timeline":
 		err = timeline(hasFlag(args, "--verbose"))
 	case cmd == "rollup":
