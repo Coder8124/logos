@@ -60,10 +60,17 @@ jobs:
       # npm 11.5.1 is the floor for trusted publishing. Node 24 ships past it;
       # the explicit upgrade means a change to the runner image cannot quietly
       # drop us onto a version that falls back to looking for a token.
+      #
+      # Deliberately no registry-url. That option writes an .npmrc line reading
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and NODE_AUTH_TOKEN
+      # is never set here because trusted publishing is the whole point. An empty
+      # token is not the same as no token: npm can take it as credentials it
+      # already has, skip the OIDC exchange, and then fail asking for a 2FA code
+      # — which is what the first v0.1.3 and v0.1.4 runs did, with the trusted
+      # publisher correctly configured on every package.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
       - run: npm install -g npm@latest
 
       # The gate. A release that ships a failing build helps nobody, and these

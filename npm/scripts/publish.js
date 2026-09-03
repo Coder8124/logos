@@ -219,15 +219,31 @@ function publish(dir, label) {
     return;
   }
   if (/one-time pass|otp|two-factor|bypass 2fa/i.test(out)) {
+    // npm's own words first, always. Advice built from a pattern match is a
+    // guess about which of several situations produced the same word, and
+    // printing only the guess cost a full release cycle to find out it was the
+    // wrong one: on CI, "2FA" can mean the trusted publisher was not matched at
+    // all, which none of the steps below would fix.
+    console.error(`npm said:\n${out.trim()}\n`);
     die(
-      `${label} was refused: npm wants proof of two-factor auth.\n\n` +
-        `  Fastest way through, right now:\n` +
-        `    1. Turn on 2FA at npmjs.com/settings/${who}/tfa (authenticator app, free)\n` +
-        `    2. npm run release -- --otp <the 6 digits>\n` +
-        `       Take the code at the start of its window — ~27MB uploads first.\n\n` +
-        `  Then never again: configure trusted publishing on all six packages and\n` +
-        `  cut releases by pushing a tag. See .github/workflows/release.yml.\n\n` +
-        `  ${published} package(s) published before this point; re-running skips them.`
+      ci
+        ? `${label} was refused: npm did not accept this workflow's identity.\n\n` +
+            `  Trusted publishing is what authenticates here — there is no token —\n` +
+            `  so a 2FA complaint means npm did not match the OIDC claim to a\n` +
+            `  trusted publisher on THIS package. Check, on ${label}'s settings:\n` +
+            `    · the publisher exists on this package, not only on the wrapper\n` +
+            `    · repository Coder8124/logos, workflow release.yml, no environment\n` +
+            `    · the permission granted covers publishing this package\n\n` +
+            `  Read npm's message above before changing anything else.\n\n` +
+            `  ${published} package(s) published before this point; re-running skips them.`
+        : `${label} was refused: npm wants proof of two-factor auth.\n\n` +
+            `  Fastest way through, right now:\n` +
+            `    1. Turn on 2FA at npmjs.com/settings/${who}/tfa (authenticator app, free)\n` +
+            `    2. npm run release -- --otp <the 6 digits>\n` +
+            `       Take the code at the start of its window — ~27MB uploads first.\n\n` +
+            `  Then never again: configure trusted publishing on all six packages and\n` +
+            `  cut releases by pushing a tag. See .github/workflows/release.yml.\n\n` +
+            `  ${published} package(s) published before this point; re-running skips them.`
     );
   }
   console.error(out.trim());
