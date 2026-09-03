@@ -26,7 +26,7 @@ set -uo pipefail
 # Resolve the binary. Shared with the other hooks and with the MCP server, so
 # that all of them talk to the same vault; see bin/resolve.sh for why PATH on
 # its own is not enough.
-. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
 # The project is the directory being worked in. This is the assumption a coding

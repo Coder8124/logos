@@ -26,7 +26,7 @@ set -uo pipefail
 event="${1:-}"
 [ -z "$event" ] && exit 0
 
-. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
 project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")

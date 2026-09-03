@@ -20,7 +20,7 @@
 # working. One line on stderr, and one line when it fails, is the whole fix.
 set -uo pipefail
 
-. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
 project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
