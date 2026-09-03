@@ -176,6 +176,16 @@ func Get(db *sql.DB, id string) (Session, bool, error) {
 	return s, err == nil, err
 }
 
+// OpenCount reports how many sessions, across every project, are still open —
+// started but not yet folded into a checkpoint by Commit. It is what lets a
+// caller say "capture is live" from real state rather than from the mere
+// presence of a process, the way a terminal-style inspector needs to.
+func OpenCount(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE ended = 0`).Scan(&n)
+	return n, err
+}
+
 // SetTask records what the session is for. Agents usually learn this a few
 // turns in, not at the start, so it is a separate call rather than required
 // up front.

@@ -7,8 +7,11 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Coder8124/brain/internal/capture"
@@ -18,6 +21,7 @@ import (
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/routine"
 	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/brain/internal/session"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -186,6 +190,97 @@ func (a *App) Status() (Status, error) {
 		}
 	}
 	return s, nil
+}
+
+// OverviewView is the state banner every terminal-app view leads with: proof
+// that capture, indexing, and continuity are actually running, not just
+// configured to. A feature with no visible state reads as broken even when it
+// works — this is what makes the difference legible.
+type OverviewView struct {
+	Vault        string `json:"vault"`
+	Notes        int    `json:"notes"`
+	Memories     int    `json:"memories"`
+	Checkpoints  int    `json:"checkpoints"`
+	OpenSessions int    `json:"openSessions"`
+	Projects     int    `json:"projects"`
+	Recording    bool   `json:"recording"`
+	// IndexBuilt is when the on-disk index was last written, unix seconds, 0
+	// if it has never been built.
+	IndexBuilt int64 `json:"indexBuilt"`
+	// VaultWritten is the newest checkpoint or memory file's mtime, unix
+	// seconds, 0 if the vault holds neither yet.
+	VaultWritten int64 `json:"vaultWritten"`
+}
+
+// Overview backs the terminal app's state strip. It is read on tab switches
+// rather than polled alongside Status: counting checkpoints means walking the
+// vault, which is cheap once but not something to repeat every few seconds.
+func (a *App) Overview() (OverviewView, error) {
+	ix, err := a.open()
+	if err != nil {
+		return OverviewView{}, err
+	}
+	defer ix.Close()
+
+	v := OverviewView{Vault: a.vault, Recording: recorderRunning()}
+	v.Notes, _ = ix.NoteCount()
+	if memory.Init(ix.DB) == nil {
+		v.Memories, _ = memory.Count(ix.DB)
+	}
+	if session.Init(ix.DB) == nil {
+		v.OpenSessions, _ = session.OpenCount(ix.DB)
+	}
+	if projects, err := session.Projects(a.vault); err == nil {
+		v.Projects = len(projects)
+	}
+	v.Checkpoints, v.VaultWritten = vaultStats(a.vault)
+	v.IndexBuilt = indexBuiltAt(a.vault)
+	return v, nil
+}
+
+// vaultStats walks the two vault directories that are the durable record —
+// checkpoints and memories — counting checkpoint files and finding the
+// newest mtime across both. It reads file metadata only, never content, so
+// it stays cheap regardless of how much either directory holds.
+func vaultStats(vault string) (checkpoints int, written int64) {
+	for i, dir := range []string{
+		filepath.Join(vault, session.CheckpointDir),
+		filepath.Join(vault, memory.Dir),
+	} {
+		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+				return nil
+			}
+			if i == 0 {
+				checkpoints++
+			}
+			if info, err := d.Info(); err == nil {
+				if t := info.ModTime().Unix(); t > written {
+					written = t
+				}
+			}
+			return nil
+		})
+	}
+	return checkpoints, written
+}
+
+// indexBuiltAt is the mtime of the on-disk index, the newer of its main file
+// and its WAL — the index is rebuilt continuously in WAL mode, so a write
+// often lands there first. 0 means the index has not been built yet.
+func indexBuiltAt(vault string) int64 {
+	var latest time.Time
+	for _, name := range []string{"index.db", "index.db-wal"} {
+		if fi, err := os.Stat(filepath.Join(vault, ".brain", name)); err == nil {
+			if fi.ModTime().After(latest) {
+				latest = fi.ModTime()
+			}
+		}
+	}
+	if latest.IsZero() {
+		return 0
+	}
+	return latest.Unix()
 }
 
 // Timeline backs the today view.
