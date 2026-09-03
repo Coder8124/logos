@@ -2,9 +2,8 @@ package main
 
 import (
 	"embed"
-	"os"
-	"path/filepath"
 
+	"github.com/Coder8124/brain/internal/vault"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -13,13 +12,12 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-func vaultPath() string {
-	if v := os.Getenv("BRAIN_VAULT"); v != "" {
-		return v
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "brain-vault")
-}
+// vaultPath is the same answer every other front end gets. It used to be its
+// own copy defaulting to ~/brain-vault, while the CLI and the MCP server used
+// ~/brain — so the app opened an empty vault, created it on first launch, and
+// reported a healthy zero of everything while the user's memory sat in a
+// directory it never looked at.
+func vaultPath() string { return vault.Path() }
 
 func main() {
 	app := NewApp(vaultPath())

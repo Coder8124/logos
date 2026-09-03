@@ -27,23 +27,26 @@ import (
 func setupCmd(args []string) error {
 	yes := hasFlag(args, "--yes") || hasFlag(args, "-y")
 
-	vault, created, err := chooseVault(args)
+	dir, created, err := chooseVault(args)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  vault      %s", vault)
+	fmt.Printf("  vault      %s", dir)
 	if created {
 		fmt.Print("   (created)")
 	}
 	fmt.Println()
+	if vault.Recorded() == dir {
+		fmt.Println("             recorded — the desktop app opens this vault too")
+	}
 
 	// Everything below wants the vault to be the one we just chose, whatever
 	// the environment said when the process started.
-	os.Setenv("BRAIN_VAULT", vault)
+	os.Setenv("BRAIN_VAULT", dir)
 
 	checkRuntime(yes)
-	indexVault(vault)
-	if err := wireHosts(vault, wireOptsFrom(args)); err != nil {
+	indexVault(dir)
+	if err := wireHosts(dir, wireOptsFrom(args)); err != nil {
 		return err
 	}
 	return nil
@@ -62,7 +65,7 @@ func wireOptsFrom(args []string) wireOpts {
 func chooseVault(args []string) (dir string, created bool, err error) {
 	dir = flagStr(args, "--vault", "")
 	if dir == "" {
-		dir = vaultPath() // BRAIN_VAULT, else the ~/brain default
+		dir = vaultPath() // BRAIN_VAULT, then the recorded path, then ~/brain
 	}
 	abs, err := filepath.Abs(expandHome(dir))
 	if err != nil {
@@ -76,6 +79,12 @@ func chooseVault(args []string) (dir string, created bool, err error) {
 			return "", false, fmt.Errorf("creating %s: %w", abs, err)
 		}
 		created = true
+	}
+	// Write the choice down where a front end with no shell can read it. The
+	// desktop app is launched from Finder and inherits no BRAIN_VAULT, so
+	// without this it can only ever find a vault at the default location.
+	if err := vault.Record(abs); err != nil {
+		fmt.Printf("             could not record this vault for the desktop app: %v\n", err)
 	}
 	return abs, created, nil
 }

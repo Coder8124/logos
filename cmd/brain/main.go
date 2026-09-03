@@ -23,6 +23,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/vault"
 	"github.com/Coder8124/brain/internal/voice"
 )
 
@@ -438,24 +439,11 @@ func env(key, def string) string {
 	return def
 }
 
-// vaultPath resolves where the vault lives.
-//
-// The default is absolute — ~/brain — and that matters more than it looks. It
-// used to be the relative "vault", which is fine in a terminal and quietly
-// wrong everywhere else: an MCP host launches this binary from a directory
-// nobody chose, so a config that omitted BRAIN_VAULT did not fail, it created
-// an empty vault somewhere the user would never look. brain then appeared to
-// work while knowing nothing, which is the worst way for a memory product to
-// break. BRAIN_VAULT still wins wherever it is set.
-func vaultPath() string {
-	if v := os.Getenv("BRAIN_VAULT"); v != "" {
-		return v
-	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, "brain")
-	}
-	return "vault" // no home directory to speak of; the old behaviour
-}
+// vaultPath resolves where the vault lives. The rule itself lives in
+// internal/vault, because the desktop app needs the same answer and having its
+// own copy is how it came to open a different vault than the CLI on the same
+// machine.
+func vaultPath() string { return vault.Path() }
 
 func watchedRepos() []string {
 	if v := os.Getenv("BRAIN_REPOS"); v != "" {
