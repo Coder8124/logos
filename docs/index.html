@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Get Logos</title>
-<meta name="description" content="Download Logos — continuity for AI coding agents. One command, ~5 MB, no account.">
+<title>Logos</title>
+<meta name="description" content="Continuity for AI coding agents. One vault of markdown you own; Claude Code, Cursor and Codex are all clients of it.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400&display=swap">
@@ -427,6 +427,199 @@ td { color: var(--ink-2); }
 td:first-child { color: var(--ink); }
 .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+
+/* ── The fan ───────────────────────────────────────────────────────────────
+   The thesis diagram. Six named hosts on the left, one vault on the right, and
+   the seam between them named for what it actually is — three interfaces, not
+   a brand. Drawn rather than photographed because a screenshot of an
+   architecture is a screenshot of a slide; this is the claim itself, and the
+   claim is that the left column is replaceable and the right one is not. */
+.fan {
+  margin-top: 3rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: var(--lift-2);
+  padding: 1.6rem 1.5rem;
+}
+.fan .clients { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.fan .clients li {
+  font-family: var(--f-mono);
+  font-size: .8125rem;
+  color: var(--ink);
+  padding: .28rem .6rem;
+  border: 1px solid var(--rule-2);
+  border-radius: 2px;
+  background: var(--stone);
+}
+.fan .clients li.open { color: var(--ink-3); border-style: dashed; }
+/* Horizontal, because the flow is horizontal: six clients on the left, one
+   vault on the right, and the seam is what they meet at. A vertical thread
+   here read as a stack and fought the layout it was drawn inside. */
+.fan .seam { display: flex; align-items: center; gap: .55rem; }
+.fan .seam .thread {
+  width: 1.6rem;
+  height: 1px;
+  background: linear-gradient(90deg, var(--rule), var(--patina));
+}
+.fan .seam .thread.down { background: linear-gradient(90deg, var(--patina), var(--rule)); }
+.fan .seam .node {
+  font-family: var(--f-mono);
+  font-size: .6875rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--patina);
+  border: 1px solid var(--patina);
+  border-radius: 2px;
+  padding: .3rem .6rem;
+  background: var(--wash);
+  text-align: center;
+  line-height: 1.5;
+}
+.fan .vaultbox {
+  border: 1px solid var(--brass);
+  border-radius: 2px;
+  background: var(--wash-2);
+  padding: .85rem 1rem;
+}
+.fan .vaultbox b {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: .8125rem;
+  color: var(--brass);
+  font-weight: 600;
+  margin-bottom: .35rem;
+}
+.fan .vaultbox span {
+  display: block;
+  font-size: .8125rem;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+
+/* ── Shots ─────────────────────────────────────────────────────────────────
+   Terminal panes carrying output copied verbatim from a real run, not
+   retyped. That is the point of showing them at all: a page that mocks up its
+   own product's output is advertising, and this project's whole argument is
+   the difference between measured and claimed. The chrome is deliberately
+   plain — no fake traffic lights, no window shadow pretending to be a photo. */
+.shot {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  box-shadow: var(--lift-2);
+  overflow: hidden;
+}
+.shot .bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .35rem 1rem;
+  padding: .6rem 1rem;
+  background: var(--sunk);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--f-mono);
+  font-size: .6875rem;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.shot .bar b { color: var(--ink-2); font-weight: 500; }
+.shot .bar .side { margin-left: auto; letter-spacing: .04em; text-transform: none; }
+.shot pre {
+  margin: 0;
+  padding: 1rem 1.2rem 1.1rem;
+  overflow-x: auto;
+  font-family: var(--f-mono);
+  font-size: .8125rem;
+  line-height: 1.68;
+  color: var(--ink);
+  tab-size: 2;
+}
+.shot.record-tint .bar { background: var(--wash-2); }
+.shot .g   { color: var(--ink-3); }
+.shot .ok  { color: var(--patina); font-weight: 500; }
+.shot .br  { color: var(--brass); }
+.shot .say { color: var(--ink-2); }
+.shot .del { color: var(--ink-3); text-decoration: line-through; }
+
+/* ── Sequence ──────────────────────────────────────────────────────────────
+   Numbered because this one actually is a sequence: Monday, then Thursday,
+   then Friday, and step 4 only means anything after steps 1 and 2 have both
+   happened. Elsewhere on this page the sections are alternatives and carry
+   names instead. */
+/* min-width:0 all the way down, for the same reason .steps needs it above: a
+   grid item defaults to min-content, and the min-content of a shot is its
+   longest line of terminal output. Without this the pre stops scrolling and
+   the page scrolls sideways instead, which is the one thing it must never do. */
+.seq { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2.4rem; margin-top: 1.9rem; }
+.step { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0 1rem; min-width: 0; }
+.step > * { min-width: 0; }
+.shot { min-width: 0; }
+.step .n {
+  font-family: var(--f-mono);
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  padding-top: .1rem;
+}
+.step .cap { max-width: var(--measure); margin-bottom: .9rem; }
+.step .cap h3 { margin-bottom: .3rem; }
+.step .cap p { margin-bottom: 0; font-size: .9375rem; }
+.step .after { margin-top: .85rem; max-width: var(--measure); font-size: .875rem; color: var(--ink-3); }
+
+/* Two panes that are the same fact seen from two machines. */
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; margin-top: 1.7rem; }
+.pair > * { min-width: 0; }
+
+/* ── Benchmark ─────────────────────────────────────────────────────────────
+   A bar per row, because the interesting number here is a gap and a gap is
+   easier to see than to read. Semantic colour, not the accent: patina is the
+   live thing everywhere else on this page and would be lying if it also meant
+   "wins". */
+.bench td.bar { width: 40%; padding-right: 1.2rem; }
+.bench .track { display: block; height: .5rem; background: var(--sunk); border-radius: 1px; overflow: hidden; }
+.bench .fill { display: block; height: 100%; background: var(--ink-3); }
+.bench tr.us td { color: var(--ink); }
+.bench tr.us td:first-child { font-weight: 600; }
+.bench tr.us .fill { background: var(--patina); }
+.bench tr.us .track { background: var(--wash); }
+
+/* ── Layer ledger ──────────────────────────────────────────────────────── */
+.layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.layers li {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: .2rem 1.4rem;
+  padding: .85rem 0;
+  border-top: 1px solid var(--rule-2);
+}
+.layers li:first-child { border-top: 0; padding-top: 0; }
+.layers b {
+  font-family: var(--f-mono);
+  font-size: .8125rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+.layers span { color: var(--ink-2); font-size: .9375rem; }
+
+/* A pull line: the one sentence a section is really about. */
+.pull {
+  font-family: var(--f-voice);
+  font-style: italic;
+  font-size: 1.25rem;
+  line-height: 1.45;
+  color: var(--ink);
+  max-width: 46ch;
+  margin: 1.9rem 0 0;
+  padding-left: 1.1rem;
+  border-left: 2px solid var(--brass);
+}
+
 /* ── Footer ────────────────────────────────────────────────────────────── */
 footer {
   display: flex;
@@ -469,28 +662,39 @@ footer .sp { margin-left: auto; }
   .record .strip b { margin-left: 0; }
   footer .sp { margin-left: 0; }
 }
+
+@media (max-width: 46rem) {
+  .fan { grid-template-columns: 1fr; gap: 1.1rem; }
+  .fan .seam { justify-content: center; }
+  .pair { grid-template-columns: 1fr; }
+  .layers li { grid-template-columns: 1fr; }
+  .step { grid-template-columns: minmax(0, 1fr); gap: .4rem; }
+  .bench td.bar { display: none; }
+}
 </style>
 </head>
 <body>
+
 <div class="page">
 
   <header class="masthead">
     <span class="wordmark">Logos</span>
     <span class="tag">Continuity for AI coding agents</span>
     <nav>
-      <a href="https://github.com/Coder8124/logos">Source</a>
-      <a href="https://www.npmjs.com/package/@noeton/logos">npm</a>
-      <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Benchmark</a>
+      <a href="#watch">Watch</a>
+      <a href="#portable">Portability</a>
+      <a href="#proof">Proof</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/Coder8124/logos">GitHub</a>
     </nav>
   </header>
 
   <section class="hero">
-    <h1 class="fade">Nothing <em>forgotten.</em></h1>
+    <h1 class="fade">Your memory. <em>Any</em> agent.</h1>
     <p class="sub fade">
-      A session ends and everything it learned goes with it &mdash; the three approaches
-      it ruled out, the decision made at 2am, the reason the obvious fix does not work
-      here. Logos keeps all of it as markdown on your disk and hands it to the next
-      agent that starts work.
+      One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
+      from it, Codex picks up where both stopped. Every tool is a client of the same
+      record &mdash; and none of them owns it, including this one.
     </p>
 
     <div class="cmd primary fade">
@@ -498,59 +702,408 @@ footer .sp { margin-left: auto; }
       <button class="copy" type="button" data-copy="npx -y @noeton/logos setup">Copy</button>
     </div>
     <p class="note">
-      <strong>~5 MB download.</strong> No Go toolchain, no clone, no build, no account.
-      macOS, Linux and Windows. Setup shows you which agents it would wire and
-      asks before touching any of them.
+      Finds the agents already installed, shows you what it would write to each, and
+      writes nothing until you say yes. <code>--dry-run</code> prints the plan and exits.
     </p>
 
     <ul class="proof fade">
-      <li>Claude Code &middot; Cursor &middot; Codex &middot; Claude Desktop, over MCP</li>
-      <li><b>96.0%</b> recall@5 on LongMemEval-S <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">how this was measured</a></li>
-      <li>Continuity works with <b>no model runtime at all</b></li>
+      <li><b>84.4%</b> handoff pass rate &middot; next best <b>46.9%</b></li>
+      <li><b>0 MB</b> of model required</li>
+      <li><b>~5 MB</b> single binary</li>
+      <li><a href="https://github.com/Coder8124/logos">MIT, all of it</a></li>
     </ul>
 
-    <div class="record">
-      <div class="strip"><span>Vault &mdash; <code>~/brain</code></span> <b>markdown, on your disk</b></div>
-      <div class="leg">
-        <span class="who">Monday &mdash; Claude Code writes a checkpoint</span>
-        <dl>
-          <dt>project</dt><dd>kestrel-one</dd>
-          <dt>decided</dt><dd>aluminium frame, 6061</dd>
-          <dt>ruled out</dt><dd class="ruled">plastic frame &mdash; fails drop test at 1.2&nbsp;m</dd>
-          <dt>next</dt><dd>quote the single-mic line</dd>
-        </dl>
+    <div class="fan fade">
+      <ul class="clients">
+        <li>Claude Code</li>
+        <li>Cursor</li>
+        <li>Codex</li>
+        <li>Claude Desktop</li>
+        <li>VS&nbsp;Code &middot; Zed &middot; Cline</li>
+        <li class="open">your own agent</li>
+      </ul>
+      <div class="seam">
+        <span class="thread"></span>
+        <span class="node">MCP server<br>Go package<br>CLI</span>
+        <span class="thread down"></span>
       </div>
-      <div class="between">the session ends. the index is deleted. <span>the file is still there.</span></div>
-      <div class="leg">
-        <span class="who">Thursday &mdash; Cursor asks to resume</span>
-        <dl>
-          <dt>carried</dt><dd>the decision, the open questions, the next step</dd>
-          <dt>and</dt><dd class="ruled">what was already tried, so it isn&rsquo;t paid for twice</dd>
-        </dl>
+      <div class="vaultbox">
+        <b>~/brain</b>
+        <span>
+          Markdown files, one directory, on your machine. Open them in any editor.
+          <code>grep</code> them. Commit them. Delete the index and it rebuilds from
+          the files &mdash; delete the files and there was nothing else.
+        </span>
       </div>
     </div>
   </section>
 
+  <div class="row" id="watch">
+    <div class="label">Watch</div>
+    <div class="body">
+      <h2>Two values for one thing</h2>
+      <p>
+        Everything below is output from <code>brain demo</code>, copied out of a real
+        run against a scratch vault. Nothing here is a mockup, and you can produce the
+        same six panes on your own machine in about four seconds.
+      </p>
+
+      <div class="seq">
+
+        <div class="step">
+          <div class="n">01</div>
+          <div>
+            <div class="cap">
+              <h3>Monday. An agent learns how staging is configured.</h3>
+              <p>A fact arrives, and the tool says so out loud. Silent background work reads to a user as a product that is not running.</p>
+            </div>
+            <div class="shot">
+              <div class="bar"><b>claude code</b> <span class="side">tool: remember</span></div>
+<pre>  <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
+  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #1</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">02</div>
+          <div>
+            <div class="cap">
+              <h3>Thursday. It changes &mdash; in a different session, on a different agent.</h3>
+              <p>No shared process, no shared context window. Only the vault is in common.</p>
+            </div>
+            <div class="shot">
+              <div class="bar"><b>cursor</b> <span class="side">tool: remember</span></div>
+<pre>  <span class="g">&gt;</span> <span class="say">"we moved staging to port 9090"</span>
+  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #2</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">03</div>
+          <div>
+            <div class="cap">
+              <h3>This is where every other memory system stops.</h3>
+              <p>
+                Two values for one thing, both retrievable, nothing saying which is
+                true. Whichever embeds closer to the question wins &mdash; and that is
+                not the same as being right.
+              </p>
+            </div>
+            <div class="shot">
+              <div class="bar"><b>the vault</b> <span class="side">both facts, written weeks apart</span></div>
+<pre>  <span class="g">#1</span>  Staging runs on port 8080.   <span class="g">&larr; still returned</span>
+  <span class="g">#2</span>  Staging runs on port 9090.   <span class="g">&larr; also returned</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">04</div>
+          <div>
+            <div class="cap">
+              <h3>Logos consolidates. This is the part nobody else does.</h3>
+              <p>Not a re-rank. The old value is withheld, and the reason it was withheld goes on the record.</p>
+            </div>
+            <div class="shot">
+              <div class="bar"><b>logos</b> <span class="side">consolidation pass</span></div>
+<pre>  <span class="ok">&#10003; Logos &middot; 1 memory superseded &mdash; the old value is now history</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">05</div>
+          <div>
+            <div class="cap">
+              <h3>Friday. A third agent asks what it needs in order to deploy.</h3>
+              <p>One answer comes back. The superseded one is not ranked lower; it is not there.</p>
+            </div>
+            <div class="shot">
+              <div class="bar"><b>codex</b> <span class="side">tool: context</span></div>
+<pre>  <span class="g">&gt;</span> <span class="say">context("deploy to staging")</span>
+
+  <span class="g">-</span> fact: Staging runs on port <span class="ok">9090</span>.  <span class="g">(demo, 2 Sep 2026, confidence 0.90)</span></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">06</div>
+          <div>
+            <div class="cap">
+              <h3>And the receipt &mdash; not a claim, the history of the fact itself.</h3>
+              <p>Append-only. You can ask any memory when it was learned, what corroborated it, and what replaced it.</p>
+            </div>
+            <div class="shot record-tint">
+              <div class="bar"><b>brain memory log</b> <span class="side">append-only timeline</span></div>
+<pre>  <span class="g">created    </span> <span class="br">#1</span>  Staging runs on port 8080.
+  <span class="g">created    </span> <span class="br">#2</span>  Staging runs on port 9090.
+  <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
+            </div>
+            <p class="after">
+              Run it yourself against a scratch vault &mdash; nothing of yours is touched:
+              <code>npx -y @noeton/logos demo</code>
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <div class="row">
+    <div class="label">Handoff</div>
+    <div class="body">
+      <h2>What one agent wrote, and what the next one got</h2>
+      <p>
+        A checkpoint is a markdown file with front matter, written by whichever agent
+        was working. A resume is what a different agent, on a different day, in a
+        different product, reads back. Both panes below are real files from this
+        project&rsquo;s own vault.
+      </p>
+
+      <div class="pair">
+        <div class="shot record-tint">
+          <div class="bar"><b>written by claude code</b> <span class="side">sessions/logos/&hellip;-claude.md</span></div>
+<pre><span class="g">---</span>
+<span class="g">type:</span> checkpoint
+<span class="g">project:</span> logos
+<span class="g">agent:</span> claude
+<span class="g">branch:</span> feat/bench-temporal
+<span class="g">commit:</span> a5e72a2
+<span class="g">uncommitted:</span> 2
+<span class="g">checkpointed:</span> 2026-09-01T08:57:24-07:00
+<span class="g">---</span>
+
+<span class="br">## Didn't work</span>
+
+<span class="g">-</span> publishing under the unscoped name
+  'logos' &mdash; taken on npm at 1.0.4
+<span class="g">-</span> claiming the @logos scope &mdash; the org
+  already exists, not ours to take</pre>
+        </div>
+
+        <div class="shot">
+          <div class="bar"><b>read back by cursor</b> <span class="side">1 day later</span></div>
+<pre><span class="g">#</span> Context for: resume work on logos
+
+<span class="say">Last checkpoint by <b>claude</b>, 1d ago.</span>
+
+<span class="say">Repository was:</span> feat/bench-temporal
+a5e72a2 &middot; 2 files uncommitted
+
+<span class="ok">Already tried, didn't work:</span>
+<span class="g">-</span> publishing under the unscoped name
+  'logos' &mdash; taken on npm at 1.0.4
+<span class="g">-</span> claiming the @logos scope &mdash; the org
+  already exists, not ours to take
+
+<span class="g">_Context budget: ~284 of 4000 tokens._</span></pre>
+        </div>
+      </div>
+
+      <p class="pull">
+        The dead ends travel. An agent that has never seen your project does not get to
+        spend an hour rediscovering what last week&rsquo;s agent already paid for.
+      </p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">Cold start</div>
+    <div class="body">
+      <h2>It knows something before you teach it anything</h2>
+      <p>
+        Point it at a repository you have never used it on. It reads the git history and
+        proposes what it can defend, each with the command that produced it &mdash; then
+        writes nothing until you drop <code>--dry-run</code>.
+      </p>
+      <div class="shot">
+        <div class="bar"><b>brain bootstrap --dry-run</b> <span class="side">nothing written</span></div>
+<pre><span class="say">From the git history of ~/code/logos, scoped to project "brain":</span>
+
+  <span class="g">1.</span> Coder8124 writes most of this codebase &mdash; 145 of the last 145 commits.
+     <span class="g">git shortlog -sn: Coder8124 145/145 &middot; confidence 0.80</span>
+
+  <span class="g">2.</span> Change concentrates in cmd/brain/ (145), (root) (93) and
+     internal/memory/ (72) &mdash; file-touch counts over the last 145 commits.
+     <span class="g">git log --name-only: 977 paths across 69 areas &middot; confidence 0.80</span>
+
+  <span class="g">3.</span> Commit subjects here are capitalised sentences with no trailing
+     period &mdash; 124 of the last 145.
+     <span class="g">git log --format=%s: 124/145 &middot; confidence 0.65</span>
+
+  <span class="g">4.</span> This project runs at roughly 12 commits a month; the most recent
+     is dated 2026-09-02.
+     <span class="g">145 commits over 12 months &middot; confidence 0.80</span>
+
+<span class="ok">4 memories would be written. Nothing was.</span></pre>
+      </div>
+      <p class="note">
+        Every line carries the command behind it, so you can check any claim rather than
+        take it. Changed your mind after writing them? <code>brain memory forget --source bootstrap</code>
+        removes exactly what the machine added and nothing you did.
+      </p>
+    </div>
+  </div>
+
+  <div class="row" id="portable">
+    <div class="label">Portability</div>
+    <div class="body">
+      <h2>Every integration is a client, never a home</h2>
+      <p>
+        The failure mode this project exists to avoid is memory that lives inside one
+        product. If your record is a table in somebody&rsquo;s app, switching agents means
+        starting over, and the vendor decides how long you get to keep it. So the rule
+        here is enforced at every layer, not just advertised at the top one:
+      </p>
+
+      <ul class="layers">
+        <li><b>Vault format</b><span>Markdown with YAML front matter. Human-readable, diffable, greppable, and committable to your own git. Truth lives here.</span></li>
+        <li><b>Index</b><span><code>.brain/index.db</code> is SQLite and is a <em>cache</em>. Delete it; it rebuilds from the files. Nothing is only in the database.</span></li>
+        <li><b>MCP interface</b><span>The wire protocol every host already speaks. Not a plugin per editor &mdash; one server, and the hosts are interchangeable.</span></li>
+        <li><b>Go package</b><span><code>import "github.com/Coder8124/brain"</code> and embed the engine directly if you are building your own agent.</span></li>
+        <li><b>CLI</b><span>Every operation available over MCP is also a command, so a shell script, a CI job, or an agent framework nobody has written yet is a first-class client.</span></li>
+        <li><b>Provenance</b><span>Each memory records which agent learned it, from what source, when, and at what confidence &mdash; taken from the MCP handshake, never asked of the model.</span></li>
+        <li><b>Semantics</b><span>Supersession, dead ends and abstention mean the same thing to every client, because they are properties of the record rather than of a prompt.</span></li>
+      </ul>
+
+      <p class="pull">
+        If this project stops being maintained tomorrow, you still have a directory of
+        markdown. That is the test of ownership, and it is the only one that matters.
+      </p>
+
+      <div class="tablewrap" style="margin-top:1.9rem">
+        <table>
+          <thead><tr><th scope="col">Host</th><th scope="col">Wired by <code>setup</code></th><th scope="col">Verified</th></tr></thead>
+          <tbody>
+            <tr><td>Claude Code</td><td>yes &mdash; plus hooks, <code>/handoff</code>, a skill</td><td>handshake + round trip</td></tr>
+            <tr><td>Codex</td><td>yes &mdash; <code>codex mcp add</code></td><td>handshake + round trip</td></tr>
+            <tr><td>Cursor</td><td>yes &mdash; merges <code>~/.cursor/mcp.json</code></td><td>handshake + round trip</td></tr>
+            <tr><td>Claude Desktop</td><td>yes &mdash; merges the desktop config</td><td>handshake + round trip</td></tr>
+            <tr><td>Zed &middot; Cline &middot; Windsurf &middot; Continue &middot; Gemini CLI</td><td>manual JSON, below</td><td class="num">help wanted</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        &ldquo;Verified&rdquo; means a real handshake and a real store-then-recall against that
+        host, not that the config file looks right. The unverified rows say so on
+        purpose &mdash; if you use one, a report closes the gap.
+      </p>
+    </div>
+  </div>
+
+  <div class="row" id="proof">
+    <div class="label">Proof</div>
+    <div class="body">
+      <h2>Measured, on one machine, against eight others</h2>
+      <p>
+        Existing memory benchmarks score retrieval: given a long history, can the system
+        find the fact. That is not the setting these tools are deployed in. We built a
+        handoff suite instead &mdash; 32 hand-authored scenarios, nine systems, the same
+        embedding model throughout &mdash; where a scenario passes only if the successor
+        gets the current fact, <em>without</em> the stale one beside it, inside a token
+        budget it did not choose.
+      </p>
+
+      <div class="tablewrap">
+        <table class="bench">
+          <thead>
+            <tr><th scope="col">System</th><th scope="col" class="bar">Pass rate</th><th scope="col">Pass</th><th scope="col">Carry</th><th scope="col">Leak</th><th scope="col">Signal</th></tr>
+          </thead>
+          <tbody>
+            <tr class="us"><td>Logos</td><td class="bar"><span class="track"><span class="fill" style="width:84.4%"></span></span></td><td class="num">84.4%</td><td class="num">89.1%</td><td class="num">16.7%</td><td class="num">88.9%</td></tr>
+            <tr><td>mempalace</td><td class="bar"><span class="track"><span class="fill" style="width:46.9%"></span></span></td><td class="num">46.9%</td><td class="num">82.8%</td><td class="num">58.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>recency-window</td><td class="bar"><span class="track"><span class="fill" style="width:46.9%"></span></span></td><td class="num">46.9%</td><td class="num">84.4%</td><td class="num">83.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>full-dump</td><td class="bar"><span class="track"><span class="fill" style="width:46.9%"></span></span></td><td class="num">46.9%</td><td class="num">84.4%</td><td class="num">83.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>letta</td><td class="bar"><span class="track"><span class="fill" style="width:43.8%"></span></span></td><td class="num">43.8%</td><td class="num">82.8%</td><td class="num">83.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>mem0</td><td class="bar"><span class="track"><span class="fill" style="width:43.8%"></span></span></td><td class="num">43.8%</td><td class="num">82.8%</td><td class="num">83.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>vector-rag</td><td class="bar"><span class="track"><span class="fill" style="width:43.8%"></span></span></td><td class="num">43.8%</td><td class="num">82.8%</td><td class="num">83.3%</td><td class="num">22.2%</td></tr>
+            <tr><td>static-file</td><td class="bar"><span class="track"><span class="fill" style="width:6.2%"></span></span></td><td class="num">6.2%</td><td class="num">22.7%</td><td class="num">0.0%</td><td class="num">0.0%</td></tr>
+            <tr><td>no memory</td><td class="bar"><span class="track"><span class="fill" style="width:0%"></span></span></td><td class="num">0.0%</td><td class="num">6.2%</td><td class="num">0.0%</td><td class="num">0.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="note">
+        <strong>Carry</strong> is required facts retrieved. <strong>Leak</strong> is superseded
+        facts returned anyway &mdash; lower is better. <strong>Signal</strong> is telling the
+        successor that something was already tried or has since changed.
+      </p>
+
+      <p style="margin-top:1.1rem">
+        Read the row order carefully, because it is the finding: <strong>retrieval is not
+        the differentiator.</strong> Every real system carries 82&ndash;89% of the required
+        facts. The entire spread comes from leakage and signal &mdash; from whether the
+        agent that resumes gets one answer or gets the right one sitting next to the
+        wrong one it replaced.
+      </p>
+
+      <p>
+        On the durability family &mdash; write, delete every rebuildable artifact, read
+        again &mdash; Logos scores 100% and every other system scores 0%.
+      </p>
+
+      <p class="note">
+        It loses too, and the numbers stay in: arithmetic, recency-conflict and multi-hop
+        are all 0%. The suite, the scenarios and the runner are in the repository, so you
+        can reproduce the wins and the losses alike &mdash;
+        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">the write-up is here</a>.
+      </p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label">Visible</div>
+    <div class="body">
+      <h2>You can see it working, and you can turn that off</h2>
+      <p>
+        A continuity layer nobody notices restoring anything is a continuity layer nobody
+        believes in. So every operation that changes what the assistant knows says so, in
+        one line, in the host you are already looking at.
+      </p>
+      <div class="shot">
+        <div class="bar"><b>in the chat</b> <span class="side">receipts</span></div>
+<pre>  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #41 (fact, kestrel)</span>
+  <span class="ok">&#10003; Logos &middot; already knew that &mdash; reinforced memory #12 (fact, kestrel)</span>
+  <span class="ok">&#10003; Logos &middot; checkpoint saved to brain &mdash; 20260902-171104-claude.md</span>
+  <span class="ok">&#10003; Logos &middot; recalled 1 checkpoint, 3 notes, 2 open questions</span></pre>
+      </div>
+      <p class="note">
+        Too chatty after the first week? <code>LOGOS_ANNOUNCE=quiet</code> shortens them and
+        <code>off</code> removes the marker entirely. What never changes with the setting is
+        the <em>information</em> &mdash; turning receipts down tells you less loudly, not less.
+      </p>
+      <p style="margin-top:1.1rem">
+        And a separate, host-level record that does not depend on a model choosing to write
+        it: <code>brain activity</code> replays every prompt, tool call and turn the agent
+        actually took, captured by hooks rather than volunteered.
+      </p>
+    </div>
+  </div>
+
+  <div class="row" id="install">
     <div class="label">Claude Code</div>
     <div class="body">
       <h2>Install the plugin instead</h2>
       <p>
-        More than the MCP server: it adds a <strong>SessionStart hook</strong> that puts the
-        last handoff in front of the model before it does anything &mdash; the difference
-        between continuity that works and continuity that works when the model
-        remembers to ask for it.
+        The version to prefer, because it is more than the MCP server: it also installs a
+        <strong>SessionStart hook</strong> that puts the last handoff in front of the model
+        before it does anything &mdash; the difference between continuity that works and
+        continuity that works when the model remembers to ask for it.
       </p>
       <ol class="steps">
         <li>
           <div class="cmd">
-            <pre>/plugin marketplace add Coder8124/logos</pre>
+            <pre><span class="prompt">/ </span>plugin marketplace add Coder8124/logos</pre>
             <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
           </div>
         </li>
         <li>
           <div class="cmd">
-            <pre>/plugin install logos@logos</pre>
+            <pre><span class="prompt">/ </span>plugin install logos@logos</pre>
             <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
           </div>
         </li>
@@ -563,7 +1116,7 @@ footer .sp { margin-left: auto; }
     <div class="label">One click</div>
     <div class="body">
       <h2>Cursor and VS&nbsp;Code</h2>
-      <p>These deeplinks carry the whole server config, so there is no JSON to paste and no absolute path to get wrong.</p>
+      <p>Deep links that hand the host a finished config. Nothing else to edit.</p>
       <div class="btns">
         <a class="btn" href="cursor://anysphere.cursor-deeplink/mcp/install?name=logos&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==">Add to Cursor <span class="mk">&rarr;</span></a>
         <a class="btn" href="vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D">Add to VS&nbsp;Code <span class="mk">&rarr;</span></a>
@@ -620,21 +1173,8 @@ footer .sp { margin-left: auto; }
       <p class="note">
         Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.1.1/SHA256SUMS">SHA256SUMS</a>
         &middot; the executable inside keeps the development name, <code>brain</code>.
+        With Go on the machine: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.
       </p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">From source</div>
-    <div class="body">
-      <h2>If you have Go</h2>
-      <div class="cmd">
-<pre><span class="prompt">$ </span>git clone https://github.com/Coder8124/logos &amp;&amp; cd logos
-<span class="prompt">$ </span>go build <span class="flag">-o</span> bin/brain ./cmd/brain &amp;&amp; ./bin/brain setup</pre>
-        <button class="copy" type="button" data-copy="git clone https://github.com/Coder8124/logos && cd logos
-go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
-      </div>
-      <p class="note">Go 1.26.5 or newer. Or straight from the proxy: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.</p>
     </div>
   </div>
 
@@ -645,19 +1185,16 @@ go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
       <p>
         Every host points at the same vault &mdash; that is what makes continuity work
         <em>across</em> tools. Facts are still kept apart: the project comes from the
-        directory the agent is working in, so two repositories open in two windows
-        do not write into each other&rsquo;s memory.
+        directory the agent is working in, so two repositories open in two windows do not
+        write into each other&rsquo;s memory.
       </p>
       <div class="cmd">
 <pre>~/code/kestrel    <span class="flag">&rarr;</span> project "kestrel"
 ~/code/acme-api   <span class="flag">&rarr;</span> project "acme-api"   <span class="prompt"># cannot see kestrel's decisions</span></pre>
       </div>
       <p class="note">
-        Nothing to configure, and the agent never has to remember which project it is
-        on &mdash; a rule a model can forget is not isolation. Override with
-        <code>BRAIN_PROJECT</code>, mark a fact global when it genuinely applies
-        everywhere, and ask for <code>all_projects</code> on the rare occasion you
-        want to search across all of them.
+        Nothing to configure, and the agent never has to remember which project it is on
+        &mdash; a rule a model can forget is not isolation.
       </p>
     </div>
   </div>
@@ -669,18 +1206,12 @@ go build -o bin/brain ./cmd/brain && ./bin/brain setup">Copy</button>
       <ul class="facts">
         <li><strong>A directory of markdown files</strong>, at <code>~/brain</code> unless you say otherwise. Open them, grep them, commit them, delete them.</li>
         <li><strong>Nothing is wired without a yes.</strong> Setup lists the agents it found and what it would write to each, and <code>--dry-run</code> prints the plan without touching anything.</li>
+        <li><strong>Nothing an agent proposes is believed on the spot.</strong> A memory written over MCP waits in a review queue &mdash; <code>brain review</code> accepts or rejects it, and it carries which agent proposed it.</li>
         <li><strong>No <code>postinstall</code> script.</strong> The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs both work.</li>
         <li><strong>No AI runtime required.</strong> Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical, which for identifiers and stack traces is arguably the right tool anyway.</li>
         <li><strong>No account, no server, no telemetry.</strong> <code>.brain/index.db</code> is a cache; delete it and it rebuilds from the files.</li>
       </ul>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">Optional</div>
-    <div class="body">
-      <h2>One model, if you want fuzzy recall</h2>
-      <div class="tablewrap">
+      <div class="tablewrap" style="margin-top:1.4rem">
         <table>
           <thead><tr><th scope="col">You code with</th><th scope="col">Extra download</th><th scope="col">You get</th></tr></thead>
           <tbody>
