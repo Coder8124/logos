@@ -23,19 +23,11 @@
 #     receipt and asks the model to hand that receipt to the user, once.
 set -uo pipefail
 
-# Resolve the binary without requiring it on PATH: an npx-installed plugin has
-# no binary of its own, and a globally installed one does. The npm wrapper
-# installs both names; a source build installs only the development one.
-if command -v logos >/dev/null 2>&1; then
-  LOGOS=(logos)
-elif command -v brain >/dev/null 2>&1; then
-  # The development name, which the binary and a source build still use.
-  LOGOS=(brain)
-elif command -v npx >/dev/null 2>&1; then
-  LOGOS=(npx -y @noeton/logos)
-else
-  exit 0
-fi
+# Resolve the binary. Shared with the other hooks and with the MCP server, so
+# that all of them talk to the same vault; see bin/resolve.sh for why PATH on
+# its own is not enough.
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+logos_resolve || exit 0
 
 # The project is the directory being worked in. This is the assumption a coding
 # agent makes anyway, and it is why the cwd is the right key: a repo is a

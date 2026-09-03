@@ -20,16 +20,8 @@
 # working. One line on stderr, and one line when it fails, is the whole fix.
 set -uo pipefail
 
-if command -v logos >/dev/null 2>&1; then
-  LOGOS=(logos)
-elif command -v brain >/dev/null 2>&1; then
-  # The development name, which the binary and a source build still use.
-  LOGOS=(brain)
-elif command -v npx >/dev/null 2>&1; then
-  LOGOS=(npx -y @noeton/logos)
-else
-  exit 0
-fi
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+logos_resolve || exit 0
 
 project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 [ -z "$project" ] && exit 0

@@ -26,17 +26,8 @@ set -uo pipefail
 event="${1:-}"
 [ -z "$event" ] && exit 0
 
-if command -v logos >/dev/null 2>&1; then
-  LOGOS=(logos)
-elif command -v brain >/dev/null 2>&1; then
-  LOGOS=(brain)
-else
-  # Deliberately no npx fallback here, unlike the session hooks. Those run once
-  # a session and can afford a cold package resolve; this runs on every tool
-  # call, and an npx spawn per call would make Logos the slowest thing in the
-  # user's editor. If the binary is not installed, the log simply does not fill.
-  exit 0
-fi
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh"
+logos_resolve || exit 0
 
 project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 
