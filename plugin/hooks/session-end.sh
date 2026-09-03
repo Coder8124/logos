@@ -23,7 +23,7 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
-project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
+project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 [ -z "$project" ] && exit 0
 
 # A note, not a checkpoint, and it states only what this hook actually knows:

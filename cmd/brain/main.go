@@ -273,6 +273,8 @@ func main() {
 		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
+	case cmd == "project-name":
+		err = runProjectName(args)
 	case cmd == "timeline":
 		err = timeline(hasFlag(args, "--verbose"))
 	case cmd == "rollup":

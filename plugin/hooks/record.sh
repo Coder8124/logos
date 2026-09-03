@@ -29,7 +29,7 @@ event="${1:-}"
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
-project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
+project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 
 # stdin is the host's payload; it is passed through untouched and parsed in Go,
 # where a malformed field costs a field rather than the whole line.

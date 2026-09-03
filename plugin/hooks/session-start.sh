@@ -29,10 +29,11 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
-# The project is the directory being worked in. This is the assumption a coding
-# agent makes anyway, and it is why the cwd is the right key: a repo is a
-# project, and the agent is already standing in it.
-project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
+# The project the work is filed under. Usually the directory being worked in —
+# a repo is a project and the agent is already standing in it — but a repo whose
+# folder is not what the work is called says so in .logos-project, and
+# logos_project is what reads it. See internal/scope.
+project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 [ -z "$project" ] && exit 0
 
 # Bounded, and quiet on failure. A vault that does not exist yet, a project with
@@ -41,12 +42,23 @@ project=$(basename "${CLAUDE_PROJECT_DIR:-$PWD}")
 handoff=$("${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
 [ -z "$handoff" ] && exit 0
 
-# resume on a project with no checkpoint still returns context, and says so.
-# That is useful to a person and noise to a model that has just been handed the
-# repo, so only inject when there is an actual handoff.
-case "$handoff" in
-  *"no checkpoint yet"*) exit 0 ;;
-esac
+# resume on a project with no checkpoint still returns context — standing
+# memories and vault notes. That is useful to a person and noise to a model
+# that has just been handed the repo, so only inject when there is an actual
+# handoff, which is exactly when the pack carries this heading (see
+# internal/contextpack/render.go, which writes it only alongside a checkpoint).
+#
+# Anchored to the start of a line, and testing for what a handoff *has* rather
+# than for a phrase that means it has none. The blocklist this replaces matched
+# "no checkpoint yet" anywhere in the pack — including inside a checkpoint that
+# happened to quote the phrase, which is a checkpoint about this very hook. It
+# suppressed itself, silently, and looked exactly like no handoff existing.
+#
+# internal/contextpack/untrusted.go already neutralises headings forged inside
+# vault content, so a heading surviving to here is one the renderer wrote.
+if ! printf '%s\n' "$handoff" | grep -q '^## Where we left off'; then
+  exit 0
+fi
 
 # What the receipt is allowed to claim, counted off the handoff itself rather
 # than guessed at.

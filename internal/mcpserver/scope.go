@@ -23,7 +23,14 @@ package mcpserver
 //  2. BRAIN_PROJECT — for a host that runs the server somewhere unrelated to
 //     the work, or a user who wants two folders sharing one project
 //  3. the MCP roots the client advertised at initialize, when it sent any
-//  4. the basename of the working directory
+//  4. a .logos-project marker at or above the working directory
+//  5. the basename of the working directory
+//
+// Steps 3 and 4 interleave rather than stack: a root and a cwd are each turned
+// into a name by internal/scope, which reads the marker before falling back
+// to the basename. So a repository that names itself is named that way whether
+// the host advertised roots or not — the marker cannot be right for one host
+// and ignored by another, which is the whole reason it is a committed file.
 //
 // Empty is a legitimate answer, and it means global. A memory with no project
 // applies everywhere, which is the pre-existing semantics in internal/memory
@@ -56,10 +63,10 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Coder8124/brain/internal/gitstate"
+	"github.com/Coder8124/brain/internal/scope"
 )
 
 // resolveProject picks the project for one tool call. arg is the tool's own
@@ -197,23 +204,7 @@ func projectFromCwd() string {
 }
 
 func projectFromPath(dir string) string {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
-		return ""
-	}
-	base := filepath.Base(filepath.Clean(dir))
-	// Filepath.Base answers "/" with "/" and "." with "."; neither is a project.
-	if base == "." || base == string(filepath.Separator) || base == "" {
-		return ""
-	}
-	// A home directory or a filesystem root is where a host gets launched when
-	// the user has not opened a project at all. Naming a project after it would
-	// scope every unrelated session into one bucket called "pragun", which is
-	// worse than staying global.
-	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(dir) == filepath.Clean(home) {
-		return ""
-	}
-	return base
+	return scope.Name(dir)
 }
 
 // projectFromRoots reads the first filesystem root the client advertised.

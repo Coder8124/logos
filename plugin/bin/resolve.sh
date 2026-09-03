@@ -45,3 +45,24 @@ logos_resolve() {
   fi
   return 1
 }
+
+# logos_project echoes the project name for a directory, asking the binary
+# rather than deciding in bash.
+#
+# The hooks used to say `basename "$PWD"`, which is only the *fallback* half of
+# the rule: it cannot see a .logos-project marker, so a repository that renamed
+# itself got one name from the MCP server and another from the hooks, and the
+# handoff quietly stopped being found. One rule, implemented once, in Go.
+#
+# Falls back to the basename when the binary is too old to know the verb — an
+# old binary prints usage to stderr and nothing usable to stdout, and a hook
+# must not go silent over a version skew. Anything that is not a single clean
+# token is treated as that case.
+logos_project() {
+  local dir="${1:-$PWD}" name
+  name=$("${LOGOS[@]}" project-name "$dir" 2>/dev/null) || name=""
+  case "$name" in
+    ""|*[[:space:]]*) basename "$dir" ;;
+    *) printf '%s\n' "$name" ;;
+  esac
+}
