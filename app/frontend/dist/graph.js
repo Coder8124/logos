@@ -6,10 +6,14 @@
 // the value is interactivity: drag nodes, click to re-centre, scrub time.
 
 const GraphView = (() => {
+  // These identify a node's kind, not the app's meaning-bearing accents — good
+  // and bad stay reserved for verified/blocked, so this stays a separate,
+  // deliberately more colourful palette. What DOES have to track the theme is
+  // anything that assumed a dark background: label text, the selection ring,
+  // and the two kinds ("missing", "note"/"daily") that were tuned for it.
   const KIND_COLORS = {
     person: "#6b78e8", project: "#34d399", topic: "#f59e0b",
-    routine: "#8b6cf0", daily: "#64748b", source: "#22d3ee",
-    study: "#f472b6", org: "#f87171", missing: "#3a3f4b", note: "#9498a3",
+    routine: "#8b6cf0", source: "#22d3ee", study: "#f472b6", org: "#f87171",
   };
 
   let canvas, ctx, dpr = 1;
@@ -22,7 +26,26 @@ const GraphView = (() => {
   const cx = () => canvas.clientWidth / 2;
   const cy = () => canvas.clientHeight / 2;
 
-  function color(kind) { return KIND_COLORS[kind] || KIND_COLORS.note; }
+  // theme() reads the live token values every frame — cheap for an ego graph's
+  // handful of nodes — so a toggle between light and dark repaints correctly
+  // without the view needing to know it happened.
+  function theme() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (name, fallback) => (cs.getPropertyValue(name).trim() || fallback);
+    return {
+      ink: v("--ink", "#e8e8ea"),
+      ink3: v("--ink-3", "#8a8f9a"),
+      patina: v("--patina", "#5fb3a3"),
+      rule: v("--rule", "#3a3f4b"),
+      font: v("--f-body", "-apple-system, sans-serif"),
+    };
+  }
+
+  function color(kind, t) {
+    if (kind === "daily" || kind === "note") return t.ink3;
+    if (kind === "missing") return t.rule;
+    return KIND_COLORS[kind] || t.ink3;
+  }
   function radius(n) { return 5 + Math.min(9, Math.sqrt(n.degree || 1) * 2.2); }
 
   async function load(newFocus) {
@@ -91,13 +114,14 @@ const GraphView = (() => {
 
   // ---- render ----
   function draw() {
+    const t = theme();
     const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.clearRect(0, 0, w, h);
 
     for (const e of edges) {
       const a = nodeAt(e.src), b = nodeAt(e.dst);
       if (!a || !b || !visible(a) || !visible(b)) continue;
-      styleEdge(e, a === hovered || b === hovered || a === selected || b === selected);
+      styleEdge(e, a === hovered || b === hovered || a === selected || b === selected, t);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       ctx.setLineDash([]);
@@ -110,38 +134,47 @@ const GraphView = (() => {
       ctx.globalAlpha = dim;
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = color(n.kind);
+      ctx.fillStyle = color(n.kind, t);
       ctx.fill();
       if (n === selected || n === hovered || n.slug === focus) {
+        // The selection ring is the one thing on this canvas that is "live" —
+        // it gets the same accent the rest of the app uses for that.
         ctx.lineWidth = 2;
-        ctx.strokeStyle = "#fff";
+        ctx.strokeStyle = t.patina;
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
       // label the focus, selection, hover, and 1-hop hubs
       if (n.slug === focus || n === selected || n === hovered || (n.hops <= 1 && n.degree >= 2)) {
-        ctx.fillStyle = "rgba(242,242,245,0.86)";
-        ctx.font = "600 11px -apple-system, Inter, sans-serif";
+        ctx.fillStyle = t.ink;
+        ctx.font = "600 11px " + t.font;
         ctx.textAlign = "center";
         ctx.fillText(n.title || n.slug, n.x, n.y + r + 12);
       }
     }
   }
 
-  function styleEdge(e, active) {
+  function styleEdge(e, active, t) {
     ctx.lineWidth = active ? 2 : 1;
     if (e.provenance === "wikilink") {
-      ctx.strokeStyle = `rgba(148,152,163,${active ? 0.9 : 0.55})`;
+      ctx.strokeStyle = mix(t.ink3, active ? 0.9 : 0.55);
       ctx.setLineDash([]);
     } else if (e.provenance === "typed") {
       const solid = e.conf >= 0.8;
-      ctx.strokeStyle = `rgba(107,120,232,${(active ? 0.9 : 0.55) * Math.max(0.4, e.conf)})`;
+      ctx.strokeStyle = mix(t.patina, (active ? 0.9 : 0.55) * Math.max(0.4, e.conf));
       ctx.setLineDash(solid ? [] : [3, 3]);
     } else {
       // similarity: faint dotted lens
-      ctx.strokeStyle = `rgba(139,108,240,${active ? 0.4 : 0.18})`;
+      ctx.strokeStyle = mix(t.patina, active ? 0.35 : 0.15);
       ctx.setLineDash([1, 4]);
     }
+  }
+
+  // mix applies an alpha to a CSS color string by wrapping it in color-mix(),
+  // which every engine that understands oklch() also understands — so this
+  // works whatever color space the token happens to be defined in.
+  function mix(cssColor, alpha) {
+    return `color-mix(in oklch, ${cssColor} ${Math.round(alpha * 100)}%, transparent)`;
   }
 
   function frame() {
