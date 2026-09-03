@@ -522,17 +522,32 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	// No id in the comment: a line somebody typed by hand. Give it one — a fresh
 	// one, never a number some earlier memory has already been known by. See
 	// nextID.
-	id := nextID(db)
-	_, err := db.Exec(
-		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint, pin)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-		m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
-	if err != nil {
-		return 0, err
+	//
+	// Retried for the same reason insertMemory is: nextID reads MAX(id), and
+	// Reconcile runs at the head of every mutating path, so two agents storing
+	// at once can both land here holding the same number. There the collision
+	// silently dropped a memory; here it is a primary key error that fails the
+	// unrelated write that triggered the reconcile. Taking the next number is
+	// the whole fix.
+	var lastErr error
+	for range idAttempts {
+		id := nextID(db)
+		_, err := db.Exec(
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, vec, fingerprint, pin)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
+			m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
+		if err == nil {
+			logEvent(db, id, EvCreated, m.Text, 0)
+			return id, nil
+		}
+		lastErr = err
+		// Anything but a taken id is a real failure and must not be retried.
+		if !strings.Contains(err.Error(), "UNIQUE constraint failed: memories.id") {
+			return 0, err
+		}
 	}
-	logEvent(db, id, EvCreated, m.Text, 0)
-	return id, nil
+	return 0, lastErr
 }
 
 // parseKind reads back what renderKind wrote.

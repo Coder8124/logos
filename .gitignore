@@ -64,3 +64,8 @@ __pycache__/
 # Agent worktrees and local session state. Never committed: a worktree is a
 # second checkout of this repo, and committing one nests the repo inside itself.
 .claude/
+
+# Local agent working notes. AGENTS.md and CONTRIBUTING.md are the committed
+# instructions every agent reads; CLAUDE.md is one person's layer on top and
+# does not belong in everyone's checkout.
+CLAUDE.md

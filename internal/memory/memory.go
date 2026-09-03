@@ -254,45 +254,94 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		}
 	}
 
-	// The id is chosen rather than left to the rowid counter, so a forgotten
-	// memory's number is never handed to an unrelated one. See nextID.
-	id := nextID(db)
-	res, err := db.Exec(
-		`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source, m.Agent, m.Created, vec, fingerprint(m.Text), boolToInt(m.Quarantined))
+	dup, err := insertMemory(db, m, vec)
 	if err != nil {
 		return Receipt{}, err
-	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		m.ID = id
-		if m.Quarantined {
-			// Quarantined arrivals get their own event, not EvCreated — the
-			// timeline should be able to say "proposed" and "accepted" as two
-			// distinct moments, the same way it already distinguishes created
-			// from reinforced. See Accept in quarantine.go for the other half.
-			logEvent(db, m.ID, EvQuarantined, m.Text, 0)
-			// A proposal is written down too. Not into memories/<kind>.md —
-			// that would defeat quarantine — but into the queue file, so a
-			// review the user has not got to yet survives deleting the cache.
-			// See internal/memory/pendingstore.go.
-			return Receipt{Outcome: EvQuarantined, ID: m.ID}, flushPending(db)
-		}
-		logEvent(db, m.ID, EvCreated, m.Text, 0)
-		return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)
 	}
 
 	// The fingerprint already existed — the same sentence, word for word. That
 	// is corroboration too, and reporting it as a silent no-op is how a caller
 	// ends up telling the user it saved something that was already there.
-	var dup int64
-	if db.QueryRow("SELECT id FROM memories WHERE fingerprint = ?", fingerprint(m.Text)).Scan(&dup) == nil && dup > 0 {
+	if dup > 0 {
 		db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", dup)
 		logEvent(db, dup, EvReinforced, m.Text, 0)
 		m.ID = dup
 		return Receipt{Outcome: EvReinforced, ID: dup, Ref: dup}, nil
 	}
-	return Receipt{Outcome: OutcomeNoop}, nil
+
+	if m.Quarantined {
+		// Quarantined arrivals get their own event, not EvCreated — the
+		// timeline should be able to say "proposed" and "accepted" as two
+		// distinct moments, the same way it already distinguishes created
+		// from reinforced. See Accept in quarantine.go for the other half.
+		logEvent(db, m.ID, EvQuarantined, m.Text, 0)
+		// A proposal is written down too. Not into memories/<kind>.md —
+		// that would defeat quarantine — but into the queue file, so a
+		// review the user has not got to yet survives deleting the cache.
+		// See internal/memory/pendingstore.go.
+		return Receipt{Outcome: EvQuarantined, ID: m.ID}, flushPending(db)
+	}
+	logEvent(db, m.ID, EvCreated, m.Text, 0)
+	return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)
+}
+
+// idAttempts bounds the retry below. Eight writers colliding on one number is
+// already an unusual amount of concurrency for a personal vault; sixteen rounds
+// of losing that race is a symptom, not a case to keep quietly retrying.
+const idAttempts = 16
+
+// insertMemory allocates an id and writes the row. It returns the id of an
+// existing memory when the same sentence is already stored, and sets m.ID when
+// it created one.
+//
+// This exists because "allocate then insert" was two statements with nothing
+// between them, and nextID is a MAX(id) read. Two agents calling `remember` at
+// the same moment — which is the ordinary case for this product, since Claude
+// Code and Cursor each run their own MCP server against one vault — both read
+// the same maximum and both tried to insert the same number. INSERT OR IGNORE
+// swallowed the primary key conflict, RowsAffected came back 0, the fingerprint
+// lookup below found nothing because the two memories said different things,
+// and Store returned Receipt{Outcome: OutcomeNoop} with a nil error: the memory
+// was dropped and the agent was told the call succeeded. Eight concurrent
+// remembers left two memories.
+//
+// The fix is to notice losing the race and take another number. A conflict on
+// the id is retryable — someone else got there first, the next MAX is higher.
+// A conflict on the fingerprint is not: it means this exact text is already
+// stored, which is the corroboration path the caller wants told apart from a
+// fresh write. Those two are distinguished by asking who owns the fingerprint,
+// because INSERT OR IGNORE cannot say which constraint it ignored.
+//
+// Exhausting the attempts is an error rather than a silent no-op. A memory the
+// system could not store is a thing the user must hear about; the whole failure
+// this replaces was that it looked like success.
+func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
+	fp := fingerprint(m.Text)
+	for range idAttempts {
+		// The id is chosen rather than left to the rowid counter, so a forgotten
+		// memory's number is never handed to an unrelated one. See nextID.
+		id := nextID(db)
+		res, err := db.Exec(
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined))
+		if err != nil {
+			return 0, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			m.ID = id
+			return 0, nil
+		}
+		var owner int64
+		if db.QueryRow("SELECT id FROM memories WHERE fingerprint = ?", fp).Scan(&owner) == nil && owner > 0 {
+			return owner, nil
+		}
+		// Nobody owns the fingerprint, so what was rejected was the id: another
+		// writer took it between the MAX read and the insert. Go round again.
+	}
+	return 0, fmt.Errorf("could not store %q: %d id collisions in a row, which means something else is writing to this vault at the same time",
+		oneLine(m.Text), idAttempts)
 }
 
 // defaultConfidence seeds a memory's confidence from how it was learned. A fact
