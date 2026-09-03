@@ -1,8 +1,11 @@
 package index
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -39,5 +42,39 @@ func TestManyOpensOnAColdVaultAllSucceed(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a concurrent open of a cold vault failed: %v", err)
 		}
+	}
+}
+
+// "Is the index behind?" used to be answered by comparing the newest file's
+// mtime against MAX(first_seen) — a date parsed out of frontmatter, so always
+// midnight. Every vault touched after midnight therefore reported as hours
+// stale the moment after a successful index, which is a health check that
+// cries wolf every day and gets ignored by the second week.
+func TestSyncRecordsWhenItRan(t *testing.T) {
+	v := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(v, "notes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: note\ntitle: a note\nfirst_seen: 2020-01-01\n---\n\nsomething\n"
+	if err := os.WriteFile(filepath.Join(v, "notes", "a.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	before := time.Now().Unix()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	var got int64
+	if err := ix.DB.QueryRow("SELECT value FROM meta WHERE key = 'last_sync'").Scan(&got); err != nil {
+		t.Fatalf("a completed sync recorded no last_sync: %v", err)
+	}
+	if got < before {
+		t.Errorf("last_sync is %d, before the sync that set it (%d)", got, before)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +46,10 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS edges_src ON edges(src_slug);
 CREATE INDEX IF NOT EXISTS edges_obj ON edges(obj);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS embeddings (
     slug TEXT PRIMARY KEY REFERENCES notes(slug) ON DELETE CASCADE,
     dim  INTEGER NOT NULL,
@@ -367,6 +372,20 @@ func (ix *Index) Sync() (SyncReport, error) {
 			return rep, err
 		}
 		rep.Removed++
+	}
+
+	// Record when this pass finished, in the same transaction that made it true.
+	//
+	// `brain doctor` used to answer "is the index behind?" by comparing the
+	// newest file mtime against MAX(first_seen), which is a *date* parsed from
+	// frontmatter — midnight, always. Every vault touched after midnight
+	// therefore read as hours stale the instant after a successful index, and a
+	// health check that cries wolf every day is one nobody reads.
+	if _, err := tx.Exec(
+		`INSERT INTO meta (key, value) VALUES ('last_sync', ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
+		return rep, err
 	}
 
 	return rep, tx.Commit()

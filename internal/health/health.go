@@ -198,17 +198,33 @@ func checkFreshness(dir string, db *sql.DB) Check {
 		c.State, c.Detail = OK, "nothing to index"
 		return c
 	}
-	var indexed sql.NullInt64
-	if err := db.QueryRow("SELECT MAX(first_seen) FROM notes").Scan(&indexed); err != nil {
+	// When the last pass ran, not what date the newest note claims.
+	//
+	// The obvious-looking MAX(first_seen) is a date parsed out of frontmatter,
+	// so it is always midnight. Comparing a file's mtime against it made every
+	// vault touched after midnight read as hours behind the moment after a
+	// successful index — the check reported a real number that answered a
+	// question nobody asked, and it answered it wrong every day.
+	var synced sql.NullInt64
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'last_sync'").Scan(&synced); err != nil && err != sql.ErrNoRows {
 		c.State, c.Detail = Unknown, "could not read the index: "+err.Error()
 		return c
 	}
-	if !indexed.Valid || indexed.Int64 == 0 {
-		c.State, c.Detail = Failed, "vault has markdown but the index is empty"
+	if !synced.Valid || synced.Int64 == 0 {
+		// Either the index has never been built, or it was built by a version
+		// that did not record this. Both are answered by the same one command,
+		// and neither is evidence that anything is wrong.
+		var notes int
+		db.QueryRow("SELECT COUNT(*) FROM notes").Scan(&notes)
+		if notes == 0 {
+			c.State, c.Detail = Failed, "vault has markdown but the index is empty"
+		} else {
+			c.State, c.Detail = Unknown, "cannot tell when the index was last built"
+		}
 		c.Fix = "run `brain index`"
 		return c
 	}
-	lag := newest.Sub(time.Unix(indexed.Int64, 0))
+	lag := newest.Sub(time.Unix(synced.Int64, 0))
 	if lag > staleBy {
 		c.State = Failed
 		c.Detail = fmt.Sprintf("stale — newest note is %s ahead of the index", roughly(lag))
@@ -515,12 +531,20 @@ func roughly(d time.Duration) string {
 	case d < time.Minute:
 		return "moments"
 	case d < time.Hour:
-		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+		return count(int(d.Minutes()), "minute")
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%d hours", int(d.Hours()))
+		return count(int(d.Hours()), "hour")
 	default:
-		return fmt.Sprintf("%d days", int(d.Hours()/24))
+		return count(int(d.Hours()/24), "day")
 	}
+}
+
+// count saves the "1 hours" that makes a tool feel unfinished.
+func count(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // checkPrivacy reports what the rest of the machine can read.
