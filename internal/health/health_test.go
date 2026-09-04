@@ -254,3 +254,52 @@ func TestTheProbeWillNotDeleteADirectoryItDoesNotOwn(t *testing.T) {
 		t.Fatalf("the probe deleted a note it did not write: %v", err)
 	}
 }
+
+// The privacy check used to answer from the vault directory's mode alone, so a
+// vault at 0700 holding an index.db at 0644 was reported as "readable only by
+// you". That file is a full copy of every note, memory and checkpoint, and
+// index.Open sets its mode advisorily — `_ = vault.PrivateSiblings(...)`, with
+// doctor named in the comment as the thing that would catch a failure. It did
+// not catch it.
+
+func TestAPrivateVaultHoldingAWorldReadableIndexIsNotPrivate(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".brain"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, ".brain", "index.db")
+	if err := os.WriteFile(db, []byte("every note you have"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := checkPrivacy(dir)
+	if c.State == OK {
+		t.Fatalf("privacy says %q while .brain/index.db is 0644", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "index.db") {
+		t.Fatalf("privacy failed but did not name the exposed file: %q", c.Detail)
+	}
+}
+
+func TestAVaultPrivateAllTheWayDownPasses(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".brain"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".brain", "index.db"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "memories"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if c := checkPrivacy(dir); c.State != OK {
+		t.Fatalf("privacy = %v (%s), want ok", c.State, c.Detail)
+	}
+}

@@ -413,6 +413,13 @@ func checkMemoryReview(db *sql.DB) Check {
 	return c
 }
 
+func isAre(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
+}
+
 func plural(n int) string {
 	if n == 1 {
 		return "y"
@@ -573,13 +580,17 @@ func checkPrivacy(dir string) Check {
 		c.State, c.Detail = Unknown, "vault not readable: "+err.Error()
 		return c
 	}
-	if info.Mode().Perm()&0o077 == 0 {
-		c.State, c.Detail = OK, "the vault is readable only by you"
-		return c
-	}
 	// Name what is actually exposed rather than the directory alone. "0755 on a
 	// folder" means nothing to most people; "your prompt log and the database
 	// holding every note" means something.
+	//
+	// The contents are checked even when the directory itself is locked down,
+	// and that is the whole point of the list. index.Open sets the mode on
+	// index.db advisorily — `_ = vault.PrivateSiblings(...)`, with a comment
+	// naming this check as what would catch a failure — so answering from the
+	// directory's mode alone reported "readable only by you" over a 0644 copy of
+	// every note, memory and checkpoint in the vault. A private directory is
+	// also one chmod, one sync client or one backup away from not being one.
 	var open []string
 	for _, rel := range []string{"activity", ".brain/index.db", ".brain/index.db-wal", "memories", "sessions"} {
 		p := filepath.Join(dir, rel)
@@ -591,10 +602,23 @@ func checkPrivacy(dir string) Check {
 			open = append(open, rel)
 		}
 	}
+	if info.Mode().Perm()&0o077 == 0 && len(open) == 0 {
+		c.State, c.Detail = OK, "the vault is readable only by you"
+		return c
+	}
+
 	c.State = Failed
-	c.Detail = fmt.Sprintf("%s is readable by other users on this machine", dir)
-	if len(open) > 0 {
-		c.Detail += " — so is " + strings.Join(open, ", ")
+	if info.Mode().Perm()&0o077 != 0 {
+		c.Detail = fmt.Sprintf("%s is readable by other users on this machine", dir)
+		if len(open) > 0 {
+			c.Detail += " — so is " + strings.Join(open, ", ")
+		}
+	} else {
+		// The directory is closed but something inside it is not. Say so
+		// precisely: the fix is the same command, but "your vault is fine except
+		// for the file holding all of it" is a different sentence.
+		c.Detail = fmt.Sprintf("%s is private, but %s inside it %s readable by other users on this machine",
+			dir, strings.Join(open, ", "), isAre(len(open)))
 	}
 	c.Fix = "run `chmod -R go-rwx " + dir + "` if this machine has other accounts on it"
 	return c
