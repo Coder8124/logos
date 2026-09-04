@@ -25,18 +25,38 @@ import (
 // half-configured machine is worse than a configured one with a warning on it.
 
 func setupCmd(args []string) error {
-	yes := hasFlag(args, "--yes") || hasFlag(args, "-y")
+	opts := wireOptsFrom(args)
+	yes := opts.yes
 
-	dir, created, err := chooseVault(args)
+	// --dry-run has to mean it. It used to describe the plan and then carry out
+	// three parts of it anyway: it created the vault directory, it *recorded*
+	// that directory as this machine's vault, and it built an index inside it.
+	//
+	// The recording is the one that hurts. It is what the desktop app reads to
+	// find the vault, and it has no environment to fall back on — so someone
+	// who ran `brain setup --dry-run --vault /tmp/try-it` to see what would
+	// happen had just repointed their app at an empty directory, and got a
+	// healthy zero of everything with their real memory sitting untouched
+	// somewhere else. That is the exact failure internal/vault/path.go was
+	// written to end, reintroduced by the flag people use precisely because
+	// they are being careful.
+	dir, created, err := chooseVault(args, opts.dryRun)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("  vault      %s", dir)
 	if created {
-		fmt.Print("   (created)")
+		if opts.dryRun {
+			fmt.Print("   (would be created)")
+		} else {
+			fmt.Print("   (created)")
+		}
 	}
 	fmt.Println()
-	if vault.Recorded() == dir {
+	switch {
+	case opts.dryRun:
+		fmt.Println("             would be recorded — the desktop app opens this vault too")
+	case vault.Recorded() == dir:
 		fmt.Println("             recorded — the desktop app opens this vault too")
 	}
 
@@ -44,12 +64,13 @@ func setupCmd(args []string) error {
 	// the environment said when the process started.
 	os.Setenv("BRAIN_VAULT", dir)
 
-	checkRuntime(yes)
-	indexVault(dir)
-	if err := wireHosts(dir, wireOptsFrom(args)); err != nil {
-		return err
+	checkRuntime(yes, opts.dryRun)
+	if opts.dryRun {
+		fmt.Println("  index      would be built from the markdown in this vault")
+	} else {
+		indexVault(dir)
 	}
-	return nil
+	return wireHosts(dir, opts)
 }
 
 // wireOptsFrom reads the wiring flags shared by `setup` and `mcp install`.
@@ -61,8 +82,12 @@ func wireOptsFrom(args []string) wireOpts {
 	}
 }
 
-// chooseVault resolves where the vault lives and makes sure it exists.
-func chooseVault(args []string) (dir string, created bool, err error) {
+// chooseVault resolves where the vault lives and, unless this is a dry run,
+// makes sure it exists and is the one this machine remembers.
+//
+// created reports whether the directory was missing, so a dry run can say what
+// it would have made without making it.
+func chooseVault(args []string, dryRun bool) (dir string, created bool, err error) {
 	dir = flagStr(args, "--vault", "")
 	if dir == "" {
 		dir = vaultPath() // BRAIN_VAULT, then the recorded path, then ~/brain
@@ -72,13 +97,18 @@ func chooseVault(args []string) (dir string, created bool, err error) {
 		return "", false, err
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
-		// Private from the first mkdir. A vault created world-readable and
-		// tightened later is a vault that was world-readable for however long the
-		// user took to run `brain doctor`.
-		if err := vault.MkdirPrivate(abs); err != nil {
-			return "", false, fmt.Errorf("creating %s: %w", abs, err)
-		}
 		created = true
+		if !dryRun {
+			// Private from the first mkdir. A vault created world-readable and
+			// tightened later is a vault that was world-readable for however long
+			// the user took to run `brain doctor`.
+			if err := vault.MkdirPrivate(abs); err != nil {
+				return "", false, fmt.Errorf("creating %s: %w", abs, err)
+			}
+		}
+	}
+	if dryRun {
+		return abs, created, nil
 	}
 	// Write the choice down where a front end with no shell can read it. The
 	// desktop app is launched from Finder and inherits no BRAIN_VAULT, so
@@ -92,7 +122,10 @@ func chooseVault(args []string) (dir string, created bool, err error) {
 // checkRuntime reports the local model runtime and offers to pull what is
 // missing. A machine with no runtime is told what to install and left working:
 // lexical retrieval and the whole continuity surface need no model at all.
-func checkRuntime(yes bool) {
+// dryRun turns every offer into a description. `--dry-run --yes` used to be a
+// combination that downloaded models — several gigabytes, from a command whose
+// last line says nothing was written.
+func checkRuntime(yes, dryRun bool) {
 	found := provider.Discover()
 	if len(found) == 0 {
 		fmt.Println("  runtime    none found")
@@ -123,7 +156,9 @@ func checkRuntime(yes bool) {
 	embed := env("BRAIN_EMBED", defaultEmbedModel)
 	fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
 	if !have[embed] {
-		if yes || confirm(fmt.Sprintf("             pull %s (%s)? adds semantic search",
+		if dryRun {
+			fmt.Printf("             would offer to pull %s (%s)\n", embed, modelSize(embed))
+		} else if yes || confirm(fmt.Sprintf("             pull %s (%s)? adds semantic search",
 			embed, modelSize(embed))) {
 			pull(p.BaseURL, embed)
 		} else {
@@ -150,6 +185,10 @@ func checkRuntime(yes bool) {
 	fmt.Println("             and the nightly rollup use them. No MCP tool does.")
 	if !allModels(os.Args) {
 		fmt.Println("             skipped; pass --all-models to pull them")
+		return
+	}
+	if dryRun {
+		fmt.Printf("             would pull %s (%s)\n", strings.Join(chat, " and "), totalSize(chat))
 		return
 	}
 	for _, m := range chat {
@@ -345,6 +384,12 @@ func wireHosts(vault string, opts wireOpts) error {
 	if present == 0 {
 		fmt.Println("\n  No MCP hosts found. Install Claude Code, Claude Desktop, Cursor or")
 		fmt.Println("  Codex and re-run `brain mcp install`.")
+		if opts.dryRun {
+			// Said even here. A dry run that ends without its disclaimer, because
+			// it happened to find nothing to wire, is a dry run the reader has to
+			// guess about — and the vault half of it did have something to say.
+			fmt.Println("\n  --dry-run: nothing was written.")
+		}
 		return nil
 	}
 

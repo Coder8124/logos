@@ -509,13 +509,23 @@ func doctor(probe bool) error {
 	// something was wrong.
 	rep := gatherHealth()
 	fmt.Println("─── brain ───")
+	// Width from the longest check name rather than a constant. "abandoned
+	// sessions" is eighteen characters and used to push its own state out of the
+	// column every other row lined up in, which reads as a rendering bug in the
+	// one command someone runs when they already suspect something is wrong.
+	w := 0
 	for _, c := range rep.Checks {
-		fmt.Printf("  %-14s %s\n", c.Name, renderState(c.State))
+		if len(c.Name) > w {
+			w = len(c.Name)
+		}
+	}
+	for _, c := range rep.Checks {
+		fmt.Printf("  %-*s %s\n", w, c.Name, renderState(c.State))
 		if c.Detail != "" {
-			fmt.Printf("  %-14s   %s\n", "", c.Detail)
+			fmt.Printf("  %-*s   %s\n", w, "", c.Detail)
 		}
 		if c.Fix != "" {
-			fmt.Printf("  %-14s   → %s\n", "", c.Fix)
+			fmt.Printf("  %-*s   → %s\n", w, "", c.Fix)
 		}
 	}
 	ok, failed, unknown := rep.Counts()

@@ -3,6 +3,7 @@ package project
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/brain/internal/memory"
 	_ "modernc.org/sqlite"
@@ -144,4 +145,29 @@ func hasMemoryText(p Project, text string) bool {
 		}
 	}
 	return false
+}
+
+// "Last checkpoint by claude, just now" is what this renders into, and it used
+// to say it for anything under an hour. A handoff fifty minutes and one
+// context-switch old is not "just now", and `brain doctor` said "20 minutes
+// ago" about the same checkpoint at the same moment.
+func TestAgeDoesNotCallTheLastHourJustNow(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		ago  time.Duration
+		want string
+	}{
+		{10 * time.Second, "just now"},
+		{25 * time.Minute, "25m ago"},
+		{59 * time.Minute, "59m ago"},
+		{3 * time.Hour, "3h ago"},
+		{50 * time.Hour, "2d ago"},
+	} {
+		if got := Age(now.Add(-tc.ago).Unix()); got != tc.want {
+			t.Errorf("Age(%s ago) = %q, want %q", tc.ago, got, tc.want)
+		}
+	}
+	if got := Age(0); got != "—" {
+		t.Errorf("Age(0) = %q, want a placeholder for never", got)
+	}
 }

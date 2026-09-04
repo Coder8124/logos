@@ -502,14 +502,23 @@ func dedupStrings(in []string) []string {
 }
 
 // Age renders a timestamp as a human "how long ago", for the CLI.
+//
+// "just now" used to cover the whole first hour, which is the one place in this
+// product that granularity is not a detail: the line it produces is "Last
+// checkpoint by claude, just now", and an agent reading that about a handoff
+// fifty minutes and one context-switch old is being told something false about
+// how current the plan is. `brain doctor` said "20 minutes ago" for the same
+// checkpoint at the same moment, so the two disagreed in front of the user.
 func Age(ts int64) string {
 	if ts == 0 {
 		return "—"
 	}
 	d := time.Since(time.Unix(ts, 0))
 	switch {
-	case d < time.Hour:
+	case d < time.Minute:
 		return "just now"
+	case d < time.Hour:
+		return itoa(int(d.Minutes())) + "m ago"
 	case d < 24*time.Hour:
 		return itoa(int(d.Hours())) + "h ago"
 	case d < 30*24*time.Hour:

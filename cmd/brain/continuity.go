@@ -79,10 +79,20 @@ func roughAge(ts int64) string {
 	case d < time.Minute:
 		return "moments"
 	case d < time.Hour:
-		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+		return countUnits(int(d.Minutes()), "minute")
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%d hours", int(d.Hours()))
+		return countUnits(int(d.Hours()), "hour")
 	default:
-		return fmt.Sprintf("%d days", int(d.Hours()/24))
+		return countUnits(int(d.Hours()/24), "day")
 	}
+}
+
+// countUnits saves the "1 minutes ago" that makes a tool feel unfinished. The
+// copy above dropped this when it was made; internal/health's count() is the
+// original.
+func countUnits(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
