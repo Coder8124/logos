@@ -328,3 +328,71 @@ func TestContinuityStillReportsOKForANewButRealVault(t *testing.T) {
 		t.Fatalf("continuity = %v (%s) on a real empty vault, want ok", c.State, c.Detail)
 	}
 }
+
+// An open session with no notes in it made doctor permanently red, and the
+// remedy it offered — "see the notes, then checkpoint them" — had nothing to
+// operate on. Nothing was recorded in that session, so nothing is at risk: it
+// is a row the vault does not describe and `brain index` would not rebuild.
+// Say it happened, do not call the vault broken over it.
+func TestAnEmptySessionLeftOpenDoesNotFailTheHealthCheck(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-2 * session.AbandonAfter).Unix()
+	if _, err := ix.DB.Exec(
+		`INSERT INTO sessions (id, project, agent, task, started) VALUES (?,?,?,?,?)`,
+		"empty-one", "help", "cli", "", old); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
+	if c.State != OK {
+		t.Fatalf("an open session holding no work reports %q: %s", c.State, c.Detail)
+	}
+	// Reported, not swallowed — the count is the whole announcement.
+	if !strings.Contains(c.Detail, "1 empty session") {
+		t.Errorf("detail %q does not mention the empty session it saw", c.Detail)
+	}
+}
+
+// The other half: an empty session must not mask a real one. A vault holding
+// both should still fail, and should name only the session with work in it.
+func TestAnEmptySessionDoesNotHideOneHoldingWork(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-2 * session.AbandonAfter).Unix()
+	if _, err := ix.DB.Exec(
+		`INSERT INTO sessions (id, project, agent, task, started) VALUES (?,?,?,?,?)`,
+		"empty-one", "help", "cli", "", old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.AddNoteAt(ix.DB, "kestrel", "codex", "found the bad batch", old); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
+	if c.State != Failed {
+		t.Fatalf("a session holding work reports %q: %s", c.State, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "kestrel") {
+		t.Errorf("detail %q does not name the session that has work in it", c.Detail)
+	}
+	if strings.Contains(c.Detail, "help") {
+		t.Errorf("detail %q counts the empty session as work that was dropped", c.Detail)
+	}
+}

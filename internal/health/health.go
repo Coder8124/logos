@@ -344,27 +344,54 @@ func checkAbandonment(db *sql.DB) Check {
 		c.State, c.Detail = Unknown, "could not read sessions: "+err.Error()
 		return c
 	}
-	if len(abandoned) == 0 {
-		c.State, c.Detail = OK, "none"
+	// Only a session that is holding notes is a failure. An open session with
+	// nothing in it is a row this index would not rebuild from the vault — no
+	// note was written, so no work is at risk — and calling it broken made
+	// doctor permanently red with a fix nobody could carry out: the offered
+	// remedy is "see the notes, then checkpoint them", and there are no notes.
+	// They are still counted out loud, because a check that quietly drops what
+	// it saw is the other way to be wrong here.
+	var holding []session.Abandoned
+	empty := 0
+	for _, a := range abandoned {
+		if a.Notes == 0 {
+			empty++
+			continue
+		}
+		holding = append(holding, a)
+	}
+	if len(holding) == 0 {
+		c.State = OK
+		switch empty {
+		case 0:
+			c.Detail = "none"
+		default:
+			c.Detail = fmt.Sprintf("none holding work (%d empty session%s left open)", empty, pluralS(empty))
+		}
 		return c
 	}
 	c.State = Failed
-	lines := make([]string, 0, len(abandoned))
-	for _, a := range abandoned {
+	lines := make([]string, 0, len(holding))
+	for _, a := range holding {
 		who := a.Agent
 		if who == "" {
 			who = "an agent"
 		}
-		lines = append(lines, fmt.Sprintf("%s (%s, %d notes, %s ago)",
-			a.Project, who, a.Notes, roughly(time.Since(time.Unix(a.LastActivity, 0)))))
+		lines = append(lines, fmt.Sprintf("%s (%s, %d note%s, %s ago)",
+			a.Project, who, a.Notes, pluralS(a.Notes), roughly(time.Since(time.Unix(a.LastActivity, 0)))))
 	}
-	suffix := "s"
-	if len(abandoned) == 1 {
-		suffix = ""
-	}
-	c.Detail = fmt.Sprintf("%d session%s never checkpointed — %s", len(abandoned), suffix, strings.Join(lines, "; "))
+	c.Detail = fmt.Sprintf("%d session%s never checkpointed — %s",
+		len(holding), pluralS(len(holding)), strings.Join(lines, "; "))
 	c.Fix = "run `brain sessions <project>` to see the notes, then checkpoint them or let the session go"
 	return c
+}
+
+// pluralS is the plain -s plural; plural() above is the y/ies one.
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func checkCapture(db *sql.DB, retentionDays int, keepForever bool) Check {
