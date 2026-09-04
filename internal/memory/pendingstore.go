@@ -50,9 +50,43 @@ func pendingPath(dir string) string {
 // it each time means one successful write heals whatever the last failed one
 // left behind.
 func flushPending(db *sql.DB) error {
+	return withPending(db, func(dir string) error { return flushPendingLocked(db, dir) })
+}
+
+// withPending runs fn holding the review queue's lock, against every process on
+// the machine. Taken *inside* the kind lock wherever both are held — Store's
+// quarantined arrival, Accept — and that order is fixed, because two agents
+// accepting proposals at the same moment is how a nesting inversion turns into
+// a vault that never finishes a write.
+func withPending(db *sql.DB, fn func(dir string) error) error {
 	dir := vaultFor(db)
+	// An unbound store has no queue file to serialise, but fn still has to run:
+	// callers put their row work inside it, and skipping that turned Reject into
+	// a no-op for every cache-only store.
 	if dir == "" {
-		return nil
+		return fn("")
+	}
+	g, err := vault.Lock(dir, "memory-pending")
+	if err != nil {
+		return err
+	}
+	defer g.Unlock()
+	return fn(dir)
+}
+
+// flushPendingLocked reads the queue and writes the file with the lock held, and
+// the two have to be under the same lock for the same reason the memory files
+// do. Unserialised, two proposals arriving at once read the queue, both write
+// the whole file, and the later write wins with a snapshot taken before the
+// other proposal existed. ImportPending then treats the id it cannot find as a
+// line the user deleted and calls Reject on it — a proposal discarded on the
+// user's behalf, on the next `brain index`, without them ever seeing it.
+//
+// Because the read happens under the lock and every mutation flushes after
+// committing, whoever holds the lock last writes the most recent queue.
+func flushPendingLocked(db *sql.DB, dir string) error {
+	if dir == "" {
+		return nil // an unbound store; see withPending
 	}
 	pend, err := Pending(db)
 	if err != nil {
@@ -114,6 +148,19 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	if err := Init(db); err != nil {
 		return 0, err
 	}
+	// The same lock the writers take. This reads the file and then rejects every
+	// queued row missing from it, which is the destructive half — running it
+	// against a file another process is part-way through writing rejects
+	// proposals that are only briefly absent.
+	//
+	// dir is the caller's rather than vaultFor's: `brain index` imports a vault
+	// it has not bound to a store yet.
+	g, err := vault.Lock(dir, "memory-pending")
+	if err != nil {
+		return 0, err
+	}
+	defer g.Unlock()
+
 	raw, err := os.ReadFile(pendingPath(dir))
 	if os.IsNotExist(err) {
 		// No file is not the same as an empty queue: a vault written before this
@@ -147,24 +194,33 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	// A line the user deleted is a rejection. Only rows this file could have
 	// described are eligible — an active memory is not in the queue and must
 	// never be reaped by it.
-	rows, err := db.Query("SELECT id FROM memories WHERE quarantined = 1 AND superseded = 0")
+	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0")
 	if err != nil {
 		return restored, err
 	}
-	var gone []int64
+	type doomed struct {
+		id   int64
+		text string
+	}
+	var gone []doomed
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var d doomed
+		if err := rows.Scan(&d.id, &d.text); err != nil {
 			rows.Close()
 			return restored, err
 		}
-		if !keep[id] {
-			gone = append(gone, id)
+		if !keep[d.id] {
+			gone = append(gone, d)
 		}
 	}
 	rows.Close()
-	for _, id := range gone {
-		Reject(db, id)
+	for _, d := range gone {
+		// rejectRow, not Reject: this already holds the queue lock that Reject's
+		// flush would take, and the file it would rewrite is the one being read
+		// as the source of truth right here. See rejectRow.
+		if err := rejectRow(db, d.id, d.text); err != nil {
+			return restored, err
+		}
 	}
 	return restored, nil
 }

@@ -106,40 +106,39 @@ type stampKey struct {
 	kind Kind
 }
 
-// fileMu serialises the file half of one kind against itself.
+// withKind runs fn holding the vault-wide lock for one kind, across every
+// process on the machine. See internal/vault/lock.go for why it is an OS lock
+// and not a mutex.
 //
-// Writing the file and recording its hash are two steps, and between them the
-// stamp still describes the *previous* file. A concurrent Reconcile landing in
-// that window reads the new file, does not recognise it as ours, and runs a
-// full pass — against a file that is necessarily missing every row inserted
-// since the export took its snapshot. Those rows are not in the file, so they
-// are read as lines the user deleted, and forgetRow removes them. Every writer
-// is told its memory was stored, and memory_log records a deletion nobody made.
+// The span matters as much as the lock. Storing a memory is reconcile, then
+// insert, then flush, and the dangerous moment is not inside any one of them —
+// it is between the insert and the flush, when the row exists in the index and
+// not yet in the file. Anything that reconciles in that window reads the file
+// as authoritative, cannot see the new row, and deletes it as a line the user
+// removed by hand. forgetRow runs, memory_log records a deletion nobody made,
+// and the writer is told its memory was saved. That is the failure this whole
+// product exists not to have, and it is why callers wrap the entire sequence
+// rather than locking each step.
 //
-// That is the failure this whole product exists not to have, and two agents
-// remembering at once is its ordinary case — Claude Code and Cursor each run
-// their own MCP server against one vault. TestConcurrentRemembersAllSurvive
-// caught it at round 17 of 20, on CI, after passing locally.
-//
-// Held across export-then-stamp in flush, and across read-then-check in
-// Reconcile, so a reconcile never observes a file whose stamp has not landed.
 // Keyed per kind: a write to memories/fact.md has no reason to wait on
-// memories/preference.md. Process-local, like the stamps themselves.
-var (
-	fileMuMu sync.Mutex
-	fileMus  = map[stampKey]*sync.Mutex{}
-)
-
-func fileLock(db *sql.DB, kind Kind) *sync.Mutex {
-	fileMuMu.Lock()
-	defer fileMuMu.Unlock()
-	k := stampKey{db, kind}
-	mu, ok := fileMus[k]
-	if !ok {
-		mu = &sync.Mutex{}
-		fileMus[k] = mu
+// memories/preference.md.
+//
+// An unbound store — no vault, which is what a cache-only test wants — has no
+// file to serialise, so fn runs directly.
+func withKind(db *sql.DB, kind Kind, fn func() error) error {
+	dir := vaultFor(db)
+	// An empty kind reaches here from Forget and setPin when the id does not
+	// exist, so there is no row and no file. Locking it would put a stray
+	// memory-.lock in the vault for a call that touches nothing.
+	if dir == "" || kind == "" {
+		return fn()
 	}
-	return mu
+	g, err := vault.Lock(dir, "memory-"+string(kind))
+	if err != nil {
+		return err
+	}
+	defer g.Unlock()
+	return fn()
 }
 
 func stamp(db *sql.DB, kind Kind, sum [sha256.Size]byte) {
@@ -165,6 +164,14 @@ func dropStamps(db *sql.DB) {
 	}
 }
 
+// dropStamp forgets the claim for one kind, so the next reconcile does a full
+// pass instead of trusting a hash that no longer describes the file.
+func dropStamp(db *sql.DB, kind Kind) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	delete(stamps, stampKey{db, kind})
+}
+
 // kinds is the fixed set, so exporting is deterministic and a kind with no
 // memories still gets its file emptied rather than left stale.
 var kinds = []Kind{Preference, Person, Fact, Context}
@@ -183,17 +190,17 @@ var kinds = []Kind{Preference, Person, Fact, Context}
 // the thing the README tells people to delete. A write that cannot be made
 // durable has to say so.
 func flush(db *sql.DB, kind Kind) error {
+	return withKind(db, kind, func() error { return flushLocked(db, kind) })
+}
+
+// flushLocked is flush with the kind's lock already held. Callers that need the
+// insert and the export to be indivisible — Store, Accept — hold it across all
+// of it and call this.
+func flushLocked(db *sql.DB, kind Kind) error {
 	dir := vaultFor(db)
 	if dir == "" {
 		return nil
 	}
-	// See fileMu: the export and the stamp must land together, or a concurrent
-	// reconcile reads the new file, fails to recognise it, and deletes rows that
-	// were inserted after the export snapshotted the index.
-	mu := fileLock(db, kind)
-	mu.Lock()
-	defer mu.Unlock()
-
 	if err := ExportKind(db, dir, kind); err != nil {
 		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
 	}
@@ -201,8 +208,18 @@ func flush(db *sql.DB, kind Kind) error {
 	// as ours and skip a full pass. Read back rather than hashing what we think
 	// we wrote: if the export and the file on disk ever disagree, the stamp must
 	// describe the disk.
+	//
+	// A read-back that does not succeed must *clear* the stamp, not leave the
+	// old one. The common case is not an error at all: exporting a kind whose
+	// last memory was just forgotten removes the file, so the read fails and the
+	// previous file's hash stayed behind — and a stamp is a claim that the bytes
+	// on disk are ours. Restore that file from a backup and the claim is wrong
+	// in the one direction that loses data: Reconcile recognises the restored
+	// bytes as its own, skips the pass, and the next flush overwrites them.
 	if raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
 		stamp(db, kind, sha256.Sum256(raw))
+	} else {
+		dropStamp(db, kind)
 	}
 	return nil
 }
@@ -240,16 +257,17 @@ func flush(db *sql.DB, kind Kind) error {
 // re-embeds it. Stale ranking is a small, self-correcting cost; a lost edit is
 // permanent.
 func Reconcile(db *sql.DB, kind Kind) error {
+	return withKind(db, kind, func() error { return reconcileLocked(db, kind) })
+}
+
+// reconcileLocked is Reconcile with the kind's lock already held. See withKind
+// for why the mutating callers hold it across the reconcile *and* the write
+// that follows rather than letting each take it in turn.
+func reconcileLocked(db *sql.DB, kind Kind) error {
 	dir := vaultFor(db)
 	if dir == "" {
 		return nil
 	}
-	// Held from the read through the pass, so this never sees a file a
-	// concurrent flush has written but not yet stamped. See fileMu.
-	mu := fileLock(db, kind)
-	mu.Lock()
-	defer mu.Unlock()
-
 	raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md"))
 	if os.IsNotExist(err) {
 		return nil
@@ -446,6 +464,25 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 		return 0, err
 	}
 
+	// Every kind's lock, held for the whole import.
+	//
+	// This does what Reconcile does — read the files, then delete every row they
+	// do not mention — so it needs the same protection, and it did not have it.
+	// `brain index` running while an agent's MCP server stores a memory read the
+	// file before that memory reached it and forgot the row. The kinds are
+	// locked in the fixed order of `kinds`, so an import and a store can never
+	// take two of them in opposite orders.
+	//
+	// dir is the caller's rather than vaultFor's, because `brain index` imports
+	// a vault it has not bound to a store yet.
+	for _, kind := range kinds {
+		g, err := vault.Lock(dir, "memory-"+string(kind))
+		if err != nil {
+			return 0, err
+		}
+		defer g.Unlock()
+	}
+
 	var imported int
 	keep := map[int64]bool{}
 
@@ -502,6 +539,11 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	// would destroy the very data this function exists to protect, so it exports
 	// instead of importing.
 	if len(authoritative) == 0 {
+		// dropStamps after, not before: Export writes every file without
+		// recording what it wrote, so any stamp still held describes bytes that
+		// are no longer on disk — and a stamp is a claim the file is ours, which
+		// makes the next Reconcile skip the pass that would have adopted it.
+		defer dropStamps(db)
 		return 0, Export(db, dir)
 	}
 
@@ -528,7 +570,14 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	}
 	rows.Close()
 	for _, id := range orphans {
-		Forget(db, id)
+		// forgetRow, not Forget. Forget reconciles and flushes, and both take the
+		// kind lock this function is already holding — so calling it here wedges
+		// the process on the first line the user deleted. It would also rewrite
+		// the very file being read as the source of truth. Same reasoning, and
+		// the same choice, as Reconcile's own deletion loop.
+		if _, err := forgetRow(db, id); err != nil {
+			return imported, err
+		}
 	}
 	return imported, nil
 }

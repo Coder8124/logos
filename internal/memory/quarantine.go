@@ -82,26 +82,36 @@ func Accept(db *sql.DB, id int64) error {
 	if quarantined == 0 {
 		return fmt.Errorf("memory #%d is not pending review", id)
 	}
-	// A quarantined memory is not in the file yet, so accepting it is the moment
-	// it starts being written there — and that write is a whole-file rewrite.
-	// Adopt any hand edits first.
-	if err := Reconcile(db, Kind(kind)); err != nil {
-		return err
-	}
-	if _, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ?", id); err != nil {
-		return err
-	}
-	logEvent(db, id, EvAccepted, text, 0)
-	// Now that it is active, it belongs in the vault the same as anything else
-	// — this is the moment it moves out of the review queue and into memory.
-	// Both files change, and the memory file is written first: a crash between
-	// the two leaves a proposal that is already remembered still listed as
-	// pending, which a second accept resolves. The other order would drop it
-	// from the queue with nothing holding it.
-	if err := flush(db, Kind(kind)); err != nil {
-		return err
-	}
-	return flushPending(db)
+	// One lock across the whole acceptance, for the reason Store gives: the row
+	// stops being quarantined before the file says so, and a reconcile in that
+	// window sees an active memory missing from memories/<kind>.md and forgets
+	// the thing the user just accepted.
+	//
+	// The kind lock is taken outside the pending lock, and that order is fixed
+	// everywhere the two are nested — it is what keeps two agents accepting at
+	// the same moment from deadlocking against each other.
+	return withKind(db, Kind(kind), func() error {
+		// A quarantined memory is not in the file yet, so accepting it is the
+		// moment it starts being written there — and that write is a whole-file
+		// rewrite. Adopt any hand edits first.
+		if err := reconcileLocked(db, Kind(kind)); err != nil {
+			return err
+		}
+		if _, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ?", id); err != nil {
+			return err
+		}
+		logEvent(db, id, EvAccepted, text, 0)
+		// Now that it is active, it belongs in the vault the same as anything
+		// else — this is the moment it moves out of the review queue and into
+		// memory. Both files change, and the memory file is written first: a
+		// crash between the two leaves a proposal that is already remembered
+		// still listed as pending, which a second accept resolves. The other
+		// order would drop it from the queue with nothing holding it.
+		if err := flushLocked(db, Kind(kind)); err != nil {
+			return err
+		}
+		return flushPending(db)
+	})
 }
 
 // Reject discards a quarantined memory outright. Unlike Forget, this only
@@ -120,14 +130,33 @@ func Reject(db *sql.DB, id int64) error {
 	if quarantined == 0 {
 		return fmt.Errorf("memory #%d is not pending review", id)
 	}
+	// The delete and the rewrite are one operation, under the queue's lock: the
+	// rewrite regenerates the file from the queue, so a second rejection landing
+	// between them would write a file that still lists this one.
+	return withPending(db, func(dir string) error {
+		if err := rejectRow(db, id, text); err != nil {
+			return err
+		}
+		// The rejection has to reach the queue file too. It is the only record of
+		// what is pending that survives deleting the cache, so a proposal left
+		// there would come back on the next `brain index` — a memory the user
+		// explicitly rejected, reappearing, which is the failure mode Reconcile
+		// exists to prevent for active memories.
+		return flushPendingLocked(db, dir)
+	})
+}
+
+// rejectRow is Reject's row work without the file write, for the one caller
+// that is already holding the queue's lock and writing the file itself.
+//
+// ImportPending is that caller, and it needs this rather than Reject for a
+// concrete reason: Reject flushes, flushing takes the queue lock, and
+// ImportPending holds it — so calling Reject from there wedges the process
+// against itself on the first proposal the user deleted by hand.
+func rejectRow(db *sql.DB, id int64, text string) error {
 	if _, err := db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
 		return err
 	}
 	logEvent(db, id, EvRejected, text, 0)
-	// The rejection has to reach the queue file too. It is the only record of
-	// what is pending that survives deleting the cache, so a proposal left
-	// there would come back on the next `brain index` — a memory the user
-	// explicitly rejected, reappearing, which is the failure mode Reconcile
-	// exists to prevent for active memories.
-	return flushPending(db)
+	return nil
 }

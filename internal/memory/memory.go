@@ -221,13 +221,31 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		m.Confidence = defaultConfidence(m.Source)
 	}
 
+	// Everything from here to the flush happens under one lock, held against
+	// every other process on this machine. The reconcile, the insert and the
+	// export are not three operations that each need protecting — they are one
+	// operation with a hole in the middle, and the hole is where the row exists
+	// in the index but not in the file. A reconcile from another agent's MCP
+	// server landing in it reads the row's absence as a line the user deleted
+	// and forgets it. See withKind.
+	var receipt Receipt
+	err := withKind(db, m.Kind, func() error {
+		var err error
+		receipt, err = storeLocked(db, p, embedModel, m)
+		return err
+	})
+	return receipt, err
+}
+
+// storeLocked is the body of Store, run with the kind's lock held.
+func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Receipt, error) {
 	// Adopt anything the user changed in the file by hand before this write
 	// regenerates it. Ordered before the insert, not after: once the new row is
 	// in the index, nothing can tell it apart from a line the user deleted.
 	// A failure here is not fatal to the store — see Reconcile — but it is
 	// returned, because writing over an edit the user made is exactly what this
 	// call exists to prevent and doing it anyway would be worse than refusing.
-	if err := Reconcile(db, m.Kind); err != nil {
+	if err := reconcileLocked(db, m.Kind); err != nil {
 		return Receipt{Outcome: OutcomeNoop}, err
 	}
 
@@ -250,7 +268,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, flush(db, m.Kind)
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, flushLocked(db, m.Kind)
 		}
 	}
 
@@ -282,7 +300,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		return Receipt{Outcome: EvQuarantined, ID: m.ID}, flushPending(db)
 	}
 	logEvent(db, m.ID, EvCreated, m.Text, 0)
-	return Receipt{Outcome: EvCreated, ID: m.ID}, flush(db, m.Kind)
+	return Receipt{Outcome: EvCreated, ID: m.ID}, flushLocked(db, m.Kind)
 }
 
 // idAttempts bounds the retry below. Eight writers colliding on one number is
@@ -683,16 +701,21 @@ func Count(db *sql.DB) (int, error) {
 func Forget(db *sql.DB, id int64) error {
 	var k string
 	db.QueryRow("SELECT kind FROM memories WHERE id = ?", id).Scan(&k)
-	if err := Reconcile(db, Kind(k)); err != nil {
-		return err
-	}
-	kind, err := forgetRow(db, id)
-	if err != nil {
-		return err
-	}
-	// Forgetting has to reach the file too, or the next import restores it —
-	// which makes a failure here worth reporting rather than swallowing.
-	return flush(db, kind)
+	// One lock across all three steps, for the reason Store gives: between the
+	// delete and the flush the file still holds the line, and a reconcile in
+	// that window would restore the memory the user just forgot.
+	return withKind(db, Kind(k), func() error {
+		if err := reconcileLocked(db, Kind(k)); err != nil {
+			return err
+		}
+		kind, err := forgetRow(db, id)
+		if err != nil {
+			return err
+		}
+		// Forgetting has to reach the file too, or the next import restores it —
+		// which makes a failure here worth reporting rather than swallowing.
+		return flushLocked(db, kind)
+	})
 }
 
 // forgetRow is Forget without the file write, for callers that are going to
@@ -790,15 +813,18 @@ func setPin(db *sql.DB, id int64, pin int, verb string) error {
 	var text, kind string
 	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
 	// Same reason as Store: this ends in a whole-file rewrite, so whatever the
-	// user edited by hand has to be adopted before it, not lost by it.
-	if err := Reconcile(db, Kind(kind)); err != nil {
-		return err
-	}
-	if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
-		return err
-	}
-	logEvent(db, id, EvUpdated, verb+": "+text, 0)
-	return flush(db, Kind(kind))
+	// user edited by hand has to be adopted before it, not lost by it — and the
+	// adopt, the update and the rewrite are one operation, held under one lock.
+	return withKind(db, Kind(kind), func() error {
+		if err := reconcileLocked(db, Kind(kind)); err != nil {
+			return err
+		}
+		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
+			return err
+		}
+		logEvent(db, id, EvUpdated, verb+": "+text, 0)
+		return flushLocked(db, Kind(kind))
+	})
 }
 
 // --- vector helpers (shared shape with the index) ---
