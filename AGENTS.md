@@ -60,6 +60,37 @@ is absent — a GUI-launched host does not inherit a login shell's PATH.
 Do not silently proceed without continuity. Tell the user Logos is unreachable
 and carry on: a session with no memory is worse when nobody knows it has none.
 
+## Checkpoint before your context runs out, not after
+
+Do not save the handoff for the end of the session. Sessions here do not end
+tidily — they end when the context window fills, and the summary you were going
+to write is the one that never gets written. This has already happened on this
+repository more than once, and each time the next agent paid for it.
+
+So: **checkpoint when you finish a piece of work, and again whenever the
+conversation is getting long or the user says you are losing context.** A
+checkpoint is cheap and idempotent; the second one supersedes the first.
+
+```sh
+brain checkpoint brain --task "…" --next "…" --failed "…" --verified "…"
+brain index          # the checkpoint is a file first; this makes it searchable
+```
+
+Two habits that make the difference between a checkpoint and a useful one:
+
+- **`failed` is the field that pays for the whole system.** An empty `failed` on
+  a session that ruled something out is the single most expensive omission
+  available here, because the next agent will spend hours re-deriving it. Write
+  down the thing you suspected and disproved, *including* why it looked right.
+- **`verified` is what you actually ran**, each with the command that showed it.
+  Anything you merely believe goes in `state`. An agent that trusts a `verified`
+  line and finds it was a guess stops trusting the vault, and then the vault is
+  worth nothing.
+
+When the user asks you to "summarise into brain", "hand off", or "preserve
+context", that is this — a checkpoint, not a message in the chat. The chat is
+gone when the session is.
+
 ## Two rules that are easy to get wrong here
 
 - **Do not put repository instructions in memory.** Logos holds *operational*

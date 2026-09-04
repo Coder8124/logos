@@ -106,6 +106,42 @@ type stampKey struct {
 	kind Kind
 }
 
+// fileMu serialises the file half of one kind against itself.
+//
+// Writing the file and recording its hash are two steps, and between them the
+// stamp still describes the *previous* file. A concurrent Reconcile landing in
+// that window reads the new file, does not recognise it as ours, and runs a
+// full pass — against a file that is necessarily missing every row inserted
+// since the export took its snapshot. Those rows are not in the file, so they
+// are read as lines the user deleted, and forgetRow removes them. Every writer
+// is told its memory was stored, and memory_log records a deletion nobody made.
+//
+// That is the failure this whole product exists not to have, and two agents
+// remembering at once is its ordinary case — Claude Code and Cursor each run
+// their own MCP server against one vault. TestConcurrentRemembersAllSurvive
+// caught it at round 17 of 20, on CI, after passing locally.
+//
+// Held across export-then-stamp in flush, and across read-then-check in
+// Reconcile, so a reconcile never observes a file whose stamp has not landed.
+// Keyed per kind: a write to memories/fact.md has no reason to wait on
+// memories/preference.md. Process-local, like the stamps themselves.
+var (
+	fileMuMu sync.Mutex
+	fileMus  = map[stampKey]*sync.Mutex{}
+)
+
+func fileLock(db *sql.DB, kind Kind) *sync.Mutex {
+	fileMuMu.Lock()
+	defer fileMuMu.Unlock()
+	k := stampKey{db, kind}
+	mu, ok := fileMus[k]
+	if !ok {
+		mu = &sync.Mutex{}
+		fileMus[k] = mu
+	}
+	return mu
+}
+
 func stamp(db *sql.DB, kind Kind, sum [sha256.Size]byte) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
@@ -151,6 +187,13 @@ func flush(db *sql.DB, kind Kind) error {
 	if dir == "" {
 		return nil
 	}
+	// See fileMu: the export and the stamp must land together, or a concurrent
+	// reconcile reads the new file, fails to recognise it, and deletes rows that
+	// were inserted after the export snapshotted the index.
+	mu := fileLock(db, kind)
+	mu.Lock()
+	defer mu.Unlock()
+
 	if err := ExportKind(db, dir, kind); err != nil {
 		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
 	}
@@ -201,6 +244,12 @@ func Reconcile(db *sql.DB, kind Kind) error {
 	if dir == "" {
 		return nil
 	}
+	// Held from the read through the pass, so this never sees a file a
+	// concurrent flush has written but not yet stamped. See fileMu.
+	mu := fileLock(db, kind)
+	mu.Lock()
+	defer mu.Unlock()
+
 	raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md"))
 	if os.IsNotExist(err) {
 		return nil

@@ -1,6 +1,6 @@
 {
   "name": "@noeton/logos",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Logos — cross-tool memory and continuity for AI coding agents, over MCP. Your vault is markdown on your own disk.",
   "keywords": [
     "logos",
@@ -32,11 +32,11 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@noeton/logos-darwin-arm64": "0.1.7",
-    "@noeton/logos-darwin-x64": "0.1.7",
-    "@noeton/logos-linux-x64": "0.1.7",
-    "@noeton/logos-linux-arm64": "0.1.7",
-    "@noeton/logos-win32-x64": "0.1.7"
+    "@noeton/logos-darwin-arm64": "0.1.8",
+    "@noeton/logos-darwin-x64": "0.1.8",
+    "@noeton/logos-linux-x64": "0.1.8",
+    "@noeton/logos-linux-arm64": "0.1.8",
+    "@noeton/logos-win32-x64": "0.1.8"
   },
   "scripts": {
     "build": "node scripts/build.js",
