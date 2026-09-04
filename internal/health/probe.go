@@ -195,11 +195,39 @@ func Integration(bin, vault string) []Check {
 		return fail("vault", "the checkpoint is not in "+vault,
 			"the host is pointed at a different BRAIN_VAULT than you think")
 	}
-	os.Remove(found)
+	if err := cleanUp(vault, project, found); err != nil {
+		return fail("vault", "written to "+vault+", but the probe could not clean up after itself: "+err.Error(),
+			"delete "+filepath.Join(vault, session.CheckpointDir, project)+" by hand")
+	}
 	checks = append(checks, Check{Name: "vault", State: OK,
 		Detail: "written to " + vault + ", and cleaned up"})
 
 	return checks
+}
+
+// cleanUp removes the probe's checkpoint and the project directory it was
+// filed under.
+//
+// Removing only the file is not enough, and the difference is not cosmetic. A
+// project is a directory under sessions/, so an empty brain-selftest-<pid>
+// directory is a project as far as `brain continuity` and `brain projects` are
+// concerned — one that has never checkpointed and never will. Every run of
+// `brain doctor --integration` added another, permanently, to the one report
+// whose job is to say which projects have gone quiet. Three of them were in the
+// author's own vault before anyone noticed, under a check that said "cleaned
+// up".
+func cleanUp(vault, project, checkpoint string) error {
+	if err := os.Remove(checkpoint); err != nil {
+		return err
+	}
+	dir := filepath.Join(vault, session.CheckpointDir, project)
+	// Anything else in here was not written by the probe, so the directory
+	// stays and the caller is told — losing somebody's notes to a health check
+	// is far worse than leaving a stray directory behind.
+	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // findCheckpoint walks rather than lists: checkpoints are filed under
