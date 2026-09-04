@@ -303,3 +303,28 @@ func TestAVaultPrivateAllTheWayDownPasses(t *testing.T) {
 		t.Fatalf("privacy = %v (%s), want ok", c.State, c.Detail)
 	}
 }
+
+// "no checkpoints yet" is the line a brand-new working vault prints. Printing
+// it for a vault that is not there — and printing it as OK, on a report where
+// every other vault-backed check said unchecked — tells the user continuity is
+// fine when nothing about it was read.
+func TestContinuityDoesNotReportOKForAVaultThatIsNotThere(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no-vault-here")
+
+	c := checkContinuity(missing)
+
+	if c.State == OK {
+		t.Fatalf("continuity = ok (%q) over a vault that does not exist", c.Detail)
+	}
+	if !strings.Contains(c.Fix, "brain setup") {
+		t.Errorf("continuity fix is %q, want it to name `brain setup`", c.Fix)
+	}
+}
+
+// A vault that exists and has simply never been checkpointed is the ordinary
+// first-run case, and it must keep saying so.
+func TestContinuityStillReportsOKForANewButRealVault(t *testing.T) {
+	if c := checkContinuity(t.TempDir()); c.State != OK {
+		t.Fatalf("continuity = %v (%s) on a real empty vault, want ok", c.State, c.Detail)
+	}
+}

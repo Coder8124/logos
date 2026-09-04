@@ -295,6 +295,16 @@ func checkContinuity(vault string) Check {
 		c.State, c.Detail = Unknown, "no vault"
 		return c
 	}
+	// A vault that is not there has no checkpoints, but "no checkpoints yet" is
+	// the wrong sentence for it: it is the same line a brand-new working vault
+	// prints, and it came out OK while every other vault-backed check on the
+	// same report said unchecked. Nothing can be concluded about continuity
+	// from a directory that does not exist, so say that instead.
+	if _, err := os.Stat(vault); err != nil {
+		c.State, c.Detail = Unknown, "the vault is not there, so checkpoints could not be read"
+		c.Fix = "run `brain setup`"
+		return c
+	}
 	latest, project, agent, err := latestCheckpoint(vault)
 	if err != nil {
 		c.State, c.Detail = Unknown, "could not read checkpoints: "+err.Error()

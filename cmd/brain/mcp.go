@@ -32,7 +32,7 @@ func runMCPServe() error {
 
 	vault := vaultPath()
 	if _, err := os.Stat(vault); err != nil {
-		return fmt.Errorf("vault not found at %s — set BRAIN_VAULT", vault)
+		return missingVaultError(vault)
 	}
 
 	// index.Open rather than sql.Open on the file directly. Opening the raw path

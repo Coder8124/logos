@@ -467,10 +467,21 @@ func findProvider() (*provider.Provider, error) {
 	return p.Provider, nil
 }
 
+// missingVaultError is what every command says when the vault is not there.
+//
+// It used to say "set BRAIN_VAULT", which is the one instruction that cannot
+// help either person who sees it: someone who has never run setup does not have
+// a vault to point the variable at, and someone whose BRAIN_VAULT is a typo has
+// already set it. Name the path that was tried, then the command that makes one.
+func missingVaultError(v string) error {
+	return fmt.Errorf("vault not found at %s — run `brain setup` to create one, "+
+		"or point BRAIN_VAULT at an existing vault", v)
+}
+
 func openIndex() (*index.Index, error) {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
-		return nil, fmt.Errorf("vault not found at %s — set BRAIN_VAULT", v)
+		return nil, missingVaultError(v)
 	}
 	return index.Open(v)
 }
@@ -614,11 +625,23 @@ func gatherHealth() health.Report {
 	vault := vaultPath()
 	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel)}
 
-	if ix, err := index.Open(vault); err == nil {
-		defer ix.Close()
-		capture.InitStore(ix.DB) // so the capture check reads a table rather than an error
-		session.Init(ix.DB)      // so the abandonment check reads a table rather than an error
-		in.DB = ix.DB
+	// Stat before opening, because index.Open creates <vault>/.brain and that
+	// brings the vault itself into existence. Opening it here meant doctor made
+	// the vault it was about to check and then pronounced it healthy — the
+	// "does not exist" branch in checkVault could not fire from the CLI at all.
+	// A mistyped BRAIN_VAULT, or doctor run before setup, produced a second
+	// empty vault with a clean bill of health, which is exactly the "healthy
+	// zero of everything" that internal/vault/path.go exists to prevent.
+	//
+	// A vault that exists but has never been indexed is a different case, and
+	// index.Open creating .brain for that one is wanted.
+	if _, err := os.Stat(vault); err == nil {
+		if ix, err := index.Open(vault); err == nil {
+			defer ix.Close()
+			capture.InitStore(ix.DB) // so the capture check reads a table rather than an error
+			session.Init(ix.DB)      // so the abandonment check reads a table rather than an error
+			in.DB = ix.DB
+		}
 	}
 	if found := provider.Discover(); len(found) > 0 {
 		in.Runtime = found[0].Provider
