@@ -475,3 +475,49 @@ func writeNote(ix *index.Index, rel, body string) error {
 	}
 	return os.WriteFile(path, []byte(body), 0o644)
 }
+
+// Empty is what lets `brain resume` tell a person "nothing is here, type this"
+// instead of handing them the model-facing rendering of a void. The risk it
+// carries is drift: a pack that gained content through a field Empty does not
+// look at would still claim to be empty, and the CLI would suppress a real
+// answer. Build it against a vault that has something, then against one that
+// has nothing.
+func TestAPackWithAnythingInItIsNotEmpty(t *testing.T) {
+	ix := seedVault(t)
+	pack, err := Build(ix, nil, "", Request{Task: "keep working on Kestrel One's cost problem"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pack.Empty() {
+		t.Errorf("a pack built from a seeded vault reports empty; resume would print "+
+			"\"nothing recorded\" over a real answer:\n%s", pack.Render())
+	}
+}
+
+func TestAPackFromAVaultWithNothingInItIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ix.Close() })
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	for _, init := range []func() error{
+		func() error { return memory.Init(ix.DB) },
+		func() error { return session.Init(ix.DB) },
+		func() error { return secretary.Init(ix.DB) },
+	} {
+		if err := init(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pack, err := Build(ix, nil, "", Request{Task: "resume work on myproj", Hint: "myproj"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pack.Empty() {
+		t.Errorf("a pack from an empty vault does not report empty:\n%s", pack.Render())
+	}
+}

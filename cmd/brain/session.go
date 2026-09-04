@@ -175,11 +175,39 @@ func runResume(args []string) error {
 	if err != nil {
 		return err
 	}
+	if pack.Empty() {
+		printNothingToResume(ix.Vault, project)
+		return nil
+	}
 	fmt.Print(pack.Render())
 	if pack.Checkpoint == nil {
 		fmt.Println("\n(no checkpoint yet for this project — this is context, not a handoff)")
 	}
 	return nil
+}
+
+// printNothingToResume replaces the empty context pack for the one caller that
+// is often a person rather than an agent.
+//
+// `brain resume <project>` is the first command SETUP.md tells a new user to
+// run, and on a vault with nothing in it the pack renders a heading, a
+// provenance disclaimer, a "Nothing recorded" section and a token budget —
+// every part of which is addressed to a model. A person reads that as the tool
+// failing. The two facts worth having are whether the vault is empty or the
+// name simply did not match, and either way what to type next.
+func printNothingToResume(vaultDir, project string) {
+	known, _ := session.Projects(vaultDir)
+	if len(known) > 0 {
+		fmt.Printf("nothing recorded for %q.\n\n", project)
+		fmt.Printf("projects with checkpoints: %s\n", strings.Join(known, ", "))
+		fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
+		return
+	}
+	fmt.Println("nothing recorded yet — this vault has no checkpoints.")
+	fmt.Println("\nstart one, and the next agent picks it up from here:")
+	fmt.Printf("  brain note %s \"what you just did\"\n", project)
+	fmt.Printf("  brain checkpoint %s --next \"what comes next\"\n", project)
+	fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
 }
 
 // runSessionLog shows the checkpoint history for a project: the commit log.

@@ -119,6 +119,22 @@ type Pack struct {
 	Budget   Budget   `json:"budget"`
 }
 
+// Empty reports that retrieval found nothing at all — not "nothing that
+// answers the task", which renderGaps already says, but nothing whatsoever.
+//
+// The render is written for the agent that consumes it, and for an agent an
+// empty pack is still a useful answer: it says do not infer, nothing is here.
+// For a person running `brain resume` as their first command after setup, the
+// same output is a page of scaffolding around a void, and it reads like a
+// broken install rather than an empty vault. Callers use this to tell the two
+// audiences apart.
+func (p *Pack) Empty() bool {
+	return p.Checkpoint == nil && p.Project == nil &&
+		len(p.Working) == 0 && len(p.History) == 0 && len(p.Notes) == 0 &&
+		len(p.Preferences) == 0 && len(p.Related) == 0 && len(p.Pinned) == 0 &&
+		len(p.OpenLoops) == 0 && len(p.Superseded) == 0
+}
+
 const (
 	maxPrefs   = 8
 	maxRelated = 10
