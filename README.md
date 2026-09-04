@@ -59,17 +59,33 @@ in [the benchmark](docs/continuity-benchmark.md).
 
 ## Getting started
 
+In Claude Code, which also installs the SessionStart hook that puts the last
+handoff in front of the model before it does anything:
+
+```
+/plugin marketplace add Coder8124/logos
+/plugin install logos@logos
+```
+
+Anywhere else — no Go toolchain, no clone, no build:
+
 ```sh
-git clone https://github.com/Coder8124/logos && cd logos
-go build -o bin/brain ./cmd/brain
-./bin/brain setup
+npx -y @noeton/logos setup
 ```
 
 `setup` picks a vault, finds your local model runtime, runs the first index, and
 then shows you which agents it would wire and asks before touching any of them.
+`--dry-run` shows the whole plan and writes nothing.
 
-Full install options — the Claude Code plugin, one-click host buttons, npm,
-release binaries — are in **[SETUP.md](SETUP.md)**.
+From source, if you have Go:
+
+```sh
+git clone https://github.com/Coder8124/logos && cd logos
+go build -o bin/brain ./cmd/brain && ./bin/brain setup
+```
+
+One-click buttons for Cursor and VS Code, release binaries, and wiring a host by
+hand are in **[SETUP.md](SETUP.md)**.
 
 ## Contributing
 
