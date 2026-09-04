@@ -11,7 +11,7 @@
       "name": "logos",
       "source": "./plugin",
       "description": "Checkpoint and resume work across Claude Code, Cursor and Codex. Records what was ruled out so the next agent does not repeat it. Local-first: your memory is markdown on your disk.",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "category": "productivity",
       "keywords": [
         "memory",
@@ -20,8 +20,8 @@
         "mcp",
         "local-first"
       ],
-      "license": "MIT",
-      "homepage": "https://github.com/Coder8124/brain"
+      "license": "Apache-2.0",
+      "homepage": "https://github.com/Coder8124/logos"
     }
   ]
 }
