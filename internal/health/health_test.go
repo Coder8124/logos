@@ -195,3 +195,62 @@ func TestCountsAndHealthy(t *testing.T) {
 		t.Error("unknowns alone should not make a report unhealthy")
 	}
 }
+
+// The integration probe writes a checkpoint under a throwaway project name and
+// removes it again. It used to remove only the file, and a project is a
+// directory — so every run left behind a project that had never checkpointed,
+// in the report that exists to name exactly those.
+
+func TestTheIntegrationProbeLeavesNoProjectBehind(t *testing.T) {
+	vault := t.TempDir()
+	project := "brain-selftest-4242"
+	dir := filepath.Join(vault, session.CheckpointDir, project)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(dir, "20260903-120000-brain-doctor.md")
+	if err := os.WriteFile(note, []byte("selftest ruled this out"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cleanUp(vault, project, note); err != nil {
+		t.Fatalf("cleanUp: %v", err)
+	}
+
+	got, err := session.Projects(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range got {
+		if p == project {
+			t.Fatalf("%s is still a project after the probe cleaned up; `brain continuity` will list it as never checkpointed forever", project)
+		}
+	}
+}
+
+// But not at the cost of somebody's notes. If anything else is in the
+// directory, the probe says it could not clean up rather than deleting it.
+
+func TestTheProbeWillNotDeleteADirectoryItDoesNotOwn(t *testing.T) {
+	vault := t.TempDir()
+	project := "brain-selftest-4243"
+	dir := filepath.Join(vault, session.CheckpointDir, project)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(dir, "20260903-120000-brain-doctor.md")
+	if err := os.WriteFile(note, []byte("selftest"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	theirs := filepath.Join(dir, "uncommitted.md")
+	if err := os.WriteFile(theirs, []byte("real work"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cleanUp(vault, project, note); err == nil {
+		t.Fatal("cleanUp reported success while leaving the directory behind")
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Fatalf("the probe deleted a note it did not write: %v", err)
+	}
+}
