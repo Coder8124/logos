@@ -82,6 +82,15 @@ working. They cannot see the pack.
 If `LOGOS_ANNOUNCE=off` the marker is gone and the result is plain text. Relay it
 anyway — the setting turns the decoration down, not the reporting off.
 
+Tell them once, near the start, that they can see this for themselves. Most
+hosts hide tool calls by default and most people never find the switch: in
+Claude Code `Ctrl+O` expands collapsed tool results (or start it with
+`claude --verbose`), and `/mcp` lists the connected servers and their health.
+Cursor and the others have their own equivalent — point at the idea if you do
+not know the key. A user who cannot see a tool run has no way to tell a quiet
+memory layer from a dead one.
+
+
 ## What not to do
 
 - Do not call `remember` for things the code already says. The repository is not

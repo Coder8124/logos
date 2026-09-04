@@ -317,6 +317,27 @@ whether it created a fact or corroborated one it already had), `recall`,
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
 `checkpoint`, `handoff`, `before_you_try`, `why`.
 
+### Seeing it work
+
+Every write tool returns a receipt — `✓ Logos · stored in brain — memory #41`,
+`✓ Logos · checkpoint saved to brain` — and the agent is asked to repeat it to
+you in its own words, because most hosts collapse a tool result to one grey
+line. If your agent has gone quiet about it, you can look for yourself:
+
+| Host | Show the tool calls |
+| --- | --- |
+| Claude Code | `Ctrl+O` toggles full tool output; `claude --verbose` starts that way; `/mcp` lists servers and their health |
+| Claude Desktop | the tool call is a disclosure triangle in the message; click it |
+| Cursor | tool calls expand in the chat pane |
+
+Worth doing once, on the first day. A memory layer you cannot see working is
+indistinguishable from one that is silently broken, and the second one is
+common enough that the doubt is reasonable. `brain doctor` answers the same
+question from outside the agent, with counts.
+
+Setting `LOGOS_ANNOUNCE=off` turns the `✓ Logos ·` marker off for anyone who
+finds it noisy. It changes the decoration, not what the tools report.
+
 ### The intercept
 
 `resume` hands an arriving agent the last checkpoint. That covers the dead end
