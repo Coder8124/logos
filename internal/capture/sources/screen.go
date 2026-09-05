@@ -13,10 +13,12 @@ import (
 // no-cgo path the calendar source uses. Nothing here touches the network; the
 // OCR is local.
 //
-// This is the most invasive capability in the system, so it is off by default,
-// only ever runs in tutor mode with the screen-notes flag set, and everything
-// degrades to "unavailable" the moment a permission is missing rather than
-// erroring.
+// This is the most invasive capability in the system, which is why it is a
+// standalone primitive rather than wired into the capture daemon: nothing
+// under cmd/ or app/ calls CaptureScreenText, so there is currently no flag a
+// user can set to turn it on. A caller that adds one must gate it the way the
+// rest of capture does — off by default, explicit opt-in, degrading to
+// "unavailable" on a missing permission rather than erroring.
 
 // IdleSeconds reports how long since the last HID (keyboard/mouse) event.
 //
