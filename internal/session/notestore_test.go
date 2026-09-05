@@ -320,7 +320,7 @@ func TestAWalkedForwardCheckpointNamesItselfConsistently(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if !isCheckpointFile(e.Name()) {
+		if !IsCheckpointFile(e.Name()) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(v, CheckpointDir, "kestrel", e.Name()))

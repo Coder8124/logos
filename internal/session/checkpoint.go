@@ -279,7 +279,7 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if !e.IsDir() && isCheckpointFile(e.Name()) {
+		if !e.IsDir() && IsCheckpointFile(e.Name()) {
 			names = append(names, e.Name())
 		}
 	}
@@ -311,7 +311,7 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 	return out, nil
 }
 
-// isCheckpointFile decides whether a file in a session directory is one of
+// IsCheckpointFile decides whether a file in a session directory is one of
 // ours.
 //
 // Not every .md here is a checkpoint: uncommitted.md holds working notes, and
@@ -320,7 +320,7 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 // reverse sort of these filenames, so anything not stamped with a timestamp
 // does not merely add a bad row, it sorts to the front and becomes what
 // `resume` reports as the last thing that happened.
-func isCheckpointFile(name string) bool {
+func IsCheckpointFile(name string) bool {
 	if !strings.HasSuffix(name, ".md") || len(name) < 9 || name[8] != '-' {
 		return false
 	}

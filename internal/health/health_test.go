@@ -396,3 +396,45 @@ func TestAnEmptySessionDoesNotHideOneHoldingWork(t *testing.T) {
 		t.Errorf("detail %q counts the empty session as work that was dropped", c.Detail)
 	}
 }
+
+// uncommitted.md is rewritten every time an agent records a working note, so it
+// is nearly always the newest file under sessions/. Taking it for a checkpoint
+// made this check report "last checkpoint 4 hours ago" for a vault whose last
+// real checkpoint was days old — the continuity check answering the exact
+// question it exists for, with its opposite.
+func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, session.CheckpointDir, "brain")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// A real checkpoint, written five days ago.
+	real := filepath.Join(proj, "20260101-120000-claude.md")
+	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: brain\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-5 * 24 * time.Hour)
+	if err := os.Chtimes(real, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	// Working notes, touched moments ago. Not a checkpoint.
+	if err := os.WriteFile(filepath.Join(proj, session.NotesFile),
+		[]byte("# uncommitted — brain\n\n- still going <!-- ts=1 agent=cli -->\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir}), "continuity")
+	if strings.Contains(c.Detail, "minute") || strings.Contains(c.Detail, "moment") {
+		t.Errorf("working notes were counted as the last checkpoint: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "day") {
+		t.Errorf("detail %q does not report the five-day-old checkpoint that is actually the newest", c.Detail)
+	}
+	// And it must still name the checkpoint it did find, rather than the empty
+	// frontmatter of the file it used to pick up.
+	if !strings.Contains(c.Detail, "brain") || strings.Contains(c.Detail, "— ,") {
+		t.Errorf("detail %q does not name the checkpoint's project", c.Detail)
+	}
+}

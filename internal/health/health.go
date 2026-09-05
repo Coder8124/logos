@@ -321,6 +321,12 @@ func checkContinuity(vault string) Check {
 		who = "an agent"
 	}
 	c.State = OK
+	// A checkpoint that does not name its project still counts as a checkpoint;
+	// printing the empty string for it produced "5 hours ago — , by an agent".
+	if project == "" {
+		c.Detail = fmt.Sprintf("last checkpoint %s ago, by %s", roughly(time.Since(latest)), who)
+		return c
+	}
 	c.Detail = fmt.Sprintf("last checkpoint %s ago — %s, by %s", roughly(time.Since(latest)), project, who)
 	return c
 }
@@ -527,7 +533,13 @@ func latestCheckpoint(vault string) (ts time.Time, project, agent string, err er
 		return time.Time{}, "", "", nil
 	}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+		// Not every .md under sessions/ is a checkpoint. uncommitted.md holds
+		// working notes and is rewritten on every note_progress, so it is almost
+		// always the newest file here — which made this check answer "last
+		// checkpoint 5 hours ago" for a vault whose last actual checkpoint was
+		// days old. That is the precise failure the continuity check exists to
+		// catch, reported as its own opposite.
+		if err != nil || d.IsDir() || !session.IsCheckpointFile(d.Name()) {
 			return nil
 		}
 		info, err := d.Info()
