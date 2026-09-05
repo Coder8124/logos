@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -61,8 +62,11 @@ func runDream(dateArg, phase string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	// No runtime does not stop a dream: nrem's gist path is arithmetic and
+	// REM/replay already skip cleanly, reported through res.REMSkipped and
+	// res.ReplaySkipped rather than refused up front.
 	rt, err := router.New(cfg, ix.Vault)
-	if err != nil {
+	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
 		return err
 	}
 
@@ -113,7 +117,7 @@ func dreamNightly(db *sql.DB, vault string) error {
 		return err
 	}
 	rt, err := router.New(cfg, vault)
-	if err != nil {
+	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
 		return err
 	}
 	yesterday := time.Now().AddDate(0, 0, -1)

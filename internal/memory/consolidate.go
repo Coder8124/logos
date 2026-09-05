@@ -159,6 +159,13 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	if err != nil {
 		return 0, 0, err
 	}
+	// A nil router is a caller that already knows no local runtime was found —
+	// the same condition rt.ModelFor reports for a router that has one but no
+	// usable model, so it is reported the same way here rather than left to
+	// panic on the nil receiver below.
+	if rt == nil {
+		return 0, 0, router.ErrNoRuntime
+	}
 	model, err := rt.ModelFor(router.T1, true)
 	if err != nil {
 		return 0, 0, err
