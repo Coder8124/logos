@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -40,8 +41,12 @@ func runRollup(dateArg string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	// A missing runtime is only a real problem once there is something to
+	// summarise, and Day() below already knows how to say that precisely —
+	// so it is not decided here, before we even know whether today has any
+	// activity to roll up.
 	rt, err := router.New(cfg, ix.Vault)
-	if err != nil {
+	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
 		return err
 	}
 
