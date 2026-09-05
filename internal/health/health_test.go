@@ -438,3 +438,42 @@ func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
 		t.Errorf("detail %q does not name the checkpoint's project", c.Detail)
 	}
 }
+
+// A saved plan lives in sessions/<project>/plans/, a subdirectory of the same
+// tree latestCheckpoint walks recursively. Its filename is prefixed "plan-",
+// not a bare timestamp, specifically so it fails IsCheckpointFile's test —
+// this proves that holds through the health check that actually depends on
+// it, not just through a direct call to IsCheckpointFile.
+func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	proj := filepath.Join(dir, session.CheckpointDir, "brain")
+	if err := os.MkdirAll(proj, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	real := filepath.Join(proj, "20260101-120000-claude.md")
+	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: brain\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-5 * 24 * time.Hour)
+	if err := os.Chtimes(real, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	// A plan saved moments ago, nested under sessions/brain/plans/.
+	if _, err := session.SavePlan(dir, session.Plan{
+		Project: "brain",
+		Agent:   "claude",
+		Text:    "a freshly approved plan",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir}), "continuity")
+	if strings.Contains(c.Detail, "minute") || strings.Contains(c.Detail, "moment") {
+		t.Errorf("the just-saved plan was counted as the last checkpoint: %q", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "day") {
+		t.Errorf("detail %q does not report the five-day-old checkpoint that is actually the newest", c.Detail)
+	}
+}
