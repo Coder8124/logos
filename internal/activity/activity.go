@@ -56,6 +56,7 @@ const (
 	KindStart   = "session-start"
 	KindEnd     = "session-end"
 	KindBlocked = "permission" // the agent asked to do something and is waiting
+	KindWarn    = "warning"    // something the hook path could not report any louder
 )
 
 // Event is one line of the log.

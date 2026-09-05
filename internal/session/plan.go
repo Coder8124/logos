@@ -68,7 +68,10 @@ func SavePlan(vaultDir string, p Plan) (string, error) {
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return "", err
 	}
-	name := planFilename(p.TS, agent)
+	name, err := claimPlan(dir, p.TS, agent)
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(p.Markdown()), vault.FileMode); err != nil {
 		return "", err
@@ -85,6 +88,28 @@ func SavePlan(vaultDir string, p Plan) (string, error) {
 // bug this session already fixed once, in a new place.
 func planFilename(ts int64, agent string) string {
 	return fmt.Sprintf("plan-%s-%s.md", time.Unix(ts, 0).Format("20060102-150405"), safeScope(agent))
+}
+
+// claimPlan reserves a plan filename the same way claimCheckpoint reserves a
+// checkpoint one: an O_EXCL create, not a stat, because two agents approving a
+// plan for the same project in the same second is the ordinary way this
+// product runs with parallel sessions, and every hook payload reports the same
+// agent name regardless of which session sent it. On a collision the clock
+// walks forward a second at a time until a name is free.
+func claimPlan(dir string, ts int64, agent string) (string, error) {
+	start := time.Unix(ts, 0)
+	for i := range 60 {
+		name := planFilename(start.Add(time.Duration(i)*time.Second).Unix(), agent)
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, vault.FileMode)
+		if err == nil {
+			f.Close()
+			return name, nil
+		}
+		if !os.IsExist(err) {
+			return "", fmt.Errorf("reserving %s: %w", name, err)
+		}
+	}
+	return "", fmt.Errorf("could not find a free plan filename in a minute of names starting at %s", start)
 }
 
 // Markdown renders the plan as a vault note: indexed by `brain index` like any
@@ -112,8 +137,8 @@ func (p Plan) title() string {
 	if t == "" {
 		t = "plan"
 	}
-	if len(t) > 70 {
-		t = strings.TrimSpace(t[:70]) + "…"
+	if r := []rune(t); len(r) > 70 {
+		t = strings.TrimSpace(string(r[:70])) + "…"
 	}
 	return p.Project + " — " + t
 }
