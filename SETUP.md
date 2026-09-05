@@ -608,5 +608,4 @@ ENOSPC, and races processes on one vault — the failures that only appear when
 the kernel is involved.
 
 Further reading: [systemmd/CREDITS.md](systemmd/CREDITS.md) for prior work that
-shaped the ideas, and `systemmd/DESIGN.md` for principles, architecture and the
-full product surface.
+shaped the ideas.
