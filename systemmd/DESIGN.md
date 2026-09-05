@@ -131,16 +131,24 @@ endpoints are auto-discovered by port scan: 11434, 1234, 1337, 10000.
 models are unreliable at tool schemas but near-perfect with a JSON schema
 enforced at the sampler (Ollama `format`, LM Studio structured output).
 
-## Capture (macOS) *(not built)*
+## Capture (macOS)
 
-Default on, cheap, high signal:
-- frontmost app + window title via `NSWorkspace` / AX API, sampled 5s, coalesced
-- browser history read from Chrome/Arc/Safari SQLite
+Default on, cheap, high signal — built and wired into `brain capture --daemon`:
+- frontmost app + window title, sampled 5s, coalesced (`internal/capture/sources/frontmost.go`,
+  reached through `osascript` rather than a native AX binding — see that file for why)
+- browser history read from Chrome/Arc/Safari SQLite (`internal/capture/sources/browser.go`)
 - calendar via EventKit (JXA under osascript, read-only), commits in watched repos
-- clipboard text (blocklisted apps excluded)
+  (`internal/capture/sources/calendar.go`, `git.go`)
+- clipboard text *(not built)* — no source exists; `event.Clipboard` is a defined
+  `Kind` with nothing that ever produces one
 
-Default **off**, explicit opt-in:
-- periodic screenshot + Vision framework OCR (local, no network)
+Default **off**, explicit opt-in *(built, not wired)*:
+- periodic screenshot + Vision framework OCR, local and no network
+  (`internal/capture/sources/screen.go`'s `CaptureScreenText`) — the primitive
+  exists and works standalone, but nothing in `cmd/` or `app/` calls it, so
+  there is no flag a user can set to turn it on. The "tutor mode" and
+  "screen-notes flag" named in that file's own comment do not exist elsewhere in
+  the codebase; treat that comment as intent, not a pointer to real code.
 
 Always: per-app blocklist (password managers, Messages, banking), auto-pause on
 secure text fields, visible menubar recording state, global panic hotkey.
