@@ -115,7 +115,7 @@ type Server struct {
 //
 // Splitting them costs nothing on stdio — Serve makes one Session and the
 // behaviour is identical — and it is the precondition for any transport where
-// the client is not the process that started us. See docs/http-transport.md.
+// the client is not the process that started us.
 //
 // The embedded *Server is deliberate: the shared, immutable half (database,
 // vault, embedding backend) promotes through, so only the handful of methods

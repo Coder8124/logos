@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// The durability claim in systemmd/DESIGN.md is that memories are files and the
-// database is a cache. These tests attack the seam between the two: what happens when the
-// files are there but wrong, or partly there, or written by something else.
+// The durability claim is that memories are files and the database is a cache.
+// These tests attack the seam between the two: what happens when the files are
+// there but wrong, or partly there, or written by something else.
 
 func store(t *testing.T) (*sql.DB, string) {
 	t.Helper()

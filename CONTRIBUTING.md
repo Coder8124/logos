@@ -83,8 +83,8 @@ internal/        index, memory, session, contextpack, deadend, mcpserver, …
 chaos/           fault injection, behind the `chaos` build tag
 app/             Wails v2 desktop app
 bench/           Python adapters for the systems Logos is scored against
-docs/            the benchmark, plus per-subsystem notes
-systemmd/        design, credits, and the prompt agents are given
+docs/            the benchmark, published on GitHub Pages
+systemmd/        credits and the prompt agents are given
 examples/        runnable embeddings
 ```
 
