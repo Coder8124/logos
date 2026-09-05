@@ -69,7 +69,15 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 	if dryRun {
 		res.Gists += len(gists)
 	} else {
-		learned, err := storeGists(db, rt.Local(), embedModel, gists)
+		// A gist is arithmetic, not model output — memory.Store already treats
+		// a nil provider as "store it plain", so gist learning must survive
+		// a nil router the same way rather than panic getting there via
+		// rt.Local().
+		var p *provider.Provider
+		if rt != nil {
+			p = rt.Local()
+		}
+		learned, err := storeGists(db, p, embedModel, gists)
 		if err != nil {
 			return err
 		}
