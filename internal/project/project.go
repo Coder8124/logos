@@ -243,10 +243,14 @@ func AutoScope(db *sql.DB) (int, error) {
 			updates = append(updates, set{m.id, hit})
 		}
 	}
+	scoped := 0
 	for _, u := range updates {
-		db.Exec("UPDATE memories SET project = ? WHERE id = ?", u.slug, u.id)
+		if _, err := db.Exec("UPDATE memories SET project = ? WHERE id = ?", u.slug, u.id); err != nil {
+			return scoped, err
+		}
+		scoped++
 	}
-	return len(updates), nil
+	return scoped, nil
 }
 
 // --- bounded event scan ---
