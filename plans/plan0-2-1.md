@@ -122,7 +122,22 @@ Continuity for coding agents — status and what remains (revision 2)
         frontmost/browser/calendar/git are built AND wired into `brain capture
         --daemon`; clipboard has no source at all; screenshot+OCR is a real,
         working primitive with zero callers anywhere in cmd/ or app/.
-     2. 0.8 (new, see below) Persist plan-mode plans into the vault.
+     2. 0.8 DONE (e953b5d) — an ExitPlanMode PostToolUse hook now saves the
+        approved plan text as its own vault note under
+        sessions/<project>/plans/, alongside (not instead of) the existing
+        activity-log row, so it survives the log's 30-day capture retention
+        and is reachable by `why`/`recall` once indexed. `brain plans
+        <project>` is the visibility surface, matching the precedent
+        `activity` already set for a silent-by-design capture hook. Filenames
+        are prefixed "plan-", not a bare timestamp, so they can never satisfy
+        IsCheckpointFile and be misread as a checkpoint — proved directly by
+        TestASavedPlanIsNotMistakenForACheckpoint and
+        TestPlanFilenameNeverMatchesACheckpoint. Folding plan text into
+        Checkpoint's own schema was considered and deliberately not done: a
+        plan and the checkpoint that later closes its session are different
+        things with different lifetimes, and a standalone note meets the
+        goal (indexed, durable, reachable) without touching a schema every
+        existing checkpoint has to keep parsing.
 
      Tier B — as originally sequenced, unchanged from plan0-2-0.md except 4.2
      removed (see status ledger above — it was already done, plan0-2-0.md's
