@@ -104,6 +104,7 @@ CONTINUITY
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
     brain sessions <project>          checkpoint history for a project, and any abandoned ones
+    brain plans <project>             plan-mode plans saved when ExitPlanMode is approved
     brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
     brain bootstrap [project] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
@@ -251,6 +252,8 @@ func main() {
 		err = runTried(args)
 	case cmd == "sessions":
 		err = runSessionLog(args)
+	case cmd == "plans":
+		err = runPlans(args)
 	case cmd == "continuity":
 		err = runContinuity(args)
 	case cmd == "say" && rest != "":

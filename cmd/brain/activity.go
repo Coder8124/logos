@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/brain/internal/activity"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // `brain activity` — what the agents actually did, as opposed to what they
@@ -164,7 +165,49 @@ func recordActivity(args []string) error {
 		// printing on every tool call of a session that never asked for it.
 		return nil
 	}
-	return activity.Append(vault, e)
+	if err := activity.Append(vault, e); err != nil {
+		return err
+	}
+
+	// A plan a person approved in ExitPlanMode is worth more than an audit-log
+	// row: the activity log rolls off under capture retention, and that plan
+	// is exactly the artifact retention should never quietly take. Save it as
+	// its own vault note in addition to the row just appended above. A host
+	// only reaches PostToolUse for ExitPlanMode once the plan is approved (a
+	// denial never gets past PreToolUse), so every call here is safe to keep.
+	if event == "PostToolUse" && e.Tool == "ExitPlanMode" {
+		if plan := planText(raw); plan != "" && e.Project != "" {
+			if _, err := session.SavePlan(vault, session.Plan{
+				Project: e.Project,
+				Agent:   e.Agent,
+				Text:    plan,
+				TS:      e.TS,
+			}); err != nil {
+				// Same rule as the rest of this function: never fail the hook.
+				// Unlike a lost activity line, this failure is worth a word,
+				// since it is the one thing 0.8 exists to not lose silently.
+				fmt.Fprintf(os.Stderr, "brain: could not save plan: %v\n", err)
+			}
+		}
+	}
+	return nil
+}
+
+// planText pulls ExitPlanMode's plan text straight out of the raw hook
+// payload. activity.FromHook already parses tool_input into Event.Extra, but
+// as an opaque map with no guarantee "plan" survives whatever the host sends
+// next version, so this reads the one field it needs directly instead of
+// depending on that shape.
+func planText(raw []byte) string {
+	var p struct {
+		ToolInput struct {
+			Plan string `json:"plan"`
+		} `json:"tool_input"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return ""
+	}
+	return strings.TrimSpace(p.ToolInput.Plan)
 }
 
 // plural saves the "1 projects" that makes a tool feel unfinished.
