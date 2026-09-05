@@ -1,5 +1,4 @@
 /bin/
-vault/.brain/
 .DS_Store
 *.db
 *.db-wal
@@ -16,11 +15,12 @@ app/build/bin/
 # Wails regenerates these TypeScript bindings on every build; the frontend is
 # vanilla JS and calls window.go.* directly, so they are not used at runtime.
 app/frontend/wailsjs/
+# A live vault at ./vault is one person's local dogfooding vault, never the
+# repository's. The committed fixture vault lives at testdata/vault/ (which Go
+# tooling ignores by convention) so it cannot be mistaken for a real one.
+/vault/
 app/vault/
-vault/recordings/
-vault/sources/
-vault/.brain/scratch/
-vault/business/
+testdata/vault/.brain/
 
 # Bundled voice engines (fetched at build time via scripts/fetch-voice.sh)
 resources/voice/whisper/*

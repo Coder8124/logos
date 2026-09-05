@@ -9,6 +9,22 @@ If you are an agent working in this repository, the Logos plugin's own
 connect to brain here and how to pick up where the last agent stopped — this
 repository runs its own plugin, so both are already available to you.
 
+## The two names
+
+The product is **Logos**. The development name is **brain**, and it is what you
+type:
+
+| Logos | brain |
+| --- | --- |
+| the product, the site, every user-facing string | the Go module `github.com/Coder8124/brain` |
+| the GitHub repo `Coder8124/logos` | the binary, the CLI verb (`brain resume …`) |
+| the npm package `@noeton/logos` | the vault dir, `BRAIN_VAULT`, `.brain/` |
+
+Both are correct in their own place. User-facing text says Logos; code, paths,
+commands and imports say brain. Don't "fix" one into the other — a pull request
+that renames `brain` to `logos` in the module path breaks every embedder, and
+one that renames Logos to brain in the docs is just wrong.
+
 ## Build
 
 Go 1.26.5 or newer. No cgo — the SQLite driver is `modernc.org/sqlite`, so the
@@ -81,6 +97,7 @@ enginetest/      that API exercised from outside, as an embedder sees it
 cmd/brain/       the CLI
 internal/        index, memory, session, contextpack, deadend, mcpserver, …
 chaos/           fault injection, behind the `chaos` build tag
+testdata/vault/  a fixture vault — four notes; not a live one, see its README
 app/             Wails v2 desktop app
 bench/           Python adapters for the systems Logos is scored against
 docs/            the benchmark, published on GitHub Pages

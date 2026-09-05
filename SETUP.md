@@ -308,11 +308,12 @@ nothing installed. Retrieval falls back to BM25, which for code (identifiers,
 error strings, paths) is the right tool rather than a consolation. A 274 MB
 embedding model adds paraphrase-tolerant search if you want it.
 
-Thirteen tools in two families:
+Fifteen tools in two families:
 
 **Memory** — *what do you know about X.* `remember` (returns a receipt saying
 whether it created a fact or corroborated one it already had), `recall`,
-`list_memories`, `forget`, `memory_diff`, `list_projects`.
+`list_memories`, `forget`, `pin_memory`, `exclude_memory`, `memory_diff`,
+`list_projects`.
 
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
 `checkpoint`, `handoff`, `before_you_try`, `why`.
