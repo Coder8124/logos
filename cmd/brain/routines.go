@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -101,8 +102,10 @@ func runRoutines(days int, propose bool) error {
 	if err != nil {
 		return err
 	}
+	// A missing runtime does not stop a proposal: ProposeRoutines' naming is
+	// cosmetic and already degrades to a plain description without a model.
 	rt, err := router.New(cfg, ix.Vault)
-	if err != nil {
+	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
 		return err
 	}
 

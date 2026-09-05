@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/brain/internal/capture"
+	"github.com/Coder8124/brain/internal/event"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/router"
 	_ "modernc.org/sqlite"
@@ -216,5 +217,33 @@ func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	}
 	if res.Downscaled == 0 {
 		t.Error("the model-free part of the pass did not run")
+	}
+}
+
+// gistsFromRoutines' arithmetic path stores directly, with no model in the
+// loop at all — so a nil router (no local runtime) must not stop a real,
+// mined habit from becoming a standing fact. nrem's gist step passed
+// rt.Local() straight through with no nil guard, which is where this panicked
+// before Consolidate's own nil-router error was ever reached.
+func TestNremWithNilRouterStillLearnsAMinedGist(t *testing.T) {
+	db := testDB(t)
+	if err := capture.InitStore(db); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for w := 0; w < 5; w++ {
+		day := now.AddDate(0, 0, -7*w)
+		ts := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.Local).Unix()
+		if err := capture.Insert(db, event.Event{TS: ts, Kind: event.Focus, App: "editor", DurS: 3600}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var res Result
+	if err := nrem(db, nil, "", nil, now, false, &res); err != nil {
+		t.Fatalf("a mined gist with no model runtime must still be learned: %v", err)
+	}
+	if res.Gists == 0 {
+		t.Error("a habit that clears the routine-mining threshold was not learned as a gist")
 	}
 }

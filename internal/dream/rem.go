@@ -38,6 +38,12 @@ var connectionSchema = map[string]any{
 // interesting links live), and enqueues what the model judges a real connection —
 // capped, grounded in two real memories, and seeded at a low confidence.
 func rem(db *sql.DB, rt *router.Router, dryRun bool, res *Result) error {
+	// No runtime resolves to the same skip as no reasoning model: rt.ModelFor
+	// would panic on a nil receiver rather than reporting the condition.
+	if rt == nil {
+		res.REMSkipped = true
+		return nil
+	}
 	model, err := rt.ModelFor(router.T2, true)
 	if err != nil {
 		// No reasoning model resolved. A missed night of dreaming is worth more

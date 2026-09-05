@@ -105,6 +105,12 @@ type namer struct {
 
 func newNamer(rt *router.Router) *namer {
 	n := &namer{rt: rt, model: "mining"}
+	// No runtime is the same case naming already exists to survive: proceed
+	// with the plain description rather than the panic a nil rt would give
+	// ModelFor below.
+	if rt == nil {
+		return n
+	}
 	if m, err := rt.ModelFor(router.T1, true); err == nil {
 		n.model, n.ok = m, true
 	}
