@@ -74,6 +74,10 @@ Continuity for coding agents — status and what remains (revision 2)
      ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
      │ Stage 4.1 Quarantine     │ internal/memory/quarantine.go — quarantined memories are a normal row with a flag, surfaced by        │
      │                          │ `brain review` alongside rollup proposals (feat/consent-quarantine, merged).                          │
+     ├──────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+     │ Stage 4.2 Ask-before-    │ app/chat.go:57 gates agent.Learn behind consent.Allowed(); internal/consent/consent.go backs Grant/    │
+     │ learning                 │ Revoke/Remaining, wired to App.GrantLearning/RevokeLearning. Landed in 0731f1d, well before f0c9c25 —  │
+     │                          │ plan0-2-0.md's audit was wrong about this from the start, not something that landed since.            │
      └──────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
      Partially done (re-checked, still accurate)
@@ -89,8 +93,6 @@ Continuity for coding agents — status and what remains (revision 2)
        StartCapture, PauseCapture, SetPolicy, DeleteRange, ExportVault: zero
        matches. feat/terminal-app (merged) redesigned the desktop panel's look,
        not this API surface — the two should not be confused.
-     - 4.2 Ask-before-learning — app/chat.go:58 still calls agent.Learn
-       unconditionally.
      - 6.2 MCP resources — no resources.go in internal/mcpserver.
      - 2.5 Homebrew — no Formula/.
      - 2.6 Nix — no flake.nix.
@@ -114,18 +116,22 @@ Continuity for coding agents — status and what remains (revision 2)
 
      Tier A — the real gaps toward 0.2.0
 
-     1. 1.7 Correct systemmd/DESIGN.md — cut or explicitly mark the
-        clipboard/screenshot/OCR section as unbuilt.
+     1. 1.7 DONE (2f0c671) — corrected DESIGN.md's capture section, and the
+        misleading comment in internal/capture/sources/screen.go it was
+        transcribing. Turned out more nuanced than either plan expected:
+        frontmost/browser/calendar/git are built AND wired into `brain capture
+        --daemon`; clipboard has no source at all; screenshot+OCR is a real,
+        working primitive with zero callers anywhere in cmd/ or app/.
      2. 0.8 (new, see below) Persist plan-mode plans into the vault.
-     3. 4.2 Ask-before-learning — gate app/chat.go's agent.Learn call behind
-        the same consent Stage 4.1 already built for quarantine.
 
-     Tier B — as originally sequenced, unchanged from plan0-2-0.md
+     Tier B — as originally sequenced, unchanged from plan0-2-0.md except 4.2
+     removed (see status ledger above — it was already done, plan0-2-0.md's
+     audit was wrong about it from the start)
 
-     4. Stage 3 privacy centre (CaptureStatus, StartCapture, PauseCapture,
+     3. Stage 3 privacy centre (CaptureStatus, StartCapture, PauseCapture,
         SetPolicy, DeleteRange, ExportVault).
-     5. 6.2 MCP resources.
-     6. 2.5 Homebrew, 2.6 Nix.
+     4. 6.2 MCP resources.
+     5. 2.5 Homebrew, 2.6 Nix.
 
      ---
 
