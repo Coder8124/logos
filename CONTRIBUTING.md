@@ -4,8 +4,10 @@ Thanks for looking. This file covers the build, the tests, and the handful of
 conventions that are load-bearing — the ones where a reasonable-looking change
 breaks a promise the product makes.
 
-If you are an agent working in this repository, read [AGENTS.md](AGENTS.md)
-first; it is shorter and it tells you how to pick up where the last one stopped.
+If you are an agent working in this repository, the Logos plugin's own
+`context-connect` and `continuity` skills (`plugin/skills/`) tell you how to
+connect to brain here and how to pick up where the last agent stopped — this
+repository runs its own plugin, so both are already available to you.
 
 ## Build
 
