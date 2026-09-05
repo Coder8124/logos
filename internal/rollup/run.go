@@ -38,6 +38,13 @@ func Day(db *sql.DB, vaultDir string, rt *router.Router, date time.Time, dryRun 
 	if len(sessions) == 0 {
 		return res, nil
 	}
+	// Only checked here, not before Sessionise: an empty day needs no model,
+	// so a caller with no local runtime should still get a clean "nothing to
+	// roll up" rather than an error about a runtime it doesn't need yet.
+	if rt == nil {
+		return res, fmt.Errorf("%d session(s) recorded for %s, but summarising them needs a local model: %w",
+			len(sessions), start.Format("2006-01-02"), router.ErrNoRuntime)
+	}
 
 	x := NewExtractor(rt)
 	dateStr := start.Format("2006-01-02")
