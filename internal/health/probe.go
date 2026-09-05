@@ -220,11 +220,23 @@ func cleanUp(vault, project, checkpoint string) error {
 	if err := os.Remove(checkpoint); err != nil {
 		return err
 	}
-	dir := filepath.Join(vault, session.CheckpointDir, project)
+	root := filepath.Join(vault, session.CheckpointDir, project)
+	// The checkpoint does not always land directly in root: worktree scoping
+	// (scopeName in internal/mcpserver/scope.go) files it one level deeper, at
+	// sessions/<project>/<worktree>/<id>.md, whenever this probe's own process
+	// — brain doctor --integration — happens to be running with its working
+	// directory inside a linked git worktree. Removing only root then found
+	// that now-empty worktree directory still sitting in it, called root "not
+	// empty", and reported a probe that fully succeeded as a cleanup failure.
+	if leaf := filepath.Dir(checkpoint); leaf != root {
+		if err := os.Remove(leaf); err != nil {
+			return err
+		}
+	}
 	// Anything else in here was not written by the probe, so the directory
 	// stays and the caller is told — losing somebody's notes to a health check
 	// is far worse than leaving a stray directory behind.
-	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(root); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
