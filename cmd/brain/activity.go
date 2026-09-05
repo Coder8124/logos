@@ -185,8 +185,21 @@ func recordActivity(args []string) error {
 			}); err != nil {
 				// Same rule as the rest of this function: never fail the hook.
 				// Unlike a lost activity line, this failure is worth a word,
-				// since it is the one thing 0.8 exists to not lose silently.
+				// since it is the one thing 0.8 exists to not lose silently —
+				// but stderr does not reach anyone: plugin/hooks/record.sh
+				// redirects both streams to /dev/null so the critical path
+				// stays silent on every ordinary tool call. The activity log
+				// just accepted a write, so it is durable and already the
+				// visibility surface `brain activity` reads; a warning row
+				// there survives where a discarded stderr line does not.
 				fmt.Fprintf(os.Stderr, "brain: could not save plan: %v\n", err)
+				_ = activity.Append(vault, activity.Event{
+					TS:      e.TS,
+					Kind:    activity.KindWarn,
+					Project: e.Project,
+					Agent:   e.Agent,
+					Summary: fmt.Sprintf("could not save approved plan: %v", err),
+				})
 			}
 		}
 	}

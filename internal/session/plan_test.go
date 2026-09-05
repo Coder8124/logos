@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestPlanMarkdownRoundTrips(t *testing.T) {
@@ -63,6 +65,49 @@ func TestSavedPlanIsListedByListPlans(t *testing.T) {
 	}
 	if got[0].Slug != slug {
 		t.Errorf("got slug %q, want %q", got[0].Slug, slug)
+	}
+}
+
+// Two plans approved for the same project in the same wall-clock second must
+// not collide — every hook payload reports the same agent name regardless of
+// which session sent it, so project+second+agent is not unique on its own.
+// Before claimPlan this silently overwrote the first plan with the second.
+func TestTwoPlansInTheSameSecondBothSurvive(t *testing.T) {
+	vaultDir := t.TempDir()
+
+	if _, err := SavePlan(vaultDir, Plan{
+		Project: "brain", Agent: "claude-code", Text: "first plan", TS: 1755172800,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SavePlan(vaultDir, Plan{
+		Project: "brain", Agent: "claude-code", Text: "second plan", TS: 1755172800,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ListPlans(vaultDir, "brain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d plans, want 2 (the second overwrote the first): %+v", len(got), got)
+	}
+}
+
+// title() must cut on a rune boundary, not a byte index, or a plan written in
+// a multi-byte script produces a title yaml.Marshal cannot render as text —
+// it falls back to a base64 !!binary blob instead.
+func TestTitleTruncatesOnARuneBoundary(t *testing.T) {
+	p := Plan{Project: "brain", Text: strings.Repeat("每", 80)}
+	title := p.title()
+	if !utf8.ValidString(title) {
+		t.Fatalf("title is not valid UTF-8: %q", title)
+	}
+
+	raw := p.Markdown()
+	if strings.Contains(raw, "!!binary") {
+		t.Fatalf("title was YAML-encoded as binary, not text:\n%s", raw)
 	}
 }
 
