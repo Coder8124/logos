@@ -928,10 +928,12 @@ func runCapture(daemon bool, backfillDays int) error {
 	for {
 		select {
 		case <-stop:
-			if done := coalescer.Flush(); done != nil {
-				capture.Insert(ix.DB, *done)
+			if err := flushCoalescer(ix.DB, coalescer); err != nil {
+				fmt.Fprintln(os.Stderr, "· write error:", err)
+				fmt.Println("\n· stopped, but the last session may not have saved — see the error above")
+			} else {
+				fmt.Println("\n· stopped, session flushed")
 			}
-			fmt.Println("\n· stopped, session flushed")
 			return nil
 
 		case <-ticker.C:
@@ -979,6 +981,19 @@ func runCapture(daemon bool, backfillDays int) error {
 			dp.tick(ix.DB, time.Now())
 		}
 	}
+}
+
+// flushCoalescer closes the daemon's one in-flight session and writes it. The
+// caller reports the error rather than this function swallowing it: it runs
+// on the user's own Ctrl+C, and "stopped, session flushed" printed over a
+// write that actually failed would lose exactly the work the daemon exists to
+// keep, without a trace that it happened.
+func flushCoalescer(db *sql.DB, c *capture.Coalescer) error {
+	done := c.Flush()
+	if done == nil {
+		return nil
+	}
+	return capture.Insert(db, *done)
 }
 
 // captureRetention reads the window from config, falling back to the default
