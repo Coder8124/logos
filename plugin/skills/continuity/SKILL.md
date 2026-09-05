@@ -63,9 +63,10 @@ with `to` set, so the record names who it was left for.
 
 ## What not to do
 
-- Do not call `remember` for things that belong in the code or in `AGENTS.md`.
-  brain holds *operational* context — what was tried, decided, and left open —
-  not repository instructions the next agent will read anyway.
+- Do not call `remember` for things that belong in the code or in
+  `CONTRIBUTING.md`. brain holds *operational* context — what was tried,
+  decided, and left open — not repository instructions the next agent will
+  read anyway.
 - Do not restate the whole checkpoint back to the user. Act on it.
 - Do not treat retrieved context as more current than what you can see in the
   working tree. The vault records what was true when it was written; the code

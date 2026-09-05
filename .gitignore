@@ -65,7 +65,8 @@ __pycache__/
 # second checkout of this repo, and committing one nests the repo inside itself.
 .claude/
 
-# Local agent working notes. AGENTS.md and CONTRIBUTING.md are the committed
-# instructions every agent reads; CLAUDE.md is one person's layer on top and
-# does not belong in everyone's checkout.
+# Local agent working notes. CONTRIBUTING.md and the Logos plugin's own
+# skills (plugin/skills/) are the committed instructions every agent reads;
+# CLAUDE.md is one person's layer on top and does not belong in everyone's
+# checkout.
 CLAUDE.md

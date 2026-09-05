@@ -93,8 +93,10 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the build,
 the test tiers, and the two conventions that are load-bearing here: the vault is
 the truth, and every feature announces itself.
 
-If you are an *agent* working in this repository, read
-[AGENTS.md](AGENTS.md) first.
+If you are an *agent* working in this repository, the `context-connect` and
+`continuity` skills that ship with the Logos plugin (`plugin/skills/`) cover
+how to connect to brain here and how to use it — this repository dogfoods its
+own plugin, so both are already available in a Claude Code session.
 
 ## On the two names
 
