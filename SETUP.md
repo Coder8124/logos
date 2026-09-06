@@ -595,7 +595,7 @@ app/             Wails v2 desktop app (menubar orb, panel, graph canvas)
 bench/           Python adapters for the systems brain is scored against
 docs/            the benchmark, plus per-subsystem notes
 systemmd/        design, credits, and the prompt agents are given
-scripts/         demo vault seeding, voice-engine fetch, icon build
+scripts/         demo vault seeding, voice-engine fetch, icon build, MCP probe
 ```
 
 Tests run with `go test ./...`. The chaos tier is opt-in and slower:

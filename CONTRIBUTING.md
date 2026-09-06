@@ -54,6 +54,24 @@ real processes. Run it when you touch anything that writes to the vault.
 Use a scratch vault when you exercise the CLI by hand — `BRAIN_VAULT=$(mktemp -d)`
 — rather than your own.
 
+### Probing the MCP server
+
+A shell pipeline into `brain mcp serve` hangs — the server holds stdin open for
+the next frame and `echo … | brain mcp serve` never gives it a clean close.
+`scripts/mcp-probe.py` does the newline-framed JSON-RPC exchange instead:
+
+```sh
+go build -o bin/brain ./cmd/brain
+BRAIN_VAULT=$(mktemp -d) scripts/mcp-probe.py            # initialize + tools/list
+BRAIN_VAULT=$(mktemp -d) scripts/mcp-probe.py resume brain
+```
+
+It prefers `./bin/brain` over whatever is on PATH, so it exercises the code you
+are editing. This repository dogfoods its own plugin: the `brain` your editor is
+wired to is a *release*, not your checkout, so a broken change to
+`internal/mcpserver` cannot brick the session you are debugging it from as long
+as you probe the local build and leave the wired one alone.
+
 Tests are prose, not labels. `TestAForgottenIDIsNeverHandedOutAgain` says what
 must be true; a comment above it says what went wrong when it was not. If a test
 is only meaningful with the bug in front of you, describe the bug.
