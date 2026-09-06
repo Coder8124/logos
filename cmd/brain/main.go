@@ -77,6 +77,7 @@ GETTING THERE
     brain mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     brain doctor [--probe] [--integration]
                                       health of vault, index, hosts; --integration proves reach
+    brain update [--check]            check GitHub for a newer release, verify it, replace this binary
 
     BRAIN_VAULT points at the vault (default ~/brain)
 
@@ -144,6 +145,7 @@ SETUP AND DIAGNOSTICS
     brain doctor [--probe] [--integration]
                                       health of vault, index, hosts; --integration proves a host can reach it
     brain key set|rm <ref>            manage API keys in the macOS keychain
+    brain update [--check]            check GitHub for a newer release, verify it, replace this binary
     brain version                     which build this is
     brain help [all]                  the three core journeys, or this list
 
@@ -202,6 +204,8 @@ func main() {
 		err = doctor(hasFlag(args, "--probe"))
 	case cmd == "key":
 		err = keyCmd(args)
+	case cmd == "update":
+		err = updateCmd(args)
 	case cmd == "index":
 		err = runIndex(hasFlag(args, "--watch"))
 	case cmd == "search" && rest != "":
