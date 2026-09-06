@@ -19,6 +19,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/setup"
 	"github.com/Coder8124/brain/internal/vault"
 )
 
@@ -592,7 +593,7 @@ func doctorIntegration() error {
 // the point of the report is to work when things are broken.
 func gatherHealth() health.Report {
 	vault := vaultPath()
-	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel)}
+	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel), Hosts: setup.Hosts()}
 
 	// Stat before opening, because index.Open creates <vault>/.brain and that
 	// brings the vault itself into existence. Opening it here meant doctor made

@@ -3,6 +3,7 @@ package setup
 import (
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // Hosts returns every MCP host brain knows how to connect to, in the order
@@ -34,7 +35,35 @@ func claudeCode() Host {
 			args = append(args, s.Args...)
 			return viaCLI("claude", args)
 		},
+		List: func() ([]Registration, error) {
+			out, err := exec.Command("claude", "mcp", "list").CombinedOutput()
+			if err != nil {
+				return nil, err
+			}
+			return parseClaudeMCPList(out), nil
+		},
 	}
+}
+
+// parseClaudeMCPList reads `claude mcp list`'s human-readable report, not a
+// machine format — the same bet Register already makes by matching
+// "already exists" in that command's own stdout (see viaCLI). Each server
+// prints as "name: command - status"; anything else (a banner line, a blank
+// line) has no colon-then-dash shape and is skipped rather than guessed at.
+func parseClaudeMCPList(out []byte) []Registration {
+	var regs []Registration
+	for _, line := range strings.Split(string(out), "\n") {
+		name, rest, ok := strings.Cut(line, ": ")
+		if !ok {
+			continue
+		}
+		cmd, _, ok := strings.Cut(rest, " - ")
+		if !ok {
+			continue
+		}
+		regs = append(regs, Registration{Name: strings.TrimSpace(name), Command: strings.TrimSpace(cmd)})
+	}
+	return regs
 }
 
 // codex registers through `codex mcp add`.
@@ -70,6 +99,7 @@ func claudeDesktop() Host {
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
+		List: func() ([]Registration, error) { return readMCPServers(path) },
 	}
 }
 
@@ -85,6 +115,7 @@ func cursor() Host {
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
+		List: func() ([]Registration, error) { return readMCPServers(path) },
 	}
 }
 

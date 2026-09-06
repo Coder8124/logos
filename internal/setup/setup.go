@@ -86,6 +86,17 @@ type Host struct {
 	Where func() string
 	// Register points the host at this server.
 	Register func(Server) (Outcome, error)
+	// List reports every MCP server this host currently has registered, read
+	// back rather than assumed. Nil means this host exposes no way to read
+	// that back — not an error, just a question this host cannot answer.
+	List func() ([]Registration, error)
+}
+
+// Registration is one server as a host currently reports it — the name it was
+// given and the command line the host will actually run.
+type Registration struct {
+	Name    string
+	Command string
 }
 
 // Plan reports what Install would do, without doing any of it.
@@ -271,6 +282,41 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 		return Updated, nil
 	}
 	return Registered, nil
+}
+
+// readMCPServers reads back what a JSON-config host (Claude Desktop, Cursor)
+// currently has registered, in the same mcpServers shape mergeJSON writes. A
+// missing or empty file is not an error — nothing registered is a valid
+// answer — but malformed JSON is, since a caller asking "what's here" should
+// not be told "nothing" about a file that actually holds something unreadable.
+func readMCPServers(path string) ([]Registration, error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, nil
+	}
+	cfg := mcpConfig{}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, err
+	}
+	rawServers, ok := cfg["mcpServers"]
+	if !ok || len(rawServers) == 0 {
+		return nil, nil
+	}
+	servers := map[string]serverEntry{}
+	if err := json.Unmarshal(rawServers, &servers); err != nil {
+		return nil, err
+	}
+	out := make([]Registration, 0, len(servers))
+	for name, s := range servers {
+		out = append(out, Registration{Name: name, Command: strings.Join(append([]string{s.Command}, s.Args...), " ")})
+	}
+	return out, nil
 }
 
 func exists(path string) bool {

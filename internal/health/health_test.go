@@ -9,6 +9,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/setup"
 	"github.com/Coder8124/brain/internal/vault"
 
 	_ "modernc.org/sqlite"
@@ -555,5 +556,97 @@ func TestAScratchVaultChosenForOneCommandIsNotAComplaint(t *testing.T) {
 
 	if c := checkVault(scratch); c.State != OK {
 		t.Fatalf("vault check = %v (%q), want ok — BRAIN_VAULT is a deliberate one-off", c.State, c.Detail)
+	}
+}
+
+// A host that lists two servers both invoking "mcp serve" is brain registered
+// twice under one roof — the exact shape a plugin registration and a manual
+// `brain mcp install` produce side by side, and the configuration that
+// measurably breached the 10k-token ceiling in the memory architecture plan.
+func TestDuplicateRegistrationIsCaught(t *testing.T) {
+	hosts := []setup.Host{{
+		Name:   "Claude Code",
+		Detect: func() bool { return true },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{
+				{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
+				{Name: "plugin:logos:logos", Command: "/opt/plugins/logos/bin/mcp.sh mcp serve"},
+			}, nil
+		},
+	}}
+	c := checkDuplicateRegistration(hosts)
+	if c.State != Failed {
+		t.Fatalf("state = %v, want failed", c.State)
+	}
+	if !strings.Contains(c.Detail, "brain") || !strings.Contains(c.Detail, "plugin:logos:logos") {
+		t.Errorf("detail does not name both entries: %q", c.Detail)
+	}
+}
+
+// One registration per host is the ordinary, healthy case and must not be
+// flagged just because the check now exists.
+func TestASingleRegistrationPerHostIsFine(t *testing.T) {
+	hosts := []setup.Host{{
+		Name:   "Claude Code",
+		Detect: func() bool { return true },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{{Name: "brain", Command: "/usr/local/bin/brain mcp serve"}}, nil
+		},
+	}}
+	if c := checkDuplicateRegistration(hosts); c.State != OK {
+		t.Errorf("state = %v (%q), want ok", c.State, c.Detail)
+	}
+}
+
+// Two different hosts each running brain once is two separate applications
+// doing the right thing, not one session paying twice.
+func TestOneRegistrationOnEachOfTwoHostsIsNotADuplicate(t *testing.T) {
+	one := func(name string) setup.Host {
+		return setup.Host{
+			Name:   name,
+			Detect: func() bool { return true },
+			List: func() ([]setup.Registration, error) {
+				return []setup.Registration{{Name: "brain", Command: "/usr/local/bin/brain mcp serve"}}, nil
+			},
+		}
+	}
+	hosts := []setup.Host{one("Claude Desktop"), one("Cursor")}
+	if c := checkDuplicateRegistration(hosts); c.State != OK {
+		t.Errorf("state = %v (%q), want ok", c.State, c.Detail)
+	}
+}
+
+// A host with nothing else registered besides brain, plus an unrelated MCP
+// server, must not be flagged — the signature is "mcp serve" specifically,
+// not "more than one entry".
+func TestAnUnrelatedSecondServerIsNotMistakenForADuplicate(t *testing.T) {
+	hosts := []setup.Host{{
+		Name:   "Cursor",
+		Detect: func() bool { return true },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{
+				{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
+				{Name: "some-other-server", Command: "npx some-other-mcp"},
+			}, nil
+		},
+	}}
+	if c := checkDuplicateRegistration(hosts); c.State != OK {
+		t.Errorf("state = %v (%q), want ok", c.State, c.Detail)
+	}
+}
+
+// A host that cannot be introspected at all — not installed, or installed
+// but with no List — must report Unknown, never a false OK.
+func TestNoIntrospectableHostReportsUnknownNotOK(t *testing.T) {
+	hosts := []setup.Host{
+		{Name: "Codex", Detect: func() bool { return true }}, // no List
+		{Name: "Cursor", Detect: func() bool { return false }, List: func() ([]setup.Registration, error) {
+			t.Fatal("must not call List on an undetected host")
+			return nil, nil
+		}},
+	}
+	c := checkDuplicateRegistration(hosts)
+	if c.State != Unknown {
+		t.Errorf("state = %v (%q), want unknown", c.State, c.Detail)
 	}
 }

@@ -94,6 +94,12 @@ type Input struct {
 	// Runtime is the discovered local model runtime, or nil if none answered.
 	Runtime    *provider.Provider
 	EmbedModel string
+	// Hosts drives the duplicate-registration check. Nil means "not asked" —
+	// distinct from "asked and found nothing" — and reports Unknown, because
+	// listing a host's real registrations means shelling out to another
+	// application's CLI, which a caller should opt into rather than pay for on
+	// every unrelated health check.
+	Hosts []setup.Host
 }
 
 // Run performs every check.
@@ -109,6 +115,7 @@ func Run(in Input) Report {
 	r.Add(checkAbandonment(in.DB))
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
+	r.Add(checkDuplicateRegistration(in.Hosts))
 	return r
 }
 
@@ -505,6 +512,53 @@ func checkHosts() Check {
 	c.State = OK
 	c.Detail = "detected: " + strings.Join(wired, ", ")
 	c.Fix = "run `brain doctor --integration` to prove they can reach this vault"
+	return c
+}
+
+// A binary registered twice pays its fixed per-session cost twice. This is not
+// hypothetical: it doubled a real measured session from ~7,759 to ~13,161
+// tokens, the one configuration that breached the 10k-token ceiling on
+// unmodified code (see the memory architecture plan's Step 0).
+//
+// Detection leans on brain's own signature rather than a path comparison: every
+// registration this project ever writes invokes "mcp serve" (setup.go's
+// Server.Args), so two entries under one host whose command both contain that
+// phrase are the same binary reached two ways, wrapper scripts included. What
+// it cannot see is a registration that never types "mcp serve" on its own
+// command line — a plugin whose launcher shells out to it internally — so a
+// clean report here does not rule that case out; only reading each host's
+// actual config by hand does.
+func checkDuplicateRegistration(hosts []setup.Host) Check {
+	c := Check{Name: "duplicate registration"}
+	checked := false
+	for _, h := range hosts {
+		if h.List == nil || h.Detect == nil || !h.Detect() {
+			continue
+		}
+		regs, err := h.List()
+		if err != nil {
+			continue
+		}
+		checked = true
+		var dupes []string
+		for _, r := range regs {
+			if strings.Contains(r.Command, "mcp serve") {
+				dupes = append(dupes, r.Name)
+			}
+		}
+		if len(dupes) > 1 {
+			c.State = Failed
+			c.Detail = fmt.Sprintf("%s has brain registered %d times: %s", h.Name, len(dupes), strings.Join(dupes, ", "))
+			c.Fix = "remove all but one of these entries — each one pays the fixed per-session cost again"
+			return c
+		}
+	}
+	if !checked {
+		c.State = Unknown
+		c.Detail = "no host exposed a readable registration list"
+		return c
+	}
+	c.State = OK
 	return c
 }
 

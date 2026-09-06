@@ -322,3 +322,87 @@ func TestShippedHostsAreWellFormed(t *testing.T) {
 		h.Where()
 	}
 }
+
+// parseClaudeMCPList reads a report meant for a person, not a parser — the
+// same bet Register already makes matching "already exists" in this same
+// command's stdout. A banner line and a blank line must not be mistaken for
+// servers, and a server whose command happens to contain extra colons or
+// spaces must still come back whole.
+func TestParseClaudeMCPListSkipsNonServerLines(t *testing.T) {
+	out := "Checking MCP server health…\n\n" +
+		"claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected\n" +
+		"plugin:playwright:playwright: npx @playwright/mcp@latest - ✔ Connected\n" +
+		"plugin:logos:logos: /Users/someone/.claude/plugins/cache/logos/logos/0.1.2/bin/mcp.sh  - ✔ Connected\n" +
+		"brain: /usr/local/bin/brain mcp serve - ✔ Connected\n"
+
+	regs := parseClaudeMCPList([]byte(out))
+	want := map[string]string{
+		"claude.ai Google Drive":       "https://drivemcp.googleapis.com/mcp/v1",
+		"plugin:playwright:playwright": "npx @playwright/mcp@latest",
+		"plugin:logos:logos":           "/Users/someone/.claude/plugins/cache/logos/logos/0.1.2/bin/mcp.sh",
+		"brain":                        "/usr/local/bin/brain mcp serve",
+	}
+	if len(regs) != len(want) {
+		t.Fatalf("got %d registrations, want %d: %+v", len(regs), len(want), regs)
+	}
+	for _, r := range regs {
+		if want[r.Name] != r.Command {
+			t.Errorf("%s: command = %q, want %q", r.Name, r.Command, want[r.Name])
+		}
+	}
+}
+
+func TestParseClaudeMCPListOnEmptyOutputReturnsNothing(t *testing.T) {
+	if regs := parseClaudeMCPList([]byte("")); regs != nil {
+		t.Errorf("want nil for no servers, got %+v", regs)
+	}
+}
+
+// readMCPServers is the other half of List: a JSON-config host reading back
+// what mergeJSON itself writes, so a check built on it fails closed if the two
+// ever disagree about the shape.
+func TestReadMCPServersRoundTripsWhatMergeJSONWrote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if _, err := mergeJSON(path, server()); err != nil {
+		t.Fatal(err)
+	}
+
+	regs, err := readMCPServers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) != 1 || regs[0].Name != Name {
+		t.Fatalf("got %+v, want one registration named %q", regs, Name)
+	}
+	if regs[0].Command != "/usr/local/bin/brain mcp serve" {
+		t.Errorf("command = %q", regs[0].Command)
+	}
+}
+
+// A file with more than one server in it — the shape a real machine has,
+// since brain is never the first thing anyone points an MCP host at.
+func TestReadMCPServersReadsEveryEntryNotJustBrains(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	raw := `{"mcpServers": {
+		"brain": {"command": "/usr/local/bin/brain", "args": ["mcp", "serve"]},
+		"some-other-server": {"command": "npx", "args": ["some-other-mcp"]}
+	}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	regs, err := readMCPServers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) != 2 {
+		t.Fatalf("got %d registrations, want 2: %+v", len(regs), regs)
+	}
+}
+
+func TestReadMCPServersOnAMissingFileIsNotAnError(t *testing.T) {
+	regs, err := readMCPServers(filepath.Join(t.TempDir(), "does-not-exist.json"))
+	if err != nil || regs != nil {
+		t.Errorf("readMCPServers on an absent file = %+v, %v; want nil, nil", regs, err)
+	}
+}
