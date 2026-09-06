@@ -1,6 +1,9 @@
 package contextpack
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +12,30 @@ import (
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/secretary"
 	"github.com/Coder8124/brain/internal/session"
 )
+
+// fakeEmbedder returns the same vector for every input, so ranking never
+// enters into it — only SQL's project filter decides what comes back. Good
+// enough to prove scoping without depending on a real model runtime.
+func fakeEmbedder(t *testing.T) *provider.Provider {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []string `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		data := make([]map[string]any, len(req.Input))
+		for i := range req.Input {
+			data[i] = map[string]any{"embedding": []float32{1, 0, 0}}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	return provider.New("fake", srv.URL, "")
+}
 
 // A miniature vault with the shape that matters: a project note that links to a
 // constraint note without repeating its words. Retrieval on "cost" will find
@@ -463,6 +487,78 @@ func TestFactsCarryTheDateTheyWereRecorded(t *testing.T) {
 	p.Related, _ = memory.All(ix.DB)
 	if out := p.Render(); !strings.Contains(out, "27 Jul 2026") {
 		t.Errorf("a recorded fact arrived without its date:\n%s", out)
+	}
+}
+
+// Related memories must be narrowed to the project being resumed. Recall
+// ranks the whole vault by similarity alone, so with vocabulary this similar
+// an unscoped call returns the other project's fact ahead of, or alongside,
+// this one — exactly what pack.go:245 must not do.
+func TestRelatedMemoriesDoNotLeakAcrossProjects(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+
+	if _, err := memory.Store(ix.DB, embed, "fake-model", &memory.Memory{
+		Text: "Kestrel One's target BOM is $118.", Kind: memory.Fact, Project: "kestrel-one", Source: "manual",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Store(ix.DB, embed, "fake-model", &memory.Memory{
+		Text: "Nimbus ships in a matte black casing.", Kind: memory.Fact, Project: "nimbus", Source: "manual",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{Task: "reduce the bill of materials", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range p.Related {
+		if m.Project != "" && m.Project != "kestrel-one" {
+			t.Errorf("related memories leaked project %q into a kestrel-one pack: %q", m.Project, m.Text)
+		}
+	}
+}
+
+// The footer's own spend number must not be the whole story: headings, the
+// provenance boundary, Sources and the footer's own text are real bytes on
+// the wire that never passed through a spender, and a pack that reports only
+// the spent total is under-reporting what it actually costs to read.
+func TestFooterReportsTheHonestTotalNotJustSpend(t *testing.T) {
+	ix := seedVault(t)
+
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude",
+		Task: "cut the BOM", Next: "quote the single-mic line",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+
+	if !strings.Contains(out, "Actual size of this message") {
+		t.Fatalf("footer does not report the honest total:\n%s", out)
+	}
+	if p.Budget.Overhead <= 0 {
+		t.Errorf("Budget.Overhead = %d, want > 0 — a pack always renders headings, boundary and sources", p.Budget.Overhead)
+	}
+	// The total cannot count its own line's tokens without chasing its tail
+	// (see renderBudget), so it trails the real render by a line's worth — but
+	// no more than that, or the "honest" total is fiction again.
+	total := p.Budget.Spent + p.Budget.Overhead
+	actual := estimate(out)
+	if total > actual {
+		t.Errorf("reported total %d exceeds the actual render size %d", total, actual)
+	}
+	if actual-total > 30 {
+		t.Errorf("reported total %d is far short of the actual render size %d", total, actual)
+	}
+	if total <= p.Budget.Spent {
+		t.Errorf("total %d should exceed spend %d — scaffolding and the footer itself are never free", total, p.Budget.Spent)
 	}
 }
 

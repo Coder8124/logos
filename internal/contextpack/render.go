@@ -77,6 +77,9 @@ func (p *Pack) Render() string {
 	p.renderSources(&b)
 	p.Budget.Spent = sp.spent
 	p.Budget.By = sp.lines
+	// Everything in b so far is real prose an agent has to read, and none of it
+	// passed through the spender — this is the gap renderBudget used to hide.
+	p.Budget.Overhead = estimate(b.String()) - p.Budget.Spent
 	p.renderBudget(&b)
 	return b.String()
 }
@@ -709,8 +712,15 @@ func (p *Pack) renderSources(b *strings.Builder) {
 // renderBudget closes the pack with what it cost and what it left out. An agent
 // that can see the shortfall can ask for a bigger budget; one that cannot will
 // simply assume it received everything.
+//
+// It reports two numbers, not one. Spend against the limit tells an agent
+// whether asking for more budget would help; the total is what the pack
+// actually costs on the wire, headings and this footer included, and is
+// reported separately rather than folded in so the limit-vs-spend comparison
+// upstream still means what it says.
 func (p *Pack) renderBudget(b *strings.Builder) {
-	fmt.Fprintf(b, "\n---\n_Context budget: ~%d of %d tokens", p.Budget.Spent, p.Budget.Limit)
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "\n---\n_Context budget: ~%d of %d tokens", p.Budget.Spent, p.Budget.Limit)
 	var parts []string
 	for _, l := range p.Budget.By {
 		if l.Tokens > 0 {
@@ -718,17 +728,25 @@ func (p *Pack) renderBudget(b *strings.Builder) {
 		}
 	}
 	if len(parts) > 0 {
-		fmt.Fprintf(b, " (%s)", strings.Join(parts, ", "))
+		fmt.Fprintf(&fb, " (%s)", strings.Join(parts, ", "))
 	}
-	b.WriteString("._\n")
+	fb.WriteString("._\n")
 
 	if len(p.Excluded) > 0 {
 		p.Excluded = dedup(p.Excluded)
-		b.WriteString("\n_Left out for space — ask with a larger budget if you need them:_\n")
+		fb.WriteString("\n_Left out for space — ask with a larger budget if you need them:_\n")
 		for _, e := range p.Excluded {
-			fmt.Fprintf(b, "- %s\n", e)
+			fmt.Fprintf(&fb, "- %s\n", e)
 		}
 	}
+
+	// The footer's own text is overhead too — measured once, here, rather than
+	// chased recursively: its size does not depend on the number it reports.
+	p.Budget.Overhead += estimate(fb.String())
+	total := p.Budget.Spent + p.Budget.Overhead
+	fmt.Fprintf(&fb, "_Actual size of this message, headings and footer included: ~%d tokens._\n", total)
+
+	b.WriteString(fb.String())
 }
 
 func (p *Pack) noteDropped(section string, n int) {
