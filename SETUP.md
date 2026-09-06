@@ -155,7 +155,7 @@ with nothing installed. Retrieval falls back to BM25, which for code
 (identifiers, error strings, paths) is the right tool rather than a consolation.
 
 A 274 MB embedding model adds paraphrase-tolerant search if you want it. The
-chat tiers are only for `brain ask`, `voice` and the nightly rollup — nothing an
+chat tiers are only for `brain ask` and the nightly dream pass — nothing an
 MCP host calls ever touches them, so a coding agent needs none of it. Ollama,
 LM Studio, Jan and Msty are auto-discovered if present.
 
@@ -507,14 +507,11 @@ definitions, which makes them part of the contract rather than a copy that drift
 ```text
 brain setup [--vault DIR] [--yes]               connect brain to every agent here
 brain mcp serve | mcp install                   serve the memory; wire up the hosts
-brain ask <q> | search <q> | timeline           query what it knows
-brain brief                                     what the secretary thinks you should know now
+brain ask <q> | search <q>                      query what it knows
 brain replay [--peek]                           what changed since you were last here
-brain reflect | weekly                          stats over your memory; the Sunday review
-brain voice | listen | say <text>               talk to it, hear it back (local STT/TTS)
-brain name [<name>] | presence [--wake]         the ambient, named assistant
-brain jot <thought>                             braindump: capture and auto-file
+brain reflect                                   descriptive stats over your memory
 brain memory [add|forget|log|history|graph|diff] persistent memory and its timeline
+brain review [--all]                            accept or reject quarantined memories
 brain projects | project <name>                 auto-detected projects and dossiers
 brain loop [add|done|drop]                      open commitments
 brain graph [focus] [--hops N] [--similar]      the note graph around a note
@@ -524,28 +521,22 @@ brain checkpoint <project> [--handoff who]      commit where you stopped, into t
 brain resume <project> | sessions <project>     pick up; read the checkpoint log
 brain tried <approach> [--project p]            has this already been ruled out?
 brain bench continuity [--brain-only]           the handoff suite, against every system installed
-brain index [--watch] | rollup | review | prune cache sync, proposals, retention
-brain capture [--daemon]                        pull episodic events
-brain dream [--phase nrem|rem]                  nightly consolidation
+brain index [--watch]                           sync the vault into the cache and embed
+brain dream [--phase nrem|rem]                  nightly consolidation: replay, downscale, recombine
 brain doctor [--probe] | key set|rm <ref>       runtimes and tiers; API keys
 ```
 
 Environment: `BRAIN_VAULT` (default `~/brain`), `BRAIN_MODEL`, `BRAIN_EMBED`,
-`BRAIN_REPOS` (colon-separated repos to mine for commits), `BRAIN_AGENT` (the
-name recorded in the session trail, default `cli`).
+`BRAIN_AGENT` (the name recorded in the session trail, default `cli`).
 
 ---
 
 ## How it works
 
-Two tiers. **Episodic** memory is SQLite — app focus, URLs, files, commits,
-calendar, ~50k rows a day, rolled up and pruned. **Semantic** memory is the vault
-— people, projects, topics, routines, ~5 notes a day, permanent.
-
-The pipeline is `events → rollup → proposed notes → review → vault`. Raw events
-never become markdown directly; a vault that grows 400 files a day is landfill.
-Nothing is written that you haven't accepted, until you raise the auto-accept
-threshold yourself.
+Nothing is observed. The only things in your vault are things an agent
+explicitly wrote there — a checkpoint, a note, a memory the `remember` MCP
+tool filed. Everything an agent proposes as a memory lands in quarantine
+first; nothing is written that you haven't accepted, via `brain review`.
 
 Retrieval is hybrid: BM25 and vectors fused by reciprocal rank fusion, then
 expanded one hop through the graph — because the note your own link says is
@@ -553,7 +544,7 @@ relevant is often the one whose words never match your query.
 
 ```
 vault/
-  daily/  people/  projects/  topics/  routines/  sources/
+  daily/  people/  projects/  topics/
   sessions/<project>/<timestamp>-<agent>.md      # checkpoints
   sessions/<project>/uncommitted.md              # notes not yet checkpointed
   memories/<kind>.md                             # what it knows about you
@@ -589,13 +580,13 @@ enginetest/      that API exercised from outside, as an embedder sees it
 examples/        runnable embeddings, starting with the handoff
 cmd/brain/       the CLI — one engine, two front ends
 internal/        index, memory, session, contextpack, deadend, graph, setup,
-                 capture, dream, rollup, secretary, router, voice, mcpserver
+                 dream, secretary, router, mcpserver
 chaos/           fault injection: SIGKILL mid-write, full disks, racing processes
-app/             Wails v2 desktop app (menubar orb, panel, graph canvas)
+app/             Wails v2 desktop app (vault browser: memory, graph, sessions)
 bench/           Python adapters for the systems brain is scored against
 docs/            the benchmark, plus per-subsystem notes
 systemmd/        design, credits, and the prompt agents are given
-scripts/         demo vault seeding, voice-engine fetch, icon build, MCP probe
+scripts/         demo vault seeding, icon build, MCP probe
 ```
 
 Tests run with `go test ./...`. The chaos tier is opt-in and slower:
