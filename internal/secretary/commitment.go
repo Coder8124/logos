@@ -1,9 +1,12 @@
-// Package secretary turns what brain knows into what brain says first.
+// Package secretary tracks the open loops an agent or a person has left open —
+// "I'll send the deck", "waiting on the vendor" — so they can be surfaced again
+// without depending on anyone remembering to check.
 //
-// Everything else in the system is reactive — you ask, you review, you scroll.
-// This package is the initiative: it tracks the loops you have left open and
-// composes the briefing the app leads with, so the tool tells you what matters
-// before you think to ask.
+// This package used to also compose an ambient daily briefing over captured
+// calendar and activity events; that half was cut in 0.3.0 along with the rest
+// of the ambient-capture tier (see plans/plan0-3-0.md). What remains is
+// event-independent: a commitment is added, extracted, or closed, never mined
+// from something observed in the background.
 package secretary
 
 import (
