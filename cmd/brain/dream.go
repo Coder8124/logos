@@ -62,9 +62,9 @@ func runDream(dateArg, phase string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	// No runtime does not stop a dream: nrem's gist path is arithmetic and
-	// REM/replay already skip cleanly, reported through res.REMSkipped and
-	// res.ReplaySkipped rather than refused up front.
+	// No runtime does not stop a dream: REM/replay already skip cleanly,
+	// reported through res.REMSkipped and res.ReplaySkipped rather than
+	// refused up front.
 	rt, err := router.New(cfg, ix.Vault)
 	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
 		return err
@@ -76,7 +76,7 @@ func runDream(dateArg, phase string, dryRun bool) error {
 		fmt.Printf("· dreaming on %s\n", date.Format("2006-01-02"))
 	}
 
-	res, err := dream.Run(ix.DB, ix.Vault, rt, defaultEmbedModel, date, phase, dryRun)
+	res, err := dream.Run(ix.DB, ix.Vault, rt, date, phase, dryRun)
 	if err != nil {
 		return err
 	}
@@ -92,9 +92,7 @@ func printDream(res dream.Result, phase string) {
 		} else {
 			fmt.Printf("  replay:     %d consolidated (%d merged, %d superseded)\n", res.Replayed, res.Merged, res.Superseded)
 		}
-		fmt.Printf("  gist:       %d standing fact(s) learned\n", res.Gists)
 		fmt.Printf("  downscale:  %d memories renormalised\n", res.Downscaled)
-		fmt.Printf("  artifacts:  %d tied to their work\n", res.Linked)
 	}
 	if phase == "all" || phase == "rem" {
 		fmt.Println("\nREM — recombine")
@@ -106,30 +104,6 @@ func printDream(res dream.Result, phase string) {
 			fmt.Printf("  %d connection(s) proposed — `brain dream review` to see them\n", res.Insights)
 		}
 	}
-}
-
-// dreamNightly runs a full pass over the day that just ended, reusing an existing
-// database handle. Called from the capture daemon so it shares the daemon's
-// single connection rather than opening a second one against the same file.
-func dreamNightly(db *sql.DB, vault string) error {
-	cfg, err := router.Load(vault)
-	if err != nil {
-		return err
-	}
-	rt, err := router.New(cfg, vault)
-	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
-		return err
-	}
-	yesterday := time.Now().AddDate(0, 0, -1)
-	fmt.Printf("· dreaming on %s\n", yesterday.Format("2006-01-02"))
-	res, err := dream.Run(db, vault, rt, defaultEmbedModel, yesterday, dream.PhaseAll, false)
-	if err != nil {
-		return err
-	}
-	if res.Insights > 0 {
-		fmt.Printf("· %d overnight insight(s) — `brain dream review`\n", res.Insights)
-	}
-	return nil
 }
 
 func dreamReview() error {
