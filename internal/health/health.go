@@ -26,6 +26,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/setup"
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // State is what a check concluded.
@@ -147,8 +148,51 @@ func checkVault(dir string) Check {
 		return c
 	}
 	os.Remove(probe)
+
+	// The vault is writable and real. One question left: is it the vault the
+	// user meant, or a scratch directory that outlived the command that made it?
+	//
+	// `brain setup --vault <dir>` records its target in
+	// os.UserConfigDir()/brain/vault-path, and that pointer is what every front
+	// end reads when BRAIN_VAULT is unset — including the desktop app, which
+	// inherits no shell and has no other way to find the vault. So running setup
+	// against a scratch vault, which CONTRIBUTING.md tells contributors to do,
+	// silently repoints the real installation at a temporary directory. Nothing
+	// then fails: index.Open creates whatever it is handed, so the vault is
+	// present, writable and empty, and every check downstream honestly reports
+	// zero. The author's own pointer named a /var/folders temp path for a day
+	// while doctor called it healthy.
+	//
+	// The recorded pointer is what is checked, not the resolved directory. An
+	// explicit BRAIN_VAULT is a deliberate choice scoped to one command and is
+	// nobody's business to complain about; the pointer outlives the session.
+	if rec := vault.Recorded(); rec != "" && underTempDir(rec) {
+		c.State = Failed
+		c.Detail = rec + " is a temporary directory, recorded as the vault every front end opens — it will be empty or gone"
+		c.Fix = "run `brain setup --vault <your real vault>` to repoint it, or `brain doctor` with BRAIN_VAULT set to check a scratch vault without recording it"
+		return c
+	}
+
 	c.State, c.Detail = OK, dir
 	return c
+}
+
+// underTempDir reports whether path sits inside the system temporary directory.
+//
+// Both sides are resolved through symlinks first: on macOS os.TempDir() returns
+// /var/folders/... while the same directory answers to /private/var/folders/...,
+// and a string compare of the two says they are unrelated.
+func underTempDir(path string) bool {
+	tmp := os.TempDir()
+	if real, err := filepath.EvalSymlinks(tmp); err == nil {
+		tmp = real
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	tmp = filepath.Clean(tmp)
+	path = filepath.Clean(path)
+	return path == tmp || strings.HasPrefix(path, tmp+string(filepath.Separator))
 }
 
 func checkNotes(db *sql.DB) Check {
