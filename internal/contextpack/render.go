@@ -131,7 +131,7 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 		fmt.Fprintf(b, "\n_You asked about %s. Nothing recorded falls in that period, so everything below is unfiltered — read the dates before trusting any of it as an answer._\n",
 			p.Window)
 	case p.OutOfWindow > 0:
-		fmt.Fprintf(b, "\n_Filtered to %s — %d %s outside that period %s set aside. Ask without a date to see %s._\n",
+		fmt.Fprintf(b, "\n_Filtered to %s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
 			p.Window, p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
 			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"))
 	default:

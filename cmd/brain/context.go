@@ -20,9 +20,9 @@ import (
 // will actually receive, and therefore the only way to tell whether the
 // retrieval is any good.
 //
-//	brain context "cut the BOM to target" --project kestrel-one --budget 4000
+//	brain context "cut the BOM to target" --project kestrel-one --budget 4000 --since week
 func runContext(args []string) error {
-	var task, hint string
+	var task, hint, since string
 	budget := 0
 
 	for i := 0; i < len(args); i++ {
@@ -36,6 +36,11 @@ func runContext(args []string) error {
 			if i+1 < len(args) {
 				i++
 				budget, _ = strconv.Atoi(args[i])
+			}
+		case "--since":
+			if i+1 < len(args) {
+				i++
+				since = args[i]
 			}
 		default:
 			task = strings.TrimSpace(task + " " + args[i])
@@ -77,7 +82,7 @@ func runContext(args []string) error {
 	}
 
 	pack, err := contextpack.Build(ix, embed, embedModel,
-		contextpack.Request{Task: task, Hint: hint, Budget: budget})
+		contextpack.Request{Task: task, Hint: hint, Budget: budget, Since: contextpack.Since(since)})
 	if err != nil {
 		return err
 	}

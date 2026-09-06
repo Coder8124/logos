@@ -61,6 +61,19 @@ func (w Window) String() string {
 	return fmt.Sprintf("%q (%s – %s)", w.Phrase, from, to)
 }
 
+// Trailing returns the window from now back by one unit — the same shape
+// "ago"/"the last <unit>" resolve to, without a phrase to parse it from. It
+// exists for a caller that already knows the unit it wants (an explicit
+// `since` argument, or a gap-based inference) rather than extracting one from
+// free text.
+func Trailing(unit string, now time.Time) (Window, bool) {
+	span, ok := nominal(unit)
+	if !ok {
+		return Window{}, false
+	}
+	return Window{From: now.Add(-span), To: now, Phrase: "the last " + unit}, true
+}
+
 // Parse finds the first time expression in text and resolves it against now.
 // The bool is false when there is nothing it recognises, which is the common
 // case and not an error.

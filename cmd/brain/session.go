@@ -130,13 +130,17 @@ func runCheckpoint(args []string) error {
 // runResume prints where the last agent stopped, followed by full context.
 func runResume(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: brain resume <project> [--budget <tokens>]")
+		return fmt.Errorf("usage: brain resume <project> [--budget <tokens>] [--since day|week|month|quarter|year|all]")
 	}
 	project := args[0]
 	budget := 0
+	since := ""
 	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--budget" || args[i] == "-b" {
+		switch args[i] {
+		case "--budget", "-b":
 			budget, _ = strconv.Atoi(args[i+1])
+		case "--since":
+			since = args[i+1]
 		}
 	}
 
@@ -170,7 +174,7 @@ func runResume(args []string) error {
 	}
 
 	pack, err := contextpack.Build(ix, embed, embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Budget: budget,
+		Task: "resume work on " + project, Hint: project, Budget: budget, Since: contextpack.Since(since),
 	})
 	if err != nil {
 		return err

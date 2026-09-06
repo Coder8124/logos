@@ -384,9 +384,10 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 			Hint:     hint,
 			Worktree: worktree,
 			Budget:   argInt(args, "budget", 0),
+			Since:    contextpack.Since(argStr(args, "since")),
 		})
 	case "resume":
-		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0))
+		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0), contextpack.Since(argStr(args, "since")))
 	case "before_you_try":
 		// Deliberately not defaulted: before_you_try searches every dead end in
 		// the vault on purpose, and the project only labels which rulings came
@@ -733,7 +734,7 @@ func writeList(b *strings.Builder, label string, items []string) {
 
 // resume takes the project argument unresolved, because whether it was given at
 // all decides whether the worktree narrows it — see resolveContinuity.
-func (s *Session) resume(projectArg, agent string, budget int) (string, error) {
+func (s *Session) resume(projectArg, agent string, budget int, since contextpack.Since) (string, error) {
 	project, worktree := s.resolveContinuity(projectArg)
 	if strings.TrimSpace(project) == "" {
 		return "", fmt.Errorf("resume needs a project")
@@ -742,7 +743,7 @@ func (s *Session) resume(projectArg, agent string, budget int) (string, error) {
 		return "", err
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Worktree: worktree, Budget: budget,
+		Task: "resume work on " + project, Hint: project, Worktree: worktree, Budget: budget, Since: since,
 	})
 	if err != nil {
 		return "", err
