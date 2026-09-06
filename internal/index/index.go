@@ -186,11 +186,19 @@ func (ix *Index) SyncPending() (int, error) {
 	return memory.ImportPending(ix.DB, ix.Vault)
 }
 
+// deadAmbientTables held ambient-capture state — events, rollup proposals,
+// the presence daemon's own bookkeeping — cut in 0.3.0 along with the
+// internal/{capture,rollup,presence} packages that wrote them. None of it had
+// a vault representation, so dropping it loses nothing the vault-is-truth
+// promise covers; only .brain/index.db ever held it.
+var deadAmbientTables = []string{"events", "source_state", "proposals", "presence_state", "presence_spoken"}
+
 // migrate adds columns to databases created before they existed. ALTER TABLE
 // ADD COLUMN is idempotent-safe here because we swallow the "duplicate column"
 // error — cheaper and clearer than querying the schema first.
 func migrate(db *sql.DB) {
 	db.Exec("ALTER TABLE notes ADD COLUMN first_seen INTEGER NOT NULL DEFAULT 0")
+	dropDeadAmbientTables(db)
 
 	// FTS backfill: notes indexed before the FTS table existed never populated
 	// it, and Sync only refreshes FTS for notes whose content changed — so a
@@ -225,6 +233,40 @@ func migrate(db *sql.DB) {
 			fmt.Fprintf(os.Stderr, "brain: could not rebuild the search index: %v\n", err)
 		}
 	}
+}
+
+// dropDeadAmbientTables removes what 0.3.0 cut, on the first open of a vault
+// that still has it. A schema drop that says nothing is exactly the failure
+// this codebase keeps re-fixing (memories, working notes, checkpoints, the
+// review queue — always silent, always the same shape), so this counts what
+// it discards and says so on stdout before dropping it. On every open after
+// the first, sqlite_master has none of these names left and the check is a
+// few no-op lookups.
+func dropDeadAmbientTables(db *sql.DB) {
+	var existing []string
+	var total int
+	for _, t := range deadAmbientTables {
+		var name string
+		if err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", t).Scan(&name); err != nil {
+			continue // not there — nothing to drop, nothing to count
+		}
+		existing = append(existing, t)
+		var n int
+		if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %q", t)).Scan(&n); err == nil {
+			total += n
+		}
+	}
+	if len(existing) == 0 {
+		return
+	}
+	for _, t := range existing {
+		if _, err := db.Exec(fmt.Sprintf("DROP TABLE %q", t)); err != nil {
+			fmt.Fprintf(os.Stderr, "brain: could not drop the removed %s table: %v\n", t, err)
+			return
+		}
+	}
+	fmt.Printf("brain: dropped %d row(s) from removed ambient-capture tables (%s) — this data had no vault representation\n",
+		total, strings.Join(existing, ", "))
 }
 
 func (ix *Index) Close() error {
