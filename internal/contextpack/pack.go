@@ -137,6 +137,10 @@ type Pack struct {
 	// filter was abandoned rather than applied and the pack holds everything it
 	// gathered.
 	WindowEmpty bool `json:"window_empty,omitempty"`
+	// WindowInferred says Window came from neither a task phrase nor an
+	// explicit Since, but from the gap since the last checkpoint — the reader
+	// gets told this rather than mistaking a guess for something asked for.
+	WindowInferred bool `json:"window_inferred,omitempty"`
 
 	// Sources lists what actually made it into the render, so the consumer can
 	// cite rather than paraphrase.
@@ -318,11 +322,18 @@ func (p *Pack) applyWindow(req Request) {
 	w, ok := when.Parse(req.Task, now)
 	if !ok {
 		switch req.Since {
-		case SinceAll, SinceInferred:
-			// Nothing explicit and nothing parsed: SinceInferred defers to
-			// inference (added on top of this in a later change) rather than
-			// windowing at all, for now — see the Since doc comment.
+		case SinceAll:
 			return
+		case SinceInferred:
+			since := inferSince(p.Checkpoint, now)
+			if since == SinceAll {
+				return
+			}
+			w, ok = when.Trailing(string(since), now)
+			if !ok {
+				return
+			}
+			p.WindowInferred = true
 		default:
 			w, ok = when.Trailing(string(req.Since), now)
 			if !ok {
@@ -364,6 +375,34 @@ func (p *Pack) applyWindow(req Request) {
 
 	p.Notes, p.Working, p.Related = notes, working, related
 	p.Window, p.OutOfWindow = &w, dropped
+}
+
+// inferSince guesses how far back a cold call should look, from the gap since
+// the checkpoint already loaded onto this pack — never from a separate query,
+// so the guess and the invariant that everything durable comes from the vault
+// stay the same fact. checkpoint is nil exactly when session.History found
+// nothing on disk for this scope, which is indistinguishable from "no gap to
+// reason about" and gets the same answer as a cold return: the whole history.
+//
+// The table is a bet about why an agent is calling at all: within a few hours
+// it is almost certainly a sibling session or a resumed one and a day is
+// plenty; within a week it is the same thread picked back up after a night or
+// a weekend and a month gives it room; past a week the return is cold enough
+// that recency stops being a reasonable prior and history is the point of
+// asking.
+func inferSince(checkpoint *session.Checkpoint, now time.Time) Since {
+	if checkpoint == nil || checkpoint.TS == 0 {
+		return SinceAll
+	}
+	gap := now.Sub(time.Unix(checkpoint.TS, 0))
+	switch {
+	case gap < 4*time.Hour:
+		return SinceDay
+	case gap < 7*24*time.Hour:
+		return SinceMonth
+	default:
+		return SinceAll
+	}
 }
 
 // withoutSessionNotes keeps checkpoints out of the vault-prose arm.

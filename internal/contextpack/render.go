@@ -122,6 +122,16 @@ func (p *Pack) renderHeader(b *strings.Builder) {
 // What is deliberately absent is the content of what was excluded. Naming those
 // items would put the out-of-period material back in the context window, which
 // is the entire thing the filter was for.
+// inferredNote marks a window the pack guessed rather than one asked for, so
+// a reader does not mistake a bet about the gap since the last checkpoint for
+// something they themselves said.
+func (p *Pack) inferredNote() string {
+	if p.WindowInferred {
+		return " (inferred from the gap since your last checkpoint)"
+	}
+	return ""
+}
+
 func (p *Pack) renderWindow(b *strings.Builder) {
 	if p.Window == nil {
 		return
@@ -131,11 +141,11 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 		fmt.Fprintf(b, "\n_You asked about %s. Nothing recorded falls in that period, so everything below is unfiltered — read the dates before trusting any of it as an answer._\n",
 			p.Window)
 	case p.OutOfWindow > 0:
-		fmt.Fprintf(b, "\n_Filtered to %s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
-			p.Window, p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
+		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
+			p.Window, p.inferredNote(), p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
 			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"))
 	default:
-		fmt.Fprintf(b, "\n_Filtered to %s. Everything recorded falls inside it._\n", p.Window)
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
 }
 

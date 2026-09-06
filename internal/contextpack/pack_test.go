@@ -493,6 +493,11 @@ Something recorded three months ago, well outside a week window.
 	if _, err := ix.Sync(); err != nil {
 		t.Fatal(err)
 	}
+	// Without a vector, the note never reaches p.Notes at all — this would pass
+	// vacuously (never retrieved) instead of proving the window filtered it.
+	if _, err := ix.EmbedPending(embed, "fake-model", 10); err != nil {
+		t.Fatal(err)
+	}
 
 	p, err := Build(ix, embed, "fake-model", Request{
 		Task: "what's the status", Hint: "kestrel-one", Since: SinceWeek, Now: now.Unix(),
@@ -547,6 +552,197 @@ func TestATaskPhraseOverridesAnExplicitSince(t *testing.T) {
 	}
 	if p.Window.Phrase != "yesterday" {
 		t.Errorf("task phrase should have won over since:year, got phrase %q", p.Window.Phrase)
+	}
+}
+
+// commitCheckpointAt writes a checkpoint backdated to ts — Commit only stamps
+// TS from the wall clock when the caller leaves it zero, so setting it
+// directly is how a test controls the gap inference reasons about without
+// waiting for real time to pass.
+func commitCheckpointAt(t *testing.T, ix *index.Index, project string, ts int64) {
+	t.Helper()
+	c := &session.Checkpoint{
+		Project: project, Agent: "claude", Task: "map the window inference",
+		Next: "write the inference tests", TS: ts,
+	}
+	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A checkpoint minutes old reads as a sibling or resumed session — the
+// inferred window should stay tight, at a day, and say so.
+func TestInferredWindowIsADayForARecentCheckpoint(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	commitCheckpointAt(t, ix, "kestrel-one", now.Add(-40*time.Minute).Unix())
+
+	if err := writeNote(ix, "topics/three-days-old.md", fmt.Sprintf(`---
+type: topic
+title: Three days old
+first_seen: %s
+---
+Recorded three days ago, outside a one-day inferred window.
+`, now.AddDate(0, 0, -3).Format("2006-01-02"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.EmbedPending(embed, "fake-model", 10); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.WindowInferred {
+		t.Fatal("a recent checkpoint should have produced an inferred window")
+	}
+	if p.Window == nil {
+		t.Fatal("expected a window")
+	}
+	for _, h := range p.Notes {
+		if h.Slug == "topics/three-days-old" {
+			t.Error("a note 3 days old survived an inferred one-day window")
+		}
+	}
+}
+
+// A checkpoint a few days old reads as the same thread picked back up after a
+// night or a weekend — the inferred window widens to a month.
+func TestInferredWindowWidensToAMonthAfterAFewDaysGap(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	commitCheckpointAt(t, ix, "kestrel-one", now.AddDate(0, 0, -3).Unix())
+
+	ago := func(days int) string { return now.AddDate(0, 0, -days).Format("2006-01-02") }
+	if err := writeNote(ix, "topics/twenty-days-old.md", fmt.Sprintf(`---
+type: topic
+title: Twenty days old
+first_seen: %s
+---
+Recorded twenty days ago, inside a month-wide inferred window.
+`, ago(20))); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNote(ix, "topics/ninety-days-old.md", fmt.Sprintf(`---
+type: topic
+title: Ninety days old
+first_seen: %s
+---
+Recorded ninety days ago, outside a month-wide inferred window.
+`, ago(90))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.EmbedPending(embed, "fake-model", 10); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.WindowInferred {
+		t.Fatal("a several-day-old checkpoint should have produced an inferred window")
+	}
+	var sawTwenty, sawNinety bool
+	for _, h := range p.Notes {
+		if h.Slug == "topics/twenty-days-old" {
+			sawTwenty = true
+		}
+		if h.Slug == "topics/ninety-days-old" {
+			sawNinety = true
+		}
+	}
+	if !sawTwenty {
+		t.Error("a note 20 days old should survive an inferred month window")
+	}
+	if sawNinety {
+		t.Error("a note 90 days old survived an inferred month window")
+	}
+}
+
+// A checkpoint over a week old is a cold return — history is the point of
+// asking, so inference must disable windowing outright, the same as
+// since:all.
+func TestInferredWindowIsAllForAColdReturn(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	commitCheckpointAt(t, ix, "kestrel-one", now.AddDate(0, 0, -10).Unix())
+
+	if err := writeNote(ix, "topics/ninety-days-old.md", fmt.Sprintf(`---
+type: topic
+title: Ninety days old
+first_seen: %s
+---
+Recorded ninety days ago.
+`, now.AddDate(0, 0, -90).Format("2006-01-02"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window != nil {
+		t.Errorf("a cold return should produce no window, got %v", p.Window)
+	}
+	if p.WindowInferred {
+		t.Error("no window means nothing was inferred either")
+	}
+}
+
+// No checkpoint at all is indistinguishable from a cold return: there is no
+// gap to reason about, so the whole history is the only defensible answer.
+func TestInferredWindowIsAllWithNoCheckpoint(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	if err := writeNote(ix, "topics/ninety-days-old.md", fmt.Sprintf(`---
+type: topic
+title: Ninety days old
+first_seen: %s
+---
+Recorded ninety days ago.
+`, now.AddDate(0, 0, -90).Format("2006-01-02"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Checkpoint != nil {
+		t.Fatal("this test requires no checkpoint to exist for the scope")
+	}
+	if p.Window != nil {
+		t.Errorf("no checkpoint should produce no window, got %v", p.Window)
 	}
 }
 
