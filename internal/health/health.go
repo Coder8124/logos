@@ -94,9 +94,6 @@ type Input struct {
 	// Runtime is the discovered local model runtime, or nil if none answered.
 	Runtime    *provider.Provider
 	EmbedModel string
-	// RetentionDays and KeepForever describe the capture policy in force.
-	RetentionDays int
-	KeepForever   bool
 }
 
 // Run performs every check.
@@ -110,7 +107,6 @@ func Run(in Input) Report {
 	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
 	r.Add(checkAbandonment(in.DB))
-	r.Add(checkCapture(in.DB, in.RetentionDays, in.KeepForever))
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
 	return r
@@ -442,32 +438,6 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
-}
-
-func checkCapture(db *sql.DB, retentionDays int, keepForever bool) Check {
-	c := Check{Name: "capture"}
-	if db == nil {
-		c.State, c.Detail = Unknown, "no index open"
-		return c
-	}
-	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM events").Scan(&n); err != nil {
-		c.State, c.Detail = Unknown, "no events table: "+err.Error()
-		return c
-	}
-	if n == 0 {
-		c.State, c.Detail = OK, "off — nothing recorded"
-		return c
-	}
-	if keepForever {
-		c.State = OK
-		c.Detail = fmt.Sprintf("%d events, kept indefinitely", n)
-		c.Fix = "set retention_days in config to bound this"
-		return c
-	}
-	c.State = OK
-	c.Detail = fmt.Sprintf("%d events, pruned after %d days", n, retentionDays)
-	return c
 }
 
 // checkMemoryReview is the PRODUCT RULE applied to quarantine: a feature that
