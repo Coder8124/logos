@@ -2,16 +2,15 @@
 //
 // The rest of the system is retrieval and automation; this is the part that
 // talks back. It grounds each reply in the vault (so it answers from what you
-// actually know) and in the live brief (so it knows what is on your plate right
-// now), and it remembers the conversation — which is the difference between an
-// assistant and a search box.
+// actually know) and in the open loops you have left (so it knows what is on
+// your plate right now), and it remembers the conversation — which is the
+// difference between an assistant and a search box.
 package agent
 
 import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/memory"
@@ -82,22 +81,20 @@ func Reply(
 	}
 
 	// --- what's on the user's plate right now ---
+	//
+	// This used to also lead with the next calendar meeting, sourced from
+	// ambient capture. That subsystem was cut in 0.3.0 (plans/plan0-3-0.md);
+	// open loops are the event-independent half and are all that remains.
 	var context strings.Builder
-	if b, err := secretary.Compose(db, time.Now()); err == nil {
-		if len(b.Upcoming) > 0 {
-			m := b.Upcoming[0]
-			fmt.Fprintf(&context, "Next up: %s in %d min. ", m.Title, m.InMin)
-		}
-		if len(b.Loops) > 0 {
-			var loops []string
-			for i, l := range b.Loops {
-				if i >= 3 {
-					break
-				}
-				loops = append(loops, l.Text)
+	if open, err := secretary.Open_(db); err == nil && len(open) > 0 {
+		var loops []string
+		for i, l := range open {
+			if i >= 3 {
+				break
 			}
-			fmt.Fprintf(&context, "Open loops: %s.", strings.Join(loops, "; "))
+			loops = append(loops, l.Text)
 		}
+		fmt.Fprintf(&context, "Open loops: %s.", strings.Join(loops, "; "))
 	}
 
 	// --- build the message list ---
