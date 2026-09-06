@@ -1,8 +1,11 @@
 package index
 
 import (
+	"database/sql"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +45,65 @@ func TestManyOpensOnAColdVaultAllSucceed(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a concurrent open of a cold vault failed: %v", err)
 		}
+	}
+}
+
+// A vault indexed before 0.3.0 still has the ambient-capture tables on disk —
+// they lived only in .brain/index.db, never the vault, so dropping them loses
+// nothing the vault-is-truth promise covers. But a silent schema drop is the
+// exact failure this codebase keeps re-fixing (memories, working notes,
+// checkpoints, the review queue), so the drop must say how many rows it threw
+// away, on stdout, with the number.
+func TestDeadAmbientTablesAreDroppedAndAnnounced(t *testing.T) {
+	v := t.TempDir()
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	// Simulate a vault carried over from before the cut: a table that
+	// InitStore used to create, holding rows migrate() has never seen.
+	if _, err := ix.DB.Exec(`CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.DB.Exec(`INSERT INTO events (kind) VALUES ('url'), ('commit')`); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = w
+	dropDeadAmbientTables(ix.DB)
+	w.Close()
+	os.Stdout = oldStdout
+	out, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(out), "dropped 2 row") {
+		t.Errorf("drop was not announced with a row count: %q", out)
+	}
+	var name string
+	err = ix.DB.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='events'").Scan(&name)
+	if err != sql.ErrNoRows {
+		t.Errorf("events table still exists after dropDeadAmbientTables, err=%v", err)
+	}
+
+	// A vault that never had the table — every vault created fresh under
+	// 0.3.0 — must stay silent. Announcing a drop of nothing is its own bug.
+	r2, w2, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w2
+	dropDeadAmbientTables(ix.DB)
+	w2.Close()
+	os.Stdout = oldStdout
+	out2, _ := io.ReadAll(r2)
+	if len(out2) != 0 {
+		t.Errorf("second call with nothing left to drop printed %q, want silence", out2)
 	}
 }
 
