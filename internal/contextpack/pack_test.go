@@ -2,6 +2,7 @@ package contextpack
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -413,6 +414,61 @@ func TestATaskThatNamesAPeriodFiltersToIt(t *testing.T) {
 	}
 	if p.OutOfWindow != 2 {
 		t.Errorf("OutOfWindow = %d, want 2", p.OutOfWindow)
+	}
+}
+
+// A conflict must be judged on the notes the pack actually renders, not on
+// notes the window later drops. Computing it first sees both prices and
+// reports a disagreement; the reader who receives the pack after windowing
+// only ever sees one of them and has no source for the other half of the
+// citation.
+func TestConflictsAreJudgedAfterTheWindowNotBefore(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+
+	now := time.Now()
+	ago := func(days int) string { return now.AddDate(0, 0, -days).Format("2006-01-02") }
+	if err := writeNote(ix, "topics/retail-price-early.md", fmt.Sprintf(`---
+type: topic
+title: Retail price, early quote
+first_seen: %s
+---
+Retail price is set at $199 per the first BOM pass.
+`, ago(100))); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNote(ix, "topics/retail-price-later.md", fmt.Sprintf(`---
+type: topic
+title: Retail price, revised
+first_seen: %s
+---
+Retail is moving to $229 after the optics quote came back.
+`, ago(35))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what was the retail price about five weeks ago?",
+		Hint: "kestrel-one", Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window == nil {
+		t.Fatal("no window was parsed from a task that plainly names one")
+	}
+
+	for _, c := range p.Conflicts {
+		if strings.Contains(c, "retail-price-early") {
+			t.Errorf("conflict cites a note the window already dropped: %q", c)
+		}
+	}
+	out := p.Render()
+	if strings.Contains(out, "$199") {
+		t.Errorf("the windowed-out figure still reached the render:\n%s", out)
 	}
 }
 
