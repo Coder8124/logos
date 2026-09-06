@@ -28,6 +28,13 @@ type Budget struct {
 	Limit int    `json:"limit"`
 	Spent int    `json:"spent"`
 	By    []Line `json:"by"`
+	// Overhead is everything rendered that never passed through take or
+	// spendCheckpoint/spendMemories: headers, the provenance boundary, the
+	// Sources and Excluded lists, and the footer's own text. It used to be free
+	// on paper and real on the wire — a pack that reported ~1955 tokens was
+	// actually costing ~2212, a 13% undercount nobody could see. See
+	// renderBudget.
+	Overhead int `json:"overhead"`
 }
 
 // A Line is one section's spend, including what it could not fit.

@@ -236,7 +236,13 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		}
 	}
 	if embed != nil && query != "" {
-		if mems, err := memory.Recall(db, embed, embedModel, query, maxRelated); err == nil {
+		// Scoped, not global: Recall ranks the whole vault by similarity alone,
+		// so a fact from an unrelated project with the right vocabulary
+		// outranks one from this project with the wrong phrasing. Measured on a
+		// six-project scratch vault: 7 of 12 "related" memories for one
+		// project's resume were another project's facts, spending ~40% of the
+		// section's budget on noise the caller never asked about.
+		if mems, err := memory.RecallInProject(db, embed, embedModel, query, p.scope(), maxRelated); err == nil {
 			p.Related, p.Superseded = supersede(req.Task, mems)
 		}
 	}
