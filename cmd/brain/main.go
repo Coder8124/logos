@@ -3,28 +3,23 @@
 package main
 
 import (
-	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Coder8124/brain/internal/buildinfo"
-	"github.com/Coder8124/brain/internal/capture"
-	"github.com/Coder8124/brain/internal/capture/sources"
 	"github.com/Coder8124/brain/internal/health"
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/vault"
-	"github.com/Coder8124/brain/internal/voice"
 )
 
 // version is what `brain version` prints. It comes from internal/buildinfo so
@@ -38,8 +33,6 @@ var version = buildinfo.Version
 const (
 	defaultEmbedModel = "nomic-embed-text"
 	defaultChatModel  = "qwen3.6"
-	// Default first-run reach. Deliberately not "everything" — see PollOnce.
-	defaultBackfillDays = 7
 )
 
 // The help is two surfaces, and the split is a product decision rather than a
@@ -87,7 +80,7 @@ GETTING THERE
 
     BRAIN_VAULT points at the vault (default ~/brain)
 
-`+"`brain help all`"+` lists the rest — memory, capture, rollups, voice, benchmarks.
+`+"`brain help all`"+` lists the rest — memory, retrieval, benchmarks.
 `)
 }
 
@@ -126,7 +119,6 @@ MEMORY
     brain prompt                      the instructions agents are given (BRAINPROMPT.md)
     brain demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
-    brain jot <thought>               braindump: capture and auto-file a thought
     brain loop [add|done|drop]        manage open loops (commitments)
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
 
@@ -134,32 +126,13 @@ RETRIEVAL
     brain search <query…>             retrieve only, no generation
     brain ask <question…>             retrieve and answer from the vault
     brain index [--watch]             sync vault into the cache and embed
-
-BRIEFINGS
-    brain brief                       what the secretary thinks you should know now
     brain replay [--peek]             catch up on what changed since you were last here
     brain reflect                     descriptive stats over your memory (composition, growth, what it leans on)
-    brain weekly                      Sunday executive briefing: your week in review
-
-THE DAY
-    brain capture [--daemon] [--backfill-days N]
-                                      pull episodic events
-    brain timeline [--verbose]        today's activity
-    brain rollup [--date YYYY-MM-DD] [--dry-run]
-                                      distil a day into a note and proposals
-    brain review [--all]              accept or reject queued proposals and quarantined memories
+    brain review [--all]              accept or reject quarantined memories
     brain dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
-                                      nightly consolidation: replay, gist, downscale, recombine
+                                      nightly consolidation: replay, downscale, recombine
     brain dream review | accept|reject <id>
                                       review the connections REM proposed overnight
-    brain routines [--days N] [--propose]
-                                      mine recurring patterns from the timeline
-    brain prune [days]                drop raw events past the retention window
-
-THE ASSISTANT
-    brain voice | listen | say <text>   talk to the assistant and hear it back (local STT/TTS)
-    brain name [<name>]               name the assistant — how you address it
-    brain presence [--wake]           the ambient secretary: greets, answers, and speaks up (--wake to talk by name)
     brain think [off|low|medium|high]  how much the model reasons before answering
 
 SETUP AND DIAGNOSTICS
@@ -184,7 +157,6 @@ ENV
     BRAIN_VAULT   path to the vault (default ~/brain)
     BRAIN_MODEL   chat model (default %s)
     BRAIN_EMBED   embed model (default %s)
-    BRAIN_REPOS   colon-separated repos to mine for commits
 `, defaultChatModel, defaultEmbedModel)
 }
 
@@ -256,20 +228,8 @@ func main() {
 		err = runPlans(args)
 	case cmd == "continuity":
 		err = runContinuity(args)
-	case cmd == "say" && rest != "":
-		err = runSay(rest)
-	case cmd == "listen":
-		err = runListen(flagInt(args, "--seconds", 15))
-	case cmd == "voice":
-		err = runVoiceChat(flagInt(args, "--seconds", 15))
-	case cmd == "presence":
-		err = runPresence(hasFlag(args, "--wake"))
-	case cmd == "name":
-		err = runName(rest)
 	case cmd == "think":
 		err = runThink(rest)
-	case cmd == "capture":
-		err = runCapture(hasFlag(args, "--daemon"), flagInt(args, "--backfill-days", defaultBackfillDays))
 	case cmd == "demo":
 		err = runDemo(args)
 	case cmd == "prompt":
@@ -282,10 +242,6 @@ func main() {
 		err = runProjectName(args)
 	case cmd == "project" && len(args) > 0 && args[0] == "rename":
 		err = runProjectRename(args[1:])
-	case cmd == "timeline":
-		err = timeline(hasFlag(args, "--verbose"))
-	case cmd == "rollup":
-		err = runRollup(flagStr(args, "--date", ""), hasFlag(args, "--dry-run"))
 	case cmd == "review":
 		err = runReview(hasFlag(args, "--all"))
 	case cmd == "dream":
@@ -294,16 +250,10 @@ func main() {
 		err = runReplay(hasFlag(args, "--peek"))
 	case cmd == "reflect":
 		err = runReflect()
-	case cmd == "brief":
-		err = runBrief()
 	case cmd == "loop":
 		err = commitmentCmd(args)
-	case cmd == "jot" && rest != "":
-		err = jotCmd(rest)
 	case cmd == "memory":
 		err = memoryCmd(args)
-	case cmd == "weekly":
-		err = runWeekly(hasFlag(args, "--json"))
 	case cmd == "projects":
 		err = projectsCmd(args)
 	case cmd == "project":
@@ -320,10 +270,6 @@ func main() {
 		err = runContinuityBench(args[1:])
 	case cmd == "graph":
 		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
-	case cmd == "routines":
-		err = runRoutines(flagInt(args, "--days", 60), hasFlag(args, "--propose"))
-	case cmd == "prune":
-		err = prune(int64(argInt(args, 0, 90)))
 	default:
 		usage()
 	}
@@ -448,16 +394,6 @@ func env(key, def string) string {
 // machine.
 func vaultPath() string { return vault.Path() }
 
-func watchedRepos() []string {
-	if v := os.Getenv("BRAIN_REPOS"); v != "" {
-		return strings.Split(v, ":")
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return []string{wd}
-	}
-	return nil
-}
-
 // findProvider picks the first running local runtime. Cloud BYOK slots in here
 // later by reading a configured base URL and key.
 func findProvider() (*provider.Provider, error) {
@@ -468,6 +404,31 @@ func findProvider() (*provider.Provider, error) {
 	p := found[0]
 	fmt.Fprintf(os.Stderr, "· %s at %s (%d models)\n", p.Provider.Name, p.Provider.BaseURL, len(p.Models))
 	return p.Provider, nil
+}
+
+func openRouter() (*router.Router, error) {
+	cfg, err := router.Load(vaultPath())
+	if err != nil {
+		return nil, err
+	}
+	return router.New(cfg, vaultPath())
+}
+
+// openRouterOptional is openRouter for the commands that do not actually need a
+// model. A missing runtime comes back as (nil, nil) and the caller carries on
+// degraded; a malformed config is still an error, because that is a mistake the
+// user can fix and silently ignoring it would hide it.
+//
+// The distinction matters most for `mcp serve`. A host launches it in the
+// background and shows the user a connection failure, not our message — so
+// refusing to start over an absent model is how "brain has no embeddings here"
+// becomes "brain is broken".
+func openRouterOptional() (*router.Router, error) {
+	rt, err := openRouter()
+	if errors.Is(err, router.ErrNoRuntime) {
+		return nil, nil
+	}
+	return rt, err
 }
 
 // missingVaultError is what every command says when the vault is not there.
@@ -490,16 +451,12 @@ func openIndex() (*index.Index, error) {
 }
 
 // openEvents opens the index and ensures the episodic tables exist alongside it.
+// openEvents used to also ensure the ambient-capture tables existed alongside
+// the index. That tier was cut in 0.3.0 (plans/plan0-3-0.md), so this is now
+// exactly openIndex; kept as its own name because most callers below predate
+// the cut and the rename churn buys nothing.
 func openEvents() (*index.Index, error) {
-	ix, err := openIndex()
-	if err != nil {
-		return nil, err
-	}
-	if err := capture.InitStore(ix.DB); err != nil {
-		ix.Close()
-		return nil, err
-	}
-	return ix, nil
+	return openIndex()
 }
 
 func doctor(probe bool) error {
@@ -560,11 +517,6 @@ func doctor(probe bool) error {
 
 	fmt.Println("\n─── tiers ───")
 	for _, line := range rt.Available() {
-		fmt.Println(" ", line)
-	}
-
-	fmt.Println("\n─── voice ───")
-	for _, line := range voice.New().Status() {
 		fmt.Println(" ", line)
 	}
 
@@ -651,15 +603,13 @@ func gatherHealth() health.Report {
 	if _, err := os.Stat(vault); err == nil {
 		if ix, err := index.Open(vault); err == nil {
 			defer ix.Close()
-			capture.InitStore(ix.DB) // so the capture check reads a table rather than an error
-			session.Init(ix.DB)      // so the abandonment check reads a table rather than an error
+			session.Init(ix.DB) // so the abandonment check reads a table rather than an error
 			in.DB = ix.DB
 		}
 	}
 	if found := provider.Discover(); len(found) > 0 {
 		in.Runtime = found[0].Provider
 	}
-	in.RetentionDays, in.KeepForever = captureRetention(vault)
 
 	return health.Run(in)
 }
@@ -856,248 +806,5 @@ func ask(question string) error {
 			fmt.Printf("  %-28s %.3f\n", h.Slug, h.Score)
 		}
 	}
-	return nil
-}
-
-func scratchDir(vault string) string { return filepath.Join(vault, ".brain", "scratch") }
-
-func runCapture(daemon bool, backfillDays int) error {
-	ix, err := openEvents()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-
-	policy := capture.DefaultPolicy()
-	repos := watchedRepos()
-	backfill := int64(backfillDays) * 86400
-
-	n, err := capture.PollOnce(ix.DB, scratchDir(ix.Vault), repos, policy, backfill)
-	if err != nil {
-		return err
-	}
-	total, _ := capture.Count(ix.DB)
-	fmt.Printf("+%d events · %d total\n", n, total)
-
-	if !daemon {
-		return nil
-	}
-
-	front := sources.ProbeFrontmost()
-	if front.Granularity == sources.AppAndTitle {
-		fmt.Println("· focus sampling: app + window title")
-	} else {
-		fmt.Println("· focus sampling: app name only — grant Accessibility to System Events for window titles")
-	}
-
-	// Say what this will cost before it starts costing it. A daemon that samples
-	// every few seconds and keeps what it finds is a reasonable thing to run and
-	// an unreasonable thing to discover you have been running.
-	retentionDays, keepForever := captureRetention(ix.Vault)
-	describeCapture(ix.DB, retentionDays, keepForever)
-	fmt.Println("· recording. ^C to stop.")
-
-	// Sessions are written only when they end, so a crash loses at most the one
-	// in flight. That is the right trade against writing every 5s sample.
-	coalescer := capture.NewCoalescer(60)
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	ticker := time.NewTicker(sources.PollInterval)
-	defer ticker.Stop()
-	// Browser and git are pull sources; polling them every 5s would be wasteful,
-	// so they run on their own slower cadence.
-	pullTicker := time.NewTicker(5 * time.Minute)
-	defer pullTicker.Stop()
-
-	// The nightly dream. Checked hourly and run at most once per calendar day,
-	// past dreamHour, over the day that just ended. lastDream lives in memory, so
-	// a restart may re-run a day once — the pass is deterministic in NREM and
-	// dedups its gists, and REM is capped, so a re-run is cheap rather than
-	// harmful. (Persisting the last-dream date is a follow-up.)
-	dreamTicker := time.NewTicker(time.Hour)
-	defer dreamTicker.Stop()
-	var lastDream string
-
-	// The ambient presence: speaks up about a meeting, a slipping loop, or an
-	// overnight insight while you work — restrained (cooldown-spaced, focus-aware)
-	// and never overriding your attention. Focus is tracked from the same
-	// frontmost samples capture already takes.
-	dp := newDaemonPresence(ix.DB, ix.Vault)
-	presenceTicker := time.NewTicker(time.Minute)
-	defer presenceTicker.Stop()
-
-	for {
-		select {
-		case <-stop:
-			if err := flushCoalescer(ix.DB, coalescer); err != nil {
-				fmt.Fprintln(os.Stderr, "· write error:", err)
-				fmt.Println("\n· stopped, but the last session may not have saved — see the error above")
-			} else {
-				fmt.Println("\n· stopped, session flushed")
-			}
-			return nil
-
-		case <-ticker.C:
-			sample, err := front.Sample()
-			if err != nil || policy.ShouldDrop(sample) {
-				continue
-			}
-			dp.track(sample.App, time.Now())
-			if done := coalescer.Push(sample); done != nil {
-				if err := capture.Insert(ix.DB, *done); err != nil {
-					fmt.Fprintln(os.Stderr, "· write error:", err)
-				}
-			}
-
-		case <-pullTicker.C:
-			n, err := capture.PollOnce(ix.DB, scratchDir(ix.Vault), repos, policy, backfill)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "· poll error:", err)
-			} else if n > 0 {
-				fmt.Printf("+%d events\n", n)
-			}
-
-		case <-dreamTicker.C:
-			// Retention rides the hourly tick rather than getting a ticker of its
-			// own: the window is measured in days, so the exact hour it runs does
-			// not matter, and one fewer goroutine does.
-			if !keepForever {
-				cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
-				if n, err := capture.Prune(ix.DB, cutoff); err != nil {
-					fmt.Fprintln(os.Stderr, "· prune error:", err)
-				} else if n > 0 {
-					fmt.Printf("· pruned %d events older than %d days\n", n, retentionDays)
-				}
-			}
-
-			today := time.Now().Format("2006-01-02")
-			if time.Now().Hour() >= dreamHour && lastDream != today {
-				lastDream = today
-				if err := dreamNightly(ix.DB, ix.Vault); err != nil {
-					fmt.Fprintln(os.Stderr, "· dream error:", err)
-				}
-			}
-
-		case <-presenceTicker.C:
-			dp.tick(ix.DB, time.Now())
-		}
-	}
-}
-
-// flushCoalescer closes the daemon's one in-flight session and writes it. The
-// caller reports the error rather than this function swallowing it: it runs
-// on the user's own Ctrl+C, and "stopped, session flushed" printed over a
-// write that actually failed would lose exactly the work the daemon exists to
-// keep, without a trace that it happened.
-func flushCoalescer(db *sql.DB, c *capture.Coalescer) error {
-	done := c.Flush()
-	if done == nil {
-		return nil
-	}
-	return capture.Insert(db, *done)
-}
-
-// captureRetention reads the window from config, falling back to the default
-// when the config cannot be read. A malformed config should not mean "keep
-// everything forever" by accident.
-func captureRetention(vault string) (days int, forever bool) {
-	cfg, err := router.Load(vault)
-	if err != nil {
-		return router.DefaultRetentionDays, false
-	}
-	return cfg.Retention()
-}
-
-// describeCapture prints what the daemon samples, how long it keeps it, and
-// what that costs — measured from the user's own events rather than estimated
-// from a table of averages.
-func describeCapture(db *sql.DB, retentionDays int, keepForever bool) {
-	fmt.Printf("· sampling every %s · browser, calendar and git every 5m\n",
-		sources.PollInterval)
-
-	if keepForever {
-		fmt.Println("· retention: keeping everything (retention_days is negative in config)")
-	} else {
-		fmt.Printf("· retention: %d days, pruned hourly\n", retentionDays)
-	}
-
-	events, bytes, days, err := capture.Footprint(db)
-	if err != nil {
-		return
-	}
-	if events == 0 {
-		fmt.Println("· disk: nothing recorded yet, so there is nothing to project from")
-		return
-	}
-	fmt.Printf("· disk: %s across %d events", humanBytes(bytes), events)
-	// Under a day of history cannot support a weekly projection. Saying so is
-	// better than multiplying ten minutes by 1008 and presenting the result.
-	if days < 1 {
-		fmt.Println(" — too little history to project a weekly rate yet")
-		return
-	}
-	perWeek := float64(bytes) / days * 7
-	fmt.Printf(" · about %s/week at this rate", humanBytes(int64(perWeek)))
-	if !keepForever {
-		fmt.Printf(", levelling off near %s", humanBytes(int64(perWeek/7*float64(retentionDays))))
-	}
-	fmt.Println()
-}
-
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
-}
-
-func timeline(verbose bool) error {
-	ix, err := openEvents()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-
-	from, to := capture.TodayBounds()
-	events, err := capture.Range(ix.DB, from, to)
-	if err != nil {
-		return err
-	}
-
-	fmt.Print(capture.Render(events, verbose))
-
-	if totals := capture.ByApp(events); len(totals) > 0 {
-		fmt.Println("\n─── time by app ───")
-		for i, t := range totals {
-			if i >= 10 {
-				break
-			}
-			fmt.Printf("  %-20s %s\n", t.App, capture.Dur(t.Secs))
-		}
-	}
-	return nil
-}
-
-func prune(days int64) error {
-	ix, err := openEvents()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-
-	n, err := capture.Prune(ix.DB, capture.Now()-days*86400)
-	if err != nil {
-		return err
-	}
-	remain, _ := capture.Count(ix.DB)
-	fmt.Printf("dropped %d events older than %dd · %d remain\n", n, days, remain)
 	return nil
 }
