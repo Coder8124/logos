@@ -11,16 +11,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/rollup"
 	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/routine"
 	"github.com/Coder8124/brain/internal/secretary"
 	"github.com/Coder8124/brain/internal/session"
 
@@ -74,14 +70,6 @@ func (a *App) open() (*index.Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := capture.InitStore(ix.DB); err != nil {
-		ix.Close()
-		return nil, err
-	}
-	if err := rollup.InitQueue(ix.DB); err != nil {
-		ix.Close()
-		return nil, err
-	}
 	if err := secretary.Init(ix.DB); err != nil {
 		ix.Close()
 		return nil, err
@@ -98,25 +86,7 @@ func (a *App) router() (*router.Router, error) {
 	return router.New(cfg, a.vault)
 }
 
-// Brief is what the app leads with: the secretary speaking first. This is the
-// method that makes the product a secretary rather than an archive — the panel
-// opens on this, not on an ask box.
-func (a *App) Brief() (secretary.Brief, error) {
-	ix, err := a.open()
-	if err != nil {
-		return secretary.Brief{}, err
-	}
-	defer ix.Close()
-
-	b, err := secretary.Compose(ix.DB, time.Now())
-	if err != nil {
-		return b, err
-	}
-	b.Review, _ = rollup.PendingCount(ix.DB)
-	return b, nil
-}
-
-// LoopDone and LoopDrop close an open loop from the brief. Done means handled;
+// LoopDone and LoopDrop close an open loop from the panel. Done means handled;
 // Drop means "stop telling me" and is retained so it is not re-surfaced.
 func (a *App) LoopDone(id int64) error {
 	ix, err := a.open()
@@ -150,34 +120,14 @@ func (a *App) AddLoop(text string) error {
 // ---- shapes the frontend consumes. Kept flat and JSON-friendly. ----
 
 type Status struct {
-	Vault     string `json:"vault"`
-	Notes     int    `json:"notes"`
-	Edges     int    `json:"edges"`
-	Events    int    `json:"events"`
-	Pending   int    `json:"pending"`
-	Runtime   string `json:"runtime"`
-	Recording bool   `json:"recording"`
-	Memories  int    `json:"memories"`
+	Vault    string `json:"vault"`
+	Notes    int    `json:"notes"`
+	Edges    int    `json:"edges"`
+	Runtime  string `json:"runtime"`
+	Memories int    `json:"memories"`
 }
 
-type TimelineItem struct {
-	Time  string `json:"time"`
-	Dur   string `json:"dur"`
-	Kind  string `json:"kind"`
-	App   string `json:"app"`
-	Label string `json:"label"`
-}
-
-type ProposalView struct {
-	ID       int64    `json:"id"`
-	Kind     string   `json:"kind"`
-	Summary  string   `json:"summary"`
-	Conf     float64  `json:"conf"`
-	Model    string   `json:"model"`
-	Evidence []string `json:"evidence"`
-}
-
-// Status backs the menubar orb and the panel header.
+// Status backs the panel header.
 func (a *App) Status() (Status, error) {
 	ix, err := a.open()
 	if err != nil {
@@ -196,19 +146,12 @@ func (a *App) Status() (Status, error) {
 	if s.Edges, err = ix.EdgeCount(); err != nil {
 		return s, fmt.Errorf("counting links: %w", err)
 	}
-	if s.Events, err = capture.Count(ix.DB); err != nil {
-		return s, fmt.Errorf("counting captured events: %w", err)
-	}
-	if s.Pending, err = rollup.PendingCount(ix.DB); err != nil {
-		return s, fmt.Errorf("counting the review queue: %w", err)
-	}
 	if err := memory.Init(ix.DB); err != nil {
 		return s, fmt.Errorf("opening memory: %w", err)
 	}
 	if s.Memories, err = memory.Count(ix.DB); err != nil {
 		return s, fmt.Errorf("counting memories: %w", err)
 	}
-	s.Recording = recorderRunning()
 
 	if cfg, err := router.Load(a.vault); err == nil {
 		if rt, err := router.New(cfg, a.vault); err == nil {
@@ -221,9 +164,9 @@ func (a *App) Status() (Status, error) {
 }
 
 // OverviewView is the state banner every terminal-app view leads with: proof
-// that capture, indexing, and continuity are actually running, not just
-// configured to. A feature with no visible state reads as broken even when it
-// works — this is what makes the difference legible.
+// that indexing and continuity are actually running, not just configured to.
+// A feature with no visible state reads as broken even when it works — this
+// is what makes the difference legible.
 type OverviewView struct {
 	Vault        string `json:"vault"`
 	Notes        int    `json:"notes"`
@@ -231,7 +174,6 @@ type OverviewView struct {
 	Checkpoints  int    `json:"checkpoints"`
 	OpenSessions int    `json:"openSessions"`
 	Projects     int    `json:"projects"`
-	Recording    bool   `json:"recording"`
 	// IndexBuilt is when the on-disk index was last written, unix seconds, 0
 	// if it has never been built.
 	IndexBuilt int64 `json:"indexBuilt"`
@@ -253,7 +195,7 @@ func (a *App) Overview() (OverviewView, error) {
 	// As in Status: a swallowed error here is displayed as a zero, and a zero
 	// in the state strip is read as "nothing has been recorded", which is the
 	// one thing this strip exists to disprove.
-	v := OverviewView{Vault: a.vault, Recording: recorderRunning()}
+	v := OverviewView{Vault: a.vault}
 	if v.Notes, err = ix.NoteCount(); err != nil {
 		return v, fmt.Errorf("counting notes: %w", err)
 	}
@@ -324,112 +266,6 @@ func indexBuiltAt(vault string) int64 {
 	return latest.Unix()
 }
 
-// Timeline backs the today view.
-func (a *App) Timeline() ([]TimelineItem, error) {
-	ix, err := a.open()
-	if err != nil {
-		return nil, err
-	}
-	defer ix.Close()
-
-	from, to := capture.TodayBounds()
-	events, err := capture.Range(ix.DB, from, to)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []TimelineItem
-	for _, e := range events {
-		if e.Kind == capture.Focus && e.DurS < capture.IncidentalSecs {
-			continue
-		}
-		item := TimelineItem{Time: capture.HHMM(e.TS), Kind: string(e.Kind), App: e.App}
-		if e.DurS > 0 {
-			item.Dur = capture.Dur(e.DurS)
-		}
-		switch e.Kind {
-		case capture.URL:
-			item.Label = e.URL
-		case capture.Commit:
-			item.Label = e.Path + " — " + e.Title
-		default:
-			item.Label = e.Title
-		}
-		out = append(out, item)
-	}
-	// Newest first reads better in a scrolling panel.
-	sort.SliceStable(out, func(i, j int) bool { return i > j })
-	return out, nil
-}
-
-// Proposals backs the review queue.
-func (a *App) Proposals() ([]ProposalView, error) {
-	ix, err := a.open()
-	if err != nil {
-		return nil, err
-	}
-	defer ix.Close()
-
-	pending, err := rollup.List(ix.DB, rollup.Pending)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]ProposalView, 0, len(pending))
-	for _, p := range pending {
-		v := ProposalView{
-			ID: p.ID, Kind: string(p.Kind), Summary: p.Summary(),
-			Conf: p.Conf, Model: p.Model,
-		}
-		if ev, err := capture.ByIDs(ix.DB, p.Evidence); err == nil {
-			for i, e := range ev {
-				if i >= 6 {
-					break
-				}
-				switch e.Kind {
-				case capture.URL:
-					v.Evidence = append(v.Evidence, capture.HHMM(e.TS)+"  "+e.URL)
-				case capture.Commit:
-					v.Evidence = append(v.Evidence, capture.HHMM(e.TS)+"  "+e.Path+" — "+e.Title)
-				default:
-					v.Evidence = append(v.Evidence, capture.HHMM(e.TS)+"  "+e.App+" "+e.Title)
-				}
-			}
-		}
-		out = append(out, v)
-	}
-	return out, nil
-}
-
-// Accept applies a proposal to the vault. Same code path the CLI review uses,
-// so the trust loop is identical whichever surface the user is in.
-func (a *App) Accept(id int64) error {
-	ix, err := a.open()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-
-	for _, p := range mustList(ix) {
-		if p.ID == id {
-			if err := rollup.Apply(ix.DB, a.vault, p); err != nil {
-				return err
-			}
-			return rollup.SetStatus(ix.DB, id, rollup.Accepted)
-		}
-	}
-	return nil
-}
-
-func (a *App) Reject(id int64) error {
-	ix, err := a.open()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-	return rollup.SetStatus(ix.DB, id, rollup.Rejected)
-}
-
 // Ask answers a question from the vault, for the panel's ask box.
 func (a *App) Ask(question string) (string, error) {
 	ix, err := a.open()
@@ -451,43 +287,4 @@ func (a *App) Ask(question string) (string, error) {
 
 	answer, _, err := ix.Ask(rt.Local(), embed, chat, question, 6, 6000)
 	return answer, err
-}
-
-// Routines backs the routines panel. Read-only; proposing stays a deliberate
-// action taken from the review flow.
-func (a *App) Routines() ([]string, error) {
-	ix, err := a.open()
-	if err != nil {
-		return nil, err
-	}
-	defer ix.Close()
-
-	events, err := capture.Range(ix.DB, time.Now().AddDate(0, 0, -400).Unix(), time.Now().Unix()+1)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []string
-	for _, p := range routine.FindPeriodic(events) {
-		out = append(out, p.App+" · "+p.Cadence()+" "+p.Window())
-	}
-	for _, p := range routine.FindPeriodicSites(events) {
-		out = append(out, p.App+" · "+p.Cadence()+" "+p.Window())
-	}
-	return out, nil
-}
-
-func mustList(ix *index.Index) []rollup.Proposal {
-	p, _ := rollup.List(ix.DB, rollup.Pending)
-	return p
-}
-
-// recorderRunning reports whether a capture daemon is live, so the orb can show
-// an honest recording state. Presence of the pidfile is the signal the daemon
-// writes; see cmd/brain capture.
-func recorderRunning() bool {
-	if _, err := os.Stat(os.Getenv("HOME") + "/.brain-recording"); err == nil {
-		return true
-	}
-	return false
 }

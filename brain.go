@@ -60,7 +60,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/contextpack"
 	"github.com/Coder8124/brain/internal/deadend"
 	"github.com/Coder8124/brain/internal/index"
@@ -169,7 +168,6 @@ func Open(vaultPath string, opts ...Option) (*Brain, error) {
 		func() error { return memory.Init(ix.DB) },
 		func() error { return session.Init(ix.DB) },
 		func() error { return secretary.Init(ix.DB) },
-		func() error { return capture.InitStore(ix.DB) },
 	} {
 		if err := init(); err != nil {
 			ix.Close()
