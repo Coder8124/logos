@@ -4,20 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/Coder8124/brain/internal/capture"
-	"github.com/Coder8124/brain/internal/event"
 	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/routine"
 )
-
-// GistWindowDays is how far back gist extraction looks for recurring structure.
-// A single day cannot establish a routine; a month is enough to see one form
-// without drowning in history.
-const GistWindowDays = 30
 
 // DownscaleFactor is the nightly homeostatic multiplier (the SHY hypothesis:
 // sleep globally renormalises weights). Small, so the field re-normalises gently
@@ -28,13 +18,19 @@ const DownscaleFactor = 0.98
 // SalienceFloor stops downscaling from ever erasing a memory outright.
 const SalienceFloor = 0.05
 
-// maxGists caps how many standing facts one night may learn. The store should
-// pick up habits, not every faint regularity.
-const maxGists = 3
-
-// nrem is the stabilising phase: replay, gist extraction, homeostatic
-// downscaling, artifact association. Three of the four touch no model at all.
-func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event, date time.Time, dryRun bool, res *Result) error {
+// nrem is the stabilising phase: replay, then homeostatic downscaling. Neither
+// step depends on anything observed in the background — both work purely over
+// the memory store.
+//
+// A third step used to sit between these two: gist extraction, which mined
+// ambient capture (internal/routine's FindPeriodic/FindSequences) for recurring
+// structure and stored the strongest patterns as standing facts. That step was
+// cut in 0.3.0 along with the rest of the ambient-capture tier
+// (plans/plan0-3-0.md) — it had no data source left. The gap it leaves is
+// deliberate and open: genuine multi-memory compression (several corroborating
+// facts folded into one denser, higher-confidence one, as opposed to today's
+// pairwise memory.Consolidate) belongs here once it exists, targeted for 0.4.0.
+func nrem(db *sql.DB, rt *router.Router, dryRun bool, res *Result) error {
 	// 1. Prioritised replay — fold near-duplicates and supersede stale facts.
 	//    This is the consolidation the store already knows how to do; the dream
 	//    is simply when it runs. It mutates, so it is skipped under dry run.
@@ -56,110 +52,20 @@ func nrem(db *sql.DB, rt *router.Router, embedModel string, events []event.Event
 		}
 	}
 
-	// 2. Gist extraction — turn recurring specifics into standing semantic facts.
-	//    Arithmetic path only: patterns that clear routine mining's support
-	//    thresholds are counts, not guesses, so they store directly at the "dream"
-	//    confidence and dedup against what's already known. (Model-abstracted
-	//    gist — collapsing several memories into one preference — is a follow-up
-	//    that must go through the same review path as REM, not store directly.)
-	gists, err := gistsFromRoutines(db, date)
-	if err != nil {
-		return err
-	}
-	if dryRun {
-		res.Gists += len(gists)
-	} else {
-		// A gist is arithmetic, not model output — memory.Store already treats
-		// a nil provider as "store it plain", so gist learning must survive
-		// a nil router the same way rather than panic getting there via
-		// rt.Local().
-		var p *provider.Provider
-		if rt != nil {
-			p = rt.Local()
-		}
-		learned, err := storeGists(db, p, embedModel, gists)
-		if err != nil {
-			return err
-		}
-		res.Gists += learned
-	}
-
-	// 3. Homeostatic downscaling — renormalise the whole field.
+	// 2. Homeostatic downscaling — renormalise the whole field.
 	n, err := downscale(db, dryRun)
 	if err != nil {
 		return err
 	}
 	res.Downscaled = n
-
-	// 4. Artifact association — the files, commits, and pages that mattered today,
-	//    tied to the work they belong to. Emitting the graph edges (and the
-	//    artifact→conversation links) waits on the graph write API and persisted
-	//    conversations; for now this counts what a full pass would wire up.
-	res.Linked = countArtifacts(events)
 	return nil
-}
-
-// storeGists learns each mined gist, reporting how many were new.
-//
-// A gist that could not be written is not a gist that was already known.
-// Dropping the store error counted a failed write as "nothing new tonight",
-// which is exactly the report a working night gives — the failure mode this
-// codebase treats as the worst one available: an operation that failed and
-// returned a success-shaped result.
-func storeGists(db *sql.DB, p *provider.Provider, embedModel string, gists []string) (int, error) {
-	var learned int
-	for _, g := range gists {
-		m := &memory.Memory{Text: g, Kind: memory.Context, Salience: 0.4, Source: "dream"}
-		r, err := memory.Store(db, p, embedModel, m)
-		if err != nil {
-			return learned, fmt.Errorf("learning %q: %w", g, err)
-		}
-		if r.Created() {
-			learned++
-		}
-	}
-	return learned, nil
-}
-
-// gistsFromRoutines mines a recent window for stable structure and phrases the
-// strongest patterns as standing facts. Selection is pure arithmetic — the model
-// is never asked to *find* a pattern, only (elsewhere) to name one mining found.
-func gistsFromRoutines(db *sql.DB, date time.Time) ([]string, error) {
-	end := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location()).AddDate(0, 0, 1)
-	start := end.AddDate(0, 0, -GistWindowDays)
-	events, err := capture.Range(db, start.Unix(), end.Unix())
-	if err != nil {
-		return nil, err
-	}
-
-	var out []string
-	for _, p := range routine.FindPeriodic(events) {
-		if len(out) >= maxGists {
-			break
-		}
-		// Only the most consistent handful graduate to a remembered habit.
-		if p.Consistency < 0.5 {
-			continue
-		}
-		out = append(out, fmt.Sprintf("Usually opens %s around %s on %s.", p.App, p.Window(), p.Cadence()))
-	}
-	for _, s := range routine.FindSequences(events) {
-		if len(out) >= maxGists {
-			break
-		}
-		if s.Share < 0.5 {
-			continue
-		}
-		out = append(out, fmt.Sprintf("After %s, usually switches to %s.", s.From, s.To))
-	}
-	return out, nil
 }
 
 // downscale multiplies every active memory's salience by DownscaleFactor, floored,
 // and reports how many rows would actually move. Deliberately *not* logged per
 // memory: it touches every row, and a memory_log line each would bury the
 // timeline the log exists to keep legible. Only structural events (merge,
-// supersede, new gist) leave a trace.
+// supersede) leave a trace.
 func downscale(db *sql.DB, dryRun bool) (int, error) {
 	var n int
 	if err := db.QueryRow(
@@ -173,23 +79,4 @@ func downscale(db *sql.DB, dryRun bool) (int, error) {
 		`UPDATE memories SET salience = MAX(?, salience * ?) WHERE superseded = 0 AND salience > ?`,
 		SalienceFloor, DownscaleFactor, SalienceFloor)
 	return n, err
-}
-
-// countArtifacts counts the distinct files, commits, and pages seen in the day —
-// the artifacts a full association pass would tie to their projects.
-func countArtifacts(events []event.Event) int {
-	seen := map[string]bool{}
-	for _, e := range events {
-		switch e.Kind {
-		case event.Commit, event.File:
-			if e.Path != "" {
-				seen["p"+e.Path] = true
-			}
-		case event.URL:
-			if e.URL != "" {
-				seen["u"+e.URL] = true
-			}
-		}
-	}
-	return len(seen)
 }

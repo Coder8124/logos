@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/capture"
-	"github.com/Coder8124/brain/internal/event"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/router"
 	_ "modernc.org/sqlite"
@@ -160,7 +158,7 @@ func TestAFailedConsolidationStopsTheNightInsteadOfReportingZero(t *testing.T) {
 	}
 
 	var res Result
-	err := nrem(db, nil, "", nil, time.Now(), false, &res)
+	err := nrem(db, nil, false, &res)
 	if err == nil {
 		t.Fatal("a broken memory store reported a night with nothing to consolidate")
 	}
@@ -169,31 +167,11 @@ func TestAFailedConsolidationStopsTheNightInsteadOfReportingZero(t *testing.T) {
 	}
 }
 
-// The same swallow on the gist path: a gist that cannot be written is not a
-// gist that was already known.
-func TestAGistThatCannotBeStoredIsNotCountedAsAlreadyKnown(t *testing.T) {
-	db := testDB(t)
-	if _, err := db.Exec("DROP TABLE memories"); err != nil {
-		t.Fatal(err)
-	}
-
-	learned, err := storeGists(db, nil, "", []string{"Usually opens Ghostty around 09:00 on weekdays."})
-	if err == nil {
-		t.Fatal("a gist that could not be stored was reported as stored")
-	}
-	if learned != 0 {
-		t.Errorf("learned = %d after a failed write, want 0", learned)
-	}
-}
-
 // Not having a model is a condition, not a failure — replay needs one to judge
 // whether two memories say the same thing, and a machine without one must still
 // get its downscaling pass rather than an error.
 func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	db := testDB(t)
-	if err := capture.InitStore(db); err != nil {
-		t.Fatal(err)
-	}
 	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('a','context',0.5,0.7,'manual',1)`)
 
 	rt, err := router.New(&router.Config{Tiers: map[string]router.TierConfig{
@@ -209,7 +187,7 @@ func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	}
 
 	var res Result
-	if err := nrem(db, rt, "", nil, time.Now(), false, &res); err != nil {
+	if err := nrem(db, rt, false, &res); err != nil {
 		t.Fatalf("a machine with no usable model could not dream: %v", err)
 	}
 	if !res.ReplaySkipped {
@@ -220,30 +198,36 @@ func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	}
 }
 
-// gistsFromRoutines' arithmetic path stores directly, with no model in the
-// loop at all — so a nil router (no local runtime) must not stop a real,
-// mined habit from becoming a standing fact. nrem's gist step passed
-// rt.Local() straight through with no nil guard, which is where this panicked
-// before Consolidate's own nil-router error was ever reached.
-func TestNremWithNilRouterStillLearnsAMinedGist(t *testing.T) {
+// nrem with a nil router (no local runtime at all) must still complete the
+// model-free half of the pass rather than panic reaching for rt.Local().
+func TestNremWithNilRouterStillDownscales(t *testing.T) {
 	db := testDB(t)
-	if err := capture.InitStore(db); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	for w := 0; w < 5; w++ {
-		day := now.AddDate(0, 0, -7*w)
-		ts := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.Local).Unix()
-		if err := capture.Insert(db, event.Event{TS: ts, Kind: event.Focus, App: "editor", DurS: 3600}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('a','context',0.5,0.7,'manual',1)`)
 
 	var res Result
-	if err := nrem(db, nil, "", nil, now, false, &res); err != nil {
-		t.Fatalf("a mined gist with no model runtime must still be learned: %v", err)
+	if err := nrem(db, nil, false, &res); err != nil {
+		t.Fatalf("nrem with no model runtime must still run: %v", err)
 	}
-	if res.Gists == 0 {
-		t.Error("a habit that clears the routine-mining threshold was not learned as a gist")
+	if !res.ReplaySkipped {
+		t.Error("replay was reported as having run with no runtime")
+	}
+	if res.Downscaled == 0 {
+		t.Error("the model-free part of the pass did not run with a nil router")
+	}
+}
+
+func TestRunAcceptsTimeAndPhaseWithoutAmbientEvents(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('a','context',0.5,0.7,'manual',1)`)
+
+	res, err := Run(db, t.TempDir(), nil, time.Now(), PhaseNREM, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Date == "" {
+		t.Error("Run did not stamp a date on the result")
+	}
+	if res.Downscaled == 0 {
+		t.Error("NREM did not run")
 	}
 }
