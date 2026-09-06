@@ -35,7 +35,13 @@ Call **`checkpoint`**. Its fields are not interchangeable:
 - `verified` — what you **demonstrated**, with the command that showed it.
 - `blockers` — what's **broken**; the next agent must not build on it.
 - `failed` — approaches **ruled out**, and why. This is the field that stops
-  the next agent repeating your afternoon.
+  the next agent repeating your afternoon. Plain prose is fine; for a record
+  `before_you_try` can act on precisely, one line as `route: <what you tried> |
+  observation: <what happened> | layer: implementation|design|environment|
+  dependency|requirement | scope: local|version-bound|general | degree:
+  contradicted|partial|inconclusive|unstable | action: retry|change-method|
+  narrow-scope|abandon | alternative: <what to do instead>`. Every field but
+  `route` is optional.
 - `decisions` — what you settled, and why.
 - `next` — the single next step.
 

@@ -34,6 +34,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/session"
@@ -65,6 +66,15 @@ type Ruling struct {
 	// on other hardware may not fail here, and presenting it as settled would be
 	// the same overreach this package exists to prevent.
 	Elsewhere bool `json:"elsewhere"`
+	// Record is Text, typed — Layer: unclassified and a Route equal to Text
+	// itself for every ruling recorded before this schema existed. Kept
+	// alongside Text rather than replacing it so nothing here has to branch on
+	// which kind of entry it got.
+	Record Record `json:"record"`
+	// Stale marks a version-bound ruling old enough that the dependency it
+	// names may have moved since — see possiblySuperseded. Never grounds for
+	// dropping the ruling, only for saying so.
+	Stale bool `json:"stale,omitempty"`
 }
 
 // failureMarkers are how people write down that something did not work.
@@ -119,9 +129,11 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				if strings.TrimSpace(f) == "" {
 					continue
 				}
+				rec := ParseRecord(textmatch.Flatten(f))
 				out = append(out, Ruling{
-					Text: textmatch.Flatten(f), Project: proj, Agent: c.Agent,
+					Text: rec.Route, Project: proj, Agent: c.Agent,
 					When: c.TS, Slug: c.Slug, Source: FromCheckpoint,
+					Record: rec, Stale: possiblySuperseded(rec.Scope, c.TS, time.Now()),
 				})
 			}
 		}
@@ -135,9 +147,11 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 		}
 		for _, n := range notes {
 			if readsAsFailure(n.Text) {
+				rec := ParseRecord(textmatch.Flatten(n.Text))
 				out = append(out, Ruling{
-					Text: textmatch.Flatten(n.Text), Project: proj, Agent: n.Agent,
+					Text: rec.Route, Project: proj, Agent: n.Agent,
 					When: n.TS, Source: FromNote,
+					Record: rec, Stale: possiblySuperseded(rec.Scope, n.TS, time.Now()),
 				})
 			}
 		}

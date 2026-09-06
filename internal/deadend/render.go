@@ -38,7 +38,11 @@ func Render(proposed string, hits []Ruling) string {
 		if who == "" {
 			who = "someone"
 		}
-		fmt.Fprintf(&b, "- **%s** — tried by %s, %s", h.Text, who, project.Age(h.When))
+		fmt.Fprintf(&b, "- **%s**", h.Text)
+		if h.Record.Observation != "" {
+			fmt.Fprintf(&b, " — %s", h.Record.Observation)
+		}
+		fmt.Fprintf(&b, " — tried by %s, %s", who, project.Age(h.When))
 		if h.Elsewhere {
 			fmt.Fprintf(&b, ", on **%s** rather than the project you are working on", h.Project)
 		}
@@ -49,6 +53,15 @@ func Render(proposed string, hits []Ruling) string {
 			fmt.Fprintf(&b, " · `%s`", h.Slug)
 		}
 		b.WriteString("\n")
+		if tags := recordTags(h.Record); tags != "" {
+			fmt.Fprintf(&b, "  %s\n", tags)
+		}
+		if h.Record.Alternative != "" {
+			fmt.Fprintf(&b, "  try instead: %s\n", h.Record.Alternative)
+		}
+		if h.Stale {
+			b.WriteString("  ⚠ possibly superseded — version-bound and old enough that the dependency it names may have moved since\n")
+		}
 	}
 
 	b.WriteString("\nBefore proposing this, say that it has been tried and what happened. ")
@@ -59,6 +72,29 @@ func Render(proposed string, hits []Ruling) string {
 		b.WriteString("\n_Rulings marked as from another project may not transfer. Check the constraint that caused the failure still applies here._\n")
 	}
 	return b.String()
+}
+
+// recordTags renders the typed fields as one short line, empty for an
+// unclassified entry so a plain Failed string keeps reading exactly as it did
+// before this schema existed.
+func recordTags(r Record) string {
+	var parts []string
+	if r.Layer != "" && r.Layer != LayerUnclassified {
+		parts = append(parts, string(r.Layer))
+	}
+	if r.Scope != "" {
+		parts = append(parts, string(r.Scope))
+	}
+	if r.Degree != "" {
+		parts = append(parts, string(r.Degree))
+	}
+	if r.Action != "" {
+		parts = append(parts, string(r.Action))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ")
 }
 
 func anyElsewhere(hits []Ruling) bool {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/session"
@@ -184,6 +185,80 @@ func TestTheInterruptionDoesNotForbid(t *testing.T) {
 	}
 	if !strings.Contains(out, "say that it has been tried") {
 		t.Errorf("the agent should be told to surface this to the user:\n%s", out)
+	}
+}
+
+// A typed Failed entry must reach the caller as a typed Ruling — the whole
+// reason the schema exists is that before_you_try can act on layer, scope,
+// degree and action instead of forcing a reader to parse prose again.
+func TestATypedFailedEntryArrivesTyped(t *testing.T) {
+	dir, db := seed(t)
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", Task: "work", Next: "carry on",
+		Failed: []string{
+			"route: retry failed webhook deliveries synchronously | " +
+				"observation: blocks the request thread under load | " +
+				"layer: dependency | scope: version-bound | degree: contradicted | " +
+				"action: change-method | alternative: queue deliveries and retry asynchronously",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := Check(dir, db, nil, "", "retry webhook deliveries synchronously to avoid queuing", "kestrel-one", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("the typed ruling should still be found by its route")
+	}
+	got := hits[0].Record
+	if got.Layer != LayerDependency || got.Scope != ScopeVersionBound ||
+		got.Degree != DegreeContradicted || got.Action != ActionChangeMethod {
+		t.Errorf("typed fields did not survive Collect/Check: %+v", got)
+	}
+	if got.Alternative != "queue deliveries and retry asynchronously" {
+		t.Errorf("alternative = %q", got.Alternative)
+	}
+
+	out := Render("retry webhook deliveries synchronously", hits)
+	if !strings.Contains(out, "dependency") || !strings.Contains(out, "version-bound") {
+		t.Errorf("render should surface the typed tags:\n%s", out)
+	}
+	if !strings.Contains(out, "queue deliveries and retry asynchronously") {
+		t.Errorf("render should surface the alternative:\n%s", out)
+	}
+}
+
+// A version-bound ruling old enough that its dependency may have moved must
+// be surfaced with a caveat, not dropped — the plan's explicit answer to the
+// staleness problem the source paper leaves open.
+func TestAnOldVersionBoundRulingIsMarkedPossiblySuperseded(t *testing.T) {
+	dir, db := seed(t)
+	old := time.Now().Add(-120 * 24 * time.Hour).Unix()
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", Task: "work", Next: "carry on",
+		TS: old,
+		Failed: []string{
+			"route: use the v1 auth flow | observation: token refresh silently no-ops | " +
+				"layer: dependency | scope: version-bound | degree: contradicted",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := Check(dir, db, nil, "", "use the v1 auth flow again", "kestrel-one", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("the ruling should still be found")
+	}
+	if !hits[0].Stale {
+		t.Error("a 120-day-old version-bound ruling should be marked stale")
+	}
+	if out := Render("use the v1 auth flow", hits); !strings.Contains(out, "possibly superseded") {
+		t.Errorf("render should caveat a stale ruling rather than drop it:\n%s", out)
 	}
 }
 
