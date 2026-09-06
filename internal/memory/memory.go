@@ -553,6 +553,21 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 		// Relevance dominates; effective salience (decay + reinforcement) breaks
 		// ties toward what currently matters, scaled by how much we trust the
 		// memory so a shaky fact does not outrank a certain one at equal relevance.
+		//
+		// Swept 0.50-1.00 (in steps of 0.05, plus 0.75) against
+		// `brain bench continuity --brain-only`: every value produced the same
+		// 84.4% pass, 89.1% recall, 16.7% leak. Not because the corpus is
+		// smaller than maxRelated=10 — the memory scenarios seed ~31 candidates
+		// (internal/eval/scenarios.go's noiseFacts(30) plus one target fact),
+		// well past that cutoff. It's that the noise is topically inert
+		// (office-trivia filler: wifi passwords, invoice deadlines) against
+		// queries about a specific fact, so relevance alone separates the
+		// target by a wide enough margin that no split of the remaining 15%
+		// between salience and confidence can push a noise candidate above it
+		// or the target below the cut. Left at 0.85/0.15 because the sweep
+		// gave no evidence to move it — re-running this sweep expecting a
+		// different verdict needs scenarios where distractors are close in
+		// relevance to the target, not just numerous.
 		mems[i].Score = rel*0.85 + EffectiveSalience(mems[i], now)*mems[i].Confidence*0.15
 	}
 	sortByScore(mems)
