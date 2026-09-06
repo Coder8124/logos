@@ -254,9 +254,12 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	if pinned, err := memory.Pinned(db, p.scope()); err == nil {
 		p.Pinned = pinned
 	}
-	p.Conflicts = contradictions(p.Notes)
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
+	// After the window, not before: a note the window sets aside still shows up
+	// in a disagreement computed against the unfiltered list, citing a source
+	// that has already left the pack the reader actually gets.
+	p.Conflicts = contradictions(p.Notes)
 
 	return p, nil
 }
