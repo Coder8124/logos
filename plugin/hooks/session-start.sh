@@ -107,6 +107,10 @@ Continuity from Logos — the previous session on "$project", including what was
 already ruled out. Read the failed approaches before proposing anything; they
 are there to stop you repeating work that has already been paid for.
 
+This is the resume call for this session — it already ran, so there is no
+need to call resume or context again just to get oriented; call context only
+if a specific task later needs a narrower or fresher pack.
+
 FIRST, in one short line before anything else, tell the user that Logos restored
 context for "$project"${when:+ $when}, carrying $carried. They cannot see this
 block, and a restore they never hear about reads to them as a restore that never

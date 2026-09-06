@@ -25,7 +25,7 @@ package mcpserver
 // because descriptions are the one channel every host puts in front of its
 // model. `instructions` is optional in the protocol and several hosts drop it,
 // so a rule that lives only there is a rule that applies only in some editors.
-const relay = " The first line of the result is a receipt for the user — repeat it to them in one short line of your own, at the moment it happens, then carry on. Do not skip it: the host hides this result from them, so a receipt you do not pass on is one they never see."
+const relay = " The first line is a receipt for the user — repeat it in one short line, right away. Hosts hide tool results, so skipping this means they never see it."
 
 // Annotations tell the host what a tool does before it runs one, and they are
 // the only thing that distinguishes reading from writing in this protocol.
@@ -66,7 +66,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "remember",
 		"annotations": writes(false, false),
-		"description": "Save something durable about the user to their private local memory — a preference, a fact about a person, standing context, or a decision. Use this whenever the user states something worth remembering across future conversations (e.g. 'I prefer short replies', 'my CFO is Sarah', 'we launch in Q4'). Scoped to the project you are working in by default, so one repository's facts do not surface in another. Set global for things that are true everywhere, like how the user likes replies written. Stored on the user's machine, never uploaded. By default this queues the memory for the user's review rather than storing it immediately — say so plainly rather than telling the user it is already remembered; the response text tells you which happened." + relay,
+		"description": "Save something durable about the user: a preference, a fact about a person, standing context, or a decision. Use when the user states something worth remembering (e.g. 'I prefer short replies', 'my CFO is Sarah'). Scoped to the current project by default; set global for facts true everywhere. Local only, never uploaded. May queue for review instead of storing immediately — report what the response says, not that it's already remembered." + relay,
 		"inputSchema": obj(map[string]any{
 			"text":    str("the thing to remember, as a clear standalone statement"),
 			"kind":    enumStr("what kind of memory it is", "preference", "person", "context", "fact"),
@@ -77,7 +77,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "recall",
 		"annotations": reads(),
-		"description": "Retrieve what is known about the user relevant to a query, from their private local memory. Use this at the start of a task or whenever the user's preferences, people, or prior context would help — so you act on what they've told you before instead of asking again. Searches the project you are working in plus facts marked global; anything returned from a different project is labelled as such. Set all_projects only when the user explicitly asks about other work.",
+		"description": "Retrieve what's known about the user relevant to a query, from private local memory. Use at the start of a task, or whenever the user's preferences, people, or prior context would help. Searches the current project plus global facts; results from elsewhere are labelled. Set all_projects only when the user explicitly asks about other work.",
 		"inputSchema": obj(map[string]any{
 			"query":        str("what you want to recall about the user"),
 			"limit":        intSchema("how many memories to return (default 5)"),
@@ -100,7 +100,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "pin_memory",
 		"annotations": writes(false, true),
-		"description": "Mark a memory by its id (from list_memories) as always-include: it will be carried into every context pack for its project regardless of relevance score. Use when the user says something should always be kept in mind — a standing instruction or a fact everything else depends on. To undo, call it again with unpin true." + relay,
+		"description": "Mark a memory (by id, from list_memories) as always-include — carried into every context pack for its project regardless of relevance score. Use for a standing instruction or a fact everything else depends on. Call again with unpin true to undo." + relay,
 		"inputSchema": obj(map[string]any{
 			"id":    str("the memory id to pin or unpin"),
 			"unpin": boolSchema("set true to return this memory to normal ranking instead of pinning it"),
@@ -115,7 +115,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "context",
 		"annotations": reads(),
-		"description": "Assemble everything needed to do a task: where the last agent stopped, the project's goals and recent progress, the actual text of the relevant vault notes, related notes reached through the user's own links, what the user has told this memory, standing preferences, and open commitments — budgeted to fit a token ceiling and cited by source. Use this at the START of any task involving the user's own work, instead of recall. Prefer it over asking the user to re-explain: they have written this down already." + relay,
+		"description": "Assemble everything needed to start a task: the last agent's stopping point, project goals and progress, relevant vault notes and linked neighbors, what memory knows, standing preferences, and open commitments — budgeted to a token ceiling, cited by source. Call at the START of work on the user's own project, instead of recall — it's already written down." + relay,
 		"inputSchema": obj(map[string]any{
 			"task":    str("what you are about to do, in a sentence — this decides what gets retrieved"),
 			"project": str("optional: narrow to one project, file path, or topic"),
@@ -125,7 +125,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "resume",
 		"annotations": reads(),
-		"description": "Pick up a project where the last agent — possibly a different tool entirely — left off. Returns their last checkpoint (what they were doing, what they decided, what they already tried that did NOT work, what is still open, and the next step) followed by full project context. Use this when the user says 'continue', 'pick up where we left off', or names a project you have no history with. Read the 'already tried' section before proposing anything: it is there to stop you repeating work." + relay,
+		"description": "Pick up a project where the last agent — possibly a different tool — left off: their last checkpoint (what they were doing, decided, already tried and failed, what's open, next step), plus full project context. Use when the user says 'continue' or names a project you have no history with. Read what already failed before proposing anything." + relay,
 		"inputSchema": obj(map[string]any{
 			"project": str("the project to resume"),
 			"agent":   str("optional: your name, e.g. 'claude' or 'cursor', recorded in the trail"),
@@ -140,7 +140,7 @@ var toolDefs = []map[string]any{
 		// other tool answers a question the model already has; this one answers
 		// a question it does not know to ask — whether the thing it is about to
 		// suggest was ruled out before it existed.
-		"description": "Check whether an approach has already been tried and failed, BEFORE you propose it. Call this whenever you are about to suggest a solution, a refactor, a vendor, a library, or a fix on work the user has a history with — especially if it seems obvious, because obvious approaches are the ones already attempted. Searches every dead end recorded across the user's whole vault, including work from other projects and from agents that no longer exist. If it returns anything, say so out loud before proposing: 'this was tried in March and the drop test failed'. A recorded failure is evidence, not a veto — if you still think it is right, say what is different now.",
+		"description": "Check whether an approach was already tried and failed, BEFORE proposing it — a fix, a refactor, a vendor, a library, especially if it seems obvious, since obvious approaches are the ones already attempted. Searches every recorded dead end across the whole vault, other projects included. If it returns a hit, say so before proposing (e.g. 'this was tried in March, the drop test failed'). Not a veto — if you still think it's right, say what's different now.",
 		"inputSchema": obj(map[string]any{
 			"approach": str("the approach you are about to propose, in a sentence"),
 			"project":  str("optional: the project being worked on, so rulings from elsewhere can be flagged as possibly not transferring"),
@@ -154,7 +154,7 @@ var toolDefs = []map[string]any{
 		// something whose history it cannot see. `git blame` answers who and
 		// when and structurally cannot answer why, so the reasoning is in a pull
 		// request nobody kept or the head of someone who left.
-		"description": "Find out why a file is the way it is, BEFORE changing something that looks wrong. Returns the decisions taken and the approaches ruled out while that file was being worked on, with who recorded them and when. Use it when code looks odd, redundant, or badly done, when you are about to revert or simplify something, and when the user asks 'why is this like this'. Code that looks wrong is often load-bearing, and this is the record of what it is bearing.",
+		"description": "Find out why a file is the way it is, BEFORE changing something that looks wrong. Returns the decisions and ruled-out approaches recorded while it was last worked on, with who and when. Use when code looks odd or redundant, before reverting or simplifying it, or when the user asks 'why is this like this' — code that looks wrong is often load-bearing.",
 		"inputSchema": obj(map[string]any{
 			"file":  str("the file path you are about to change or are curious about"),
 			"limit": intSchema("how many checkpoints to return (default 5)"),
@@ -173,19 +173,19 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "checkpoint",
 		"annotations": writes(false, false),
-		"description": "Write down where you are stopping, as a permanent note in the user's vault. Call this BEFORE you finish a work session, when the user says they are wrapping up, or when context is running short. The 'failed' field matters most: approaches that did not work are the expensive knowledge, and without them the next agent will repeat them. Anything you omit is lost." + relay,
+		"description": "Write down where you're stopping, as a permanent vault note. Call BEFORE ending a session, when the user is wrapping up, or context is running short. 'failed' matters most — that's the expensive knowledge; omit it and the next agent repeats your dead ends. Anything else you omit is simply lost." + relay,
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being worked on"),
 			"task":      str("what you were trying to do"),
 			"state":     str("where things actually stand now"),
 			"decisions": arrStr("decisions made and why"),
 			"failed":    arrStr("approaches tried that did NOT work, and why — the most valuable field here"),
-			"verified":  arrStr("claims you actually demonstrated, each with how you showed it, e.g. 'the middleware rejects expired tokens — go test ./internal/auth -run TestExpiry'. Only what you ran; anything you merely believe belongs in 'state'"),
+			"verified":  arrStr("claims you actually demonstrated, with the command that showed it, e.g. 'auth rejects expired tokens — go test ./internal/auth -run TestExpiry'. Only what you ran — belief goes in 'state'"),
 			"blockers":  arrStr("what is known broken or unfinished, and what it blocks"),
 			"commands":  arrStr("the build, test and lint commands you actually ran"),
 			"questions": arrStr("questions still unresolved"),
 			"files":     arrStr("files touched"),
-			"next":      str("the single next step whoever picks this up should take"),
+			"next":      str("the single next step for whoever picks this up"),
 			"agent":     str("optional: your name, e.g. 'claude'"),
 		}, "project"),
 	},
@@ -200,12 +200,12 @@ var toolDefs = []map[string]any{
 			"state":     str("where things actually stand now"),
 			"decisions": arrStr("decisions made and why"),
 			"failed":    arrStr("approaches tried that did NOT work, and why"),
-			"verified":  arrStr("claims you actually demonstrated, each with how you showed it — what the recipient can build on without re-checking"),
+			"verified":  arrStr("claims you actually demonstrated — what the recipient can build on without re-checking"),
 			"blockers":  arrStr("what is known broken or unfinished, and what it blocks"),
 			"commands":  arrStr("the build, test and lint commands you actually ran"),
 			"questions": arrStr("questions still unresolved"),
 			"files":     arrStr("files touched"),
-			"next":      str("the single next step the recipient should take"),
+			"next":      str("the next step the recipient should take"),
 			"agent":     str("optional: your name, e.g. 'claude'"),
 		}, "project", "to"),
 	},
