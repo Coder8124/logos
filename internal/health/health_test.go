@@ -9,6 +9,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/vault"
 
 	_ "modernc.org/sqlite"
 )
@@ -475,5 +476,84 @@ func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
 	}
 	if !strings.Contains(c.Detail, "day") {
 		t.Errorf("detail %q does not report the five-day-old checkpoint that is actually the newest", c.Detail)
+	}
+}
+
+// A scratch vault is a documented way to exercise the CLI — CONTRIBUTING.md
+// says `BRAIN_VAULT=$(mktemp -d)` in as many words. But `brain setup --vault
+// <scratch>` also RECORDS that path in os.UserConfigDir()/brain/vault-path,
+// which is the durable pointer every front end reads when BRAIN_VAULT is unset.
+// So testing against a scratch vault silently repoints the user's real install
+// at a temporary directory, and index.Open creates whatever it is pointed at —
+// producing a healthy zero of everything.
+//
+// This happened: the author's pointer named /var/folders/.../T/tmp.AFhBsX8awu/vault
+// for a day, and doctor called it "vault ok / notes: none indexed yet". A
+// failure reported as success is the one outcome this package exists to prevent.
+//
+// The recorded pointer is what gets checked, not the resolved directory: an
+// explicit BRAIN_VAULT is a deliberate choice scoped to one command, while the
+// pointer outlives the session and reaches the desktop app.
+
+func TestARecordedVaultInsideTheTempDirectoryIsReported(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+
+	scratch := filepath.Join(os.TempDir(), "brain-scratch-doctor-test")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(scratch)
+	if err := vault.Record(scratch); err != nil {
+		t.Fatal(err)
+	}
+
+	c := checkVault(scratch)
+	if c.State != Failed {
+		t.Fatalf("vault check = %v (%q), want failed — the recorded pointer names a temporary directory", c.State, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "temporary") {
+		t.Fatalf("failed, but did not say why: %q", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Fatal("no fix offered for a vault the user cannot be expected to diagnose")
+	}
+}
+
+// A real vault must not be dragged into this, and neither must a deliberate
+// one-off BRAIN_VAULT pointed at a scratch directory.
+
+func TestAnOrdinaryVaultWithNoRecordedPointerStillPasses(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+
+	dir := filepath.Join(home, "brain")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if c := checkVault(dir); c.State != OK {
+		t.Fatalf("vault check = %v (%q), want ok", c.State, c.Detail)
+	}
+}
+
+func TestAScratchVaultChosenForOneCommandIsNotAComplaint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	scratch := filepath.Join(os.TempDir(), "brain-scratch-env-only")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(scratch)
+	// Chosen by environment, never recorded — the documented workflow.
+	t.Setenv("BRAIN_VAULT", scratch)
+
+	if c := checkVault(scratch); c.State != OK {
+		t.Fatalf("vault check = %v (%q), want ok — BRAIN_VAULT is a deliberate one-off", c.State, c.Detail)
 	}
 }
