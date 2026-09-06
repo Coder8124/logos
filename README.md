@@ -21,6 +21,13 @@ It runs on your machine, against a directory of markdown files you own, and
 uploads nothing. `.brain/index.db` is a cache you can delete and rebuild from
 the markdown. If this project dies, you keep a vault.
 
+**Nothing is observed.** Logos does not watch your screen, your browser
+history, your files or your calendar. The only things in your vault are things
+an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
+remember and you approved. The one network call Logos ever makes on its own is
+`brain update` checking for a new release, and only when you type it; nothing
+else leaves the machine, ever.
+
 **Logos is built for continuity:**
 
 - `resume` / `context` — where the last agent stopped, what it verified, what it ruled out
