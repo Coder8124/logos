@@ -54,7 +54,35 @@ type Request struct {
 	// testable, and because a benchmark and a replay both need to ask the
 	// question as of a moment that is not this one.
 	Now int64
+	// Since is an explicit time window, for a caller that wants one without
+	// phrasing it into Task. SinceInferred (the zero value) defers to whatever
+	// Task's own words parse to, and otherwise to a window inferred from the
+	// gap since the last checkpoint — never to no window at all, so a cold
+	// return still gets the history it needs without being asked.
+	Since Since
 }
+
+// Since names an explicit time window a caller can ask for directly, instead
+// of relying on a phrase inside Task. It exists because the phrase parser in
+// package when is deliberately narrow — it recognises a fixed set of English
+// shapes and nothing else — and an agent or a UI control needs a knob that
+// always works.
+type Since string
+
+const (
+	// SinceInferred is the zero value: no explicit window was asked for. Task's
+	// own words still take precedence when they parse to one; failing that, the
+	// pack infers a window from the gap since the last checkpoint.
+	SinceInferred Since = ""
+	SinceDay      Since = "day"
+	SinceWeek     Since = "week"
+	SinceMonth    Since = "month"
+	SinceQuarter  Since = "quarter"
+	SinceYear     Since = "year"
+	// SinceAll explicitly disables windowing — the override for "no, I really
+	// do want the whole history", which inference alone can never produce.
+	SinceAll Since = "all"
+)
 
 // A Pack is everything relevant to one task, gathered from every store, ready to
 // be rendered into a model's context window.
@@ -284,9 +312,23 @@ func (p *Pack) applyWindow(req Request) {
 	if req.Now > 0 {
 		now = time.Unix(req.Now, 0)
 	}
+	// An English phrase in the task is an explicit human statement and always
+	// wins over Since, which is a knob a caller set without necessarily
+	// meaning to override wording the user actually typed.
 	w, ok := when.Parse(req.Task, now)
 	if !ok {
-		return
+		switch req.Since {
+		case SinceAll, SinceInferred:
+			// Nothing explicit and nothing parsed: SinceInferred defers to
+			// inference (added on top of this in a later change) rather than
+			// windowing at all, for now — see the Since doc comment.
+			return
+		default:
+			w, ok = when.Trailing(string(req.Since), now)
+			if !ok {
+				return
+			}
+		}
 	}
 
 	notes := make([]index.Hit, 0, len(p.Notes))

@@ -120,6 +120,7 @@ var toolDefs = []map[string]any{
 			"task":    str("what you are about to do, in a sentence — this decides what gets retrieved"),
 			"project": str("optional: narrow to one project, file path, or topic"),
 			"budget":  intSchema("approximate token ceiling for the result (default 4000)"),
+			"since":   enumStr("optional: how far back to look, overriding the inferred window", "day", "week", "month", "quarter", "year", "all"),
 		}, "task"),
 	},
 	{
@@ -130,6 +131,7 @@ var toolDefs = []map[string]any{
 			"project": str("the project to resume"),
 			"agent":   str("optional: your name, e.g. 'claude' or 'cursor', recorded in the trail"),
 			"budget":  intSchema("approximate token ceiling for the result (default 4000)"),
+			"since":   enumStr("optional: how far back to look, overriding the inferred window", "day", "week", "month", "quarter", "year", "all"),
 		}, "project"),
 	},
 	{

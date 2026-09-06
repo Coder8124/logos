@@ -134,6 +134,32 @@ func TestUndatedIsAlwaysInside(t *testing.T) {
 	}
 }
 
+// Trailing must produce the same shape a matched phrase would, without a
+// phrase to match — the whole reason a caller reaches for it instead of Parse.
+func TestTrailingResolvesEveryKnownUnit(t *testing.T) {
+	for _, unit := range []string{"day", "week", "month", "quarter", "year"} {
+		w, ok := Trailing(unit, now)
+		if !ok {
+			t.Fatalf("Trailing(%q) reported unknown", unit)
+		}
+		if !w.To.Equal(now) {
+			t.Errorf("Trailing(%q).To = %v, want %v", unit, w.To, now)
+		}
+		if !w.From.Before(w.To) {
+			t.Errorf("Trailing(%q).From must precede To", unit)
+		}
+	}
+}
+
+func TestTrailingDeclinesAnUnknownUnit(t *testing.T) {
+	if _, ok := Trailing("fortnight-and-a-half", now); ok {
+		t.Error("an unrecognised unit should report false, not a guessed window")
+	}
+	if _, ok := Trailing("", now); ok {
+		t.Error("an empty unit should report false")
+	}
+}
+
 // The window is only defensible if the reader is told what was assumed.
 func TestStringNamesThePhraseAndTheDates(t *testing.T) {
 	w, ok := Parse("what was I working on about five weeks ago?", now)

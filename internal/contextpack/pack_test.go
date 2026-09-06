@@ -472,6 +472,84 @@ Retail is moving to $229 after the optics quote came back.
 	}
 }
 
+// Since must narrow the pack even when Task carries no time phrase at all —
+// the whole reason it exists is to give a caller a window when there is
+// nothing to parse.
+func TestExplicitSinceNarrowsThePackWithoutATaskPhrase(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+
+	now := time.Now()
+	ago := func(days int) string { return now.AddDate(0, 0, -days).Format("2006-01-02") }
+	if err := writeNote(ix, "topics/old-note.md", fmt.Sprintf(`---
+type: topic
+title: An old note
+first_seen: %s
+---
+Something recorded three months ago, well outside a week window.
+`, ago(90))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Since: SinceWeek, Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window == nil {
+		t.Fatal("an explicit Since must produce a window even with no task phrase")
+	}
+	for _, h := range p.Notes {
+		if h.Slug == "topics/old-note" {
+			t.Error("a note 90 days old survived an explicit since:week window")
+		}
+	}
+}
+
+// SinceAll is the explicit override for "no, the whole history" and must
+// disable windowing outright, not merely fail to narrow it.
+func TestSinceAllDisablesWindowing(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what's the status", Hint: "kestrel-one", Since: SinceAll, Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window != nil {
+		t.Errorf("since:all must produce no window, got %v", p.Window)
+	}
+}
+
+// An English time phrase in Task is an explicit human statement and must win
+// over Since even when the two disagree — Since is a knob set without
+// necessarily meaning to override wording the user actually typed.
+func TestATaskPhraseOverridesAnExplicitSince(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+	now := time.Now()
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "what happened yesterday", Hint: "kestrel-one", Since: SinceYear, Now: now.Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Window == nil {
+		t.Fatal("expected a window from the task phrase")
+	}
+	if p.Window.Phrase != "yesterday" {
+		t.Errorf("task phrase should have won over since:year, got phrase %q", p.Window.Phrase)
+	}
+}
+
 // A task with no time expression must be left entirely alone. The cost of a
 // filter firing on a phrase nobody meant temporally is context removed
 // silently, which is worse than no filter at all.

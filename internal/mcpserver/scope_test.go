@@ -382,7 +382,7 @@ func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
 		}
 	}
 
-	out, err := b.resume("", "cursor", 0)
+	out, err := b.resume("", "cursor", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestAFreshWorktreeInheritsTheProjectsCheckpointAndSaysSo(t *testing.T) {
 	}
 
 	fresh := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-a")}}
-	out, err := fresh.resume("", "cursor", 0)
+	out, err := fresh.resume("", "cursor", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
