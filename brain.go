@@ -49,19 +49,21 @@
 // it for embeddings. If none is running, everything still works: retrieval
 // falls back to lexical and graph traversal, which needs no model at all. Pass
 // WithoutEmbedding to skip discovery entirely — useful in tests and CI.
+// The exported surface is split across files by the question a caller is asking:
+// context.go (what do I need to start), continuity.go (record where I stopped),
+// deadend.go (has this been ruled out), memory.go (what's known about the user),
+// vault.go (search the notes), serve.go (put a host in front of it). This file
+// holds the package doc, the domain types, and opening and closing a vault.
 package brain
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	"github.com/Coder8124/brain/internal/capture"
 	"github.com/Coder8124/brain/internal/contextpack"
 	"github.com/Coder8124/brain/internal/deadend"
 	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/mcpserver"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
@@ -208,211 +210,3 @@ func (b *Brain) Vault() string { return b.ix.Vault }
 // Embedded reports whether a model runtime was found. When false, retrieval is
 // lexical and graph-only — still useful, measurably weaker.
 func (b *Brain) Embedded() bool { return b.embed != nil && b.embedModel != "" }
-
-// --- context: the one an agent should reach for first -----------------------
-
-// A Request describes what you are about to do. Task is the important field:
-// "continue the MCP implementation" retrieves differently from a project name
-// alone, because it says which corner of the project matters right now.
-type Request struct {
-	// Task is what you are about to do, in a sentence. Required.
-	Task string
-	// Project narrows to one piece of work. Optional — when empty, the task
-	// text is matched against known projects.
-	Project string
-	// Budget is the approximate token ceiling. Zero means 4000.
-	Budget int
-}
-
-// Context assembles everything bearing on a task: where the last agent stopped,
-// what it ruled out, uncommitted progress since, the project dossier, the prose
-// of relevant notes, notes reached one hop through the user's own links,
-// memories with their provenance, and open commitments — spent against a token
-// budget and cited by source.
-//
-// This is the call to make at the start of a task, in preference to Recall.
-// Recall answers "what do you know about X"; this answers "give me what I need
-// to do X", which is not a longer version of the same question.
-func (b *Brain) Context(req Request) (*Context, error) {
-	pack, err := contextpack.Build(b.ix, b.embed, b.embedModel, contextpack.Request{
-		Task: req.Task, Hint: req.Project, Budget: req.Budget,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &pack, nil
-}
-
-// Resume picks up a project where the last agent left off. Equivalent to
-// Context with a continuation task, and named separately because that is how
-// people think about it.
-func (b *Brain) Resume(project string) (*Context, error) {
-	if strings.TrimSpace(project) == "" {
-		return nil, fmt.Errorf("resume needs a project")
-	}
-	return b.Context(Request{Task: "resume work on " + project, Project: project})
-}
-
-// --- continuity -------------------------------------------------------------
-
-// Note records one line of progress. Cheap and meant to be called often — after
-// a decision, a dead end, a surprising discovery. Notes stay uncommitted until
-// Checkpoint folds them into a durable record, so use them freely rather than
-// saving everything for the end.
-func (b *Brain) Note(project, text string) error {
-	_, err := session.AddNote(b.ix.DB, project, b.agent, text)
-	return err
-}
-
-// Notes returns a project's uncommitted progress — work that happened but was
-// never written down properly, including anything left by an agent that died
-// mid-task.
-func (b *Brain) Notes(project string) ([]Note, error) {
-	return session.Uncommitted(b.ix.DB, project)
-}
-
-// Checkpoint commits where you stopped to a markdown note in the vault and
-// returns its slug.
-//
-// Call it before finishing a session, not after. Anything omitted is lost, and
-// the field that matters most is Failed: approaches that did not work are the
-// expensive knowledge, and without them the next agent repeats them.
-func (b *Brain) Checkpoint(c Checkpoint) (string, error) {
-	if c.Agent == "" {
-		c.Agent = b.agent
-	}
-	if err := session.Commit(b.ix.DB, b.ix.Vault, &c); err != nil {
-		return "", err
-	}
-	return c.Slug, nil
-}
-
-// History returns a project's checkpoints, newest first.
-func (b *Brain) History(project string, n int) ([]Checkpoint, error) {
-	return session.History(b.ix.Vault, project, n)
-}
-
-// Projects lists the projects that have at least one checkpoint.
-func (b *Brain) Projects() ([]string, error) {
-	return session.Projects(b.ix.Vault)
-}
-
-// --- the intercept ----------------------------------------------------------
-
-// Tried reports whether an approach has already been ruled out, searching every
-// dead end recorded across the whole vault — other projects included, and
-// findings left in working notes by agents that no longer exist.
-//
-// Call this before proposing a solution, especially when it seems obvious:
-// obvious approaches are the ones already attempted. Pass the project being
-// worked on so rulings from elsewhere can be flagged as possibly not
-// transferring. An empty result means no record, which is not the same as
-// approval.
-func (b *Brain) Tried(approach, project string) ([]Ruling, error) {
-	return deadend.Check(b.ix.Vault, b.ix.DB, b.embed, b.embedModel, approach, project, 6)
-}
-
-// Why reports what was being decided when a file was worked on: the decisions
-// taken and the approaches ruled out while it was being touched, newest first.
-//
-// The complement to `git blame`, which answers who and when and cannot answer
-// why. Matching on the path is deliberately loose — an agent records whatever
-// path it had in hand and a caller asks with whatever they have — so a bare
-// filename or a partial path both resolve.
-//
-// It reads markdown from the vault, so it needs no model and no index. limit of
-// 0 means every match.
-func (b *Brain) Why(file string, limit int) ([]Mention, error) {
-	return session.Touching(b.ix.Vault, file, limit)
-}
-
-// Explain renders the result of Tried as prose to put in front of a model,
-// taking the same approach string so the output can quote what was proposed. A
-// recorded failure is evidence, not a veto, and the wording says so. An empty
-// slice renders as an explicit "no record", which is worth showing: silence and
-// approval are different answers.
-func Explain(approach string, rulings []Ruling) string {
-	return deadend.Render(approach, rulings)
-}
-
-// --- memory -----------------------------------------------------------------
-
-// Remember stores something durable about the user and reports what happened:
-// whether it created a fact or corroborated one already held. Near-identical
-// statements reinforce rather than duplicate.
-func (b *Brain) Remember(text string, kind Kind) (Receipt, error) {
-	if kind == "" {
-		kind = Fact
-	}
-	return memory.Store(b.ix.DB, b.embed, b.embedModel, &Memory{
-		Text: text, Kind: kind, Salience: 0.7, Source: "sdk",
-	})
-}
-
-// Recall retrieves what is known about the user relevant to a query.
-func (b *Brain) Recall(query string, k int) ([]Memory, error) {
-	if k <= 0 {
-		k = 5
-	}
-	return memory.Recall(b.ix.DB, b.embed, b.embedModel, query, k)
-}
-
-// Memories returns everything currently held.
-func (b *Brain) Memories() ([]Memory, error) { return memory.All(b.ix.DB) }
-
-// Forget deletes a memory by id.
-func (b *Brain) Forget(id int64) error { return memory.Forget(b.ix.DB, id) }
-
-// --- vault ------------------------------------------------------------------
-
-// Search retrieves vault notes, fusing lexical and vector rankings.
-func (b *Brain) Search(query string, k int) ([]Hit, error) {
-	if k <= 0 {
-		k = 8
-	}
-	if !b.Embedded() {
-		return b.ix.LexicalSearch(query, k)
-	}
-	return b.ix.HybridSearch(b.embed, b.embedModel, query, k)
-}
-
-// Ask retrieves and then answers in prose, citing what it used. Requires a chat
-// model; without one it returns an error rather than a guess.
-func (b *Brain) Ask(question string, k int) (string, []Hit, error) {
-	if b.rt == nil || b.chatModel == "" {
-		return "", nil, fmt.Errorf("ask needs a local model runtime; none was found")
-	}
-	return b.ix.Ask(b.embed, b.embedModel, b.chatModel, question, k, 0)
-}
-
-// Index reconciles the vault into the cache: notes, embeddings and memories.
-// Call it after writing files into the vault by other means, or on a watcher.
-func (b *Brain) Index() (SyncReport, error) {
-	rep, err := b.ix.Sync()
-	if err != nil {
-		return rep, err
-	}
-	if b.Embedded() {
-		if _, err := b.ix.EmbedPending(b.embed, b.embedModel, 32); err != nil {
-			return rep, err
-		}
-	}
-	_, err = b.ix.SyncMemories(b.embed, b.embedModel)
-	return rep, err
-}
-
-// --- serving ----------------------------------------------------------------
-
-// ServeMCP speaks the Model Context Protocol over the given streams, exposing
-// this vault's tools to any MCP host. Use it to put your own product in front
-// of brain's memory rather than reimplementing the tool surface.
-//
-// A missing model runtime is not an error, matching Open: retrieval degrades to
-// lexical and every continuity tool works untouched. Refusing to serve would
-// have contradicted the rest of this API, which is built to keep working on a
-// machine with no models on it.
-//
-// It blocks until the input stream closes.
-func (b *Brain) ServeMCP(in io.Reader, out io.Writer) error {
-	return mcpserver.New(b.ix.DB, b.rt, b.ix.Vault).Serve(in, out)
-}
