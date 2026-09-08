@@ -95,6 +95,15 @@ func ftsQuery(q string) string {
 // — it only trusts the ordering each method is confident about. k=60 is the
 // value from the original RRF paper and is not sensitive.
 func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) ([]Hit, error) {
+	// No embedder, or embeddings turned off at the caller (BRAIN_EMBED=off): the
+	// FTS arm is the whole answer. Folding this in here rather than at each call
+	// site is what makes `ask` degrade the same way `search` does — before, a
+	// nil provider panicked in Embed and an "off" model name came back from the
+	// runtime as a 404.
+	if p == nil || strings.TrimSpace(model) == "" {
+		return ix.LexicalSearch(query, k)
+	}
+
 	// Over-fetch each arm so fusion has material to work with.
 	pool := k * 4
 	if pool < 20 {

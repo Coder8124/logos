@@ -157,9 +157,11 @@ BENCHMARKS
                                       LongMemEval retrieval recall; the extract→recall loop
 
 ENV
-    BRAIN_VAULT   path to the vault (default ~/brain)
-    BRAIN_MODEL   chat model (default %s)
-    BRAIN_EMBED   embed model (default %s)
+    BRAIN_VAULT     path to the vault (default ~/brain)
+    BRAIN_MODEL     chat model (default %s)
+    BRAIN_EMBED     embed model (default %s); "off" disables embeddings, search stays lexical
+    BRAIN_RUNTIME   OpenAI-compatible base URL to use instead of auto-discovery
+                    (BRAIN_RUNTIME_KEY for a bearer token)
 `, defaultChatModel, defaultEmbedModel)
 }
 
@@ -393,6 +395,20 @@ func env(key, def string) string {
 	return def
 }
 
+// embedModel resolves the embedding model, honouring an explicit request for
+// none. BRAIN_EMBED=off (also none/no/false/disabled) is the shell equivalent
+// of brain.WithoutEmbedding(): paraphrase-tolerant search is off, everything
+// else works. ok is false when embeddings are disabled, and callers must not
+// pass the returned string to a runtime — it is empty.
+func embedModel() (model string, ok bool) {
+	switch v := env("BRAIN_EMBED", defaultEmbedModel); strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "none", "no", "false", "disabled":
+		return "", false
+	default:
+		return v, true
+	}
+}
+
 // vaultPath resolves where the vault lives. The rule itself lives in
 // internal/vault, because the desktop app needs the same answer and having its
 // own copy is how it came to open a different vault than the CLI on the same
@@ -401,10 +417,21 @@ func vaultPath() string { return vault.Path() }
 
 // findProvider picks the first running local runtime. Cloud BYOK slots in here
 // later by reading a configured base URL and key.
+//
+// BRAIN_RUNTIME overrides discovery with an explicit OpenAI-compatible base URL
+// (BRAIN_RUNTIME_KEY for a bearer token). Discovery only probes localhost ports,
+// so this is the only way to point brain at a runtime on another host, or at one
+// on a non-standard port — and the only way to exercise the no-runtime path on a
+// machine that happens to have Ollama up.
 func findProvider() (*provider.Provider, error) {
+	if url := os.Getenv("BRAIN_RUNTIME"); url != "" {
+		p := provider.New("configured", url, os.Getenv("BRAIN_RUNTIME_KEY"))
+		fmt.Fprintf(os.Stderr, "· runtime %s (BRAIN_RUNTIME)\n", p.BaseURL)
+		return p, nil
+	}
 	found := provider.Discover()
 	if len(found) == 0 {
-		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty")
+		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty, or set BRAIN_RUNTIME")
 	}
 	p := found[0]
 	fmt.Fprintf(os.Stderr, "· %s at %s (%d models)\n", p.Provider.Name, p.Provider.BaseURL, len(p.Models))
@@ -678,9 +705,14 @@ func runIndex(watch bool) error {
 	// not, so editing a note on a machine without Ollama meant the change was
 	// invisible until a model appeared. Worse, `brain checkpoint` tells the user
 	// to run exactly this command.
+	embed, embedOK := embedModel()
 	p, perr := findProvider()
-	embedModel := env("BRAIN_EMBED", defaultEmbedModel)
-	if perr != nil {
+	switch {
+	case !embedOK:
+		fmt.Fprintln(os.Stderr,
+			"· embeddings off (BRAIN_EMBED) — indexing text only")
+		p = nil // the pass below keys the embedding work off a nil provider
+	case perr != nil:
 		fmt.Fprintln(os.Stderr,
 			"· no model runtime — indexing text only; run this again with Ollama up to add embeddings")
 	}
@@ -711,7 +743,7 @@ func runIndex(watch bool) error {
 		// the notes and left every remembered fact out of the cache until some
 		// later run happened to have Ollama up. "Delete the index, lose
 		// nothing" cannot depend on a model being reachable.
-		mems, err := ix.SyncMemories(p, embedModel)
+		mems, err := ix.SyncMemories(p, embed)
 		if err != nil {
 			return err
 		}
@@ -731,7 +763,7 @@ func runIndex(watch bool) error {
 			return nil
 		}
 
-		embedded, err := ix.EmbedPending(p, embedModel, 32)
+		embedded, err := ix.EmbedPending(p, embed, 32)
 		if err != nil {
 			return err
 		}
@@ -767,8 +799,11 @@ func search(query string) error {
 	// to the lexical arm alone. Exact terms — names, error codes, IDs — are found
 	// as well as they ever were; only paraphrase suffers.
 	var hits []index.Hit
-	if p, perr := findProvider(); perr == nil {
-		hits, err = ix.HybridSearch(p, env("BRAIN_EMBED", defaultEmbedModel), query, 8)
+	if model, ok := embedModel(); !ok {
+		fmt.Fprintln(os.Stderr, "· embeddings off (BRAIN_EMBED) — searching lexically")
+		hits, err = ix.LexicalSearch(query, 8)
+	} else if p, perr := findProvider(); perr == nil {
+		hits, err = ix.HybridSearch(p, model, query, 8)
 	} else {
 		fmt.Fprintln(os.Stderr, "· no model runtime — searching lexically")
 		hits, err = ix.LexicalSearch(query, 8)
@@ -794,8 +829,14 @@ func ask(question string) error {
 		return err
 	}
 
-	answer, hits, err := ix.Ask(p,
-		env("BRAIN_EMBED", defaultEmbedModel),
+	// ask still needs a chat model to synthesise the answer; an empty embed
+	// model (BRAIN_EMBED=off) only sends retrieval down the lexical arm inside
+	// HybridSearch rather than 404ing "off" at the runtime.
+	model, ok := embedModel()
+	if !ok {
+		fmt.Fprintln(os.Stderr, "· embeddings off (BRAIN_EMBED) — retrieving lexically")
+	}
+	answer, hits, err := ix.Ask(p, model,
 		env("BRAIN_MODEL", defaultChatModel),
 		question, 6, 6000)
 	if err != nil {
