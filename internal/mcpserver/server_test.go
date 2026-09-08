@@ -511,6 +511,61 @@ func TestRememberReturnsAReceipt(t *testing.T) {
 	}
 }
 
+// A procedure with no trap is a convention, and conventions belong in
+// CONTRIBUTING.md, not the vault — the trap requirement is the whole
+// editorial policy, so remember must refuse rather than store it as a Fact.
+func TestRememberProcedureWithoutATrapIsRefused(t *testing.T) {
+	t.Setenv("BRAIN_TRUST_MCP", "1")
+	c, db, _ := startServer(t)
+	handshake(t, c)
+
+	out, isErr := c.callText(t, "remember", map[string]any{
+		"text": "route: run go build before committing",
+		"kind": "procedure",
+	})
+	if !isErr {
+		t.Fatalf("a trapless procedure should be refused, got %q", out)
+	}
+	if !strings.Contains(out, "trap") {
+		t.Errorf("the refusal should name the reason, got %q", out)
+	}
+
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM memories").Scan(&n)
+	if n != 0 {
+		t.Errorf("a refused write must not land in the vault, got %d rows", n)
+	}
+}
+
+// A well-formed procedure stores as its own kind, not silently as a Fact —
+// the failure the pre-Step-4 code had, where an unrecognized kind string
+// defaulted through rather than being typed or refused.
+func TestRememberProcedureStoresAsProcedureKind(t *testing.T) {
+	t.Setenv("BRAIN_TRUST_MCP", "1")
+	c, db, _ := startServer(t)
+	handshake(t, c)
+
+	out, isErr := c.callText(t, "remember", map[string]any{
+		"text": "route: run the chaos tier before calling a durability fix done | " +
+			"trap: go test ./... passes with the bug present",
+		"kind": "procedure",
+	})
+	if isErr {
+		t.Fatalf("remember reported error: %s", out)
+	}
+	if !strings.Contains(out, "procedure") {
+		t.Errorf("the receipt should name the kind it stored, got %q", out)
+	}
+
+	var kind string
+	if err := db.QueryRow("SELECT kind FROM memories LIMIT 1").Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "procedure" {
+		t.Errorf("stored kind = %q, want %q", kind, "procedure")
+	}
+}
+
 // BRAIN_TRUST_MCP is the escape hatch for someone who has decided their MCP
 // clients do not need a human in the loop — the pre-quarantine behaviour,
 // available on purpose rather than lost.
