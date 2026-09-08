@@ -89,6 +89,14 @@ var failureMarkers = []string{
 	"vetoed", "rejected", "ruled out", "dead end", "no movement",
 	"not viable", "unworkable", "gave up", "abandoned", "backed out",
 	"blocked by", "no good", "not possible", "cannot", "can't ",
+	// The outcome that made someone stop, not the verdict they filed afterward.
+	// These are the common phrasings a checkpoint's Failed list never sees
+	// because the agent wrote them into a note and was gone before it could
+	// promote them. Each one is a conclusion on its own — "slow" is a status,
+	// "too slow" is a decision — so widening here does not cost precision.
+	"too slow", "too expensive", "too costly", "not worth it",
+	"reverted", "rolled back", "made it worse", "made things worse",
+	"dead-end", "gave up on",
 }
 
 func readsAsFailure(s string) bool {
