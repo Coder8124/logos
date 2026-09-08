@@ -15,7 +15,8 @@ approach already ruled out, is the most expensive mistake available here.
 
 Before something substantial, call **`before_you_try`** with the approach in a
 sentence — it checks whether this exact idea was tried and abandoned, here or
-elsewhere. Before changing code you don't understand, call **`why`** with the
+elsewhere, and surfaces any recorded way to do it that already has the trap
+worked out. Before changing code you don't understand, call **`why`** with the
 file path.
 
 ## Write as you go, not at the end
@@ -23,6 +24,14 @@ file path.
 - **`remember`** — a durable fact: a decision and its reason, a constraint, a
   stated preference. Not a file's contents, not something readable off the code
   in ten seconds. Test: still true and useful next month?
+- **`remember` with `kind: procedure`** — how to do something here, when the
+  obvious way has a trap in it: `route: <what to do> | trap: <what goes wrong
+  without it> | verify: <command that proves it worked> | layer:
+  implementation|design|environment|dependency|requirement | scope:
+  local|version-bound|general | evidence: verified|once|reported`. `route` and
+  `trap` are both required — a procedure with no trap is a convention, and
+  belongs in CONTRIBUTING.md instead; `remember` refuses it rather than storing
+  it as a plain fact.
 - **`note_progress`** — one line, cheap, survives your context running out.
 
 Write things down as you learn them rather than saving everything for a final

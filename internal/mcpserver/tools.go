@@ -69,7 +69,7 @@ var toolDefs = []map[string]any{
 		"description": "Save something durable about the user: a preference, a fact about a person, standing context, or a decision. Use when the user states something worth remembering (e.g. 'I prefer short replies', 'my CFO is Sarah'). Scoped to the current project by default; set global for facts true everywhere. Local only, never uploaded. May queue for review instead of storing immediately — report what the response says, not that it's already remembered." + relay,
 		"inputSchema": obj(map[string]any{
 			"text":    str("the thing to remember, as a clear standalone statement"),
-			"kind":    enumStr("what kind of memory it is", "preference", "person", "context", "fact", "procedure"),
+			"kind":    enumStr("what kind of memory it is; procedure needs text formatted as `route: ... | trap: ...`, naming what goes wrong without it", "preference", "person", "context", "fact", "procedure"),
 			"project": str("optional: override the project this belongs to; defaults to the folder you are working in"),
 			"global":  boolSchema("set true for a fact that applies to every project, not just this one"),
 		}, "text"),
