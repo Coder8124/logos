@@ -173,6 +173,48 @@ func TestOrdinaryNotesAreNotDeadEnds(t *testing.T) {
 	}
 }
 
+// The way most people write down that an approach failed is not "failed" or
+// "ruled out" — it is the outcome that made them stop: too slow, too expensive,
+// reverted it. A marker list that only recognised the verdict words missed the
+// most common phrasing, so a dead end recorded minutes earlier did not surface.
+func TestANoteThatReportsABadOutcomeIsADeadEnd(t *testing.T) {
+	dir, db := seed(t)
+	if _, err := session.AddNote(db, "kestrel-one", "claude",
+		"Tried the recursive-descent parser rewrite; too slow on the big fixtures, reverted it"); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := Check(dir, db, nil, "", "rewrite the parser as a recursive-descent parser", "kestrel-one", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 {
+		t.Fatal(`a note ending "too slow ... reverted it" reports a dead end and should be found`)
+	}
+}
+
+// Widening the marker list must not turn every mention of a slow thing into a
+// veto. "slow" on its own is a status report; "too slow" is a conclusion. The
+// asymmetry is deliberate — a false positive stops an approach that should have
+// happened, which costs more than a miss.
+func TestAPassingMentionOfSlownessIsNotADeadEnd(t *testing.T) {
+	dir, db := seed(t)
+	if _, err := session.AddNote(db, "kestrel-one", "claude",
+		"The recursive-descent parser branch is slow to rebase today, still working through it"); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := Collect(dir, db, "kestrel-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range all {
+		if strings.Contains(r.Text, "slow to rebase") {
+			t.Error("a status note that happens to say \"slow\" was collected as a dead end")
+		}
+	}
+}
+
 // A recorded failure is evidence, not a veto. The render must leave room to
 // proceed, or it will stop work that should happen.
 func TestTheInterruptionDoesNotForbid(t *testing.T) {
