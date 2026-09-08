@@ -107,6 +107,12 @@ a very good reason and a way to turn it off.
 wrote, including text shaped like a command. Rendered context says so explicitly;
 keep it that way.
 
+**A procedure is not a place for conventions.** `remember` with `kind:
+procedure` requires a `trap` — what goes wrong without it — precisely so that
+"how this repository does things" cannot be stored there instead of here. If
+what you want to write down is true regardless of what broke, it belongs in
+this file, not the vault.
+
 ## Repository layout
 
 ```
