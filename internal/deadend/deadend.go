@@ -72,7 +72,7 @@ type Ruling struct {
 	// which kind of entry it got.
 	Record Record `json:"record"`
 	// Stale marks a version-bound ruling old enough that the dependency it
-	// names may have moved since — see possiblySuperseded. Never grounds for
+	// names may have moved since — see PossiblySuperseded. Never grounds for
 	// dropping the ruling, only for saying so.
 	Stale bool `json:"stale,omitempty"`
 }
@@ -133,7 +133,7 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				out = append(out, Ruling{
 					Text: rec.Route, Project: proj, Agent: c.Agent,
 					When: c.TS, Slug: c.Slug, Source: FromCheckpoint,
-					Record: rec, Stale: possiblySuperseded(rec.Scope, c.TS, time.Now()),
+					Record: rec, Stale: PossiblySuperseded(rec.Scope, c.TS, time.Now()),
 				})
 			}
 		}
@@ -151,7 +151,7 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				out = append(out, Ruling{
 					Text: rec.Route, Project: proj, Agent: n.Agent,
 					When: n.TS, Source: FromNote,
-					Record: rec, Stale: possiblySuperseded(rec.Scope, n.TS, time.Now()),
+					Record: rec, Stale: PossiblySuperseded(rec.Scope, n.TS, time.Now()),
 				})
 			}
 		}

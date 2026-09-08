@@ -179,12 +179,12 @@ func actionOf(s string) Action {
 // silently stops applying.
 const staleAfter = 90 * 24 * time.Hour
 
-// possiblySuperseded reports whether a version-bound ruling is old enough
+// PossiblySuperseded reports whether a version-bound ruling is old enough
 // that the dependency it names may have moved since. It is a time-based
 // guess, not a check against an actual manifest — Logos has no dependency
 // graph to consult — so it is always surfaced as a caveat, never a silent
 // drop and never a hard "this no longer applies".
-func possiblySuperseded(scope Scope, when int64, now time.Time) bool {
+func PossiblySuperseded(scope Scope, when int64, now time.Time) bool {
 	if scope != ScopeVersionBound || when == 0 {
 		return false
 	}
