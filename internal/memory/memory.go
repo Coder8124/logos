@@ -793,7 +793,18 @@ func Count(db *sql.DB) (int, error) {
 
 func Forget(db *sql.DB, id int64) error {
 	var k string
-	db.QueryRow("SELECT kind FROM memories WHERE id = ?", id).Scan(&k)
+	if err := db.QueryRow("SELECT kind FROM memories WHERE id = ?", id).Scan(&k); err != nil {
+		if err == sql.ErrNoRows {
+			// A DELETE on a missing id would still return nil (zero rows
+			// affected is not an error to database/sql), which is how this used
+			// to report success on an id nobody ever created — logging a fake
+			// "forgotten" line into memory_log along the way. Catching the
+			// absence here, before any lock or log write, is what makes the
+			// failure visible instead of swallowed.
+			return fmt.Errorf("no memory #%d", id)
+		}
+		return err
+	}
 	// One lock across all three steps, for the reason Store gives: between the
 	// delete and the flush the file still holds the line, and a reconcile in
 	// that window would restore the memory the user just forgot.

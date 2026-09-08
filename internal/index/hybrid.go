@@ -1,8 +1,10 @@
 package index
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
 )
 
@@ -66,7 +68,44 @@ func (ix *Index) LexicalSearch(query string, k int) ([]Hit, error) {
 		h.Score = 1.0 / float64(rank+1)
 		hits = append(hits, h)
 	}
-	return hits, nil
+	return append(hits, ix.memoryHits(nil, "", query, k)...), nil
+}
+
+// memoryHits pulls in what internal/memory knows, converted to Hits so
+// `search`/`ask` see the same facts `recall` and `context` already do.
+//
+// Before this, brain search and brain ask queried only notes/embeddings —
+// `memory add` a fact, `brain index`, then `brain search`/`ask` on the exact
+// text came back empty, because internal/memory keeps its own table and its
+// own ranking (memory.Recall), wired only into the MCP recall tool. This is
+// the fix: reuse memory.Recall itself — it already applies the pin/quarantine/
+// exclude rules and already degrades to salience-first All() when p is nil —
+// rather than duplicating that ranking logic here.
+//
+// p and model come from the same guard HybridSearch/Ask already apply
+// (nil / empty means no embedder, or BRAIN_EMBED=off), so a memory-aware
+// caller degrades exactly the way the note-only path already does.
+func (ix *Index) memoryHits(p *provider.Provider, model, query string, k int) []Hit {
+	mems, err := memory.Recall(ix.DB, p, model, query, k)
+	if err != nil {
+		// A memory-side failure should degrade retrieval, not break it — search
+		// already tolerates a malformed FTS query the same way.
+		return nil
+	}
+	hits := make([]Hit, 0, len(mems))
+	for rank, m := range mems {
+		hits = append(hits, Hit{
+			Slug:  fmt.Sprintf("memory#%d", m.ID),
+			Title: string(m.Kind),
+			Kind:  "memory",
+			Body:  m.Text,
+			// Interleaved with note hits by rank rather than a shared score:
+			// memory's salience/confidence blend and notes' RRF fusion are not
+			// on a comparable scale, and forcing one would misrepresent both.
+			Score: 1.0 / float64(rank+1),
+		})
+	}
+	return hits
 }
 
 // ftsQuery turns free text into a safe FTS5 OR-query. FTS5 treats bare
@@ -154,7 +193,7 @@ func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) 
 	if len(fused) > k {
 		fused = fused[:k]
 	}
-	return fused, nil
+	return append(fused, ix.memoryHits(p, model, query, k)...), nil
 }
 
 func (ix *Index) HitBySlug(slug string) (Hit, bool) {

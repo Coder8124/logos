@@ -112,6 +112,33 @@ func TestForget(t *testing.T) {
 	}
 }
 
+// A missing id used to return nil — a DELETE affecting zero rows is not an
+// error to database/sql — so `brain memory forget 999` printed "forgotten."
+// for a memory that never existed, and even logged a fake event for it.
+func TestForgetANonexistentIDReturnsAnError(t *testing.T) {
+	db := testDB(t)
+	before, _ := Count(db)
+
+	err := Forget(db, 999999)
+	if err == nil {
+		t.Fatal("forgetting a nonexistent id should error, not report success")
+	}
+	if !contains(err.Error(), "999999") {
+		t.Errorf("error should name the id that wasn't found, got %q", err.Error())
+	}
+
+	after, _ := Count(db)
+	if after != before {
+		t.Errorf("forgetting a nonexistent id should not change the store: before=%d after=%d", before, after)
+	}
+	log, _ := TimelineInProject(db, "", 10)
+	for _, e := range log {
+		if e.Event == string(EvForgotten) {
+			t.Errorf("no memory was forgotten, but a %q event was logged: %+v", EvForgotten, e)
+		}
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
