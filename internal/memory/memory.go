@@ -37,6 +37,14 @@ const (
 	// Context: standing situational context ("launching in Q4", "hiring two
 	// engineers") — what lets the assistant anticipate.
 	Context Kind = "context"
+	// Procedure: how to do something in this codebase, with a trap — what
+	// goes wrong if you don't. The mirror of a recorded dead end: negative
+	// knowledge stops an agent repeating a mistake, this stops it repeating
+	// the discovery that the mistake was avoidable. Never surfaced by
+	// ordinary recall or in a context pack (see recallScoped, Pinned) — its
+	// only reader is before_you_try, via RecallProcedures. See
+	// internal/procedure for the record shape and retrieval ranking.
+	Procedure Kind = "procedure"
 )
 
 // Memory is one remembered thing.
@@ -472,12 +480,12 @@ func sameFact(incoming, existing string) bool {
 func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) ([]Memory, error) {
 	if p == nil {
 		mems, err := All(db) // no embedding backend: fall back to everything, salience-first
-		return excludeNever(mems), err
+		return excludeNever(filterKind(mems, Procedure, false)), err
 	}
 	vecs, err := p.Embed(embedModel, []string{query})
 	if err != nil || len(vecs) == 0 {
 		mems, err := All(db)
-		return excludeNever(mems), err
+		return excludeNever(filterKind(mems, Procedure, false)), err
 	}
 	mems, err := recallByVec(db, vecs[0], k, query)
 	if err != nil {
@@ -495,13 +503,22 @@ func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) (
 // fall back to pure vector. The +8.9-point lift this gave on LongMemEval is why
 // live recall runs it too, not just the benchmark.
 func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory, error) {
-	return recallScoped(db, query, k, queryText, "")
+	return recallScoped(db, query, k, queryText, "", Procedure, false)
 }
 
 // recallScoped is recallByVec with an optional project filter. An empty project
 // recalls everything (global view); a named project narrows to that work's own
 // memory plus global memories, which is what project-scoped recall wants.
-func recallScoped(db *sql.DB, query []float32, k int, queryText, project string) ([]Memory, error) {
+//
+// kind and onlyKind together decide how procedures are handled: every ordinary
+// recall path passes (Procedure, false) to exclude them, and RecallProcedures
+// passes (Procedure, true) to see nothing else. A procedure is instruction-
+// shaped how-to, not a fact about the user, and competes for the same 14%
+// context-pack share the memories section already has too little of — so it
+// must never reach ordinary recall by default, and this is the one place that
+// guarantee is enforced at the SQL level rather than left to callers to
+// remember.
+func recallScoped(db *sql.DB, query []float32, k int, queryText, project string, kind Kind, onlyKind bool) ([]Memory, error) {
 	// quarantined = 0 is the enforcement point for "a quarantined memory must
 	// not be returned by normal recall" — every read path funnels through here
 	// or through All/AllInProject below, so this one line is what makes the
@@ -516,6 +533,14 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string)
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
 		args = append(args, project)
+	}
+	if kind != "" {
+		if onlyKind {
+			q += " AND kind = ?"
+		} else {
+			q += " AND kind != ?"
+		}
+		args = append(args, string(kind))
 	}
 	rows, err := db.Query(q, args...)
 	if err != nil {
@@ -590,14 +615,42 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 	// project's facts is not.
 	if p == nil {
 		mems, err := AllInProject(db, project)
-		return excludeNever(mems), err
+		return excludeNever(filterKind(mems, Procedure, false)), err
 	}
 	vecs, err := p.Embed(embedModel, []string{query})
 	if err != nil || len(vecs) == 0 {
 		mems, err := AllInProject(db, project)
-		return excludeNever(mems), err
+		return excludeNever(filterKind(mems, Procedure, false)), err
 	}
-	mems, err := recallScoped(db, vecs[0], k, query, project)
+	mems, err := recallScoped(db, vecs[0], k, query, project, Procedure, false)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().Unix()
+	for _, m := range mems {
+		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
+	}
+	return mems, nil
+}
+
+// RecallProcedures returns the vault's procedure-kind memories bearing on a
+// query, unscoped by project — deliberately, mirroring deadend.Collect, which
+// searches every project on purpose because the procedure that would help was
+// quite possibly recorded on a different project than the one being asked
+// about. internal/procedure.Check takes it from here to rank and flag
+// cross-project hits; this function's only job is "every stored procedure",
+// the way Collect's is "every recorded dead end".
+func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string, k int) ([]Memory, error) {
+	if p == nil {
+		mems, err := All(db)
+		return excludeNever(filterKind(mems, Procedure, true)), err
+	}
+	vecs, err := p.Embed(embedModel, []string{query})
+	if err != nil || len(vecs) == 0 {
+		mems, err := All(db)
+		return excludeNever(filterKind(mems, Procedure, true)), err
+	}
+	mems, err := recallScoped(db, vecs[0], k, query, "", Procedure, true)
 	if err != nil {
 		return nil, err
 	}
@@ -675,15 +728,40 @@ func excludeNever(mems []Memory) []Memory {
 	return out
 }
 
+// filterKind is excludeNever's counterpart for Kind: the no-embedding fallback
+// paths read through All/AllInProject, which carry every kind, so ordinary
+// recall's fallback and RecallProcedures' fallback both need to apply the same
+// kind boundary recallScoped enforces at the SQL level on the vector path.
+// keep=false drops the named kind (ordinary recall, hiding procedures);
+// keep=true keeps only it (RecallProcedures).
+func filterKind(mems []Memory, kind Kind, keep bool) []Memory {
+	out := mems[:0]
+	for _, m := range mems {
+		if (m.Kind == kind) == keep {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // Pinned returns every active PinAlways memory in scope for a project — its
 // own plus the global ones, the same scoping AllInProject uses. This is the
 // list contextpack must include regardless of relevance score; ranking never
 // gets a vote on whether a pinned memory appears; only the budget does, and
 // only in the sense of how much of it fits — see spendMemories.
+//
+// kind != Procedure is not optional here the way it is a design choice
+// elsewhere: recallScoped's exclusion only stops a procedure from being
+// ranked into the pack, but Pinned is contextpack's separate, unconditional
+// path around ranking entirely (see recallScoped's own comment on why no
+// special case lives there for PinAlways). Without this line, pinning a
+// procedure would be the one way to put instruction-shaped vault content in
+// front of a model with no boundary line in sight — the opposite of
+// "procedures never enter the pack."
 func Pinned(db *sql.DB, project string) ([]Memory, error) {
 	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin
-	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ?`
-	args := []any{PinAlways}
+	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ? AND kind != ?`
+	args := []any{PinAlways, string(Procedure)}
 	if strings.TrimSpace(project) != "" {
 		q += " AND (project = ? OR project = '')"
 		args = append(args, project)

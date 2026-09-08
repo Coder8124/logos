@@ -174,7 +174,7 @@ func dropStamp(db *sql.DB, kind Kind) {
 
 // kinds is the fixed set, so exporting is deterministic and a kind with no
 // memories still gets its file emptied rather than left stale.
-var kinds = []Kind{Preference, Person, Fact, Context}
+var kinds = []Kind{Preference, Person, Fact, Context, Procedure}
 
 // flush writes one kind's file. Called after every mutation.
 //
@@ -430,6 +430,9 @@ func blurb(kind Kind) string {
 		return "People, and what matters about them."
 	case Context:
 		return "Standing context — what is going on around you."
+	case Procedure:
+		return "How to do something here, and the trap in doing it the obvious way. " +
+			"Read only by before_you_try — never surfaced by recall or in a context pack."
 	default:
 		return "Durable facts about you and your work."
 	}
