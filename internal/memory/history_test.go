@@ -77,7 +77,7 @@ func TestRecallScopedFiltersByProject(t *testing.T) {
 	insertProjectMem(t, db, "elysee deploy target is Friday", "elysee", []float32{1, 0.01, 0})
 	insertProjectMem(t, db, "brain uses sqlite", "brain", []float32{1, 0.01, 0})
 
-	got, err := recallScoped(db, []float32{1, 0, 0}, 10, "", "elysee")
+	got, err := recallScoped(db, []float32{1, 0, 0}, 10, "", "elysee", Procedure, false)
 	if err != nil {
 		t.Fatal(err)
 	}
