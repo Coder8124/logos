@@ -93,7 +93,7 @@ func TestParseRecordLeavesAnOrdinaryEntryAlone(t *testing.T) {
 	}
 }
 
-// possiblySuperseded is a caveat, not a verdict — it fires only for the one
+// PossiblySuperseded is a caveat, not a verdict — it fires only for the one
 // combination the plan calls out: version-bound, and old enough that the
 // dependency it names may have moved.
 func TestPossiblySupersededOnlyFlagsAnOldVersionBoundRuling(t *testing.T) {
@@ -101,19 +101,19 @@ func TestPossiblySupersededOnlyFlagsAnOldVersionBoundRuling(t *testing.T) {
 	old := now.Add(-100 * 24 * time.Hour).Unix()
 	recent := now.Add(-10 * 24 * time.Hour).Unix()
 
-	if !possiblySuperseded(ScopeVersionBound, old, now) {
+	if !PossiblySuperseded(ScopeVersionBound, old, now) {
 		t.Error("a 100-day-old version-bound ruling should be flagged")
 	}
-	if possiblySuperseded(ScopeVersionBound, recent, now) {
+	if PossiblySuperseded(ScopeVersionBound, recent, now) {
 		t.Error("a 10-day-old version-bound ruling should not be flagged")
 	}
-	if possiblySuperseded(ScopeLocal, old, now) {
+	if PossiblySuperseded(ScopeLocal, old, now) {
 		t.Error("scope:local must never be flagged, no matter the age")
 	}
-	if possiblySuperseded(ScopeGeneral, old, now) {
+	if PossiblySuperseded(ScopeGeneral, old, now) {
 		t.Error("scope:general must never be flagged, no matter the age")
 	}
-	if possiblySuperseded(ScopeVersionBound, 0, now) {
+	if PossiblySuperseded(ScopeVersionBound, 0, now) {
 		t.Error("an entry with no timestamp has no gap to reason about")
 	}
 }
