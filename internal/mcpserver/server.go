@@ -42,6 +42,7 @@ import (
 	"github.com/Coder8124/brain/internal/deadend"
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/procedure"
 	"github.com/Coder8124/brain/internal/project"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
@@ -432,6 +433,17 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 		kind = memory.Person
 	case memory.Context:
 		kind = memory.Context
+	case memory.Procedure:
+		kind = memory.Procedure
+	}
+	// A procedure earns its slot by naming what goes wrong without it — the
+	// trap test. Refuse here, with the reason, rather than storing a
+	// convention that will never be flagged as one again: a rejected write
+	// must not come back looking like a stored one.
+	if kind == memory.Procedure {
+		if err := procedure.Validate(procedure.ParseRecord(text)); err != nil {
+			return "", err
+		}
 	}
 	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
 		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,

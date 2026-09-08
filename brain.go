@@ -104,6 +104,7 @@ const (
 	Person     = memory.Person
 	Fact       = memory.Fact
 	Standing   = memory.Context
+	Procedure  = memory.Procedure
 )
 
 // Brain is an open vault. It is safe to keep for the life of a process and must
