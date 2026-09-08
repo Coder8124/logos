@@ -1,11 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // projectsCmd surfaces the work the system has detected on its own — each with
@@ -67,6 +70,19 @@ func projectCmd(args []string) error {
 		return err
 	}
 	if !ok {
+		// "no project matching" reads as "this project doesn't exist", which is
+		// false for a project that has checkpoints or memory but no activity
+		// rollup yet — projectsCmd/projectCmd are a different data source
+		// (openEvents' rollup dossier) than sessions/continuity/memory (the
+		// vault directly), and a name can be well known to one and unheard of
+		// by the other. Check the vault before claiming the project is unknown.
+		if hasVaultActivity(ix.Vault, ix.DB, name) {
+			return fmt.Errorf(
+				"no activity dossier for %q yet (it has checkpoints or memory, "+
+					"but the rollup that builds dossiers from activity hasn't run) — "+
+					"try `brain sessions %s` or `brain memory log --project %s` meanwhile",
+				name, name, name)
+		}
 		return fmt.Errorf("no project matching %q — try `brain projects`", name)
 	}
 
@@ -106,6 +122,21 @@ func projectCmd(args []string) error {
 		fmt.Printf("  (%-10s conf %.2f) %s\n", m.Kind, m.Confidence, truncateLine(m.Text, 60))
 	}
 	return nil
+}
+
+// hasVaultActivity reports whether a project name is known to the vault
+// directly — checkpoints or memory — independent of whether the activity
+// rollup has ever produced a dossier for it. Errors are treated as "no
+// evidence found" rather than surfaced, since this only sharpens an error
+// message and must never itself become the reason a command fails.
+func hasVaultActivity(vault string, db *sql.DB, name string) bool {
+	if hist, err := session.History(vault, name, 1); err == nil && len(hist) > 0 {
+		return true
+	}
+	if mems, err := memory.AllInProject(db, name); err == nil && len(mems) > 0 {
+		return true
+	}
+	return false
 }
 
 func section(title string, empty bool) {

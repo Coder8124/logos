@@ -2,7 +2,24 @@ package index
 
 import (
 	"testing"
+
+	"github.com/Coder8124/brain/internal/memory"
 )
+
+// seedMemory inserts a memory directly, the way `seed` inserts a note directly
+// — bypassing memory.Store's vault-file write, since these tests only care
+// about what the retrieval path returns from the database.
+func seedMemory(t *testing.T, ix *Index, text string) {
+	t.Helper()
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.DB.Exec(
+		`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES (?, 'fact', 0.7, 0.9, 'manual', 0)`,
+		text); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // A hybrid search test that exercises the lexical arm and RRF fusion without a
 // live embedding provider: we seed notes + FTS directly and check that an exact
@@ -81,6 +98,48 @@ func TestHybridSearchWithoutAnEmbedderFallsBackToLexical(t *testing.T) {
 	}
 	if len(got) == 0 || got[0].Slug != "errors/e1234" {
 		t.Errorf("want the exact-token note surfaced lexically, got %v", got)
+	}
+}
+
+// Before this fix, `brain search`/`brain ask` queried only notes/embeddings —
+// a fact stored with `memory add` was invisible to the two commands billed as
+// "retrieval", even though `brain memory log` confirmed it was stored and
+// indexed. HybridSearch (and its no-embedder fallback below) must surface it.
+func TestHybridSearchSurfacesAStoredMemory(t *testing.T) {
+	ix := newTestIndex(t)
+	seedMemory(t, ix, "the scratch vault privacy check flags world-readable /tmp dirs")
+
+	got, err := ix.HybridSearch(nil, "", "privacy check", 5)
+	if err != nil {
+		t.Fatalf("no embedder is a degrade, not an error: %v", err)
+	}
+	var found bool
+	for _, h := range got {
+		if h.Kind == "memory" && contains(h.Body, "privacy check") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want the stored memory among the hits, got %v", got)
+	}
+}
+
+func TestLexicalSearchSurfacesAStoredMemoryWithNoRuntime(t *testing.T) {
+	ix := newTestIndex(t)
+	seedMemory(t, ix, "the scratch vault privacy check flags world-readable /tmp dirs")
+
+	got, err := ix.LexicalSearch("privacy check", 5)
+	if err != nil {
+		t.Fatalf("no runtime is a degrade, not an error: %v", err)
+	}
+	var found bool
+	for _, h := range got {
+		if h.Kind == "memory" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want the stored memory among the hits even with no embedder, got %v", got)
 	}
 }
 

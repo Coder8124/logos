@@ -174,6 +174,15 @@ func usage() {
 	os.Exit(2)
 }
 
+// unknownCommand reports what was actually wrong before falling back to the
+// same help dump `usage()` gives a bare `brain` with no arguments — without
+// this, a typo'd command name (`brain remember`) and no command at all
+// printed the identical page, and only the exit code told them apart.
+func unknownCommand(name string) {
+	fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", name)
+	usage()
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -213,10 +222,16 @@ func main() {
 		err = runIndex(hasFlag(args, "--watch"))
 	case cmd == "search" && rest != "":
 		err = search(rest)
+	case cmd == "search":
+		err = fmt.Errorf("usage: brain search <query>")
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
+	case cmd == "ask":
+		err = fmt.Errorf("usage: brain ask <question>")
 	case cmd == "context" && rest != "":
 		err = runContext(args)
+	case cmd == "context":
+		err = runContext(args) // no args: its own usage message names the missing task
 	case cmd == "note":
 		err = runNote(args)
 	case cmd == "checkpoint":
@@ -278,7 +293,7 @@ func main() {
 	case cmd == "graph":
 		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
 	default:
-		usage()
+		unknownCommand(cmd)
 	}
 
 	if err != nil {
