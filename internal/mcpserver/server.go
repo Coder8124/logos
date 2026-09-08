@@ -47,6 +47,7 @@ import (
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/untrusted"
 )
 
 // protocolVersion is what this server speaks when the host asks for something
@@ -652,10 +653,10 @@ func (s *Server) lead(pack contextpack.Pack) string {
 // beforeYouTry is the one tool here that is not retrieval.
 //
 // Everything else answers a question the host's model already has. This answers
-// one it does not know to ask, which is why the tool description is written as
-// an instruction: the model has no way of knowing that the obvious approach it
-// is about to suggest was ruled out on a different project by an agent that no
-// longer exists.
+// two it does not know to ask: whether the approach was already ruled out, and
+// whether there is a known-good way to do it with a trap the obvious way falls
+// into. Which is why the tool description is written as an instruction: the
+// model has no way of knowing either on its own.
 func (s *Server) beforeYouTry(approach, project string) (string, error) {
 	if strings.TrimSpace(approach) == "" {
 		return "", fmt.Errorf("before_you_try needs the approach you are considering")
@@ -667,7 +668,31 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return deadend.Render(approach, hits), nil
+	// The corpus is gathered unranked and unfiltered (p=nil, so RecallProcedures
+	// takes its All()-backed fallback with no reinforcement side effect) — Check
+	// does its own lexical-plus-semantic scoring below, and a candidate the
+	// embedding pass here dropped early is exactly the one the lexical arm is
+	// for. Mirrors deadend's own Collect-then-Check split, and for the same
+	// reason: ranking degrades to lexical-only with no embedder, gathering must
+	// not have degraded it already.
+	corpus, err := memory.RecallProcedures(s.DB, nil, "", "", 0)
+	if err != nil {
+		return "", err
+	}
+	procHits, err := procedure.Check(corpus, s.embed, s.embedModel, approach, project, 4)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	b.WriteString(untrusted.Boundary)
+	b.WriteString("\n\n")
+	b.WriteString(deadend.Render(approach, hits))
+	if section := procedure.Render(procHits); section != "" {
+		b.WriteString("\n")
+		b.WriteString(section)
+	}
+	return b.String(), nil
 }
 
 // why reports what was being decided when a file was worked on.
