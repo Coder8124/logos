@@ -65,6 +65,25 @@ func TestLexicalOnGarbageQueryDoesNotError(t *testing.T) {
 	}
 }
 
+// The state BRAIN_EMBED=off puts a shell in: a runtime may be reachable, but
+// the caller has asked for no embeddings. HybridSearch must degrade to the
+// lexical arm rather than pass an empty (or "off") model name down to the
+// runtime — which is how `brain ask` came to return a 404 from Ollama instead
+// of an answer.
+func TestHybridSearchWithoutAnEmbedderFallsBackToLexical(t *testing.T) {
+	ix := newTestIndex(t)
+	seed(t, ix, "errors/e1234", "Error E1234", "the deploy failed with code E1234 on the api box")
+	seed(t, ix, "topics/deploy", "Deploys", "how continuous delivery works in general")
+
+	got, err := ix.HybridSearch(nil, "", "E1234", 5)
+	if err != nil {
+		t.Fatalf("no embedder is a degrade, not an error: %v", err)
+	}
+	if len(got) == 0 || got[0].Slug != "errors/e1234" {
+		t.Errorf("want the exact-token note surfaced lexically, got %v", got)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
