@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Logos Bridge",
+  "version": "0.1.0",
+  "description": "Bridges brain's local memory into chatgpt.com — nothing leaves this machine.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Logos Bridge — pairing status"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content-chatgpt.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
