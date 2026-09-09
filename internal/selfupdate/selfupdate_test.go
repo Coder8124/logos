@@ -320,6 +320,26 @@ func TestUpdateWithNoNewReleaseChangesNothing(t *testing.T) {
 	}
 }
 
+// scripts/release.sh runs `shasum -a 256 ./*.tar.gz ./*.zip` inside the dist
+// directory, and shasum echoes back whatever glob it was given — so every
+// SHA256SUMS this project has ever published names its entries
+// "./brain_v0.4.0_darwin_arm64.tar.gz", not the bare name VerifyChecksum's own
+// AssetName produces. This is the real file downloaded from the v0.4.0 GitHub
+// release, reproduced here after `brain update` failed against it outside the
+// test suite — every prior fixture in this file used a hand-built bare-name
+// SHA256SUMS, so nothing here ever exercised the format `brain update`
+// actually has to parse.
+func TestVerifyChecksumAcceptsTheDotSlashPrefixRealReleasesUse(t *testing.T) {
+	data := []byte("archive bytes")
+	name := "brain_v0.4.0_darwin_arm64.tar.gz"
+	sum := sha256.Sum256(data)
+	sums := []byte(hex.EncodeToString(sum[:]) + "  ./" + name + "\n")
+
+	if err := VerifyChecksum(sums, name, data); err != nil {
+		t.Errorf("a real release's SHA256SUMS should verify, got: %v", err)
+	}
+}
+
 func asSelfupdateError(err error, target **Error) bool {
 	se, ok := err.(*Error)
 	if ok {

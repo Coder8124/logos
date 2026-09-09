@@ -185,8 +185,13 @@ func VerifyChecksum(sums []byte, name string, data []byte) error {
 		if len(fields) != 2 {
 			continue
 		}
-		// shasum marks binary-mode entries with a leading "*".
-		if strings.TrimPrefix(fields[1], "*") == name {
+		// shasum marks binary-mode entries with a leading "*", and echoes back
+		// whatever glob it was given — scripts/release.sh runs it as
+		// `./*.tar.gz`, so every SHA256SUMS this project has ever published
+		// names its entries "./brain_...", not the bare name AssetName builds.
+		entry := strings.TrimPrefix(fields[1], "*")
+		entry = strings.TrimPrefix(entry, "./")
+		if entry == name {
 			want = fields[0]
 			break
 		}
