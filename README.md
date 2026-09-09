@@ -34,6 +34,7 @@ else leaves the machine, ever.
 - `before_you_try` — whether an approach was already attempted and abandoned, here or elsewhere
 - `why` — what was being decided when a given file was last worked on
 - `checkpoint` / `handoff` — the durable record, with `verified` and `failed` kept deliberately separate
+- `ingest_harvest` / `ingest_distil` — read what another coding agent's session did and distil it yourself, into a candidate a person still has to promote
 - Receipts on every write, so you can see the memory layer working instead of taking it on faith
 - A SessionStart hook that puts the last handoff in front of the model before it does anything
 

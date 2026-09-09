@@ -139,6 +139,12 @@ type Session struct {
 	// initialize has run.
 	clientAgent string
 
+	// served records how many turns of each ingested session this session
+	// showed the model, so ingest_distil validates citations against what was
+	// rendered rather than against the whole transcript. Session-local by
+	// design: it is a fact about this conversation, not about the vault.
+	served map[string]int
+
 	// worktree is the linked git worktree the host was launched in, empty in a
 	// main checkout. It narrows continuity — sessions and checkpoints — without
 	// touching memory, because two worktrees are one repository being worked on
@@ -436,6 +442,11 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7))
 	case "list_projects":
 		return s.listProjects()
+	case "ingest_harvest":
+		return s.ingestHarvest(argStr(args, "session"), argInt(args, "max_turns", 0))
+	case "ingest_distil":
+		return s.ingestDistil(argStr(args, "session"), argStr(args, "model"), argStr(args, "next"),
+			argList(args, "verified"), argList(args, "failed"), argList(args, "blockers"))
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

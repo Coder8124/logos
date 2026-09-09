@@ -197,6 +197,9 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 		// and its counterpart on a file rather than a proposal: what was being
 		// decided when this was last touched
 		"why": true,
+		// the pair that lets the agent on the other end distil another agent's
+		// session, without either of them being able to read a new transcript
+		"ingest_harvest": true, "ingest_distil": true,
 	}
 	if len(res.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(res.Tools), len(want))

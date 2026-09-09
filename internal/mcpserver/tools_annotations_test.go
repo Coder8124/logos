@@ -14,6 +14,7 @@ func TestReadToolsDeclareThemselvesReadOnly(t *testing.T) {
 	readers := map[string]bool{
 		"recall": true, "list_memories": true, "context": true, "resume": true,
 		"before_you_try": true, "why": true, "memory_diff": true, "list_projects": true,
+		"ingest_harvest": true,
 	}
 	seen := map[string]bool{}
 	for _, def := range toolDefs {

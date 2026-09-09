@@ -239,7 +239,7 @@ type ingestConsent struct {
 }
 
 func ingestConsentPath(vaultDir string) string {
-	return filepath.Join(vaultDir, ".brain", "ingest-consent.json")
+	return ingest.ConsentPath(vaultDir)
 }
 
 // ensureIngestConsent records, once per machine, that the user agreed to let

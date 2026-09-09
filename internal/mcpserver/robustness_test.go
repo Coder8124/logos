@@ -279,7 +279,8 @@ func TestToolListMatchesTheDocumentedSurface(t *testing.T) {
 		"pin_memory": true, "exclude_memory": true,
 		"memory_diff": true, "list_projects": true, "context": true, "resume": true,
 		"note_progress": true, "checkpoint": true, "handoff": true, "before_you_try": true,
-		"why": true,
+		"why":            true,
+		"ingest_harvest": true, "ingest_distil": true,
 	}
 	got := map[string]bool{}
 	for _, tool := range resp.Result.Tools {

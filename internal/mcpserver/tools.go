@@ -221,6 +221,30 @@ var toolDefs = []map[string]any{
 		}),
 	},
 	{
+		// The pair that lets the calling agent be the distiller (B3). Read-only
+		// on the way out, candidate-only on the way back.
+		"name":        "ingest_harvest",
+		"annotations": reads(),
+		"description": "Show what another coding agent's session actually did, so you can distil it. Call with no arguments to list the sessions `brain ingest` has queued; call with one session id to get its harvested commands and files plus the turn sequence as untrusted evidence. It only serves sessions the user already ingested from the CLI — it cannot read a new transcript." + relay,
+		"inputSchema": obj(map[string]any{
+			"session":   str("the session id (or its first few characters) to fetch evidence for; omit to list what is queued"),
+			"max_turns": intSchema("how many turns to show (default 120); a longer session is abridged and elided turns cannot be cited"),
+		}),
+	},
+	{
+		"name":        "ingest_distil",
+		"annotations": writes(false, true),
+		"description": "Send back your distillation of a session served by ingest_harvest: what was verified, what didn't work, what's next. Every verified and failed entry must name the turn it came from (\"turn 12\"), and a verified entry needs a successful command or tool result in that turn — uncited or unsupported entries are dropped and reported. Writes a candidate for the user to review, never a checkpoint." + relay,
+		"inputSchema": obj(map[string]any{
+			"session":  str("the session id you were served"),
+			"verified": arrStr("what the session actually established, each entry citing its turn, e.g. 'the suite passes after the region fix (turn 14)'"),
+			"failed":   arrStr("what was tried and ruled out, each citing its turn — this is the field the next agent trusts most"),
+			"blockers": arrStr("optional: what stopped the session, each citing its turn"),
+			"next":     str("the first thing the next agent should do; a proposal, so it cites nothing"),
+			"model":    str("optional: your model name, recorded so a reviewer knows who distilled this"),
+		}, "session"),
+	},
+	{
 		"name":        "list_projects",
 		"annotations": reads(),
 		"description": "Enumerate the projects brain has detected from the user's activity, most recently active first. Use to discover what the user is working on, or before calling context or resume for one.",
