@@ -37,6 +37,9 @@ func (c Checkpoint) Markdown(follows string) string {
 	if c.HandoffTo != "" {
 		fmt.Fprintf(&b, "handoff_to: %s\n", yamlStr(c.HandoffTo))
 	}
+	if c.AutoClosed {
+		b.WriteString("auto_closed: true\n")
+	}
 	// The observed half. In frontmatter rather than a prose section because it
 	// is structured, machine-written, and the thing a later query will filter on
 	// — "what was the tree at, when this was decided" is a lookup, not reading.
@@ -154,6 +157,7 @@ type checkpointFM struct {
 	Agent        string `yaml:"agent"`
 	Session      string `yaml:"session"`
 	HandoffTo    string `yaml:"handoff_to"`
+	AutoClosed   bool   `yaml:"auto_closed"`
 	FirstSeen    string `yaml:"first_seen"`
 	Checkpointed string `yaml:"checkpointed"`
 	// The observed half, round-tripped so a rebuilt index and a hand-read file
@@ -178,10 +182,11 @@ func ParseCheckpoint(raw string) Checkpoint {
 		_ = yaml.Unmarshal([]byte(fmStr), &fm)
 	}
 	c := Checkpoint{
-		Project:   fm.Project,
-		Agent:     fm.Agent,
-		Session:   fm.Session,
-		HandoffTo: fm.HandoffTo,
+		Project:    fm.Project,
+		Agent:      fm.Agent,
+		Session:    fm.Session,
+		HandoffTo:  fm.HandoffTo,
+		AutoClosed: fm.AutoClosed,
 		Git: gitstate.State{
 			Branch:   fm.Branch,
 			Commit:   fm.Commit,

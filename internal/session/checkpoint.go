@@ -54,8 +54,13 @@ type Checkpoint struct {
 	// HandoffTo names who this was left for. Empty for a plain checkpoint —
 	// the difference is intent, not mechanism.
 	HandoffTo string
-	Slug      string // vault slug, set once written
-	TS        int64
+	// AutoClosed marks a checkpoint nobody wrote — see CloseAbandoned. It exists
+	// so this is never confused with a real handoff: an agent (or a person)
+	// reading one of these later must be able to tell, from the file itself,
+	// that the work was simply abandoned rather than deliberately wrapped up.
+	AutoClosed bool
+	Slug       string // vault slug, set once written
+	TS         int64
 }
 
 // CheckpointDir is where checkpoints live inside the vault. A visible folder,

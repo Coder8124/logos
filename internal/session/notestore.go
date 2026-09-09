@@ -82,6 +82,17 @@ func notesPath(vaultDir, scope string) string {
 // cache the user has been told to feel free to delete.
 func flushNotes(db *sql.DB, scope string) error {
 	dir := noteVaultFor(db)
+	if dir == "" {
+		return nil
+	}
+	return flushNotesIn(db, dir, scope)
+}
+
+// flushNotesIn is flushNotes with the vault path passed explicitly rather than
+// looked up from the SetVault registry — for a caller that already has its own
+// vaultDir in hand (CloseAbandoned) and must not depend on some other code
+// path having called SetVault first for the rewrite to actually happen.
+func flushNotesIn(db *sql.DB, dir, scope string) error {
 	if dir == "" || safeScope(scope) == "" {
 		return nil
 	}
