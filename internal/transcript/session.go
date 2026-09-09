@@ -48,6 +48,10 @@ type Turn struct {
 	Text   string
 	Tool   string // tool name, when Role == "tool"
 	Status string // "ok" | "error", when known
+	// Input is the tool invocation — the shell command, the file path — carried
+	// on the tool turn so a harvest can list commands run and files touched
+	// without a model. Empty when the harness did not record it.
+	Input string
 }
 
 // reader is one harness's adapter. Native readers (Claude Code, Codex) are

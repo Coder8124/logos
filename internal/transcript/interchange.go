@@ -37,6 +37,7 @@ type interchange struct {
 		Name    string `json:"name"`
 		Tool    string `json:"tool"`
 		Status  string `json:"status"`
+		Input   string `json:"input"`
 	} `json:"messages"`
 }
 
@@ -80,6 +81,7 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 				Tool:   firstNonEmpty(m.Tool, m.Name),
 				Text:   strings.TrimSpace(text),
 				Status: normStatus(m.Status),
+				Input:  strings.TrimSpace(m.Input),
 			})
 		default:
 			s.Turns = append(s.Turns, Turn{Role: "user", Text: strings.TrimSpace(text)})

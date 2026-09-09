@@ -98,6 +98,10 @@ CONTINUITY
     brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume <project>            pick up where the last agent left off
+    brain ingest [project] [--harness N] [--dry-run] [--all-projects]
+                                      distil other agents' transcripts into checkpoint candidates
+    brain ingest review [--promote <id> | --reject <id>]
+                                      review candidates before they become checkpoints
     brain sessions <project>          checkpoint history for a project, and any abandoned ones
     brain plans <project>             plan-mode plans saved when ExitPlanMode is approved
     brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
@@ -238,6 +242,8 @@ func main() {
 		err = runCheckpoint(args)
 	case cmd == "resume":
 		err = runResume(args)
+	case cmd == "ingest":
+		err = runIngest(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
 	case cmd == "why":

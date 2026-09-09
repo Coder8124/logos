@@ -124,7 +124,8 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 	// per the plan.
 	s.Project = projectFromSlug(filepath.Base(filepath.Dir(path)))
 
-	toolName := map[string]string{} // tool_use id -> tool name
+	toolName := map[string]string{}  // tool_use id -> tool name
+	toolInput := map[string]string{} // tool_use id -> invocation (command, path)
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1024*1024), 16*1024*1024)
@@ -161,7 +162,7 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 			s.Skipped++
 			continue
 		}
-		turns, malformed := claudeTurns(ln.Type, msg, toolName)
+		turns, malformed := claudeTurns(ln.Type, msg, toolName, toolInput)
 		s.Skipped += malformed
 		s.Turns = append(s.Turns, turns...)
 	}
@@ -176,7 +177,7 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 
 // claudeTurns turns one message into zero or more Turns. content may be a bare
 // string or an array of typed blocks.
-func claudeTurns(lineType string, msg claudeMessage, toolName map[string]string) (turns []Turn, malformed int) {
+func claudeTurns(lineType string, msg claudeMessage, toolName, toolInput map[string]string) (turns []Turn, malformed int) {
 	role := msg.Role
 	if role == "" {
 		role = lineType
@@ -204,6 +205,7 @@ func claudeTurns(lineType string, msg claudeMessage, toolName map[string]string)
 		case "tool_use":
 			if b.ID != "" && b.Name != "" {
 				toolName[b.ID] = b.Name
+				toolInput[b.ID] = toolInvocation(b.Name, b.Input)
 			}
 		case "tool_result":
 			turns = append(turns, Turn{
@@ -211,6 +213,7 @@ func claudeTurns(lineType string, msg claudeMessage, toolName map[string]string)
 				Tool:   toolName[b.ToolUseID],
 				Text:   flattenContent(b.Content),
 				Status: okOrError(b.IsError),
+				Input:  toolInput[b.ToolUseID],
 			})
 		case "thinking", "redacted_thinking":
 			// Not part of what happened; a distiller must not treat internal
@@ -218,6 +221,26 @@ func claudeTurns(lineType string, msg claudeMessage, toolName map[string]string)
 		}
 	}
 	return turns, 0
+}
+
+// toolInvocation pulls the one field of a tool's input that a harvest can use:
+// the command for a shell tool, the path for a file tool. Everything else is
+// left out — a harvest reports what ran and what was edited, not full argument
+// blobs, which is where pasted secrets would ride along.
+func toolInvocation(tool string, input json.RawMessage) string {
+	if len(input) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(input, &m) != nil {
+		return ""
+	}
+	for _, key := range []string{"command", "cmd", "file_path", "path", "notebook_path"} {
+		if v, ok := m[key].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func normRole(r string) string {
