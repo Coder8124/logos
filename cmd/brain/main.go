@@ -16,6 +16,7 @@ import (
 	"github.com/Coder8124/brain/internal/buildinfo"
 	"github.com/Coder8124/brain/internal/health"
 	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/mcpserver"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
@@ -141,6 +142,8 @@ SETUP AND DIAGNOSTICS
     brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
                                       connect brain to the AI agents on this machine
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
+    brain mcp serve --http [--port N] serve over a local WebSocket for the browser extension (ChatGPT/Claude.ai/
+                                      Perplexity web UIs) — needs BRAIN_BRIDGE_ORIGIN set; never leaves localhost
     brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this brain with the MCP hosts found
     brain doctor [--probe] [--integration]
@@ -280,6 +283,8 @@ func main() {
 		err = projectsCmd(args)
 	case cmd == "project":
 		err = projectCmd(args)
+	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve" && hasFlag(args, "--http"):
+		err = runMCPServeHTTP(flagInt(args, "--port", 8137))
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve":
 		err = runMCPServe()
 	case cmd == "bench" && len(args) >= 2 && args[0] == "memory":
@@ -537,6 +542,12 @@ func doctor(probe bool) error {
 	}
 	ok, failed, unknown := rep.Counts()
 	fmt.Printf("\n  %d ok · %d failed · %d unchecked\n", ok, failed, unknown)
+
+	if mcpserver.HasToken(vaultPath()) {
+		fmt.Println("\nweb bridge: paired — `brain mcp serve --http` will reuse the existing token")
+	} else {
+		fmt.Println("\nweb bridge: not paired — `brain mcp serve --http` will mint a token on first run")
+	}
 
 	found := provider.Discover()
 	if len(found) == 0 {
