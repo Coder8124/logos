@@ -270,6 +270,13 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 		fmt.Fprintf(b, ", handed off to **%s**", inline(c.HandoffTo))
 	}
 	b.WriteString(".")
+	// AutoClosed checkpoints are machine-written, not a real stopping point an
+	// agent chose — see session.CloseAbandoned. Said here, not only in State,
+	// because State is the part of the pack most likely to be trimmed by the
+	// budget, and "this was not a real handoff" is not safe to lose.
+	if c.AutoClosed {
+		b.WriteString(" This was closed automatically after the session went silent, not by the agent that did the work — treat it as an interrupted session, not a deliberate stop.")
+	}
 	// A checkpoint borrowed from the project because this worktree has none of
 	// its own. Said plainly, because the failure it prevents is an agent reading
 	// another tree's stopping place as its own and "continuing" work it never

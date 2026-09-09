@@ -215,11 +215,17 @@ func printNothingToResume(vaultDir, project string) {
 }
 
 // runSessionLog shows the checkpoint history for a project: the commit log.
+// --close <id> is the other half: resolving one entry the "abandoned" list
+// below names, rather than only being told about it.
 func runSessionLog(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: brain sessions <project>")
+		return fmt.Errorf("usage: brain sessions <project> [--close <session-id>]")
 	}
 	project := args[0]
+
+	if id := flagStr(args, "--close", ""); id != "" {
+		return runCloseAbandoned(project, id)
+	}
 
 	ix, err := openEvents()
 	if err != nil {
@@ -252,6 +258,9 @@ func runSessionLog(args []string) error {
 		if c.HandoffTo != "" {
 			fmt.Printf("    handed off to %s\n", c.HandoffTo)
 		}
+		if c.AutoClosed {
+			fmt.Printf("    (auto-closed — not a real handoff)\n")
+		}
 	}
 
 	if notes, err := session.Uncommitted(ix.DB, project); err == nil && len(notes) > 0 {
@@ -276,6 +285,33 @@ func runSessionLog(args []string) error {
 				a.Session, who, roughAge(a.LastActivity), a.Notes)
 		}
 	}
+	return nil
+}
+
+// runCloseAbandoned resolves one session the "abandoned" list above named,
+// rather than leaving it as a standing signal nobody acts on. project is
+// currently unused by session.CloseAbandoned itself — the session id alone is
+// enough to find it — but required on this command line anyway, so a person
+// closing one has to have just seen it in the same project's listing rather
+// than pasting an id copied from somewhere else.
+func runCloseAbandoned(project, id string) error {
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+
+	c, err := session.CloseAbandoned(ix.DB, ix.Vault, id)
+	if err != nil {
+		return err
+	}
+	if c.Project != project {
+		fmt.Printf("note: session %s belongs to %s, not %s — closed anyway.\n", id, c.Project, project)
+	}
+	fmt.Printf("closed %s: checkpoint written to %s.md, marked auto_closed.\n", id, c.Slug)
 	return nil
 }
 

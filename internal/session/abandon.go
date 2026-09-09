@@ -2,7 +2,12 @@ package session
 
 import (
 	"database/sql"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/Coder8124/brain/internal/vault"
 )
 
 // Abandonment: the case Uncommitted only half-covers.
@@ -74,6 +79,119 @@ ORDER BY COALESCE(MAX(n.ts), s.started) ASC`, safeScope(project), cutoff)
 		return nil, err
 	}
 	return scanAbandoned(rows)
+}
+
+// CloseAbandoned resolves one session doctor has flagged abandoned: it writes
+// a minimal checkpoint for it, marked AutoClosed so it can never be mistaken
+// for a real handoff, and marks that one session closed.
+//
+// Refuses anything not already past AbandonAfter — the real failure mode this
+// exists to guard against is closing a session that is merely slow, not dead.
+// Rather than trust the caller to have checked FindAbandonedInProject first,
+// this runs the same query itself and refuses if the id is not in it, so the
+// guarantee holds regardless of what the caller looked at.
+//
+// Only the named session closes. A project can have more than one open
+// session — a different agent's own in-progress work — and this must not
+// fold a stranger's notes into a checkpoint it never asked for, or mark its
+// session ended out from under it. See Commit, which closes every open
+// session for a project on purpose: that is right for a checkpoint the
+// project's own agent is writing about its own working tree, and wrong here,
+// where the caller is resolving one specific session on someone else's
+// behalf.
+func CloseAbandoned(db *sql.DB, vaultDir, id string) (Checkpoint, error) {
+	s, ok, err := Get(db, id)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	if !ok {
+		return Checkpoint{}, fmt.Errorf("no session %q", id)
+	}
+	if s.Ended != 0 {
+		return Checkpoint{}, fmt.Errorf("session %q is already closed", id)
+	}
+
+	candidates, err := FindAbandonedInProject(db, s.Project, AbandonAfter)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	var a *Abandoned
+	for i := range candidates {
+		if candidates[i].Session == id {
+			a = &candidates[i]
+			break
+		}
+	}
+	if a == nil {
+		return Checkpoint{}, fmt.Errorf(
+			"session %q has not gone silent for %s yet — not safe to auto-close; "+
+				"use checkpoint or handoff if this work is actually done", id, AbandonAfter)
+	}
+
+	notes, err := Notes(db, id)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	silentHours := int(time.Since(time.Unix(a.LastActivity, 0)).Hours())
+	c := Checkpoint{
+		Project:    s.Project,
+		Agent:      s.Agent,
+		Task:       s.Task,
+		AutoClosed: true,
+		State: fmt.Sprintf(
+			"Closed automatically — no activity for %dh, past the %s abandonment window. "+
+				"Nobody reviewed or summarized this session; this is not a real handoff.",
+			silentHours, AbandonAfter),
+		Next: "Read the recorded notes below, if any, and decide whether to continue this work or discard it.",
+		TS:   time.Now().Unix(),
+	}
+	if len(notes) > 0 {
+		lines := make([]string, 0, len(notes))
+		for _, n := range notes {
+			lines = append(lines, "- "+n.Text)
+		}
+		c.State += "\n\nRecorded during the session:\n" + strings.Join(lines, "\n")
+	}
+
+	prev, _ := Latest(vaultDir, s.Project)
+	var follows string
+	if prev != nil {
+		follows = prev.Session
+	}
+
+	// The checkpoint's filename is seeded from the abandoned session's own id,
+	// not from now — it belongs where the work actually happened, so `brain
+	// sessions` and `resume` keep reading history in the order it occurred
+	// rather than filing a stale session as the most recent thing that
+	// happened just because someone got around to closing it today.
+	cpID, path, err := claimCheckpoint(vaultDir, s.Project, s.Agent, s.ID)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	c.Session = cpID
+	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, s.Project, cpID))
+	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
+		return Checkpoint{}, err
+	}
+	if err := closeOne(db, id, c.Slug); err != nil {
+		return Checkpoint{}, fmt.Errorf(
+			"checkpoint written to the vault but the session table was not updated: %w", err)
+	}
+	// Rewrites the file from whatever is still open — since only the target
+	// session was just marked closed, another agent's own uncommitted notes in
+	// this same project are untouched by this rewrite. flushNotesIn, not
+	// flushNotes: this takes vaultDir directly rather than trusting that
+	// something else already called SetVault for this database.
+	if err := flushNotesIn(db, vaultDir, s.Project); err != nil {
+		return c, fmt.Errorf(
+			"checkpoint written but the working-notes file was not updated: %w", err)
+	}
+	return c, nil
+}
+
+func closeOne(db *sql.DB, id, slug string) error {
+	_, err := db.Exec(`UPDATE sessions SET ended = ?, slug = ? WHERE id = ?`, time.Now().Unix(), slug, id)
+	return err
 }
 
 func scanAbandoned(rows *sql.Rows) ([]Abandoned, error) {
