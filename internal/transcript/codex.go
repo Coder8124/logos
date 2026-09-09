@@ -116,7 +116,8 @@ func (codexReader) read(path string) (*Session, error) {
 		Hash:    hash,
 	}
 
-	toolName := map[string]string{} // call_id -> tool name
+	toolName := map[string]string{}  // call_id -> tool name
+	toolInput := map[string]string{} // call_id -> invocation
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1024*1024), 16*1024*1024)
@@ -169,6 +170,7 @@ func (codexReader) read(path string) (*Session, error) {
 		case "function_call", "custom_tool_call":
 			if p.CallID != "" && p.Name != "" {
 				toolName[p.CallID] = p.Name
+				toolInput[p.CallID] = codexInvocation(p.Arguments, p.Input)
 			}
 		case "function_call_output", "custom_tool_call_output":
 			s.Turns = append(s.Turns, Turn{
@@ -176,6 +178,7 @@ func (codexReader) read(path string) (*Session, error) {
 				Tool:   toolName[p.CallID],
 				Text:   codexText(p.Output),
 				Status: codexStatus(p.Status, p.Output),
+				Input:  toolInput[p.CallID],
 			})
 		case "reasoning":
 			// Internal reasoning is not an observed fact; a distiller must not
@@ -258,6 +261,39 @@ func codexIDFromName(name string) string {
 		return strings.Join(parts[len(parts)-5:], "-")
 	}
 	return name
+}
+
+// codexInvocation extracts the command from a tool call. function_call carries
+// a JSON "arguments" string ({"command":[...]} or {"command":"..."});
+// custom_tool_call carries a bare "input" that is often the command itself.
+func codexInvocation(arguments string, input json.RawMessage) string {
+	if s := strings.TrimSpace(arguments); s != "" {
+		var m map[string]any
+		if json.Unmarshal([]byte(s), &m) == nil {
+			switch v := m["command"].(type) {
+			case string:
+				return strings.TrimSpace(v)
+			case []any:
+				parts := make([]string, 0, len(v))
+				for _, e := range v {
+					if es, ok := e.(string); ok {
+						parts = append(parts, es)
+					}
+				}
+				return strings.TrimSpace(strings.Join(parts, " "))
+			}
+			for _, k := range []string{"cmd", "file_path", "path"} {
+				if sv, ok := m[k].(string); ok {
+					return strings.TrimSpace(sv)
+				}
+			}
+		}
+		return s
+	}
+	if t := codexText(input); t != "" {
+		return t
+	}
+	return ""
 }
 
 func firstNonEmpty(ss ...string) string {

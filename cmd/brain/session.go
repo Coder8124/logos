@@ -187,6 +187,9 @@ func runResume(args []string) error {
 	if pack.Checkpoint == nil {
 		fmt.Println("\n(no checkpoint yet for this project — this is context, not a handoff)")
 	}
+	if n := ingestPendingCount(ix.Vault); n > 0 {
+		fmt.Printf("\n%d ingested candidate%s pending review — brain ingest review\n", n, pluralS(n))
+	}
 	return nil
 }
 
@@ -200,6 +203,15 @@ func runResume(args []string) error {
 // failing. The two facts worth having are whether the vault is empty or the
 // name simply did not match, and either way what to type next.
 func printNothingToResume(vaultDir, project string) {
+	// A pending ingest queue is still worth surfacing even when the pack is
+	// empty — otherwise ingesting into a fresh vault and then resuming shows
+	// nothing at all, which reads as the candidates having been lost.
+	defer func() {
+		if n := ingestPendingCount(vaultDir); n > 0 {
+			fmt.Printf("\n%d ingested candidate%s pending review — brain ingest review\n", n, pluralS(n))
+		}
+	}()
+
 	known, _ := session.Projects(vaultDir)
 	if len(known) > 0 {
 		fmt.Printf("nothing recorded for %q.\n\n", project)

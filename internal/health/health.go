@@ -22,10 +22,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/brain/internal/ingest"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/setup"
+	"github.com/Coder8124/brain/internal/transcript"
 	"github.com/Coder8124/brain/internal/vault"
 )
 
@@ -112,6 +114,7 @@ func Run(in Input) Report {
 	r.Add(checkEmbeddings(in.DB, in.Runtime))
 	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
+	r.Add(checkIngest(in.Vault))
 	r.Add(checkAbandonment(in.DB))
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
@@ -375,6 +378,48 @@ func checkContinuity(vault string) Check {
 		return c
 	}
 	c.Detail = fmt.Sprintf("last checkpoint %s ago — %s, by %s", roughly(time.Since(latest)), project, who)
+	return c
+}
+
+// Ingest is optional — a machine with no other coding agents installed will
+// discover nothing, and that is not a fault. So this check never fails: it
+// reports which harnesses' transcripts are readable here and how many candidates
+// are waiting in the queue, so a user who ran `brain ingest` and forgot is
+// reminded (invariant 3) rather than left with silent pending state.
+func checkIngest(vaultDir string) Check {
+	c := Check{Name: "ingest"}
+
+	var readable []string
+	needTxcript := false
+	for _, a := range transcript.Available() {
+		if a.Found {
+			readable = append(readable, fmt.Sprintf("%s (%d)", a.Harness, a.Sessions))
+		} else if strings.Contains(a.Reason, "txcript") {
+			needTxcript = true
+		}
+	}
+
+	pending := 0
+	if strings.TrimSpace(vaultDir) != "" {
+		if cs, err := ingest.Pending(vaultDir); err == nil {
+			pending = len(cs)
+		}
+	}
+
+	c.State = OK
+	switch {
+	case len(readable) == 0:
+		c.Detail = "no coding-agent transcripts found on this machine"
+	default:
+		c.Detail = "readable: " + strings.Join(readable, ", ")
+	}
+	if pending > 0 {
+		c.Detail += fmt.Sprintf("; %d candidate(s) pending review", pending)
+		c.Fix = "run `brain ingest review`"
+	}
+	if needTxcript && c.Fix == "" {
+		c.Fix = "install txcript to read more harness formats"
+	}
 	return c
 }
 
