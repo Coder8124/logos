@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/brain/internal/ingest"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/session"
@@ -296,6 +297,15 @@ func (ix *Index) Sync() (SyncReport, error) {
 			// second time, so the same preference comes back as a memory and as
 			// a note that happens to quote it. It is reconciled below instead.
 			if d.Name() == memory.Dir && filepath.Dir(path) == ix.Vault {
+				return filepath.SkipDir
+			}
+			// ingest/ is the review queue, not the record. A candidate there is
+			// an unreviewed distillate of someone else's transcript: nobody has
+			// checked its claims, and indexing it put another project's raw
+			// harvest into this project's `resume` and `search` results — 97
+			// chunks of unverified text quoted as if they were history. It
+			// becomes searchable when a human promotes it to a checkpoint.
+			if d.Name() == ingest.Dir && filepath.Dir(path) == ix.Vault {
 				return filepath.SkipDir
 			}
 			return nil

@@ -238,3 +238,29 @@ func contains(ss []string, want string) bool {
 	}
 	return false
 }
+
+// Codex names its shell tool exec_command, not exec — the harvest classifier
+// knew only the shorter name, so 117 of the 148 tool calls in this machine's
+// real Codex transcripts were dropped from Commands and the sessions harvested
+// as if nothing had run. A tool name the classifier does not recognise costs a
+// whole harness its evidence, silently.
+func TestCodexExecCommandCountsAsAShellCommand(t *testing.T) {
+	s := &transcript.Session{
+		Harness: "codex",
+		ID:      "019e3750-2b22-7032-9767-4b1e1869bc02",
+		Turns: []transcript.Turn{
+			{Role: "tool", Tool: "exec_command", Input: "rg --files", Status: "ok", Text: "internal/ingest/harvest.go"},
+			{Role: "tool", Tool: "write_stdin", Input: "y", Status: "ok"},
+			{Role: "tool", Tool: "apply_patch", Input: "internal/ingest/harvest.go", Status: "ok"},
+		},
+	}
+
+	c := ingest.Harvest(s)
+
+	if !contains(c.Commands, "rg --files — ok") {
+		t.Fatalf("commands = %v, want the exec_command invocation", c.Commands)
+	}
+	if !contains(c.Files, "internal/ingest/harvest.go") {
+		t.Fatalf("files = %v, want the apply_patch path", c.Files)
+	}
+}

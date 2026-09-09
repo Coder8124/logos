@@ -70,9 +70,17 @@ func Harvest(s *transcript.Session) Candidate {
 	return c
 }
 
+// isShellTool knows each harness's own name for "run a command". Codex calls
+// it exec_command, not exec; missing that one name cost every Codex session on
+// a real machine its entire command list, and the harvest still reported
+// success — a session that ran 117 commands harvested as one that ran none.
+// When in doubt add the name: an over-broad match shows a reviewer one odd
+// bullet, a missing one shows them a session that looks like nothing happened.
 func isShellTool(name string) bool {
 	switch strings.ToLower(name) {
-	case "bash", "shell", "exec", "run_command", "run_terminal_cmd", "terminal", "sh":
+	case "bash", "shell", "exec", "sh", "terminal",
+		"exec_command", "local_shell", "shell_command",
+		"run_command", "run_terminal_cmd", "execute_command":
 		return true
 	}
 	return false

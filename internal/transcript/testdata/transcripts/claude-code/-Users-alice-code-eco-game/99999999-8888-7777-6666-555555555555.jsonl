@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"99999999-8888-7777-6666-555555555555","cwd":"/Users/alice/code/eco-game","timestamp":"2026-01-05T14:30:00Z","message":{"role":"user","content":"balance the tech tree"}}
+{"type":"assistant","sessionId":"99999999-8888-7777-6666-555555555555","cwd":"/Users/alice/code/eco-game","timestamp":"2026-01-05T14:30:05Z","message":{"role":"assistant","content":[{"type":"text","text":"on it"}]}}

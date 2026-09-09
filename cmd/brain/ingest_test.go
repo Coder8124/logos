@@ -34,8 +34,8 @@ func absFixture(t *testing.T, harness string) string {
 }
 
 // The whole point of `brain ingest` is that it says what it did. A run that
-// read three transcripts and queued two must print both numbers (invariant 3),
-// not just leave new files in the vault.
+// read the fixture transcripts and queued them must print both numbers
+// (invariant 3), not just leave new files in the vault.
 func TestIngestPrintsWhatItReadAndWhatItQueued(t *testing.T) {
 	scratchIngest(t)
 
@@ -48,8 +48,8 @@ func TestIngestPrintsWhatItReadAndWhatItQueued(t *testing.T) {
 	if !strings.Contains(out, "transcript(s) read") {
 		t.Errorf("output does not report what was read:\n%s", out)
 	}
-	if !strings.Contains(out, "2 queued") {
-		t.Errorf("output does not report two queued candidates:\n%s", out)
+	if !strings.Contains(out, "3 queued") {
+		t.Errorf("output does not report the queued candidates:\n%s", out)
 	}
 	if !strings.Contains(out, "review them:  brain ingest review") {
 		t.Errorf("output does not point at the review step:\n%s", out)

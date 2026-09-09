@@ -119,11 +119,15 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		ID:      strings.TrimSuffix(filepath.Base(path), ".jsonl"),
 		Hash:    hash,
 	}
-	// The directory slug is the recorded cwd with separators swapped; its
-	// basename is the project. Prefer it over reading cwd out of the content,
-	// per the plan.
+	// The slug is the *fallback* attribution, not the preferred one. It is the
+	// cwd with every separator replaced by "-", which cannot be reversed: the
+	// last dash-separated segment of "-Users-alice-code-eco-game" is "game".
+	// Every line of the transcript proper carries the real cwd, so the read
+	// loop below overwrites this as soon as it sees one. The slug only stands
+	// for a file whose content lines were all unparseable.
 	s.Project = projectFromSlug(filepath.Base(filepath.Dir(path)))
 
+	cwdApplied := false              // has a real cwd replaced the slug guess yet?
 	toolName := map[string]string{}  // tool_use id -> tool name
 	toolInput := map[string]string{} // tool_use id -> invocation (command, path)
 
@@ -145,8 +149,13 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		if s.ID == "" && ln.SessionID != "" {
 			s.ID = ln.SessionID
 		}
-		if s.Project == "" && ln.Cwd != "" {
-			s.Project = projectFromDir(ln.Cwd)
+		// The recorded cwd is authoritative and beats whatever the slug
+		// guessed; a hyphenated project name survives only this way.
+		if ln.Cwd != "" && !cwdApplied {
+			if p := projectFromDir(ln.Cwd); p != "" {
+				s.Project = p
+				cwdApplied = true
+			}
 		}
 		if ts := parseRFC3339(ln.Timestamp); ts > 0 {
 			if s.Started == 0 || ts < s.Started {

@@ -316,3 +316,24 @@ func copyTree(t *testing.T, src, dst string) {
 		t.Fatal(err)
 	}
 }
+
+// Claude Code names a project directory by replacing every separator in the
+// cwd with "-", which is not reversible: splitting on "-" and keeping the last
+// segment turns eco-game into "game" and eng-lish into "lish". The damage is
+// not cosmetic — Codex records a real cwd and attributes the same repository
+// correctly, so one project split into two vault directories depending on
+// which harness a session came from, and `brain resume eng-lish` saw half its
+// history. The recorded cwd is authoritative; the slug is only the fallback.
+func TestAHyphenatedProjectKeepsItsWholeNameNotTheTailAfterTheLastDash(t *testing.T) {
+	t.Setenv(transcript.BrainClaudeProjectsEnv, claudeRoot(t))
+
+	path := filepath.Join(claudeRoot(t), "-Users-alice-code-eco-game",
+		"99999999-8888-7777-6666-555555555555.jsonl")
+	s, err := transcript.ReadFile("claude-code", path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if s.Project != "eco-game" {
+		t.Errorf("Project = %q, want eco-game (the cwd's basename, not the slug tail)", s.Project)
+	}
+}

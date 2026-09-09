@@ -140,3 +140,65 @@ func TestSyncRecordsWhenItRan(t *testing.T) {
 		t.Errorf("last_sync is %d, before the sync that set it (%d)", got, before)
 	}
 }
+
+// ingest/ is a review queue, not a set of notes. Candidates in it are
+// unreviewed distillates of other agents' transcripts — unverified by
+// construction, and full of text this vault's owner never wrote. Indexing them
+// put all of it into retrieval: on a real machine, ingesting 53 transcripts
+// buried `search` under candidate chunks and made `resume batteringram` quote
+// 97 chunks harvested from a different project entirely. Pending means
+// unreviewed means it does not answer a question yet. Same reasoning as
+// memories/ above it, and the queue does not need the index — Pending reads
+// the markdown straight off disk.
+func TestPendingIngestCandidatesAreNotIndexedIntoRetrieval(t *testing.T) {
+	v := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(v, "ingest", "widgets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	candidate := "---\ntype: ingest_candidate\nstatus: pending\n---\n\n# harvested\n\nzarquon deployment notes\n"
+	if err := os.WriteFile(filepath.Join(v, "ingest", "widgets", "codex-1.md"), []byte(candidate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	note := "# Real note\n\nzarquon is the staging cluster\n"
+	if err := os.WriteFile(filepath.Join(v, "real.md"), []byte(note), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	var paths []string
+	rows, err := ix.DB.Query(`SELECT path FROM notes`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+
+	for _, p := range paths {
+		if strings.Contains(filepath.ToSlash(p), "/ingest/") {
+			t.Errorf("an unreviewed candidate reached the index: %s", p)
+		}
+	}
+	var sawReal bool
+	for _, p := range paths {
+		if strings.Contains(p, "real") {
+			sawReal = true
+		}
+	}
+	if !sawReal {
+		t.Errorf("the ordinary note was lost along with the queue: %v", paths)
+	}
+}
