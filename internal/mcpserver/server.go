@@ -309,7 +309,7 @@ func (s *Session) handle(req request) *response {
 		s.clientAgent = clientInfoFromInitialize(req.Params)
 		return reply(req.ID, map[string]any{
 			"protocolVersion": negotiateVersion(req.Params),
-			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"capabilities":    map[string]any{"tools": map[string]any{}, "resources": map[string]any{}},
 			// The product name: this is the string a host shows the user in its
 			// server list. The repository, the Go module and the binary keep the
 			// development name.
@@ -330,6 +330,12 @@ func (s *Session) handle(req request) *response {
 		return reply(req.ID, map[string]any{"tools": toolDefs})
 	case "tools/call":
 		return s.callTool(req)
+	case "resources/list":
+		return reply(req.ID, map[string]any{"resources": resourceDefs})
+	case "resources/templates/list":
+		return reply(req.ID, map[string]any{"resourceTemplates": resourceTemplateDefs})
+	case "resources/read":
+		return s.readResourceCall(req)
 	default:
 		if len(req.ID) > 0 {
 			return replyErr(req.ID, -32601, "method not found: "+req.Method)
@@ -360,6 +366,28 @@ func (s *Session) callTool(req request) *response {
 	}
 	return reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
+	})
+}
+
+// readResourceCall answers resources/read. Unlike a tool call, an unknown or
+// malformed resource is a protocol error rather than an isError result — a
+// resource is addressed by a URI the host itself constructed (typically from
+// resourceDefs or resourceTemplateDefs), so a bad one is the host's mistake,
+// not the model reasoning its way to a wrong answer the way a bad tool
+// argument can be.
+func (s *Session) readResourceCall(req request) *response {
+	var p struct {
+		URI string `json:"uri"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		return replyErr(req.ID, -32602, "bad params")
+	}
+	text, err := s.readResource(p.URI)
+	if err != nil {
+		return replyErr(req.ID, -32602, err.Error())
+	}
+	return reply(req.ID, map[string]any{
+		"contents": []map[string]any{{"uri": p.URI, "mimeType": "text/plain", "text": text}},
 	})
 }
 
