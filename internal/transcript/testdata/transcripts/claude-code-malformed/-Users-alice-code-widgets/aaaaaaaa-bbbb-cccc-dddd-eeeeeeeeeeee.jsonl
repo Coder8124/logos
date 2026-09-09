@@ -1,0 +1,3 @@
+{"type":"user","sessionId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","cwd":"/Users/alice/code/widgets","timestamp":"2026-01-03T09:00:00.000Z","message":{"role":"user","content":"run the tests"}}
+{"type":"assistant","sessionId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","cwd":"/Users/alice/code/widgets","timestamp":"2026-01-03T09:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Running the tests now.
+{"type":"assistant","sessionId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","cwd":"/Users/alice/code/widgets","timestamp":"2026-01-03T09:00:20.000Z","message":{"role":"assistant","content":"All tests pass."}}
