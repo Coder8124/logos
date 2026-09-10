@@ -26,6 +26,7 @@
 package setup
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -58,6 +59,11 @@ const (
 	Registered Outcome = "registered"
 	// Updated means it already had a brain entry and it was replaced.
 	Updated Outcome = "updated"
+	// Unchanged means the host was already pointed at exactly this brain, so
+	// the registration rewrote its config with the bytes already in it. Setup
+	// is run more than once — after moving a vault, after an update, or just to
+	// check — and calling that "updated" reports work that did not happen.
+	Unchanged Outcome = "already connected"
 	// Skipped means the host is not installed here.
 	Skipped Outcome = "not installed"
 	// Failed means it is installed and something went wrong.
@@ -192,6 +198,18 @@ func Install(s Server, hosts []Host) []Result {
 		r.Outcome, r.Err = outcome, err
 		if err != nil {
 			r.Outcome = Failed
+			out = append(out, r)
+			continue
+		}
+		// Compared afterwards rather than predicted beforehand: whether a
+		// registration changes anything is only knowable once the host's own
+		// command or our own merge has run. A backup of a file nobody changed
+		// is litter in the user's config directory, so it goes.
+		if unchanged(h, backup) {
+			r.Outcome = Unchanged
+			if err := os.Remove(backup); err == nil {
+				r.Backup = ""
+			}
 		}
 		out = append(out, r)
 	}
@@ -227,6 +245,25 @@ func backupConfig(h Host) (string, error) {
 		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
 	}
 	return path + ".brain-backup", nil
+}
+
+// unchanged reports whether the config is byte-for-byte what the backup holds.
+// A read that fails answers no: the outcome the host reported stands, because
+// claiming nothing happened on the strength of a failed check is exactly the
+// silent-success failure invariant 4 exists to prevent.
+func unchanged(h Host, backup string) bool {
+	if backup == "" || h.Config == nil {
+		return false
+	}
+	before, err := os.ReadFile(backup)
+	if err != nil {
+		return false
+	}
+	after, err := os.ReadFile(h.Config())
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(before, after)
 }
 
 // --- registering through a host's own CLI ------------------------------------

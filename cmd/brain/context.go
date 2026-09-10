@@ -49,6 +49,14 @@ func runContext(args []string) error {
 	if task == "" && hint == "" {
 		return fmt.Errorf("usage: brain context <task> [--project <name>] [--budget <tokens>]")
 	}
+	// Standing inside a project is enough to say which one, exactly as it is for
+	// resume and checkpoint. Without this the brief a user reads to judge
+	// retrieval — the one command that shows what an agent will actually be
+	// handed — answered "no project matched" from inside the project's own
+	// directory. An explicit --project still wins.
+	if hint == "" {
+		hint = projectHere()
+	}
 
 	ix, err := openEvents()
 	if err != nil {

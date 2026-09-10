@@ -121,3 +121,41 @@ func TestEveryShippedHostNamesTheConfigItRewrites(t *testing.T) {
 		h.Config()
 	}
 }
+
+// Running setup twice is the normal thing to do — after moving a vault, after
+// an update, or just to check. The second run rewrote each config with bytes
+// identical to the ones already there, announced every host as "updated", and
+// left a .brain-backup beside each one. Reporting work that did not happen is
+// the same fault as swallowing work that did (invariants 3 and 4), and the
+// litter it drops is in the user's own config directory.
+func TestAHostThatIsAlreadyConnectedIsNotReportedAsChanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mcp.json")
+	const settled = "{\"mcpServers\":{\"brain\":{}}}\n"
+	if err := os.WriteFile(path, []byte(settled), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	hosts := []Host{{
+		Name:   "settled",
+		Detect: func() bool { return true },
+		Where:  func() string { return path },
+		Config: func() string { return path },
+		// A merge that finds brain already pointed where it should be writes
+		// the same bytes back.
+		Register: func(Server) (Outcome, error) {
+			return Updated, os.WriteFile(path, []byte(settled), 0o600)
+		},
+	}}
+
+	r := Install(server(), hosts)
+	if r[0].Outcome != Unchanged {
+		t.Errorf("outcome = %q, want %q", r[0].Outcome, Unchanged)
+	}
+	if r[0].Backup != "" {
+		t.Errorf("named a backup of a file nothing changed: %q", r[0].Backup)
+	}
+	if _, err := os.Stat(path + ".brain-backup"); err == nil {
+		t.Error("left a backup beside a config that was never changed")
+	}
+}

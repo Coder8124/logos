@@ -58,7 +58,7 @@ Agents forget the moment a session ends. brain is the memory they hand to one
 another: one stops, the next picks up exactly where it left off.
 
 THE HANDOFF — an agent finishes, and another continues
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
     brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
@@ -94,7 +94,7 @@ func helpAll(w io.Writer) {
 	fmt.Fprintf(w, `brain — local-first memory and continuity for AI agents
 
 CONTINUITY
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
     brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault

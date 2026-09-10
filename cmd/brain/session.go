@@ -23,10 +23,21 @@ import (
 
 // runNote appends a working note: cheap, uncommitted, the working tree.
 func runNote(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: brain note <project> <what you did>")
+	// One argument is the note, and the project is the directory you are
+	// standing in — `brain resume`'s own empty-state message says to run
+	// `brain note <project> "..."`, having worked the project out from the cwd
+	// in order to print that line. Two or more keeps the older reading, where
+	// the first names the project explicitly.
+	var project, text string
+	switch {
+	case len(args) >= 2:
+		project, text = args[0], strings.Join(args[1:], " ")
+	case len(args) == 1:
+		project, text = projectHere(), args[0]
 	}
-	project, text := args[0], strings.Join(args[1:], " ")
+	if text == "" || project == "" {
+		return fmt.Errorf("usage: brain note [project] <what you did>")
+	}
 
 	ix, err := openEvents()
 	if err != nil {
