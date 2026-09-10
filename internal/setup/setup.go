@@ -72,7 +72,11 @@ type Result struct {
 	Host    string
 	Outcome Outcome
 	Where   string // config path or command, for the report
-	Err     error
+	// Backup is the copy of this host's config taken before it was changed,
+	// empty when there was nothing to copy. Reported, because a backup nobody
+	// is told about is a backup nobody uses.
+	Backup string
+	Err    error
 }
 
 // A Host is one application that can talk to an MCP server.
@@ -84,6 +88,12 @@ type Host struct {
 	Detect func() bool
 	// Where is the config path or command shown in the report.
 	Where func() string
+	// Config is the file this host's registration rewrites, so it can be
+	// backed up first. Empty means the file does not exist yet or brain does
+	// not know where it lives — a host registered through its own CLI still
+	// rewrites a file, and knowing which one is the only way back from a wrong
+	// --vault.
+	Config func() string
 	// Register points the host at this server.
 	Register func(Server) (Outcome, error)
 	// List reports every MCP server this host currently has registered, read
@@ -171,6 +181,13 @@ func Install(s Server, hosts []Host) []Result {
 			out = append(out, r)
 			continue
 		}
+		backup, err := backupConfig(h)
+		if err != nil {
+			r.Outcome, r.Err = Failed, err
+			out = append(out, r)
+			continue
+		}
+		r.Backup = backup
 		outcome, err := h.Register(s)
 		r.Outcome, r.Err = outcome, err
 		if err != nil {
@@ -179,6 +196,37 @@ func Install(s Server, hosts []Host) []Result {
 		out = append(out, r)
 	}
 	return out
+}
+
+// backupConfig copies a host's config aside before anything rewrites it.
+//
+// This used to happen only inside mergeJSON, which meant it happened only for
+// the two hosts with no CLI. The hosts with a CLI rewrite a config file too:
+// `codex mcp add brain` replaces an existing brain entry outright — dropping
+// its environment block with it — and reports "Added global MCP server". A
+// user who ran setup with the wrong --vault had no way back.
+//
+// A config that does not exist yet needs no backup: Claude Desktop writes its
+// file only once it has an MCP server, and the first one is often ours.
+func backupConfig(h Host) (string, error) {
+	if h.Config == nil {
+		return "", nil
+	}
+	path := h.Config()
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
+	}
+	if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
+		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
+	}
+	return path + ".brain-backup", nil
 }
 
 // --- registering through a host's own CLI ------------------------------------
@@ -191,9 +239,12 @@ func viaCLI(bin string, args []string) (Outcome, error) {
 	if err == nil {
 		return Registered, nil
 	}
-	// Both CLIs refuse a name that already exists rather than replacing it.
-	// That is not a failure to report — it is the idempotent case, and the user
-	// asked for brain to be connected, which it now is.
+	// Older versions of both CLIs refused a name that already exists rather
+	// than replacing it, and said so on stdout. Codex now replaces it silently
+	// instead, which is why Install backs the config up first (backupConfig).
+	// Where the refusal does still happen it is not a failure to report — it is
+	// the idempotent case, and the user asked for brain to be connected, which
+	// it now is.
 	if s := strings.ToLower(string(outBytes)); strings.Contains(s, "already exists") ||
 		strings.Contains(s, "already configured") {
 		return Updated, nil
@@ -222,15 +273,14 @@ type serverEntry struct {
 // other MCP server the user has connected, and clobbering one to add ours would
 // be a worse bug than never registering at all. So a file that exists is parsed
 // before it is touched, a malformed file is refused rather than replaced, and a
-// backup is written before the new content goes down.
+// backup is written before the new content goes down (by Install, which does
+// that for every host now — see backupConfig).
 func mergeJSON(path string, s Server) (Outcome, error) {
 	cfg := mcpConfig{}
-	existed := false
 
 	raw, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		existed = true
 		if len(strings.TrimSpace(string(raw))) > 0 {
 			if err := json.Unmarshal(raw, &cfg); err != nil {
 				return Failed, fmt.Errorf(
@@ -270,11 +320,6 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 		return Failed, err
 	}
 
-	if existed {
-		if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
-			return Failed, fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
-		}
-	}
 	if err := vault.WriteAtomic(path, append(out, '\n')); err != nil {
 		return Failed, err
 	}

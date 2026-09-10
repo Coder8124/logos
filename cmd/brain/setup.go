@@ -77,6 +77,7 @@ func setupCmd(args []string) error {
 func wireOptsFrom(args []string) wireOpts {
 	return wireOpts{
 		only:   flagStrs(args, "--host"),
+		none:   hasFlag(args, "--no-hosts"),
 		dryRun: hasFlag(args, "--dry-run"),
 		yes:    hasFlag(args, "--yes") || hasFlag(args, "-y"),
 	}
@@ -328,11 +329,21 @@ func indexVault(vault string) {
 // wireOpts is how the caller narrows or previews the wiring.
 type wireOpts struct {
 	only   []string // --host, repeatable; empty means every detected host
+	none   bool     // --no-hosts: set up the vault and wire nothing
 	dryRun bool     // --dry-run: show the plan and change nothing
 	yes    bool     // --yes: do not prompt
 }
 
 func wireHosts(vault string, opts wireOpts) error {
+	// --no-hosts is for someone evaluating brain, or setting up a second vault
+	// on a machine that already has one wired. Until it existed the only way to
+	// create and index a vault was to also repoint every AI tool on the machine
+	// at it, which is a large thing to have to accept in order to look.
+	if opts.none {
+		fmt.Println("\n  hosts      --no-hosts: nothing was wired")
+		fmt.Println("             `brain mcp install` connects them when you are ready")
+		return nil
+	}
 	bin, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("could not find my own path, which the host config needs: %w", err)
@@ -414,6 +425,12 @@ func wireHosts(vault string, opts wireOpts) error {
 		default:
 			wired++
 			fmt.Printf("    %-16s ✓  %s (%s)\n", r.Host, r.Outcome, r.Where)
+			// A registration replaces what was there — `codex mcp add` drops
+			// the whole previous entry, environment and all. Naming the copy is
+			// what makes a wrong --vault recoverable.
+			if r.Backup != "" {
+				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
+			}
 		}
 	}
 

@@ -161,8 +161,17 @@ func TestBackupIsWrittenBeforeChanging(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := mergeJSON(path, server()); err != nil {
-		t.Fatal(err)
+	// Through Install, which is where the backup now happens — for every host,
+	// not only the ones whose config brain writes by hand.
+	r := Install(server(), []Host{{
+		Name:     "json-host",
+		Detect:   func() bool { return true },
+		Where:    func() string { return path },
+		Config:   func() string { return path },
+		Register: func(s Server) (Outcome, error) { return mergeJSON(path, s) },
+	}})
+	if r[0].Err != nil {
+		t.Fatal(r[0].Err)
 	}
 	backup, err := os.ReadFile(path + ".brain-backup")
 	if err != nil {
