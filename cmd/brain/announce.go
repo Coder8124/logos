@@ -17,7 +17,10 @@ import (
 // chrome people learn to skip — and then the one message that mattered goes
 // past unread with the rest.
 func runAnnounce(args []string) error {
-	vault := vaultPath()
+	vault, err := requireVault()
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 || args[0] == "status" {
 		l := announce.Setting(vault)
 		fmt.Printf("announcements: %s\n", l)

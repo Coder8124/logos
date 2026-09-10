@@ -60,7 +60,7 @@ another: one stops, the next picks up exactly where it left off.
 THE HANDOFF — an agent finishes, and another continues
     brain note <project> <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
@@ -96,7 +96,7 @@ func helpAll(w io.Writer) {
 CONTINUITY
     brain note <project> <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
     brain resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
@@ -492,6 +492,19 @@ func openRouterOptional() (*router.Router, error) {
 // help either person who sees it: someone who has never run setup does not have
 // a vault to point the variable at, and someone whose BRAIN_VAULT is a typo has
 // already set it. Name the path that was tried, then the command that makes one.
+// requireVault is the gate every command that reads or writes the vault goes
+// through. `brain announce quiet` and `brain think medium` used to skip it and
+// call straight into a store that creates its parent directory: pointed at a
+// typo'd BRAIN_VAULT they built a half-vault out of nothing, reported success,
+// and the setting the user had just changed was invisible to their real vault.
+func requireVault() (string, error) {
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return "", missingVaultError(v)
+	}
+	return v, nil
+}
+
 func missingVaultError(v string) error {
 	return fmt.Errorf("vault not found at %s — run `brain setup` to create one, "+
 		"or point BRAIN_VAULT at an existing vault", v)
@@ -551,7 +564,7 @@ func doctor(probe bool) error {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
 		fmt.Println("\nNo local model runtime — nothing above depends on one.")
-		return nil
+		return doctorVerdict(failed)
 	}
 	fmt.Println("\n─── runtimes ───")
 	for _, d := range found {
@@ -577,7 +590,7 @@ func doctor(probe bool) error {
 
 	if !probe {
 		fmt.Println("\nrun `brain doctor --probe` to verify each model actually loads")
-		return nil
+		return doctorVerdict(failed)
 	}
 
 	// Listing a model proves nothing: a corrupt pull lists fine and fails on
@@ -599,7 +612,19 @@ func doctor(probe bool) error {
 			fmt.Printf("  %s  %-24s ok, honours JSON schemas\n", t, model)
 		}
 	}
-	return nil
+	return doctorVerdict(failed)
+}
+
+// doctorVerdict turns the report into an exit code. The rows already say what
+// is wrong in words; this is for everything that reads the status instead — a
+// pre-flight check, a CI step, a shell `&&`. An unchecked row is not a failure:
+// doctor deliberately does not fail because no model runtime answered, since
+// every continuity verb works without one.
+func doctorVerdict(failed int) error {
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d check(s) failed — see the report above", failed)
 }
 
 // doctorIntegration is the difference between "brain is installed" and "your
@@ -833,6 +858,13 @@ func search(query string) error {
 	}
 	if err != nil {
 		return err
+	}
+	// Zero hits printed nothing at all, which reads the same as a crash: a
+	// first-time user searching for a typo could not tell whether the command
+	// had worked. `brain ask` already says so in words; match it.
+	if len(hits) == 0 {
+		fmt.Printf("Nothing in the vault matches %q yet.\n", query)
+		return nil
 	}
 	for _, h := range hits {
 		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)

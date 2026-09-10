@@ -17,7 +17,11 @@ func runPlans(args []string) error {
 		return fmt.Errorf("usage: brain plans <project>")
 	}
 
-	plans, err := session.ListPlans(vaultPath(), project)
+	vault, err := requireVault()
+	if err != nil {
+		return err
+	}
+	plans, err := session.ListPlans(vault, project)
 	if err != nil {
 		return err
 	}
