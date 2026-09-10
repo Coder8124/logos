@@ -161,6 +161,28 @@ func renderPathRules(rules []PathRule) []byte {
 // matching prefix — so pinning "sessions/" and excluding
 // "sessions/scratch-project" inside it behaves the way a file-manager
 // override would: the narrower rule wins. PathPinNone means no rule matched.
+// MatchPathRule is matchPathRule exported for callers outside this package —
+// the app's tree view needs the same "most specific prefix wins" answer to
+// paint a node's pin state, and duplicating the precedence rule there would
+// be exactly the kind of second copy this feature exists to avoid.
+func MatchPathRule(path string, rules []PathRule) PathPin {
+	return matchPathRule(path, rules)
+}
+
+// String names a PathPin the way the rules file and the tree view both speak
+// it: "pin", "exclude", or "" for no rule. Kept in lockstep with the verbs
+// renderPathRules writes, so a UI label and the file on disk never disagree.
+func (p PathPin) String() string {
+	switch p {
+	case PathPinAlways:
+		return "pin"
+	case PathPinNever:
+		return "exclude"
+	default:
+		return ""
+	}
+}
+
 func matchPathRule(path string, rules []PathRule) PathPin {
 	best := PathPinNone
 	bestLen := -1
