@@ -650,3 +650,23 @@ func TestNoIntrospectableHostReportsUnknownNotOK(t *testing.T) {
 		t.Errorf("state = %v (%q), want unknown", c.State, c.Detail)
 	}
 }
+
+// os.TempDir() answers $TMPDIR, which on macOS is a per-user directory under
+// /var/folders. It is not the only system temporary directory, and it is not
+// the one that actually bit: agent scratchpads and most scripts use /tmp, which
+// is a symlink to /private/tmp and shares no prefix with $TMPDIR at all. So a
+// vault recorded under /tmp passed the check that exists precisely to catch it,
+// and `brain doctor` reported "ok" over a vault that a reboot deletes.
+func TestAVaultRecordedUnderSlashTmpIsCaughtToo(t *testing.T) {
+	for _, dir := range []string{"/tmp/some-vault", "/private/tmp/some-vault", "/var/tmp/some-vault"} {
+		if !underTempDir(dir) {
+			t.Errorf("%s is a temporary directory, and the health check does not think so", dir)
+		}
+	}
+	// The guard must still not fire on a real home.
+	for _, dir := range []string{"/Users/someone/brain", "/home/someone/brain", "/tmpfoo/brain"} {
+		if underTempDir(dir) {
+			t.Errorf("%s is a perfectly good vault, and the health check calls it temporary", dir)
+		}
+	}
+}
