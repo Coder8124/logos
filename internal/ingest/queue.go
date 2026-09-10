@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,14 +37,14 @@ func Put(vaultDir string, c Candidate) (Result, error) {
 	rel := c.RelPath()
 	abs := filepath.Join(vaultDir, filepath.FromSlash(rel))
 
-	if existing, ok := readCandidate(abs); ok {
+	if existing, err := readCandidate(abs); err == nil {
 		if existing.Hash == c.Hash {
 			return Result{Path: rel, Written: false, Reason: "already ingested"}, nil
 		}
 		// Same session id, changed transcript. Land beside it.
 		rel = c.variantRelPath()
 		abs = filepath.Join(vaultDir, filepath.FromSlash(rel))
-		if existing2, ok := readCandidate(abs); ok && existing2.Hash == c.Hash {
+		if existing2, err := readCandidate(abs); err == nil && existing2.Hash == c.Hash {
 			return Result{Path: rel, Written: false, Reason: "already ingested"}, nil
 		}
 	}
@@ -65,39 +66,46 @@ func (c Candidate) variantRelPath() string {
 	return filepath.ToSlash(filepath.Join(Dir, c.scope(), name))
 }
 
-func readCandidate(abs string) (Candidate, bool) {
+// readCandidate reads one candidate note. A file that cannot be read or has no
+// recoverable session id returns an error, never a zero Candidate that looks
+// absent: "unreadable" and "not there" are different facts, and collapsing them
+// dropped candidates from the queue with no count and no message (invariants 3
+// and 4). This is the package's (T, error) convention, not (T, bool).
+func readCandidate(abs string) (Candidate, error) {
 	raw, err := os.ReadFile(abs)
 	if err != nil {
-		return Candidate{}, false
+		return Candidate{}, err
 	}
-	c := Parse(string(raw))
+	c := Parse(string(raw), filepath.Base(abs))
 	if c.SessionID == "" {
-		return Candidate{}, false
+		return Candidate{}, fmt.Errorf("%s: no session id in frontmatter or filename", abs)
 	}
-	return c, true
+	return c, nil
 }
 
 // Pending lists every candidate note in the vault whose status is still
 // pending, newest harvest first. A promoted or rejected candidate is kept on
 // disk (the record of what was decided) but never offered again.
-func Pending(vaultDir string) ([]Candidate, error) {
-	all, err := All(vaultDir)
-	if err != nil {
-		return nil, err
-	}
+// The second return carries one line per candidate file that could not be read
+// (permission denied, no recoverable session id). It is reported with a count,
+// never swallowed (invariants 3 and 4).
+func Pending(vaultDir string) ([]Candidate, []string) {
+	all, skipped := All(vaultDir)
 	out := all[:0]
 	for _, c := range all {
 		if c.Status == StatusPending {
 			out = append(out, c)
 		}
 	}
-	return out, nil
+	return out, skipped
 }
 
-// All lists every candidate note regardless of status, newest first.
-func All(vaultDir string) ([]Candidate, error) {
+// All lists every candidate note regardless of status, newest first. The second
+// return is the list of files that could not be read, each as "<path>: <why>".
+func All(vaultDir string) ([]Candidate, []string) {
 	root := filepath.Join(vaultDir, Dir)
 	var out []Candidate
+	var skipped []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // an unreadable subdirectory is skipped, not fatal
@@ -105,16 +113,37 @@ func All(vaultDir string) ([]Candidate, error) {
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
 			return nil
 		}
-		if c, ok := readCandidate(path); ok {
-			out = append(out, c)
+		c, cerr := readCandidate(path)
+		if cerr != nil {
+			skipped = append(skipped, cerr.Error())
+			return nil
 		}
+		out = append(out, c)
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+		skipped = append(skipped, fmt.Sprintf("%s: %v", root, err))
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Harvested > out[j].Harvested })
-	return out, nil
+	sortCandidatesNewestFirst(out)
+	return out, skipped
+}
+
+// sortCandidatesNewestFirst orders candidates newest harvest first. Harvested
+// can be 0 (a harvest written before the field existed, or an unreadable
+// frontmatter), and comparing 0 to 0 left the order down to walk order, so the
+// same queue printed in a different order run to run. Started and then the
+// stable filename break the tie deterministically.
+func sortCandidatesNewestFirst(cs []Candidate) {
+	sort.SliceStable(cs, func(i, j int) bool {
+		a, b := cs[i], cs[j]
+		if a.Harvested != b.Harvested {
+			return a.Harvested > b.Harvested
+		}
+		if a.Started != b.Started {
+			return a.Started > b.Started
+		}
+		return a.Filename() < b.Filename()
+	})
 }
 
 // Find returns the pending candidate whose session id (or filename stem) matches
@@ -122,21 +151,37 @@ func All(vaultDir string) ([]Candidate, error) {
 func Find(vaultDir, ref string) (Candidate, string, bool, error) {
 	root := filepath.Join(vaultDir, Dir)
 	var (
-		found  Candidate
-		abs    string
-		ok     bool
-		walkTS int64
+		found   Candidate
+		abs     string
+		ok      bool
+		exact   bool
+		walkTS  int64
+		exactCP Candidate
+		exactAb string
 	)
+	// An exact id or stem match is unambiguous. A prefix match is not: two
+	// candidates can share a prefix, and silently picking the newest promoted
+	// the wrong session with no signal. Collect every prefix match and make the
+	// caller disambiguate.
+	var prefixIDs []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, werr error) error {
 		if werr != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
 			return nil
 		}
-		c, cok := readCandidate(path)
-		if !cok {
+		c, cerr := readCandidate(path)
+		if cerr != nil {
 			return nil
 		}
 		stem := strings.TrimSuffix(d.Name(), ".md")
-		if c.SessionID == ref || stem == ref || strings.HasPrefix(c.SessionID, ref) {
+		if c.SessionID == ref || stem == ref {
+			// An exact match ends the search now. Walking on would let a later
+			// file whose stem equals this session's id overwrite it — the same
+			// silent last-wins the prefix path below was fixed to avoid.
+			exact, exactCP, exactAb = true, c, path
+			return filepath.SkipAll
+		}
+		if strings.HasPrefix(c.SessionID, ref) {
+			prefixIDs = append(prefixIDs, c.SessionID)
 			if !ok || c.Harvested > walkTS {
 				found, abs, ok, walkTS = c, path, true, c.Harvested
 			}
@@ -145,6 +190,13 @@ func Find(vaultDir, ref string) (Candidate, string, bool, error) {
 	})
 	if err != nil && !os.IsNotExist(err) {
 		return Candidate{}, "", false, err
+	}
+	if exact {
+		return exactCP, exactAb, true, nil
+	}
+	if len(prefixIDs) > 1 {
+		sort.Strings(prefixIDs)
+		return Candidate{}, "", false, fmt.Errorf("%q matches %d candidates: %s — use a full session id", ref, len(prefixIDs), strings.Join(prefixIDs, ", "))
 	}
 	return found, abs, ok, nil
 }

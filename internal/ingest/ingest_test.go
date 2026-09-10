@@ -74,7 +74,7 @@ func TestMarkdownAndParseAreInverses(t *testing.T) {
 	c.Next = "wire the region into CI"
 	c.Blockers = []string{"staging cluster is down"}
 
-	got := ingest.Parse(c.Markdown())
+	got := ingest.Parse(c.Markdown(), c.Filename())
 
 	for _, tc := range []struct {
 		name string
@@ -87,7 +87,7 @@ func TestMarkdownAndParseAreInverses(t *testing.T) {
 		{"project", c.Project, got.Project},
 		{"tier", c.Tier, got.Tier},
 		{"status", ingest.StatusPending, got.Status},
-		{"turns", c.Turns, got.Turns},
+		{"turns", c.TurnCount, got.TurnCount},
 		{"commands", c.Commands, got.Commands},
 		{"files", c.Files, got.Files},
 		{"blockers", c.Blockers, got.Blockers},
@@ -96,6 +96,25 @@ func TestMarkdownAndParseAreInverses(t *testing.T) {
 		if !reflect.DeepEqual(tc.a, tc.b) {
 			t.Errorf("%s: round trip changed %v -> %v", tc.name, tc.a, tc.b)
 		}
+	}
+}
+
+// A candidate note whose frontmatter will not unmarshal must not vanish from
+// the queue: the queue is walked off the markdown (invariant 1), so a dropped
+// candidate is a silently lost session. The session id is recovered from the
+// filename and the note is flagged unreadable, not discarded.
+func TestACandidateWithCorruptFrontmatterKeepsItsSessionID(t *testing.T) {
+	// "baz" with no colon after a mapping is a YAML syntax error.
+	raw := "---\nharness: claude-code\nbaz\n---\n\n## State\n\nsomething happened\n"
+	c := ingest.Parse(raw, "claude-code-01a05124-f309-7cd3.md")
+	if c.SessionID == "" {
+		t.Fatal("corrupt frontmatter dropped the candidate's session id")
+	}
+	if c.SessionID != "claude-code-01a05124-f309-7cd3" {
+		t.Errorf("SessionID = %q, want the filename stem", c.SessionID)
+	}
+	if !c.FrontmatterUnreadable {
+		t.Error("FrontmatterUnreadable was not set for an unparseable note")
 	}
 }
 
@@ -115,10 +134,7 @@ func TestReingestingTheSameSessionDoesNotDuplicateACandidate(t *testing.T) {
 		t.Fatalf("second put wrote a duplicate: %+v", r2)
 	}
 
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 1 {
 		t.Fatalf("pending = %d, want 1", len(pending))
 	}
@@ -143,10 +159,7 @@ func TestAnEditedTranscriptProducesANewCandidateRatherThanSilentlyUpdating(t *te
 		t.Fatalf("edited transcript should produce a new candidate, got %+v", r)
 	}
 
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 2 {
 		t.Fatalf("pending = %d, want 2 (original kept, edited added)", len(pending))
 	}
@@ -159,10 +172,7 @@ func TestIngestCandidatesSurviveDeletingTheIndex(t *testing.T) {
 	if _, err := ingest.Put(v, ingest.Harvest(sampleSession())); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 1 {
 		t.Fatalf("pending = %d, want 1 from markdown alone", len(pending))
 	}
@@ -199,12 +209,42 @@ func TestAPromotedCandidateRecordsTheHarnessAndSessionItCameFrom(t *testing.T) {
 	}
 
 	// And it is no longer offered.
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 0 {
 		t.Fatalf("promoted candidate still pending: %d", len(pending))
+	}
+}
+
+// Promote guards StatusPromoted but must also refuse StatusRejected: a rejected
+// note holds no fresh distillate, so promoting it would mint a checkpoint from
+// stale data instead of failing loudly (invariant 4).
+func TestARejectedCandidateCannotBePromoted(t *testing.T) {
+	v := t.TempDir()
+	db := testDB(t)
+	c := ingest.Harvest(sampleSession())
+	if _, err := ingest.Put(v, c); err != nil {
+		t.Fatal(err)
+	}
+	found, abs, ok, err := ingest.Find(v, c.SessionID)
+	if err != nil || !ok {
+		t.Fatalf("find: %v ok=%v", err, ok)
+	}
+	if err := ingest.Reject(abs, found); err != nil {
+		t.Fatal(err)
+	}
+	rejected, abs, ok, err := ingest.Find(v, c.SessionID)
+	if err != nil || !ok {
+		t.Fatalf("re-find: %v ok=%v", err, ok)
+	}
+	cp, err := ingest.Promote(db, v, rejected, abs)
+	if err == nil {
+		t.Fatal("Promote accepted a rejected candidate")
+	}
+	if cp != nil {
+		t.Errorf("Promote returned a checkpoint for a rejected candidate: %+v", cp)
+	}
+	if !strings.Contains(err.Error(), "rejected") {
+		t.Errorf("error does not explain the rejection: %v", err)
 	}
 }
 
@@ -221,12 +261,59 @@ func TestARejectedCandidateIsNotOfferedAgain(t *testing.T) {
 	if err := ingest.Reject(abs, found); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 0 {
 		t.Fatalf("rejected candidate still pending: %d", len(pending))
+	}
+}
+
+// sections() used to return a Go map, which ranges in a random order: a note
+// with two "## Verified" headings kept whichever block the map yielded last, so
+// the same file parsed to different candidates run to run. The blocks must
+// merge in document order, identically every time.
+func TestTwoVerifiedBlocksMergeDeterministically(t *testing.T) {
+	raw := "---\ntype: ingest_candidate\nharness: codex\nsession: s1\n---\n\n" +
+		"## Verified\n\n- go build passes\n\n" +
+		"## Files\n\n- main.go\n\n" +
+		"## Verified\n\n- go test passes\n"
+
+	first := ingest.Parse(raw, "codex-s1.md").Verified
+	if len(first) != 2 || first[0] != "go build passes" || first[1] != "go test passes" {
+		t.Fatalf("two Verified blocks did not merge in order: %v", first)
+	}
+	for i := 0; i < 50; i++ {
+		if got := ingest.Parse(raw, "codex-s1.md").Verified; !reflect.DeepEqual(got, first) {
+			t.Fatalf("parse %d gave a different result: %v vs %v", i, got, first)
+		}
+	}
+}
+
+// Find prefix-matches a session ref. Two candidates can share a prefix, and it
+// used to silently pick the newest — promoting the wrong session with no
+// signal. An ambiguous ref must be refused with both full ids named.
+func TestAnAmbiguousSessionRefIsRejected(t *testing.T) {
+	v := t.TempDir()
+	a := ingest.Harvest(sampleSession())
+	a.SessionID = "01a05124-aaaa"
+	b := ingest.Harvest(sampleSession())
+	b.SessionID = "01a05124-bbbb"
+	for _, c := range []ingest.Candidate{a, b} {
+		if _, err := ingest.Put(v, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, _, _, err := ingest.Find(v, "01a05124")
+	if err == nil {
+		t.Fatal("an ambiguous prefix was silently resolved")
+	}
+	if !strings.Contains(err.Error(), "01a05124-aaaa") || !strings.Contains(err.Error(), "01a05124-bbbb") {
+		t.Errorf("the ambiguity error does not name both candidates: %v", err)
+	}
+
+	// A full id is still unambiguous.
+	if _, _, ok, err := ingest.Find(v, "01a05124-aaaa"); err != nil || !ok {
+		t.Fatalf("an exact id no longer resolves: ok=%v err=%v", ok, err)
 	}
 }
 

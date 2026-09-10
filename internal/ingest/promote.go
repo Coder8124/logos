@@ -7,6 +7,7 @@ import (
 
 	"github.com/Coder8124/brain/internal/gitstate"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/text"
 )
 
 // Promote turns a reviewed candidate into a real checkpoint. This is the only
@@ -23,6 +24,12 @@ import (
 func Promote(db *sql.DB, vaultDir string, c Candidate, abs string) (*session.Checkpoint, error) {
 	if c.Status == StatusPromoted {
 		return nil, fmt.Errorf("candidate %s was already promoted", c.SessionID)
+	}
+	// A rejected candidate carries no fresh distillate — the record only says it
+	// was seen and dismissed. Promoting it would mint a checkpoint from stale
+	// data, so re-harvesting is the only way back in.
+	if c.Status == StatusRejected {
+		return nil, fmt.Errorf("candidate %s was rejected; re-harvest it to promote", c.SessionID)
 	}
 	project := c.Project
 	if strings.TrimSpace(project) == "" {
@@ -79,7 +86,7 @@ func Reject(abs string, c Candidate) error {
 
 func ingestState(c Candidate) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s session %s, %d turns", c.Harness, c.SessionID, c.Turns)
+	fmt.Fprintf(&b, "%s session %s, %d turns", c.Harness, c.SessionID, c.TurnCount)
 	if c.Skipped > 0 {
 		fmt.Fprintf(&b, " (%d unparsed line(s) skipped)", c.Skipped)
 	}
@@ -91,8 +98,5 @@ func ingestState(c Candidate) string {
 }
 
 func shortHash(h string) string {
-	if len(h) > 12 {
-		return h[:12]
-	}
-	return h
+	return text.Truncate(h, 12)
 }

@@ -100,6 +100,82 @@ func TestAnUnreadableTranscriptIsNamedInTheOutputNotSwallowed(t *testing.T) {
 	}
 }
 
+// A candidate file the review command cannot read is named with a count on
+// stdout, never dropped from the list in silence (invariants 3 and 4).
+func TestReviewReportsACandidateItCannotRead(t *testing.T) {
+	vaultDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vaultDir, ".brain"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BRAIN_VAULT", vaultDir)
+
+	dir := filepath.Join(vaultDir, "ingest", "widgets")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(dir, "claude-code-deadbeef.md")
+	if err := os.WriteFile(bad, []byte("---\ntype: ingest_candidate\nsession: deadbeef\n---\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(bad, 0o644) })
+
+	out := captureStdout(t, func() {
+		if err := runIngestReview(nil); err != nil {
+			t.Fatalf("review: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "1 candidate file(s) skipped") || !strings.Contains(out, "claude-code-deadbeef.md") {
+		t.Errorf("review did not report the unreadable candidate:\n%s", out)
+	}
+}
+
+// The checkpoint is written to sessions/ before the candidate's status is
+// flipped. If that status write fails, the promotion still stands — so the user
+// must see the "promoted" line (invariant 3), and must be told how to stop the
+// still-pending candidate being offered (and re-promoted) next review.
+func TestPromotionIsAnnouncedEvenWhenTheStatusWriteFails(t *testing.T) {
+	vaultDir := scratchIngest(t)
+	if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	// Make every ingest candidate directory read-only: SetStatus rewrites the
+	// note in place via a temp file + rename in that directory, which now fails,
+	// while the checkpoint write to sessions/ still succeeds.
+	ingestRoot := filepath.Join(vaultDir, "ingest")
+	var dirs []string
+	filepath.Walk(ingestRoot, func(p string, info os.FileInfo, err error) error {
+		if err == nil && info.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return nil
+	})
+	for _, d := range dirs {
+		if err := os.Chmod(d, 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, d := range dirs {
+			os.Chmod(d, 0o700)
+		}
+	})
+
+	out := captureStdout(t, func() {
+		if err := runIngestReview([]string{"--promote", "11111111-2222-3333-4444-555555555555"}); err != nil {
+			t.Fatalf("promote: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "promoted to checkpoint:") {
+		t.Errorf("a durable promotion was not announced:\n%s", out)
+	}
+	if !strings.Contains(out, "warning:") || !strings.Contains(out, "brain ingest review --reject") {
+		t.Errorf("the status-write failure was not surfaced with a recovery command:\n%s", out)
+	}
+}
+
 // --dry-run is the safe preview: it reads transcripts and prints what it would
 // queue, but the vault is untouched — no ingest/ directory, no consent marker.
 func TestDryRunWritesNothingToTheVault(t *testing.T) {

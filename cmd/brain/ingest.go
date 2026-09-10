@@ -13,6 +13,7 @@ import (
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/ingest"
 	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/brain/internal/text"
 	"github.com/Coder8124/brain/internal/transcript"
 	"github.com/Coder8124/brain/internal/vault"
 )
@@ -70,7 +71,7 @@ func runIngest(args []string) error {
 		}
 		if dryRun {
 			fmt.Printf("  would ingest  %s  %s session %s  (%d turns, %d cmds, %d files)\n",
-				orUnattributed(c.Project), c.Harness, shortID(c.SessionID), c.Turns, len(c.Commands), len(c.Files))
+				orUnattributed(c.Project), c.Harness, shortID(c.SessionID), c.TurnCount, len(c.Commands), len(c.Files))
 			queued++
 			continue
 		}
@@ -130,9 +131,15 @@ func runIngestReview(args []string) error {
 		return ingestDecide(v, ref, false)
 	}
 
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		return err
+	pending, skipped := ingest.Pending(v)
+	// A candidate file we could not read is named with a count, never dropped in
+	// silence (invariants 3 and 4).
+	if len(skipped) > 0 {
+		fmt.Printf("%d candidate file(s) skipped:\n", len(skipped))
+		for _, s := range skipped {
+			fmt.Printf("  %s\n", s)
+		}
+		fmt.Println()
 	}
 	if len(pending) == 0 {
 		fmt.Println("no ingested candidates pending review")
@@ -141,7 +148,7 @@ func runIngestReview(args []string) error {
 	fmt.Printf("%d candidate(s) pending review:\n\n", len(pending))
 	for _, c := range pending {
 		fmt.Printf("  %s  %s session %s\n", orUnattributed(c.Project), c.Harness, shortID(c.SessionID))
-		fmt.Printf("      %d turns · %d commands · %d files", c.Turns, len(c.Commands), len(c.Files))
+		fmt.Printf("      %d turns · %d commands · %d files", c.TurnCount, len(c.Commands), len(c.Files))
 		if c.Skipped > 0 {
 			fmt.Printf(" · %d unparsed lines", c.Skipped)
 		}
@@ -176,14 +183,22 @@ func ingestDecide(v, ref string, promote bool) error {
 		return err
 	}
 	cp, err := ingest.Promote(ix.DB, v, c, abs)
-	if err != nil {
+	// Promote returns a non-nil cp with a non-nil err when the checkpoint was
+	// durably written but flipping the candidate's status failed. Discarding cp
+	// here would hide a real promotion (invariant 3) and leave the candidate
+	// pending, so the next review re-offers it and writes a duplicate checkpoint.
+	if cp == nil {
 		return err
-	}
-	if _, err := ix.Sync(); err != nil {
-		return fmt.Errorf("checkpoint %s written but the index did not refresh: %w", cp.Slug, err)
 	}
 	fmt.Printf("promoted to checkpoint: %s.md\n", cp.Slug)
 	fmt.Printf("`brain resume %s` picks it up now\n", cp.Project)
+	if _, syncErr := ix.Sync(); syncErr != nil {
+		return fmt.Errorf("checkpoint %s written but the index did not refresh: %w", cp.Slug, syncErr)
+	}
+	if err != nil {
+		fmt.Printf("warning: %v\n", err)
+		fmt.Printf("         run `brain ingest review --reject %s` or it is offered again\n", shortID(c.SessionID))
+	}
 	return nil
 }
 
@@ -228,7 +243,20 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 			out = append(out, s)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Ended > out[j].Ended })
+	// Ended is 0 for a transcript with no timestamped final turn, and 0 > 0 is
+	// false for every pair, so the sort fell back to read order — the same list
+	// printed differently run to run. Started and then the file path break the
+	// tie deterministically.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Ended != b.Ended {
+			return a.Ended > b.Ended
+		}
+		if a.Started != b.Started {
+			return a.Started > b.Started
+		}
+		return a.Path < b.Path
+	})
 	return out, skips, nil
 }
 
@@ -268,7 +296,10 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 		}
 	}
 
-	b, _ := json.MarshalIndent(ingestConsent{Granted: time.Now().UTC().Format(time.RFC3339)}, "", "  ")
+	b, err := json.MarshalIndent(ingestConsent{Granted: time.Now().UTC().Format(time.RFC3339)}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding ingest consent: %w", err)
+	}
 	if err := vault.WriteAtomic(p, b); err != nil {
 		return fmt.Errorf("recording ingest consent: %w", err)
 	}
@@ -310,18 +341,12 @@ func orUnattributed(p string) string {
 }
 
 func shortID(id string) string {
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
+	return text.Truncate(id, 12)
 }
 
 // ingestPendingCount is used by `brain resume` to mention the queue. A read
 // failure is not worth surfacing there — the dedicated command will report it.
 func ingestPendingCount(vaultDir string) int {
-	pending, err := ingest.Pending(vaultDir)
-	if err != nil {
-		return 0
-	}
+	pending, _ := ingest.Pending(vaultDir)
 	return len(pending)
 }
