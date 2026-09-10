@@ -183,22 +183,48 @@ func checkVault(dir string) Check {
 	return c
 }
 
-// underTempDir reports whether path sits inside the system temporary directory.
+// underTempDir reports whether path sits inside a system temporary directory.
 //
-// Both sides are resolved through symlinks first: on macOS os.TempDir() returns
-// /var/folders/... while the same directory answers to /private/var/folders/...,
-// and a string compare of the two says they are unrelated.
+// Every well-known temp root is checked, not just os.TempDir(). os.TempDir()
+// answers $TMPDIR, which on macOS is a per-user directory under /var/folders —
+// and CONTRIBUTING.md tells contributors to point a scratch vault at /tmp
+// directly, which shares no prefix with it. A guard that cannot see the one
+// root the project's own docs send people to is a guard against a case that
+// never happens.
+//
+// Both sides are resolved through symlinks first: /tmp answers to /private/tmp
+// and /var/folders/... to /private/var/folders/..., and a string compare of the
+// two forms would say they are unrelated.
 func underTempDir(path string) bool {
-	tmp := os.TempDir()
-	if real, err := filepath.EvalSymlinks(tmp); err == nil {
-		tmp = real
+	for _, p := range forms(path) {
+		for _, root := range []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"} {
+			for _, t := range forms(root) {
+				// Separator-anchored, so /tmpfoo is not read as living under /tmp.
+				if p == t || strings.HasPrefix(p, t+string(filepath.Separator)) {
+					return true
+				}
+			}
+		}
 	}
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		path = real
-	}
-	tmp = filepath.Clean(tmp)
+	return false
+}
+
+// forms returns the spellings of path that a comparison has to check: the
+// cleaned path, and its symlink-resolved form when it has one. Both are
+// needed because usually only one side of a comparison exists on disk —
+// EvalSymlinks("/tmp") yields /private/tmp, but EvalSymlinks on a vault path
+// that was never a symlink (or has since been removed) fails and leaves the
+// literal spelling, so resolving only what resolves would make the two sides
+// disagree about the same directory.
+func forms(path string) []string {
 	path = filepath.Clean(path)
-	return path == tmp || strings.HasPrefix(path, tmp+string(filepath.Separator))
+	out := []string{path}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		if real = filepath.Clean(real); real != path {
+			out = append(out, real)
+		}
+	}
+	return out
 }
 
 func checkNotes(db *sql.DB) Check {

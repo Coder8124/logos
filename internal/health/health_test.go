@@ -3,6 +3,7 @@ package health
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -648,5 +649,34 @@ func TestNoIntrospectableHostReportsUnknownNotOK(t *testing.T) {
 	c := checkDuplicateRegistration(hosts)
 	if c.State != Unknown {
 		t.Errorf("state = %v (%q), want unknown", c.State, c.Detail)
+	}
+}
+
+// CONTRIBUTING.md tells contributors to point a scratch vault at /tmp, not at
+// $TMPDIR — and os.TempDir() answers $TMPDIR, which on macOS is a per-user
+// directory under /var/folders, a different path with no shared prefix with
+// /tmp. A check that only compares against os.TempDir() cannot see the one
+// temp root the project's own docs actually point people at.
+func TestARecordedVaultUnderPlainSlashTmpIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("/tmp is not a temp root on windows")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+
+	scratch := filepath.Join("/tmp", "brain-scratch-plain-tmp-test")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(scratch)
+	if err := vault.Record(scratch); err != nil {
+		t.Fatal(err)
+	}
+
+	c := checkVault(scratch)
+	if c.State != Failed {
+		t.Fatalf("vault check = %v (%q), want failed — /tmp is a temporary directory even when it is not $TMPDIR", c.State, c.Detail)
 	}
 }
