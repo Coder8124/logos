@@ -68,3 +68,10 @@ CLAUDE.md
 # Browser-extension client for `brain mcp serve --http`, whose server half is
 # unmerged (branch wip-0.4.5-b1-websocket); do not commit until that lands.
 extension/
+
+# Roadmaps and working plans. Same rule as personal/ and yap files/ — thinking,
+# not product. A plan is one person's intention at one moment and goes stale the
+# day it lands; CONTRIBUTING.md and the code are what everyone reads.
+# looseendsplan.md predates the plans/ directory and is ignored by name.
+plans/
+looseendsplan.md
