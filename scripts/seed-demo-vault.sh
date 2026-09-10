@@ -748,5 +748,5 @@ echo "seeded $VAULT"
 find "$VAULT" \( -name '*.md' -o -name '*.csv' \) | wc -l | xargs echo "  files:"
 echo
 echo "next:"
-echo "  BRAIN_VAULT=$VAULT ./bin/brain index"
-echo "  BRAIN_VAULT=$VAULT ./bin/brain ask 'why is the BOM over target?'"
+echo "  BRAIN_VAULT=\"$VAULT\" ./bin/brain index"
+echo "  BRAIN_VAULT=\"$VAULT\" ./bin/brain ask 'why is the BOM over target?'"

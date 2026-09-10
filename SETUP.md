@@ -516,9 +516,9 @@ brain projects | project <name>                 auto-detected projects and dossi
 brain loop [add|done|drop]                      open commitments
 brain graph [focus] [--hops N] [--similar]      the note graph around a note
 brain context <task> [--project p] [--budget n] everything bearing on a task, budgeted
-brain note <project> <what you did>             record progress; uncommitted until checkpoint
-brain checkpoint <project> [--handoff who]      commit where you stopped, into the vault
-brain resume <project> | sessions <project>     pick up; read the checkpoint log
+brain note [project] <what you did>             record progress; uncommitted until checkpoint
+brain checkpoint [project] [--handoff who]      commit where you stopped, into the vault
+brain resume [project] | sessions [project]     pick up; read the checkpoint log
 brain tried <approach> [--project p]            has this already been ruled out?
 brain bench continuity [--brain-only]           the handoff suite, against every system installed
 brain index [--watch]                           sync the vault into the cache and embed

@@ -96,28 +96,37 @@ func helpAll(w io.Writer) {
 CONTINUITY
     brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--state ..] [--next ..] [--decided ..]
+                     [--verified ..] [--failed ..] [--blocker ..] [--ran ..]
+                     [--question ..] [--file ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
+                                      repeat --decided, --verified, --failed, --blocker,
+                                      --ran, --question and --file to add more than one
     brain resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
-    brain ingest [project] [--harness N] [--dry-run] [--all-projects]
+    brain ingest [project] [--harness N] [--path FILE] [--dry-run] [--all-projects]
                                       distil other agents' transcripts into checkpoint candidates
     brain ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
     brain sessions [project]          checkpoint history for a project, and any abandoned ones
     brain plans [project]             plan-mode plans saved when ExitPlanMode is approved
     brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
-    brain bootstrap [project] [--dry-run] [--months N]
+    brain bootstrap [project] [--dir DIR] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
     brain context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     brain tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
-    brain why <file>                  what was being decided when this file was touched
+    brain why <file> [--limit N]      what was being decided when this file was touched
     brain projects | project <name>   auto-detected projects and their dossiers
+    brain project-name [dir]          the project name for a directory, as the hooks compute it
+    brain project rename <old> <new> [--dry-run]
+                                      rename a project, carrying its history with it
 
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
+    brain memory [health|consolidate|pin <id>|unpin <id>|exclude <id>]
+                                      what it knows about itself, and what to keep or ignore
     brain memory log [--project P] [--n N]   what changed in what it knows, newest first
     brain activity [--project P] [--kind K] [--tool T] [--days N] [--json]
                                       every prompt, tool call and turn the host reported —
