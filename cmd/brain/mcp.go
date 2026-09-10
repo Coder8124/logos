@@ -6,9 +6,40 @@ import (
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/mcpserver"
+	vaultmod "github.com/Coder8124/brain/internal/vault"
 
 	_ "modernc.org/sqlite"
 )
+
+// serveVault resolves the vault this server will serve, creating the default
+// one when it is not there.
+//
+// `/plugin install logos@logos` is the first route the README offers, and it
+// wires the MCP server with no BRAIN_VAULT and no setup step. On a laptop that
+// had never run `brain setup` the server started, found no ~/brain and exited,
+// which the host shows as a failed connection with no cause attached: the first
+// thing a new user saw the product do was fail to start.
+//
+// Creating it is only right where nobody chose the path. An explicit
+// BRAIN_VAULT, or a vault recorded by setup, that is not there is a typo or a
+// directory that moved — and building a fresh empty one over either is the
+// silent half-vault requireVault exists to prevent.
+func serveVault() (string, error) {
+	dir, explicit := vaultmod.Chosen()
+	if _, err := os.Stat(dir); err == nil {
+		return dir, nil
+	} else if explicit {
+		return "", missingVaultError(dir)
+	}
+	if err := vaultmod.MkdirPrivate(dir); err != nil {
+		return "", fmt.Errorf("creating a vault at %s: %w", dir, err)
+	}
+	// stderr, because stdout is the JSON-RPC transport. Announced rather than
+	// done quietly (invariant 3): a directory made on the user's disk without
+	// them asking is a thing they are told about, and the host logs it.
+	fmt.Fprintf(os.Stderr, "brain: no vault found — created one at %s\n", dir)
+	return dir, nil
+}
 
 // runMCPServe runs the memory MCP server on stdio, so any MCP host (Claude
 // Desktop, Claude Code, Cursor) can plug into the user's local memory.
@@ -30,9 +61,9 @@ func runMCPServe() error {
 				"checkpoint, resume and before_you_try are unaffected")
 	}
 
-	vault := vaultPath()
-	if _, err := os.Stat(vault); err != nil {
-		return missingVaultError(vault)
+	vault, err := serveVault()
+	if err != nil {
+		return err
 	}
 
 	// index.Open rather than sql.Open on the file directly. Opening the raw path
