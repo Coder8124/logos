@@ -334,6 +334,16 @@ type wireOpts struct {
 	yes    bool     // --yes: do not prompt
 }
 
+// detectHosts and integrationChecks are seams, and they exist for one reason:
+// a test that reached the real ones ran `claude mcp add --scope user` and
+// `codex mcp add` against the developer's own machine. Only a fake HOME kept
+// the damage inside a temp directory. Nothing in a test may invoke a host's CLI
+// or spawn a real MCP server.
+var (
+	detectHosts       = setup.Hosts
+	integrationChecks = health.Integration
+)
+
 func wireHosts(vault string, opts wireOpts) error {
 	// --no-hosts is for someone evaluating brain, or setting up a second vault
 	// on a machine that already has one wired. Until it existed the only way to
@@ -361,7 +371,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		Env: map[string]string{"BRAIN_VAULT": vault},
 	}
 
-	hosts, unmatched := setup.Only(setup.Hosts(), opts.only)
+	hosts, unmatched := setup.Only(detectHosts(), opts.only)
 	if len(unmatched) > 0 {
 		return fmt.Errorf("unknown host %s — brain knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(setup.Hosts()), ", "))
@@ -384,12 +394,21 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Printf("      %s %s\n", bin, strings.Join(srv.Args, " "))
 		fmt.Printf("      BRAIN_VAULT=%s\n\n", vault)
 	}
-	for _, r := range plan {
-		if r.Outcome == setup.Skipped {
-			fmt.Printf("    %-16s —  not installed\n", r.Host)
-			continue
+	// The roster is what a person says yes or no to, so it is printed when
+	// there is a decision to make — a prompt coming, or a --dry-run that is
+	// nothing but the roster. Under --yes there is no decision, and printing it
+	// meant the same four hosts appeared twice in a row, the second time with
+	// outcomes: the most important screen in the product read as a rendering
+	// fault at exactly the moment a new user is deciding whether to trust it.
+	showPlan := opts.dryRun || !opts.yes
+	if showPlan {
+		for _, r := range plan {
+			if r.Outcome == setup.Skipped {
+				fmt.Printf("    %-16s —  not installed\n", r.Host)
+				continue
+			}
+			fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
 		}
-		fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
 	}
 
 	if present == 0 {
@@ -414,7 +433,9 @@ func wireHosts(vault string, opts wireOpts) error {
 		return nil
 	}
 
-	fmt.Println()
+	if showPlan {
+		fmt.Println() // separate the roster above from the outcomes below
+	}
 	var wired int
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
@@ -442,7 +463,7 @@ func wireHosts(vault string, opts wireOpts) error {
 	if wired > 0 {
 		fmt.Println("\n  checking it works")
 		ok := true
-		for _, c := range health.Integration(bin, vault) {
+		for _, c := range integrationChecks(bin, vault) {
 			if c.State == health.Failed {
 				ok = false
 				fmt.Printf("    %-16s ✗  %s\n", c.Name, c.Detail)
