@@ -237,20 +237,20 @@ second group speaks MCP, so brain should work once pointed at it — but nobody
 has confirmed it, and "should work" is not a claim this project makes about
 itself.
 
-| Agent | Wired by `brain setup` | How | Verified |
-|---|---|---|---|
-| **Claude Code** | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
-| **Codex** | yes | `codex mcp add` | ✅ handshake + round trip |
-| **Cursor** | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
-| **Claude Desktop** | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
-| Windsurf | not yet | manual JSON below | ❓ **help wanted** |
-| Cline / Roo Code | not yet | manual JSON below | ❓ **help wanted** |
-| Zed | not yet | manual JSON below | ❓ **help wanted** |
-| VS Code Copilot | not yet | manual JSON below | ❓ **help wanted** |
-| Gemini CLI | not yet | manual JSON below | ❓ **help wanted** |
-| OpenCode | not yet | manual JSON below | ❓ **help wanted** |
-| JetBrains AI | not yet | manual JSON below | ❓ **help wanted** |
-| Continue.dev | not yet | manual JSON below | ❓ **help wanted** |
+| Agent | Status | Wired by `brain setup` | How | Verified |
+|---|---|---|---|---|
+| **Claude Code** | supported | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
+| **Codex** | supported | yes | `codex mcp add` | ✅ handshake + round trip |
+| **Cursor** | supported | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
+| **Claude Desktop** | supported | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
+| Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Cline / Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Zed | planned | not yet | manual JSON below | ❓ **help wanted** |
+| VS Code Copilot | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Gemini CLI | planned | not yet | manual JSON below | ❓ **help wanted** |
+| OpenCode | planned | not yet | manual JSON below | ❓ **help wanted** |
+| JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Continue.dev | planned | not yet | manual JSON below | ❓ **help wanted** |
 
 "Verified" means `brain doctor --integration` passes against it: the host
 launches the server, completes the MCP handshake, writes a checkpoint, reads it

@@ -64,3 +64,7 @@ __pycache__/
 # checkout.
 CLAUDE.md
 /brain
+
+# Browser-extension client for `brain mcp serve --http`, whose server half is
+# unmerged (branch wip-0.4.5-b1-websocket); do not commit until that lands.
+extension/
