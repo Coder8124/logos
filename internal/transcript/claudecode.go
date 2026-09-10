@@ -116,8 +116,12 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 	s := &Session{
 		Harness: "claude-code",
 		Path:    mustAbs(path),
-		ID:      strings.TrimSuffix(filepath.Base(path), ".jsonl"),
-		Hash:    hash,
+		// Filename stem is only the fallback id; the transcript's own sessionId
+		// wins as soon as a content line carries one (see the read loop). A file
+		// fed via --path has a stem that is not the real session id, and that
+		// mismatch made harvest/distil unfindable by the id agents actually use.
+		ID:   strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+		Hash: hash,
 	}
 	// The slug is the *fallback* attribution, not the preferred one. It is the
 	// cwd with every separator replaced by "-", which cannot be reversed: the
@@ -128,6 +132,7 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 	s.Project = projectFromSlug(filepath.Base(filepath.Dir(path)))
 
 	cwdApplied := false              // has a real cwd replaced the slug guess yet?
+	idFromTranscript := false        // has the transcript's own sessionId replaced the stem yet?
 	toolName := map[string]string{}  // tool_use id -> tool name
 	toolInput := map[string]string{} // tool_use id -> invocation (command, path)
 
@@ -146,8 +151,9 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		if ln.Type != "user" && ln.Type != "assistant" {
 			continue // UI bookkeeping line
 		}
-		if s.ID == "" && ln.SessionID != "" {
+		if !idFromTranscript && ln.SessionID != "" {
 			s.ID = ln.SessionID
+			idFromTranscript = true
 		}
 		// The recorded cwd is authoritative and beats whatever the slug
 		// guessed; a hyphenated project name survives only this way.
@@ -178,7 +184,14 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Turns) == 0 && s.Skipped == 0 {
+	// A file whose every content line was malformed is a parse failure, not an
+	// empty session. Returning a success-shaped *Session with Skipped>0 and no
+	// turns let harvest emit a "0 turns" candidate indistinguishable from a real
+	// empty transcript — a failure wearing a success shape (invariant 4).
+	if len(s.Turns) == 0 {
+		if s.Skipped > 0 {
+			return nil, fmt.Errorf("%s: %d lines present, none parseable", path, s.Skipped)
+		}
 		return nil, fmt.Errorf("%s: no user or assistant turns found", path)
 	}
 	return s, nil
@@ -310,10 +323,7 @@ func parseRFC3339(s string) int64 {
 	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		t, err = time.Parse(time.RFC3339Nano, s)
-		if err != nil {
-			return 0
-		}
+		return 0
 	}
 	return t.Unix()
 }
@@ -330,13 +340,25 @@ func mustAbs(p string) string {
 	return p
 }
 
+// sortByMtimeDesc orders paths newest-first. It stats each path exactly once
+// into a decorated slice before sorting: an os.Stat inside the less-func runs
+// O(n log n) times and, worse, is non-transitive if a file's mtime changes
+// mid-sort, which sort.Slice is free to interpret as a corrupt ordering.
 func sortByMtimeDesc(paths []string) {
-	mtime := func(p string) int64 {
-		fi, err := os.Stat(p)
-		if err != nil {
-			return 0
-		}
-		return fi.ModTime().UnixNano()
+	type entry struct {
+		path  string
+		mtime int64
 	}
-	sort.Slice(paths, func(i, j int) bool { return mtime(paths[i]) > mtime(paths[j]) })
+	entries := make([]entry, len(paths))
+	for i, p := range paths {
+		var m int64
+		if fi, err := os.Stat(p); err == nil {
+			m = fi.ModTime().UnixNano()
+		}
+		entries[i] = entry{path: p, mtime: m}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].mtime > entries[j].mtime })
+	for i, e := range entries {
+		paths[i] = e.path
+	}
 }
