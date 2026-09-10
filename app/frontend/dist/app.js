@@ -278,6 +278,117 @@ function wireContext() {
   });
 }
 
+// ---- tree view: steer context from the vault, edit in place ----
+//
+// One tree, backed by the same .context/rules.md contextpack.Build reads and
+// `brain context --pin/--exclude` writes — clicking a node here is not a
+// second opinion, it is the same durable rule shown a different way.
+
+let treeLoaded = false;
+let treeOpenFile = null; // path currently shown in the editor pane, or null
+
+async function primeVaultTree() {
+  if (treeLoaded) return;
+  treeLoaded = true;
+  await loadVaultTree();
+}
+
+async function loadVaultTree() {
+  const box = $("vault-tree");
+  try {
+    const nodes = await go().VaultTree();
+    box.innerHTML = "";
+    box.append(renderTreeLevel(nodes || []));
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "empty", "⚠ " + err));
+  }
+}
+
+function renderTreeLevel(nodes) {
+  const wrap = el("div", "tnode");
+  nodes.forEach((n) => wrap.append(renderTreeNode(n)));
+  return wrap;
+}
+
+function renderTreeNode(n) {
+  const item = document.createElement("div");
+  const row = el("div", "tnode-row" + (n.isDir ? " tn-dir" : ""));
+  row.append(el("span", "tn-name", (n.isDir ? "▸ " : "· ") + n.name));
+  if (n.pin) row.append(el("span", "tn-pin " + n.pin, n.pin));
+  row.title = n.isDir
+    ? "click to pin/exclude everything under " + n.path
+    : "click to pin/exclude · double-click to edit " + n.path;
+
+  row.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cycleTreePin(n.path, n.pin);
+  });
+  if (!n.isDir && n.path.endsWith(".md")) {
+    row.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      openTreeFile(n.path);
+    });
+  }
+  item.append(row);
+
+  if (n.isDir && n.children && n.children.length) {
+    const kids = el("div", "tnode-children");
+    n.children.forEach((c) => kids.append(renderTreeNode(c)));
+    item.append(kids);
+  }
+  return item;
+}
+
+// A node cycles pin → exclude → clear → pin, so one control does everything
+// the rules file supports without a context menu.
+async function cycleTreePin(path, current) {
+  const next = current === "pin" ? "exclude" : current === "exclude" ? "" : "pin";
+  try {
+    await go().SetTreePin(path, next);
+    await loadVaultTree();
+    if ($("ctx-task").value.trim() || $("ctx-hint").value.trim()) {
+      $("ctx-form").dispatchEvent(new Event("submit", { cancelable: true }));
+    }
+  } catch (err) {
+    alert("could not set the rule on " + path + ": " + err);
+  }
+}
+
+async function openTreeFile(path) {
+  const empty = $("tree-editor-empty");
+  const active = $("tree-editor-active");
+  const status = $("tree-editor-status");
+  try {
+    const content = await go().ReadVaultFile(path);
+    treeOpenFile = path;
+    $("tree-editor-path").textContent = path;
+    $("tree-editor-body").value = content;
+    status.textContent = "";
+    empty.hidden = true;
+    active.hidden = false;
+  } catch (err) {
+    alert("could not open " + path + ": " + err);
+  }
+}
+
+function wireTreeEditor() {
+  $("tree-editor-save").addEventListener("click", async () => {
+    if (!treeOpenFile) return;
+    const status = $("tree-editor-status");
+    status.textContent = "saving…";
+    try {
+      await go().WriteVaultFile(treeOpenFile, $("tree-editor-body").value);
+      status.textContent = "· saved " + treeOpenFile + " and reindexed it";
+      if ($("ctx-task").value.trim() || $("ctx-hint").value.trim()) {
+        $("ctx-form").dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    } catch (err) {
+      status.textContent = "⚠ " + err;
+    }
+  });
+}
+
 // ---- memory: what the assistant has learned ----
 
 let allMemories = [];
@@ -813,7 +924,7 @@ function show(tab) {
     p.classList.toggle("active", p.id === "panel-" + tab));
 
   if (tab === "sessions") loadSessions();
-  if (tab === "context") primeContextProjects();
+  if (tab === "context") { primeContextProjects(); primeVaultTree(); }
   if (tab === "memory") loadMemory();
   if (tab === "brief") loadBrief();
   if (tab === "today") loadTimeline();
@@ -857,6 +968,7 @@ window.addEventListener("DOMContentLoaded", () => {
   wireVoice();
   wireSetup();
   wireContext();
+  wireTreeEditor();
   restoreHistory();
   show("sessions");
   maybeOnboard();
