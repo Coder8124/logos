@@ -26,6 +26,7 @@
 package setup
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -58,6 +59,12 @@ const (
 	Registered Outcome = "registered"
 	// Updated means it already had a brain entry and it was replaced.
 	Updated Outcome = "updated"
+	// Unchanged means the host was already pointed at exactly this brain, so
+	// nothing was rewritten. Setup runs more than once — after moving a vault,
+	// after an update, or just to check — and writing a backup of a file that
+	// did not change is litter left in the user's config directory on every
+	// re-run, forever.
+	Unchanged Outcome = "already connected"
 	// Skipped means the host is not installed here.
 	Skipped Outcome = "not installed"
 	// Failed means it is installed and something went wrong.
@@ -269,13 +276,24 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 	if err != nil {
 		return Failed, err
 	}
+	out = append(out, '\n')
+
+	// Nothing to do: the file already holds exactly these bytes. Comparing
+	// before writing — rather than writing and then deciding what to call it —
+	// is what keeps a `brain setup --yes` a user runs a second time (to check
+	// it is still wired, say) from leaving a fresh .brain-backup beside the
+	// host's config every single time, forever, for a file it never actually
+	// changed.
+	if existed && bytes.Equal(raw, out) {
+		return Unchanged, nil
+	}
 
 	if existed {
 		if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
 			return Failed, fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
 		}
 	}
-	if err := vault.WriteAtomic(path, append(out, '\n')); err != nil {
+	if err := vault.WriteAtomic(path, out); err != nil {
 		return Failed, err
 	}
 	if had {

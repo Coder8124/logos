@@ -132,6 +132,32 @@ func TestRerunUpdatesInPlace(t *testing.T) {
 	}
 }
 
+// setup is run more than once — after moving a vault, after an update, or just
+// to check things are still wired. Backing up a file the second run leaves
+// byte-for-byte identical is litter left behind in the user's own config
+// directory on every re-run, forever.
+func TestRerunWithNoChangeLeavesNoBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+
+	if _, err := mergeJSON(path, server()); err != nil {
+		t.Fatal(err)
+	}
+	// The first run's own backup-of-nothing must not linger either, so remove
+	// it before asserting on the re-run in isolation.
+	os.Remove(path + ".brain-backup")
+
+	outcome, err := mergeJSON(path, server())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome != Unchanged {
+		t.Errorf("outcome = %q, want %q when nothing about the entry changed", outcome, Unchanged)
+	}
+	if _, err := os.Stat(path + ".brain-backup"); err == nil {
+		t.Error("a backup was written even though the re-run changed nothing")
+	}
+}
+
 // A file we cannot parse is a file we must not replace.
 func TestMalformedConfigIsRefusedNotClobbered(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")

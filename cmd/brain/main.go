@@ -58,11 +58,12 @@ Agents forget the moment a session ends. brain is the memory they hand to one
 another: one stops, the next picks up exactly where it left off.
 
 THE HANDOFF — an agent finishes, and another continues
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
-    brain resume <project>            pick up where the last agent left off
+    brain resume [project]            pick up where the last agent left off
+                                      the project defaults to the directory you are in
 
 THE BRIEF — what bears on the work, before the work starts
     brain context <task> [--project <p>] [--budget <n>]
@@ -93,16 +94,17 @@ func helpAll(w io.Writer) {
 	fmt.Fprintf(w, `brain — local-first memory and continuity for AI agents
 
 CONTINUITY
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
-    brain resume <project>            pick up where the last agent left off
+    brain resume [project]            pick up where the last agent left off
+                                      the project defaults to the directory you are in
     brain ingest [project] [--harness N] [--dry-run] [--all-projects]
                                       distil other agents' transcripts into checkpoint candidates
     brain ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
-    brain sessions <project>          checkpoint history for a project, and any abandoned ones
+    brain sessions [project]          checkpoint history for a project, and any abandoned ones
     brain plans <project>             plan-mode plans saved when ExitPlanMode is approved
     brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
     brain bootstrap [project] [--dry-run] [--months N]
@@ -549,7 +551,7 @@ func doctor(probe bool) error {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
 		fmt.Println("\nNo local model runtime — nothing above depends on one.")
-		return nil
+		return doctorVerdict(failed)
 	}
 	fmt.Println("\n─── runtimes ───")
 	for _, d := range found {
@@ -575,7 +577,7 @@ func doctor(probe bool) error {
 
 	if !probe {
 		fmt.Println("\nrun `brain doctor --probe` to verify each model actually loads")
-		return nil
+		return doctorVerdict(failed)
 	}
 
 	// Listing a model proves nothing: a corrupt pull lists fine and fails on
@@ -597,7 +599,21 @@ func doctor(probe bool) error {
 			fmt.Printf("  %s  %-24s ok, honours JSON schemas\n", t, model)
 		}
 	}
-	return nil
+	return doctorVerdict(failed)
+}
+
+// doctorVerdict turns the report into an exit code. The rows above already say
+// what is wrong in words, but `brain doctor` used to return nil regardless —
+// so `brain doctor && brain resume proj` in a script or a CI pre-flight step
+// proceeded past a vault that had just been reported FAILED, because nothing
+// outside the terminal reads printed text. An unchecked row does not fail the
+// command: no runtime answering is not a failure, since every continuity verb
+// works without one, and the report already said so in words.
+func doctorVerdict(failed int) error {
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d check(s) failed — see the report above", failed)
 }
 
 // doctorIntegration is the difference between "brain is installed" and "your
@@ -831,6 +847,13 @@ func search(query string) error {
 	}
 	if err != nil {
 		return err
+	}
+	// Zero hits printed nothing at all, which reads exactly like a crash: a
+	// first-time user searching for a typo'd term had no way to tell the
+	// command had run and come back empty rather than failed silently.
+	if len(hits) == 0 {
+		fmt.Printf("nothing in the vault matches %q yet.\n", query)
+		return nil
 	}
 	for _, h := range hits {
 		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)

@@ -36,17 +36,48 @@ func runProjectName(args []string) error {
 			dir = d
 		}
 	}
-	// BRAIN_PROJECT outranks the directory here exactly as it does in the MCP
-	// server; a user who set it to make two folders share a project would
-	// otherwise find the hooks ignoring it.
-	name := strings.TrimSpace(os.Getenv("BRAIN_PROJECT"))
-	if name == "" {
-		name = scope.Name(dir)
-	}
+	name := projectFor(dir)
 	if name != "" {
 		fmt.Println(name)
 	}
 	return nil
+}
+
+// projectFor is the one place the CLI decides which project a directory
+// belongs to. BRAIN_PROJECT outranks the directory exactly as it does in the
+// MCP server; a user who set it to make two folders share a project would
+// otherwise find the CLI ignoring it.
+func projectFor(dir string) string {
+	if name := strings.TrimSpace(os.Getenv("BRAIN_PROJECT")); name != "" {
+		return name
+	}
+	return scope.Name(dir)
+}
+
+// projectHere is the project for the directory the user is standing in. It is
+// what a continuity verb falls back to when the user did not name a project —
+// see projectArg.
+func projectHere() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return projectFor(dir)
+}
+
+// projectArg reads the optional leading <project> positional shared by the
+// continuity verbs (note, checkpoint, resume, sessions), falling back to the
+// directory the user is standing in. Requiring the project as a mandatory
+// first word was the single most common way this CLI answered a first-time
+// user with a usage error where the obvious thing — "you mean the project
+// you're sitting in" — was right there in os.Getwd(). A leading flag is never
+// the project: `brain checkpoint --task ...` must not file itself under a
+// project literally called "--task".
+func projectArg(args []string) (project string, rest []string) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return projectHere(), args
 }
 
 // runProjectRename moves a project's whole history to a new name.
