@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/Coder8124/brain/internal/text"
 )
 
 // Turning a host's hook payload into an Event.
@@ -159,9 +161,5 @@ func oneLine(s string, max int) string {
 // Atlas prints "session 8c4f" for the same reason: the full UUID is noise in
 // every row and identifying in none of them.
 func shortID(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) > 8 {
-		return s[:8]
-	}
-	return s
+	return text.Truncate(strings.TrimSpace(s), 8)
 }

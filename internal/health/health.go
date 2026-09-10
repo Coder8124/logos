@@ -401,9 +401,8 @@ func checkIngest(vaultDir string) Check {
 
 	pending := 0
 	if strings.TrimSpace(vaultDir) != "" {
-		if cs, err := ingest.Pending(vaultDir); err == nil {
-			pending = len(cs)
-		}
+		cs, _ := ingest.Pending(vaultDir)
+		pending = len(cs)
 	}
 
 	c.State = OK

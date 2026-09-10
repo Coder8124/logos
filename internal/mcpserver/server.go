@@ -359,7 +359,15 @@ func (s *Session) callTool(req request) *response {
 		return replyErr(req.ID, -32602, "bad params")
 	}
 	var args map[string]any
-	json.Unmarshal(p.Arguments, &args)
+	// A tool call whose arguments are not valid JSON is the host's framing
+	// mistake, not the model reasoning to a wrong answer, so it is a protocol
+	// error that names the fault rather than a swallowed empty-args dispatch
+	// that fails later with a misleading "missing argument".
+	if len(p.Arguments) > 0 {
+		if err := json.Unmarshal(p.Arguments, &args); err != nil {
+			return replyErr(req.ID, -32602, "arguments is not valid JSON: "+err.Error())
+		}
+	}
 
 	text, err := s.dispatch(p.Name, args)
 	if err != nil {
