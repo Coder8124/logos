@@ -12,10 +12,10 @@ import (
 // silent feature in this codebase needs a place a person can go look; this is
 // that place for 0.8.
 func runPlans(args []string) error {
-	if len(args) == 0 {
+	project, _ := projectArg(args)
+	if project == "" {
 		return fmt.Errorf("usage: brain plans <project>")
 	}
-	project := args[0]
 
 	plans, err := session.ListPlans(vaultPath(), project)
 	if err != nil {

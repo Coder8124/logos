@@ -63,3 +63,4 @@ __pycache__/
 # CLAUDE.md is one person's layer on top and does not belong in everyone's
 # checkout.
 CLAUDE.md
+/brain
