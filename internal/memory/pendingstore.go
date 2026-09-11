@@ -144,9 +144,15 @@ func renderPending(pend []Memory) string {
 // A damaged file is refused rather than acted on, for the reason Import gives:
 // a truncated queue read as authoritative would silently reject every proposal
 // the missing tail held.
-func ImportPending(db *sql.DB, dir string) (int, error) {
+//
+// Returns how many proposals it put back into the cache, and how many it
+// rescued the other way — out of a cache that was their only copy and into the
+// vault. They are separate numbers because they are opposite events, and a
+// caller that reported a rescue as a restore would tell the user their queue had
+// been recovered on a run where it was merely, finally, written down.
+func ImportPending(db *sql.DB, dir string) (int, int, error) {
 	if err := Init(db); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	// The same lock the writers take. This reads the file and then rejects every
 	// queued row missing from it, which is the destructive half — running it
@@ -157,7 +163,7 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	// it has not bound to a store yet.
 	g, err := vault.Lock(dir, "memory-pending")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer g.Unlock()
 
@@ -165,14 +171,20 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	if os.IsNotExist(err) {
 		// No file is not the same as an empty queue: a vault written before this
 		// existed, or a partial restore, says nothing about what is pending. The
-		// rows in the cache stand, and the next mutation writes the file.
-		return 0, nil
+		// rows in the cache stand — but "the next mutation writes the file" was
+		// not a plan, it was a hope. Nothing mutates a queue nobody is reviewing,
+		// so a vault older than this file kept its proposals in the one place
+		// every document in this project tells the user they may delete, and the
+		// next `rm -rf .brain` took them without a word. This is the only moment
+		// the rescue is still possible: the cache is still the only copy.
+		rescued, err := rescuePendingLocked(db, dir)
+		return 0, rescued, err
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if looksTruncated(string(raw)) {
-		return 0, fmt.Errorf(
+		return 0, 0, fmt.Errorf(
 			"refusing to import an incomplete review queue (%s ends mid-record); "+
 				"restore the file or delete the partial line to accept it as-is", PendingFile)
 	}
@@ -183,7 +195,7 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	for _, m := range parsed {
 		id, created, err := upsertPending(db, m)
 		if err != nil {
-			return restored, err
+			return restored, 0, err
 		}
 		keep[id] = true
 		if created {
@@ -196,7 +208,7 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 	// never be reaped by it.
 	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0")
 	if err != nil {
-		return restored, err
+		return restored, 0, err
 	}
 	type doomed struct {
 		id   int64
@@ -207,7 +219,7 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 		var d doomed
 		if err := rows.Scan(&d.id, &d.text); err != nil {
 			rows.Close()
-			return restored, err
+			return restored, 0, err
 		}
 		if !keep[d.id] {
 			gone = append(gone, d)
@@ -219,10 +231,31 @@ func ImportPending(db *sql.DB, dir string) (int, error) {
 		// flush would take, and the file it would rewrite is the one being read
 		// as the source of truth right here. See rejectRow.
 		if err := rejectRow(db, d.id, d.text); err != nil {
-			return restored, err
+			return restored, 0, err
 		}
 	}
-	return restored, nil
+	return restored, 0, nil
+}
+
+// rescuePendingLocked writes a queue that exists only in the cache out to the
+// vault, and reports how many proposals it saved.
+//
+// Locked, because ImportPending already holds the queue lock it would otherwise
+// take — the same reason rejectRow exists rather than a call to Reject.
+func rescuePendingLocked(db *sql.DB, dir string) (int, error) {
+	pend, err := Pending(db)
+	if err != nil {
+		return 0, err
+	}
+	if len(pend) == 0 {
+		// Nothing to rescue, and nothing to write: an absent file is what an
+		// empty queue looks like. See flushPendingLocked.
+		return 0, nil
+	}
+	if err := flushPendingLocked(db, dir); err != nil {
+		return 0, err
+	}
+	return len(pend), nil
 }
 
 // upsertPending restores one queued proposal. It reports whether the row had to
@@ -253,6 +286,9 @@ func upsertPending(db *sql.DB, m Memory) (int64, bool, error) {
 		m.Source, m.Agent, m.Created, m.Uses, fingerprint(m.Text)); err != nil {
 		return 0, false, err
 	}
-	logEvent(db, id, EvQuarantined, m.Text, 0)
+	// No event. Putting a proposal back is not proposing it, and logging one
+	// stamped with time.Now() re-dated every queued fact to the moment of the
+	// rebuild — the same way restoring a wiped memory used to. The honest date
+	// is the one the proposal carries, and backfillCreations supplies it.
 	return id, true, nil
 }

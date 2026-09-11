@@ -51,7 +51,7 @@ func TestProposalsSurviveDeletingTheIndex(t *testing.T) {
 	if _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
-	n, err := ImportPending(wiped, dir)
+	n, _, err := ImportPending(wiped, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,11 +102,11 @@ func TestRestoringTheQueueTwiceDoesNotDoubleIt(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	first, err := ImportPending(wiped, dir)
+	first, _, err := ImportPending(wiped, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ImportPending(wiped, dir)
+	second, _, err := ImportPending(wiped, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestARejectedProposalDoesNotComeBack(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := ImportPending(wiped, dir); err != nil {
+	if _, _, err := ImportPending(wiped, dir); err != nil {
 		t.Fatal(err)
 	}
 	pend, _ := Pending(wiped)
@@ -205,7 +205,7 @@ func TestDeletingALineFromTheQueueRejectsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := ImportPending(db, dir); err != nil {
+	if _, _, err := ImportPending(db, dir); err != nil {
 		t.Fatal(err)
 	}
 	pend, _ := Pending(db)
@@ -225,7 +225,7 @@ func TestAMissingQueueFileRejectsNothing(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, Dir, PendingFile)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ImportPending(db, dir); err != nil {
+	if _, _, err := ImportPending(db, dir); err != nil {
 		t.Fatal(err)
 	}
 	pend, _ := Pending(db)
@@ -260,7 +260,7 @@ func TestATruncatedQueueIsRefusedRatherThanActedOn(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := ImportPending(wiped, dir); err == nil {
+	if _, _, err := ImportPending(wiped, dir); err == nil {
 		t.Fatal("a truncated queue was imported without complaint")
 	}
 	pend, _ := Pending(wiped)
@@ -280,5 +280,51 @@ func TestAnUnboundDatabaseStillTakesProposals(t *testing.T) {
 	pend, _ := Pending(db)
 	if len(pend) != 1 {
 		t.Fatalf("proposal lost with no vault bound: %d pending", len(pend))
+	}
+}
+
+// A vault that predates pending.md has proposals in the cache and no file, and
+// nothing repairs that: flushPending only runs when the queue changes, so a
+// queue nobody is touching stays in the one place that gets deleted. The real
+// vault this was found in had exactly that shape — two proposals from before
+// the file existed, and `brain index` after a wipe reported "the review queue is
+// empty", which is what it also reports to someone who has reviewed everything.
+func TestAReviewQueueThatWasNeverWrittenDownIsWrittenDownBeforeItIsLost(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the annual toggle belongs in PricingTable", Kind: Fact, Source: "mcp", Agent: "claude-code", Quarantined: true}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+
+	// Back-date the vault to before the queue file existed.
+	if err := os.Remove(filepath.Join(dir, Dir, PendingFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	// An ordinary reindex, no wipe. This is the only moment the repair can
+	// happen: the cache is still the only copy.
+	if _, _, err := ImportPending(db, dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, Dir, PendingFile))
+	if err != nil {
+		t.Fatalf("the queue was left in the cache only: %v", err)
+	}
+	if !strings.Contains(string(raw), "PricingTable") {
+		t.Fatalf("queue file does not hold the proposal:\n%s", raw)
+	}
+
+	// And now the wipe it was about.
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if n, _, err := ImportPending(wiped, dir); err != nil {
+		t.Fatal(err)
+	} else if n != 1 {
+		t.Fatalf("restored %d proposals, want 1", n)
 	}
 }

@@ -186,8 +186,9 @@ func (ix *Index) SyncNotes() (int, error) {
 // active memory now, and Import has to have restored it before the queue is
 // allowed to have an opinion about that id.
 //
-// Returns how many proposals it put back.
-func (ix *Index) SyncPending() (int, error) {
+// Returns how many proposals it put back, and how many it rescued out of a
+// cache that was their only copy.
+func (ix *Index) SyncPending() (restored, rescued int, err error) {
 	return memory.ImportPending(ix.DB, ix.Vault)
 }
 

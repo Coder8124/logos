@@ -866,11 +866,20 @@ func runIndex(watch bool) error {
 
 		// The review queue, after the memories, so an accepted proposal is
 		// already an active memory before the queue is consulted about its id.
-		if queued, err := ix.SyncPending(); err != nil {
+		if queued, rescued, err := ix.SyncPending(); err != nil {
 			fmt.Fprintln(os.Stderr, "· could not restore the review queue:", err)
-		} else if queued > 0 {
-			fmt.Printf("restored %d memor%s awaiting review — run `brain review`\n",
-				queued, pluralY(queued))
+		} else {
+			if queued > 0 {
+				fmt.Printf("restored %d memor%s awaiting review — run `brain review`\n",
+					queued, pluralY(queued))
+			}
+			// Said out loud because it is a repair the user did not ask for and
+			// would otherwise never know happened — and because it means their
+			// queue was, until this run, one `rm -rf .brain` from gone.
+			if rescued > 0 {
+				fmt.Printf("wrote %d memor%s awaiting review to the vault — they were only in the index\n",
+					rescued, pluralY(rescued))
+			}
 		}
 
 		// The timeline, after both. Announced because the alternative — a silent

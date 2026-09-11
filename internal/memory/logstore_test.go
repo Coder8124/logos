@@ -109,3 +109,57 @@ func TestRestoringAWipedRowDoesNotBackdateToTheRebuild(t *testing.T) {
 		t.Errorf("the memory was recorded as learned at %d; the timeline says %d", created, got[0].TS)
 	}
 }
+
+// The same re-dating, one path over: restoring a proposal out of pending.md
+// logged a fresh "quarantined" event stamped with the rebuild, so a fact an
+// agent proposed last week showed up in the timeline as proposed this morning.
+func TestARestoredProposalKeepsTheDateItWasProposed(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the annual toggle belongs in PricingTable", Kind: Fact, Source: "mcp", Agent: "claude-code", Quarantined: true}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	// Back-dated, because the bug is invisible inside one second: the fresh
+	// event the restore logged and the honest one differ only by how long the
+	// test took. In the vault this was found in they differed by nine days.
+	proposed := m.Created - 9*24*3600
+	if _, err := db.Exec("UPDATE memories SET created = ? WHERE id = ?", proposed, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := flushPending(db); err != nil {
+		t.Fatal(err)
+	}
+	// A vault from before log.md existed, which is every vault this repair is
+	// for: the proposal is in pending.md and its history is nowhere.
+	if err := os.Remove(filepath.Join(dir, Dir, LogFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ImportPending(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ImportLog(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Timeline(wiped, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("timeline has %d events, want 1:\n%+v", len(got), got)
+	}
+	if got[0].Event != EvQuarantined {
+		t.Errorf("event is %q, want %q", got[0].Event, EvQuarantined)
+	}
+	if got[0].TS != proposed {
+		t.Errorf("proposal dated %d, want %d — the rebuild re-dated it", got[0].TS, proposed)
+	}
+}
