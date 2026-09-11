@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/brain/internal/ingest"
+	"github.com/Coder8124/brain/internal/text"
 )
 
 // B3 of plans/plan0-4-7.md: distillation done by the agent that asked for it.
@@ -96,10 +97,7 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 }
 
 func clipClaim(s string) string {
-	if len(s) <= 80 {
-		return s
-	}
-	return s[:79] + "…"
+	return text.Ellipsize(s, 80)
 }
 
 func shortSession(id string) string {
