@@ -668,7 +668,11 @@ func parseKind(kind Kind, raw string) []Memory {
 		body := strings.TrimSpace(line[2:])
 
 		m := Memory{Kind: kind, Salience: 0.5, Confidence: 0.7, Created: time.Now().Unix()}
-		if i := strings.Index(body, "<!--"); i >= 0 {
+		// LastIndex, not Index, for the reason logstore.go's parser documents:
+		// the text is free-form and may itself quote "<!--", while brain's own
+		// bookkeeping comment is always the last thing on the line. Splitting
+		// at the first one hands the user's text to applyMeta and loses it.
+		if i := strings.LastIndex(body, "<!--"); i >= 0 {
 			meta := body[i:]
 			body = strings.TrimSpace(body[:i])
 			applyMeta(&m, meta)

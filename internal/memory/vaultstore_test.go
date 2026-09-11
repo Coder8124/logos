@@ -357,3 +357,48 @@ func TestOldVaultFileWithNoAgentMetadataImportsCleanly(t *testing.T) {
 		t.Errorf("a file with no agent= should import with an empty agent, got %q", all[0].Agent)
 	}
 }
+
+// A memory is free text a person or an agent wrote, and it may quote brain's
+// own bookkeeping — a note about the vault format, a pasted line from a store
+// file. brain's comment is always appended last, so splitting the line at the
+// first "<!--" hands the user's own text to the metadata parser and drops it.
+//
+// The loss needs a second, unrelated write to show: the first store renders the
+// file correctly, and only the next one parses it back before rewriting. That
+// rewrite is what makes this silent and permanent — the truncated form is then
+// what the vault holds, so a rebuild is faithful to corrupt data.
+func TestAMemoryQuotingBrainsOwnCommentIsNotTruncatedByTheNextWrite(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	const quoted = "the deploy script uses <!-- brain id=999 --> as a marker"
+	first := Memory{Text: quoted, Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &first); err != nil {
+		t.Fatal(err)
+	}
+	second := Memory{Text: "second unrelated fact", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &second); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), quoted) {
+		t.Errorf("the vault lost the memory's text on the second write:\n%s", raw)
+	}
+
+	wiped := testDB(t)
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	all, err := All(wiped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.ID == first.ID && m.Text != quoted {
+			t.Errorf("rebuilt memory #%d as %q, want %q", m.ID, m.Text, quoted)
+		}
+	}
+}
