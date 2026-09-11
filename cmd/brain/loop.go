@@ -47,8 +47,18 @@ func commitmentCmd(args []string) error {
 			return fmt.Errorf("usage: brain loop add <text>")
 		}
 		c := &secretary.Commitment{Text: joinArgs(args[1:])}
-		if _, err := secretary.Add(ix.DB, c); err != nil {
+		added, err := secretary.Add(ix.DB, c)
+		if err != nil {
 			return err
+		}
+		// Add returns false when a fingerprint-equal loop is already on the
+		// record: nothing was written to the cache or the vault. Printing
+		// "tracked" for it made a no-op indistinguishable from a write, and the
+		// user's second `brain loop` would show a list their new loop was not in
+		// with nothing to explain why.
+		if !added {
+			fmt.Println("already tracked — an identical loop is already open")
+			return nil
 		}
 		fmt.Println("tracked")
 	case "done":
