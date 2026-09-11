@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/Coder8124/brain/internal/secretary"
@@ -22,7 +23,11 @@ func commitmentCmd(args []string) error {
 		return err
 	}
 
-	if len(args) == 0 {
+	// `list` is a synonym for the bare form, not a subcommand of its own. Every
+	// other listing verb here takes it, the help line named only the three verbs
+	// that change something, and `brain loop list` answered with a usage error —
+	// which reads as "there is no way to see them" rather than "you already are".
+	if len(args) == 0 || (len(args) == 1 && args[0] == "list") {
 		open, err := secretary.Open_(ix.DB)
 		if err != nil {
 			return err
@@ -62,13 +67,37 @@ func commitmentCmd(args []string) error {
 		}
 		fmt.Println("tracked")
 	case "done":
-		id := parseID(args)
-		return secretary.SetStatus(ix.DB, id, secretary.Done)
+		return closeLoop(ix.DB, args, secretary.Done, "closed")
 	case "drop":
-		id := parseID(args)
-		return secretary.SetStatus(ix.DB, id, secretary.Dropped)
+		return closeLoop(ix.DB, args, secretary.Dropped, "dropped")
 	default:
-		return fmt.Errorf("usage: brain loop [add <text> | done <id> | drop <id>]")
+		return fmt.Errorf("usage: brain loop [list | add <text> | done <id> | drop <id>]")
 	}
 	return nil
+}
+
+// closeLoop resolves one loop and says which. The UPDATE behind SetStatus
+// matches on id and is content to match nothing, so `brain loop done 9` on a
+// vault whose loops are numbered 1 and 2 returned success and printed nothing —
+// a mistyped id indistinguishable from a loop closed, with the one the user
+// meant to close still open and nothing anywhere saying so.
+func closeLoop(db *sql.DB, args []string, status secretary.Status, verb string) error {
+	id := parseID(args)
+	if id == 0 {
+		return fmt.Errorf("usage: brain loop %s <id> — the id is the number in brackets in `brain loop`", args[0])
+	}
+	open, err := secretary.Open_(db)
+	if err != nil {
+		return err
+	}
+	for _, c := range open {
+		if c.ID == id {
+			if err := secretary.SetStatus(db, id, status); err != nil {
+				return err
+			}
+			fmt.Printf("%s [%d] %s\n", verb, id, c.Text)
+			return nil
+		}
+	}
+	return fmt.Errorf("no open loop [%d] — run `brain loop` to see the ids", id)
 }

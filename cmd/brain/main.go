@@ -138,7 +138,7 @@ MEMORY
     brain prompt                      the instructions agents are given (BRAINPROMPT.md)
     brain demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     brain memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
-    brain loop [add|done|drop]        manage open loops (commitments)
+    brain loop [list|add|done|drop]   list or manage open loops (commitments)
     brain graph [focus] [--hops N] [--similar]   memory graph around a note
 
 RETRIEVAL
