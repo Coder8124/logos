@@ -26,11 +26,13 @@
 package setup
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Coder8124/brain/internal/vault"
@@ -58,6 +60,11 @@ const (
 	Registered Outcome = "registered"
 	// Updated means it already had a brain entry and it was replaced.
 	Updated Outcome = "updated"
+	// Unchanged means the host was already pointed at exactly this brain, so
+	// the registration rewrote its config with the bytes already in it. Setup
+	// is run more than once — after moving a vault, after an update, or just to
+	// check — and calling that "updated" reports work that did not happen.
+	Unchanged Outcome = "already connected"
 	// Skipped means the host is not installed here.
 	Skipped Outcome = "not installed"
 	// Failed means it is installed and something went wrong.
@@ -72,7 +79,11 @@ type Result struct {
 	Host    string
 	Outcome Outcome
 	Where   string // config path or command, for the report
-	Err     error
+	// Backup is the copy of this host's config taken before it was changed,
+	// empty when there was nothing to copy. Reported, because a backup nobody
+	// is told about is a backup nobody uses.
+	Backup string
+	Err    error
 }
 
 // A Host is one application that can talk to an MCP server.
@@ -84,6 +95,12 @@ type Host struct {
 	Detect func() bool
 	// Where is the config path or command shown in the report.
 	Where func() string
+	// Config is the file this host's registration rewrites, so it can be
+	// backed up first. Empty means the file does not exist yet or brain does
+	// not know where it lives — a host registered through its own CLI still
+	// rewrites a file, and knowing which one is the only way back from a wrong
+	// --vault.
+	Config func() string
 	// Register points the host at this server.
 	Register func(Server) (Outcome, error)
 	// List reports every MCP server this host currently has registered, read
@@ -171,14 +188,83 @@ func Install(s Server, hosts []Host) []Result {
 			out = append(out, r)
 			continue
 		}
+		backup, err := backupConfig(h)
+		if err != nil {
+			r.Outcome, r.Err = Failed, err
+			out = append(out, r)
+			continue
+		}
+		r.Backup = backup
 		outcome, err := h.Register(s)
 		r.Outcome, r.Err = outcome, err
 		if err != nil {
 			r.Outcome = Failed
+			out = append(out, r)
+			continue
+		}
+		// Compared afterwards rather than predicted beforehand: whether a
+		// registration changes anything is only knowable once the host's own
+		// command or our own merge has run. A backup of a file nobody changed
+		// is litter in the user's config directory, so it goes.
+		if unchanged(h, backup) {
+			r.Outcome = Unchanged
+			if err := os.Remove(backup); err == nil {
+				r.Backup = ""
+			}
 		}
 		out = append(out, r)
 	}
 	return out
+}
+
+// backupConfig copies a host's config aside before anything rewrites it.
+//
+// This used to happen only inside mergeJSON, which meant it happened only for
+// the two hosts with no CLI. The hosts with a CLI rewrite a config file too:
+// `codex mcp add brain` replaces an existing brain entry outright — dropping
+// its environment block with it — and reports "Added global MCP server". A
+// user who ran setup with the wrong --vault had no way back.
+//
+// A config that does not exist yet needs no backup: Claude Desktop writes its
+// file only once it has an MCP server, and the first one is often ours.
+func backupConfig(h Host) (string, error) {
+	if h.Config == nil {
+		return "", nil
+	}
+	path := h.Config()
+	if path == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
+	}
+	if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
+		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
+	}
+	return path + ".brain-backup", nil
+}
+
+// unchanged reports whether the config is byte-for-byte what the backup holds.
+// A read that fails answers no: the outcome the host reported stands, because
+// claiming nothing happened on the strength of a failed check is exactly the
+// silent-success failure invariant 4 exists to prevent.
+func unchanged(h Host, backup string) bool {
+	if backup == "" || h.Config == nil {
+		return false
+	}
+	before, err := os.ReadFile(backup)
+	if err != nil {
+		return false
+	}
+	after, err := os.ReadFile(h.Config())
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(before, after)
 }
 
 // --- registering through a host's own CLI ------------------------------------
@@ -191,9 +277,12 @@ func viaCLI(bin string, args []string) (Outcome, error) {
 	if err == nil {
 		return Registered, nil
 	}
-	// Both CLIs refuse a name that already exists rather than replacing it.
-	// That is not a failure to report — it is the idempotent case, and the user
-	// asked for brain to be connected, which it now is.
+	// Older versions of both CLIs refused a name that already exists rather
+	// than replacing it, and said so on stdout. Codex now replaces it silently
+	// instead, which is why Install backs the config up first (backupConfig).
+	// Where the refusal does still happen it is not a failure to report — it is
+	// the idempotent case, and the user asked for brain to be connected, which
+	// it now is.
 	if s := strings.ToLower(string(outBytes)); strings.Contains(s, "already exists") ||
 		strings.Contains(s, "already configured") {
 		return Updated, nil
@@ -215,6 +304,95 @@ type serverEntry struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
+// MergeFile is mergeJSON, exported for `brain setup --config <path>` — a host
+// whose location on disk brain has no convention for, but whose file is the
+// same mcpServers-keyed JSON that Claude Desktop and Cursor already read. The
+// internal hosts in Hosts() are a closed, curated list on purpose (see the
+// package doc); this is the escape hatch for every MCP client that is not on
+// it, so that "not one of the four we special-case" does not mean "brain
+// cannot help you connect this".
+func MergeFile(path string, s Server) (Outcome, error) {
+	return mergeJSON(path, s)
+}
+
+// RenderConfig renders the server block a host's config needs, in the
+// requested format, for printing rather than writing. It exists for the same
+// reason MergeFile does: a host brain does not know how to find can still be
+// wired, by hand, if the user can see what a working entry looks like. An
+// empty format means json — the shape most MCP hosts actually use, and the
+// one this package already writes for Claude Desktop and Cursor.
+func RenderConfig(s Server, format string) (string, error) {
+	switch format {
+	case "", "json":
+		return renderConfigJSON(s)
+	case "toml":
+		return renderConfigTOML(s), nil
+	default:
+		return "", fmt.Errorf("unknown format %q — brain knows: json, toml", format)
+	}
+}
+
+func renderConfigJSON(s Server) (string, error) {
+	wrapper := struct {
+		Servers map[string]serverEntry `json:"mcpServers"`
+	}{Servers: map[string]serverEntry{
+		Name: {Command: s.Bin, Args: s.Args, Env: s.Env},
+	}}
+	out, err := json.MarshalIndent(wrapper, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out) + "\n", nil
+}
+
+// renderConfigTOML mirrors the shape Codex's own config.toml uses
+// ([mcp_servers.<name>], with env as a nested table) — the one host in this
+// package's list that speaks TOML rather than JSON, and so the format most
+// likely to make a hand-edited entry actually match what its neighbors expect.
+//
+// Escaping only backslash and quote, not the full TOML basic-string grammar:
+// what lands here is an absolute binary path and a vault directory, never
+// arbitrary user text, so control characters and stray unicode are not a case
+// this needs to cover.
+func renderConfigTOML(s Server) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[mcp_servers.%s]\n", Name)
+	fmt.Fprintf(&b, "command = %s\n", tomlString(s.Bin))
+	if len(s.Args) > 0 {
+		parts := make([]string, len(s.Args))
+		for i, a := range s.Args {
+			parts[i] = tomlString(a)
+		}
+		fmt.Fprintf(&b, "args = [%s]\n", strings.Join(parts, ", "))
+	}
+	if len(s.Env) > 0 {
+		fmt.Fprintf(&b, "\n[mcp_servers.%s.env]\n", Name)
+		for _, k := range sortedKeys(s.Env) {
+			fmt.Fprintf(&b, "%s = %s\n", k, tomlString(s.Env[k]))
+		}
+	}
+	return b.String()
+}
+
+func tomlString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// sortedKeys makes the env table's line order deterministic. Map iteration
+// order is not, and a config a user is meant to read (or diff, or paste into a
+// bug report) should not reshuffle itself between two runs of the same
+// command.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // mergeJSON writes the server into a host's JSON config without disturbing what
 // is already there.
 //
@@ -222,15 +400,14 @@ type serverEntry struct {
 // other MCP server the user has connected, and clobbering one to add ours would
 // be a worse bug than never registering at all. So a file that exists is parsed
 // before it is touched, a malformed file is refused rather than replaced, and a
-// backup is written before the new content goes down.
+// backup is written before the new content goes down (by Install, which does
+// that for every host now — see backupConfig).
 func mergeJSON(path string, s Server) (Outcome, error) {
 	cfg := mcpConfig{}
-	existed := false
 
 	raw, err := os.ReadFile(path)
 	switch {
 	case err == nil:
-		existed = true
 		if len(strings.TrimSpace(string(raw))) > 0 {
 			if err := json.Unmarshal(raw, &cfg); err != nil {
 				return Failed, fmt.Errorf(
@@ -270,11 +447,6 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 		return Failed, err
 	}
 
-	if existed {
-		if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
-			return Failed, fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
-		}
-	}
 	if err := vault.WriteAtomic(path, append(out, '\n')); err != nil {
 		return Failed, err
 	}

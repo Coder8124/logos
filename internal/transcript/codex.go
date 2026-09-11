@@ -150,8 +150,10 @@ func (codexReader) read(path string) (*Session, error) {
 		}
 
 		if ln.Type == "session_meta" {
-			if s.ID == "" {
-				s.ID = firstNonEmpty(p.ID, p.SessionID)
+			// The session_meta id is authoritative; codexIDFromName only seeded
+			// s.ID as a fallback for a truncated file with no meta line.
+			if id := firstNonEmpty(p.ID, p.SessionID); id != "" {
+				s.ID = id
 			}
 			if p.Cwd != "" {
 				s.Project = projectFromDir(p.Cwd)
@@ -188,7 +190,14 @@ func (codexReader) read(path string) (*Session, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Turns) == 0 && s.Skipped == 0 {
+	// Every line malformed is a parse failure, not an empty session: a
+	// success-shaped *Session with Skipped>0 and no turns produced a "0 turns"
+	// candidate that could not be told apart from a genuinely empty transcript
+	// (invariant 4).
+	if len(s.Turns) == 0 {
+		if s.Skipped > 0 {
+			return nil, fmt.Errorf("%s: %d lines present, none parseable", path, s.Skipped)
+		}
 		return nil, fmt.Errorf("%s: no conversation turns found", path)
 	}
 	return s, nil

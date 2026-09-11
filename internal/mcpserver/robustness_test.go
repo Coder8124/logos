@@ -248,6 +248,28 @@ func TestHostileToolArguments(t *testing.T) {
 	}
 }
 
+// A tools/call whose "arguments" is not a JSON object used to have its
+// json.Unmarshal error dropped: args stayed nil and dispatch ran with no
+// arguments, surfacing later as a misleading "missing argument". The host's
+// framing mistake must be named as JSON-RPC -32602 instead.
+func TestMalformedToolArgumentsSayWhatIsWrong(t *testing.T) {
+	c, _ := startAsync(t)
+
+	c.send(t, `{"jsonrpc":"2.0","id":4200,"method":"tools/call","params":{"name":"recall","arguments":"not-an-object"}}`)
+	line, ok := c.await(t, `"id":4200`, 5*time.Second)
+	if !ok {
+		t.Fatal("no response to a tool call with non-JSON-object arguments")
+	}
+	if !strings.Contains(line, "-32602") || !strings.Contains(line, "arguments is not valid JSON") {
+		t.Errorf("malformed arguments were not reported as an invalid-params error:\n%s", line)
+	}
+
+	c.send(t, `{"jsonrpc":"2.0","id":4201,"method":"ping","params":{}}`)
+	if _, ok := c.await(t, `"id":4201`, 5*time.Second); !ok {
+		t.Error("the session did not survive a malformed-arguments call")
+	}
+}
+
 // The README documents twelve tools by name. Discovery must match the docs, or
 // the docs are wrong for anyone wiring this up.
 func TestToolListMatchesTheDocumentedSurface(t *testing.T) {

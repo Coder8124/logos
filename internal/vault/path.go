@@ -55,6 +55,21 @@ func Path() string {
 	return "vault" // no home directory to speak of; the old behaviour
 }
 
+// Chosen reports the vault path and whether anybody actually chose it — set
+// BRAIN_VAULT in this process, or recorded a path with `brain setup`. When
+// neither is true the answer is the ~/brain default, which nobody has vouched
+// for, and a caller may treat "it is not there" as "make it" rather than as a
+// mistake to report.
+func Chosen() (dir string, explicit bool) {
+	if v := os.Getenv("BRAIN_VAULT"); v != "" {
+		return v, true
+	}
+	if v := Recorded(); v != "" {
+		return v, true
+	}
+	return Path(), false
+}
+
 // Recorded returns the vault path written by Record, or "" if there is none.
 //
 // A recorded path that no longer exists is ignored rather than returned. The

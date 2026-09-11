@@ -26,6 +26,9 @@ func claudeCode() Host {
 		Name:   "Claude Code",
 		Detect: func() bool { return onPath("claude") },
 		Where:  func() string { return "claude mcp add --scope user" },
+		// User-scope MCP servers live in ~/.claude.json, alongside a great deal
+		// else that is not ours to lose.
+		Config: func() string { return inHome(".claude.json") },
 		Register: func(s Server) (Outcome, error) {
 			args := []string{"mcp", "add", "--scope", "user", Name}
 			for k, v := range s.Env {
@@ -74,6 +77,7 @@ func codex() Host {
 		Name:   "Codex",
 		Detect: func() bool { return onPath("codex") },
 		Where:  func() string { return "codex mcp add" },
+		Config: func() string { return inHome(".codex", "config.toml") },
 		Register: func(s Server) (Outcome, error) {
 			args := []string{"mcp", "add", Name}
 			for k, v := range s.Env {
@@ -96,6 +100,7 @@ func claudeDesktop() Host {
 		// connecting the users who most need this.
 		Detect: func() bool { return path != "" && exists(parent(path)) },
 		Where:  func() string { return path },
+		Config: func() string { return path },
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
@@ -112,6 +117,7 @@ func cursor() Host {
 		Name:   "Cursor",
 		Detect: func() bool { return path != "" && (exists(parent(path)) || onPath("cursor")) },
 		Where:  func() string { return path },
+		Config: func() string { return path },
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},

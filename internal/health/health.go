@@ -183,22 +183,47 @@ func checkVault(dir string) Check {
 	return c
 }
 
-// underTempDir reports whether path sits inside the system temporary directory.
+// underTempDir reports whether path sits inside a system temporary directory.
 //
-// Both sides are resolved through symlinks first: on macOS os.TempDir() returns
-// /var/folders/... while the same directory answers to /private/var/folders/...,
-// and a string compare of the two says they are unrelated.
+// Every well-known temp root is checked, not just os.TempDir(). os.TempDir()
+// answers $TMPDIR, which on macOS is a per-user directory under /var/folders —
+// and the directory that actually repointed a real installation was under
+// /tmp, which shares no prefix with it. Agent scratchpads, mktemp -d scripts
+// and half the shell in this repository use /tmp; a guard that cannot see it is
+// a guard against the one case that has never happened.
+//
+// Both sides are resolved through symlinks first: /tmp answers to /private/tmp
+// and /var/folders/... to /private/var/folders/..., and a string compare of the
+// two forms says they are unrelated.
 func underTempDir(path string) bool {
-	tmp := os.TempDir()
-	if real, err := filepath.EvalSymlinks(tmp); err == nil {
-		tmp = real
+	for _, p := range forms(path) {
+		for _, root := range []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"} {
+			for _, t := range forms(root) {
+				// Separator-anchored, so /tmpfoo is not read as living under /tmp.
+				if p == t || strings.HasPrefix(p, t+string(filepath.Separator)) {
+					return true
+				}
+			}
+		}
 	}
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		path = real
-	}
-	tmp = filepath.Clean(tmp)
+	return false
+}
+
+// forms returns the spellings of a path that have to be compared: the cleaned
+// path, and its symlink-resolved form when it has one. Both are needed because
+// only one side of the comparison usually exists on disk — EvalSymlinks("/tmp")
+// yields /private/tmp, but EvalSymlinks("/tmp/a-vault-that-was-deleted") fails
+// and leaves the literal spelling, so resolving only what resolves would make
+// the two halves disagree about the same directory.
+func forms(path string) []string {
 	path = filepath.Clean(path)
-	return path == tmp || strings.HasPrefix(path, tmp+string(filepath.Separator))
+	out := []string{path}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		if real = filepath.Clean(real); real != path {
+			out = append(out, real)
+		}
+	}
+	return out
 }
 
 func checkNotes(db *sql.DB) Check {
@@ -401,9 +426,8 @@ func checkIngest(vaultDir string) Check {
 
 	pending := 0
 	if strings.TrimSpace(vaultDir) != "" {
-		if cs, err := ingest.Pending(vaultDir); err == nil {
-			pending = len(cs)
-		}
+		cs, _ := ingest.Pending(vaultDir)
+		pending = len(cs)
 	}
 
 	c.State = OK
@@ -539,24 +563,39 @@ func plural(n int) string {
 // Hosts is the difference between "brain is installed" and "your agents can
 // reach it", which are not the same thing and were never distinguished.
 func checkHosts() Check {
-	c := Check{Name: "agent hosts"}
 	var wired []string
 	for _, r := range setup.Plan(setup.Hosts()) {
 		if r.Outcome == setup.Pending {
 			wired = append(wired, r.Host)
 		}
 	}
+	return hostsCheck(wired)
+}
+
+// hostsCheck is checkHosts's message-building split out from its detection,
+// so the wording can be tested against a chosen list of detected hosts rather
+// than whatever happens to be on the machine running the test.
+//
+// setup.Hosts() is a closed, curated list of four (see internal/setup's
+// package doc) — never the whole set of MCP clients that exist. Every host
+// this check names still leaves an open question about the ones it does not
+// know, so both branches point at `brain setup --print-config`: the one
+// answer that works regardless of which client the user is actually running.
+func hostsCheck(wired []string) Check {
+	c := Check{Name: "agent hosts"}
 	if len(wired) == 0 {
 		c.State = Unknown
 		c.Detail = "no MCP hosts detected on this machine"
-		c.Fix = "install Claude Code, Cursor or Codex, then run `brain mcp install`"
+		c.Fix = "install Claude Code, Cursor or Codex, then run `brain mcp install` " +
+			"— or run `brain setup --print-config` to wire any other MCP client by hand"
 		return c
 	}
 	// Detected is not the same as wired — Plan reports what is installed, not
 	// what points at brain. Say what was actually established.
 	c.State = OK
 	c.Detail = "detected: " + strings.Join(wired, ", ")
-	c.Fix = "run `brain doctor --integration` to prove they can reach this vault"
+	c.Fix = "run `brain doctor --integration` to prove they can reach this vault" +
+		"; for any other MCP client, `brain setup --print-config`"
 	return c
 }
 

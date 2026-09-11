@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Coder8124/brain/internal/text"
 	"github.com/Coder8124/brain/internal/transcript"
 )
 
@@ -28,7 +29,7 @@ func Harvest(s *transcript.Session) Candidate {
 		Status:    StatusPending,
 		Started:   s.Started,
 		Ended:     s.Ended,
-		Turns:     len(s.Turns),
+		TurnCount: len(s.Turns),
 		Skipped:   s.Skipped,
 	}
 
@@ -141,8 +142,5 @@ func hasSourceExt(tok string) bool {
 func collapse(s string) string {
 	f := strings.Fields(s)
 	j := strings.Join(f, " ")
-	if len(j) > 300 {
-		j = j[:297] + "…"
-	}
-	return j
+	return text.Ellipsize(j, 300)
 }

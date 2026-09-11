@@ -25,6 +25,18 @@ import (
 // half-configured machine is worse than a configured one with a warning on it.
 
 func setupCmd(args []string) error {
+	// --print-config and --config are the escape hatch for every MCP client
+	// that is not one of setup.Hosts()'s curated four. Both short-circuit
+	// before the vault is created or a host wired: neither one registers
+	// anything brain itself can see, so neither belongs inside the interactive
+	// flow that assumes it does.
+	if hasFlag(args, "--print-config") {
+		return printConfigCmd(args)
+	}
+	if path := flagStr(args, "--config", ""); path != "" {
+		return configFileCmd(args, path)
+	}
+
 	opts := wireOptsFrom(args)
 	yes := opts.yes
 
@@ -77,6 +89,7 @@ func setupCmd(args []string) error {
 func wireOptsFrom(args []string) wireOpts {
 	return wireOpts{
 		only:   flagStrs(args, "--host"),
+		none:   hasFlag(args, "--no-hosts"),
 		dryRun: hasFlag(args, "--dry-run"),
 		yes:    hasFlag(args, "--yes") || hasFlag(args, "-y"),
 	}
@@ -328,29 +341,122 @@ func indexVault(vault string) {
 // wireOpts is how the caller narrows or previews the wiring.
 type wireOpts struct {
 	only   []string // --host, repeatable; empty means every detected host
+	none   bool     // --no-hosts: set up the vault and wire nothing
 	dryRun bool     // --dry-run: show the plan and change nothing
 	yes    bool     // --yes: do not prompt
 }
 
-func wireHosts(vault string, opts wireOpts) error {
+// detectHosts and integrationChecks are seams, and they exist for one reason:
+// a test that reached the real ones ran `claude mcp add --scope user` and
+// `codex mcp add` against the developer's own machine. Only a fake HOME kept
+// the damage inside a temp directory. Nothing in a test may invoke a host's CLI
+// or spawn a real MCP server.
+var (
+	detectHosts       = setup.Hosts
+	integrationChecks = health.Integration
+)
+
+// brainServer is the command line and environment any host — known to
+// setup.Hosts() or not — needs to reach this brain and this vault. Shared by
+// wireHosts, --print-config and --config so that all three describe the exact
+// same server; a hand-typed config that differs from what `brain setup` itself
+// would have written is a bug users would have no way to notice.
+func brainServer(vault string) (setup.Server, error) {
 	bin, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("could not find my own path, which the host config needs: %w", err)
+		return setup.Server{}, fmt.Errorf("could not find my own path, which the host config needs: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = resolved
 	}
-
-	srv := setup.Server{
+	return setup.Server{
 		Bin:  bin,
 		Args: []string{"mcp", "serve"},
 		// Absolute, and always written: a host launches the server from a
 		// directory nobody chose, and a relative vault would silently resolve
 		// somewhere the user will never look.
 		Env: map[string]string{"BRAIN_VAULT": vault},
-	}
+	}, nil
+}
 
-	hosts, unmatched := setup.Only(setup.Hosts(), opts.only)
+// resolvedVault is the vault --print-config and --config act on: an explicit
+// --vault, falling back to the one this machine already has configured. Never
+// created here — printing or merging a config is not the step that brings a
+// vault into existence, and doing so behind a flag whose whole point is "just
+// show me / just write this" would be the same silent-vault-creation mistake
+// chooseVault's own doc comment already explains.
+func resolvedVault(args []string) (string, error) {
+	v := flagStr(args, "--vault", "")
+	if v == "" {
+		v = vaultPath()
+	}
+	return filepath.Abs(expandHome(v))
+}
+
+// printConfigCmd is `brain setup --print-config`: the server block by hand,
+// for an MCP client that is not one of the four Hosts() knows how to find or
+// register. Those clients are real — MCP has more of them than this package
+// will ever special-case — and until this existed, the only answer for their
+// users was silence.
+func printConfigCmd(args []string) error {
+	vault, err := resolvedVault(args)
+	if err != nil {
+		return err
+	}
+	srv, err := brainServer(vault)
+	if err != nil {
+		return err
+	}
+	out, err := setup.RenderConfig(srv, flagStr(args, "--format", ""))
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
+}
+
+// configFileCmd is `brain setup --config <path>`: merge brain into a config
+// file at a location brain has no built-in convention for, reusing the exact
+// merge (parse-before-touch, backup-before-write, no-op-writes-nothing)
+// mergeJSON already gives Claude Desktop and Cursor.
+func configFileCmd(args []string, path string) error {
+	vault, err := resolvedVault(args)
+	if err != nil {
+		return err
+	}
+	srv, err := brainServer(vault)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(expandHome(path))
+	if err != nil {
+		return err
+	}
+	outcome, err := setup.MergeFile(abs, srv)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("  %-16s %s (%s)\n", "config", outcome, abs)
+	return nil
+}
+
+func wireHosts(vault string, opts wireOpts) error {
+	// --no-hosts is for someone evaluating brain, or setting up a second vault
+	// on a machine that already has one wired. Until it existed the only way to
+	// create and index a vault was to also repoint every AI tool on the machine
+	// at it, which is a large thing to have to accept in order to look.
+	if opts.none {
+		fmt.Println("\n  hosts      --no-hosts: nothing was wired")
+		fmt.Println("             `brain mcp install` connects them when you are ready")
+		return nil
+	}
+	srv, err := brainServer(vault)
+	if err != nil {
+		return err
+	}
+	bin := srv.Bin
+
+	hosts, unmatched := setup.Only(detectHosts(), opts.only)
 	if len(unmatched) > 0 {
 		return fmt.Errorf("unknown host %s — brain knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(setup.Hosts()), ", "))
@@ -373,12 +479,21 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Printf("      %s %s\n", bin, strings.Join(srv.Args, " "))
 		fmt.Printf("      BRAIN_VAULT=%s\n\n", vault)
 	}
-	for _, r := range plan {
-		if r.Outcome == setup.Skipped {
-			fmt.Printf("    %-16s —  not installed\n", r.Host)
-			continue
+	// The roster is what a person says yes or no to, so it is printed when
+	// there is a decision to make — a prompt coming, or a --dry-run that is
+	// nothing but the roster. Under --yes there is no decision, and printing it
+	// meant the same four hosts appeared twice in a row, the second time with
+	// outcomes: the most important screen in the product read as a rendering
+	// fault at exactly the moment a new user is deciding whether to trust it.
+	showPlan := opts.dryRun || !opts.yes
+	if showPlan {
+		for _, r := range plan {
+			if r.Outcome == setup.Skipped {
+				fmt.Printf("    %-16s —  not installed\n", r.Host)
+				continue
+			}
+			fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
 		}
-		fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
 	}
 
 	if present == 0 {
@@ -403,7 +518,9 @@ func wireHosts(vault string, opts wireOpts) error {
 		return nil
 	}
 
-	fmt.Println()
+	if showPlan {
+		fmt.Println() // separate the roster above from the outcomes below
+	}
 	var wired int
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
@@ -414,6 +531,12 @@ func wireHosts(vault string, opts wireOpts) error {
 		default:
 			wired++
 			fmt.Printf("    %-16s ✓  %s (%s)\n", r.Host, r.Outcome, r.Where)
+			// A registration replaces what was there — `codex mcp add` drops
+			// the whole previous entry, environment and all. Naming the copy is
+			// what makes a wrong --vault recoverable.
+			if r.Backup != "" {
+				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
+			}
 		}
 	}
 
@@ -425,7 +548,7 @@ func wireHosts(vault string, opts wireOpts) error {
 	if wired > 0 {
 		fmt.Println("\n  checking it works")
 		ok := true
-		for _, c := range health.Integration(bin, vault) {
+		for _, c := range integrationChecks(bin, vault) {
 			if c.State == health.Failed {
 				ok = false
 				fmt.Printf("    %-16s ✗  %s\n", c.Name, c.Detail)

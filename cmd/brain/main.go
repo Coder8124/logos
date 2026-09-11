@@ -16,6 +16,7 @@ import (
 	"github.com/Coder8124/brain/internal/buildinfo"
 	"github.com/Coder8124/brain/internal/health"
 	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/mcpserver"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
 	"github.com/Coder8124/brain/internal/session"
@@ -58,11 +59,12 @@ Agents forget the moment a session ends. brain is the memory they hand to one
 another: one stops, the next picks up exactly where it left off.
 
 THE HANDOFF — an agent finishes, and another continues
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--next ..] [--failed ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
-    brain resume <project>            pick up where the last agent left off
+    brain resume [project]            pick up where the last agent left off
+                                      the project defaults to the directory you are in
 
 THE BRIEF — what bears on the work, before the work starts
     brain context <task> [--project <p>] [--budget <n>]
@@ -73,7 +75,7 @@ THE INTERCEPT — the dead end nobody remembers recording
                                       has this already been ruled out? ask before proposing
 
 GETTING THERE
-    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
                                       connect brain to the AI agents on this machine
     brain mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     brain doctor [--probe] [--integration]
@@ -93,29 +95,41 @@ func helpAll(w io.Writer) {
 	fmt.Fprintf(w, `brain — local-first memory and continuity for AI agents
 
 CONTINUITY
-    brain note <project> <what you did>
+    brain note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    brain checkpoint <project> [--task ..] [--next ..] [--failed ..] [--handoff <agent>]
+    brain checkpoint [project] [--task ..] [--state ..] [--next ..] [--decided ..]
+                     [--verified ..] [--failed ..] [--blocker ..] [--ran ..]
+                     [--question ..] [--file ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault
-    brain resume <project>            pick up where the last agent left off
-    brain ingest [project] [--harness N] [--dry-run] [--all-projects]
+                                      repeat --decided, --verified, --failed, --blocker,
+                                      --ran, --question and --file to add more than one
+    brain resume [project]            pick up where the last agent left off
+                                      the project defaults to the directory you are in
+    brain ingest [project] [--harness N] [--path FILE] [--dry-run] [--all-projects]
                                       distil other agents' transcripts into checkpoint candidates
     brain ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
-    brain sessions <project>          checkpoint history for a project, and any abandoned ones
-    brain plans <project>             plan-mode plans saved when ExitPlanMode is approved
+    brain sessions [project]          checkpoint history for a project, and any abandoned ones
+    brain plans [project]             plan-mode plans saved when ExitPlanMode is approved
     brain continuity                  vault-wide: which projects checkpoint, which have gone quiet
-    brain bootstrap [project] [--dry-run] [--months N]
+    brain bootstrap [project] [--dir DIR] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
     brain context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     brain tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
-    brain why <file>                  what was being decided when this file was touched
+    brain insights [project]          patterns already in the vault: a recurring blocker, a dormant memory
+    brain why <file> [--limit N]      what was being decided when this file was touched
     brain projects | project <name>   auto-detected projects and their dossiers
+    brain project-name [dir]          the project name for a directory, as the hooks compute it
+    brain project rename <old> <new> [--dry-run] [--merge]
+                                      rename a project, carrying its history with it;
+                                      --merge combines it into an existing project instead of refusing
 
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
+    brain memory [health|consolidate|pin <id>|unpin <id>|exclude <id>]
+                                      what it knows about itself, and what to keep or ignore
     brain memory log [--project P] [--n N]   what changed in what it knows, newest first
     brain activity [--project P] [--kind K] [--tool T] [--days N] [--json]
                                       every prompt, tool call and turn the host reported —
@@ -142,9 +156,15 @@ RETRIEVAL
     brain think [off|low|medium|high]  how much the model reasons before answering
 
 SETUP AND DIAGNOSTICS
-    brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
                                       connect brain to the AI agents on this machine
+    brain setup --print-config [--vault DIR] [--format json|toml]
+                                      print the server block by hand, for any MCP client not listed above
+    brain setup --config <path> [--vault DIR]
+                                      merge brain into a config file at a location brain does not know by convention
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
+    brain mcp serve --http [--port N] serve over a local WebSocket for the browser extension (ChatGPT/Claude.ai/
+                                      Perplexity web UIs) — needs BRAIN_BRIDGE_ORIGIN set; never leaves localhost
     brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this brain with the MCP hosts found
     brain doctor [--probe] [--integration]
@@ -246,6 +266,8 @@ func main() {
 		err = runIngest(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
+	case cmd == "insights":
+		err = runInsights(args)
 	case cmd == "why":
 		err = runWhy(args)
 	case cmd == "tried":
@@ -286,6 +308,8 @@ func main() {
 		err = projectsCmd(args)
 	case cmd == "project":
 		err = projectCmd(args)
+	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve" && hasFlag(args, "--http"):
+		err = runMCPServeHTTP(flagInt(args, "--port", 8137))
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve":
 		err = runMCPServe()
 	case cmd == "bench" && len(args) >= 2 && args[0] == "memory":
@@ -490,6 +514,19 @@ func openRouterOptional() (*router.Router, error) {
 // help either person who sees it: someone who has never run setup does not have
 // a vault to point the variable at, and someone whose BRAIN_VAULT is a typo has
 // already set it. Name the path that was tried, then the command that makes one.
+// requireVault is the gate every command that reads or writes the vault goes
+// through. `brain announce quiet` and `brain think medium` used to skip it and
+// call straight into a store that creates its parent directory: pointed at a
+// typo'd BRAIN_VAULT they built a half-vault out of nothing, reported success,
+// and the setting the user had just changed was invisible to their real vault.
+func requireVault() (string, error) {
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return "", missingVaultError(v)
+	}
+	return v, nil
+}
+
 func missingVaultError(v string) error {
 	return fmt.Errorf("vault not found at %s — run `brain setup` to create one, "+
 		"or point BRAIN_VAULT at an existing vault", v)
@@ -544,12 +581,18 @@ func doctor(probe bool) error {
 	ok, failed, unknown := rep.Counts()
 	fmt.Printf("\n  %d ok · %d failed · %d unchecked\n", ok, failed, unknown)
 
+	if mcpserver.HasToken(vaultPath()) {
+		fmt.Println("\nweb bridge: paired — `brain mcp serve --http` will reuse the existing token")
+	} else {
+		fmt.Println("\nweb bridge: not paired — `brain mcp serve --http` will mint a token on first run")
+	}
+
 	found := provider.Discover()
 	if len(found) == 0 {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
 		fmt.Println("\nNo local model runtime — nothing above depends on one.")
-		return nil
+		return doctorVerdict(failed)
 	}
 	fmt.Println("\n─── runtimes ───")
 	for _, d := range found {
@@ -575,7 +618,7 @@ func doctor(probe bool) error {
 
 	if !probe {
 		fmt.Println("\nrun `brain doctor --probe` to verify each model actually loads")
-		return nil
+		return doctorVerdict(failed)
 	}
 
 	// Listing a model proves nothing: a corrupt pull lists fine and fails on
@@ -597,7 +640,19 @@ func doctor(probe bool) error {
 			fmt.Printf("  %s  %-24s ok, honours JSON schemas\n", t, model)
 		}
 	}
-	return nil
+	return doctorVerdict(failed)
+}
+
+// doctorVerdict turns the report into an exit code. The rows already say what
+// is wrong in words; this is for everything that reads the status instead — a
+// pre-flight check, a CI step, a shell `&&`. An unchecked row is not a failure:
+// doctor deliberately does not fail because no model runtime answered, since
+// every continuity verb works without one.
+func doctorVerdict(failed int) error {
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d check(s) failed — see the report above", failed)
 }
 
 // doctorIntegration is the difference between "brain is installed" and "your
@@ -718,6 +773,17 @@ func runIndex(watch bool) error {
 	}
 	defer ix.Close()
 
+	// A vault someone put under git must never be offered .brain/ to commit —
+	// it is a rebuildable cache, and two people sharing a vault over git would
+	// otherwise fight a merge conflict in a SQLite file on every pull. Runs
+	// every time and reports only the run that actually changed something, so
+	// `brain index` calling this on every invocation never turns into noise.
+	if wrote, err := vault.EnsureGitignore(ix.Vault); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not update .gitignore:", err)
+	} else if wrote {
+		fmt.Println("· added .brain/ to .gitignore")
+	}
+
 	// Sync is pure file reading — it needs no model, and it is what keeps the
 	// FTS table current. Only the embedding passes need a provider.
 	//
@@ -831,6 +897,13 @@ func search(query string) error {
 	}
 	if err != nil {
 		return err
+	}
+	// Zero hits printed nothing at all, which reads the same as a crash: a
+	// first-time user searching for a typo could not tell whether the command
+	// had worked. `brain ask` already says so in words; match it.
+	if len(hits) == 0 {
+		fmt.Printf("Nothing in the vault matches %q yet.\n", query)
+		return nil
 	}
 	for _, h := range hits {
 		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)

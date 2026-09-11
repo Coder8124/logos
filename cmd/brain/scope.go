@@ -36,17 +36,46 @@ func runProjectName(args []string) error {
 			dir = d
 		}
 	}
-	// BRAIN_PROJECT outranks the directory here exactly as it does in the MCP
-	// server; a user who set it to make two folders share a project would
-	// otherwise find the hooks ignoring it.
-	name := strings.TrimSpace(os.Getenv("BRAIN_PROJECT"))
-	if name == "" {
-		name = scope.Name(dir)
-	}
+	name := projectFor(dir)
 	if name != "" {
 		fmt.Println(name)
 	}
 	return nil
+}
+
+// projectFor is the one place the CLI decides which project a directory belongs
+// to. BRAIN_PROJECT outranks the directory exactly as it does in the MCP
+// server; a user who set it to make two folders share a project would otherwise
+// find the CLI ignoring it.
+func projectFor(dir string) string {
+	if name := strings.TrimSpace(os.Getenv("BRAIN_PROJECT")); name != "" {
+		return name
+	}
+	return scope.Name(dir)
+}
+
+// projectHere is the project for the directory the user is standing in. It is
+// what a continuity verb falls back to when the user did not name a project:
+// `brain checkpoint` says "`brain resume` picks it up now", and a bare
+// `brain resume` that answered with a usage error made the product's own
+// instruction wrong.
+func projectHere() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return projectFor(dir)
+}
+
+// projectArg reads the optional leading <project> positional shared by the
+// continuity verbs, falling back to the directory the user is standing in. A
+// leading flag is never the project: `brain checkpoint --task ...` used to file
+// itself under a project literally called "--task".
+func projectArg(args []string) (project string, rest []string) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return projectHere(), args
 }
 
 // runProjectRename moves a project's whole history to a new name.
@@ -58,6 +87,7 @@ func runProjectName(args []string) error {
 // name is permanent, which is not a thing a notebook does.
 func runProjectRename(args []string) error {
 	dryRun := hasFlag(args, "--dry-run")
+	merge := hasFlag(args, "--merge")
 	var names []string
 	for _, a := range args {
 		if !strings.HasPrefix(a, "-") {
@@ -65,7 +95,7 @@ func runProjectRename(args []string) error {
 		}
 	}
 	if len(names) != 2 {
-		return fmt.Errorf("usage: brain project rename <old> <new> [--dry-run]")
+		return fmt.Errorf("usage: brain project rename <old> <new> [--dry-run] [--merge]")
 	}
 	from, to := names[0], names[1]
 
@@ -81,22 +111,38 @@ func runProjectRename(args []string) error {
 		return err
 	}
 
-	res, err := rename.Run(ix.DB, ix.Vault, from, to, dryRun)
+	res, err := rename.Run(ix.DB, ix.Vault, from, to, dryRun, merge)
 	if err != nil {
 		return err
 	}
-	if res.Empty() {
+	if res.Empty() && res.Merged == 0 {
 		fmt.Printf("nothing filed under %q — check the name with `brain projects`\n", from)
 		return nil
 	}
 
 	verb := "renamed"
-	if dryRun {
+	switch {
+	case merge && dryRun:
+		verb = "would merge"
+	case merge:
+		verb = "merged"
+	case dryRun:
 		verb = "would rename"
 	}
 	fmt.Printf("%s %s → %s\n", verb, from, to)
 	fmt.Printf("  %d checkpoint(s) in %s\n", res.Checkpoints, filepath.Join("sessions", from))
 	fmt.Printf("  %d memory line(s), %d activity event(s), %d index row(s)\n", res.Memories, res.Events, res.Rows)
+	if merge {
+		// The number a merge exists to prove: how many checkpoints actually
+		// moved, and — the fact a silent merge would hide — how many of them
+		// shared a filename with something already in the target and were
+		// kept under a different one rather than overwriting it.
+		fmt.Printf("  %d checkpoint file(s) moved into %s", res.Merged, filepath.Join("sessions", to))
+		if res.Collisions > 0 {
+			fmt.Printf(" (%d filename collision(s) kept as separate files)", res.Collisions)
+		}
+		fmt.Println()
+	}
 	if dryRun {
 		fmt.Println("\nnothing was written. run again without --dry-run to apply.")
 		return nil

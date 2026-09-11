@@ -88,13 +88,31 @@ func splitFM(raw string) (string, string) {
 	return rest[:i], strings.TrimLeft(rest[i+5:], "\n")
 }
 
-func sections(body string) map[string]string {
-	out := map[string]string{}
+// section is one "## Heading" block of a candidate note.
+type section struct {
+	Heading string
+	Text    string
+}
+
+// sections splits a note body into its "## Heading" blocks in document order.
+// It used to return a map, which ranges nondeterministically: a note with two
+// "## Verified" blocks would keep whichever the map happened to yield last, so
+// the same file parsed to different candidates run to run. Order is preserved
+// and same-heading blocks are merged (newline-joined) so every block survives.
+func sections(body string) []section {
+	var out []section
+	idx := map[string]int{}
 	var heading string
 	var buf []string
 	flush := func() {
 		if heading != "" {
-			out[heading] = strings.TrimSpace(strings.Join(buf, "\n"))
+			text := strings.TrimSpace(strings.Join(buf, "\n"))
+			if i, ok := idx[heading]; ok {
+				out[i].Text = strings.TrimSpace(out[i].Text + "\n" + text)
+			} else {
+				idx[heading] = len(out)
+				out = append(out, section{Heading: heading, Text: text})
+			}
 		}
 		buf = buf[:0]
 	}

@@ -14,7 +14,10 @@ import (
 //	brain think                 show the current level
 //	brain think off|low|medium|high
 func runThink(arg string) error {
-	vault := vaultPath()
+	vault, err := requireVault()
+	if err != nil {
+		return err
+	}
 	cfg, err := router.Load(vault)
 	if err != nil {
 		return err

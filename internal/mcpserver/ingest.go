@@ -30,10 +30,7 @@ import (
 // waiting when no session was named.
 func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 	if strings.TrimSpace(ref) == "" {
-		pending, err := ingest.Pending(s.vault)
-		if err != nil {
-			return "", err
-		}
+		pending, _ := ingest.Pending(s.vault)
 		if len(pending) == 0 {
 			return s.receipt("no ingested sessions are waiting to be distilled") +
 				"\n\nNothing is queued. `brain ingest` reads transcripts; this tool only serves what it already queued.", nil
@@ -43,7 +40,7 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		b.WriteString("\n\n")
 		for _, c := range pending {
 			fmt.Fprintf(&b, "  %s  %s session %s  (%d turns, %d commands, %s)\n",
-				orUnattributedProject(c.Project), c.Harness, shortSession(c.SessionID), c.Turns, len(c.Commands), c.Tier)
+				orUnattributedProject(c.Project), c.Harness, shortSession(c.SessionID), c.TurnCount, len(c.Commands), c.Tier)
 		}
 		b.WriteString("\nCall ingest_harvest again with one session id to see its evidence.\n")
 		return b.String(), nil

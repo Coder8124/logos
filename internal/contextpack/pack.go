@@ -288,6 +288,15 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
+	// After the window, not the other way: a path the tree view pinned is
+	// asserted the same way a pinned memory is (see the comment on Pinned
+	// above) — it must survive a date filter it was never asked to pass, the
+	// same reason Pinned itself sits outside applyWindow's reach.
+	if ix.Vault != "" {
+		if rules, err := LoadPathRules(ix.Vault); err == nil {
+			p.applyPathRules(ix, rules)
+		}
+	}
 	// After the window, not before: a note the window sets aside still shows up
 	// in a disagreement computed against the unfiltered list, citing a source
 	// that has already left the pack the reader actually gets.

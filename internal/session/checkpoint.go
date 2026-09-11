@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/brain/internal/gitstate"
+	"github.com/Coder8124/brain/internal/text"
 	"github.com/Coder8124/brain/internal/vault"
 )
 
@@ -250,10 +251,7 @@ func claimCheckpoint(vaultDir, project, agent, id string) (string, string, error
 }
 
 func firstN(s string, n int) string {
-	if len(s) < n {
-		return s
-	}
-	return s[:n]
+	return text.Truncate(s, n)
 }
 
 // Latest returns the most recent checkpoint for a project, or nil if there is

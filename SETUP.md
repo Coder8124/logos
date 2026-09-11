@@ -237,20 +237,20 @@ second group speaks MCP, so brain should work once pointed at it — but nobody
 has confirmed it, and "should work" is not a claim this project makes about
 itself.
 
-| Agent | Wired by `brain setup` | How | Verified |
-|---|---|---|---|
-| **Claude Code** | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
-| **Codex** | yes | `codex mcp add` | ✅ handshake + round trip |
-| **Cursor** | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
-| **Claude Desktop** | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
-| Windsurf | not yet | manual JSON below | ❓ **help wanted** |
-| Cline / Roo Code | not yet | manual JSON below | ❓ **help wanted** |
-| Zed | not yet | manual JSON below | ❓ **help wanted** |
-| VS Code Copilot | not yet | manual JSON below | ❓ **help wanted** |
-| Gemini CLI | not yet | manual JSON below | ❓ **help wanted** |
-| OpenCode | not yet | manual JSON below | ❓ **help wanted** |
-| JetBrains AI | not yet | manual JSON below | ❓ **help wanted** |
-| Continue.dev | not yet | manual JSON below | ❓ **help wanted** |
+| Agent | Status | Wired by `brain setup` | How | Verified |
+|---|---|---|---|---|
+| **Claude Code** | supported | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
+| **Codex** | supported | yes | `codex mcp add` | ✅ handshake + round trip |
+| **Cursor** | supported | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
+| **Claude Desktop** | supported | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
+| Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Cline / Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Zed | planned | not yet | manual JSON below | ❓ **help wanted** |
+| VS Code Copilot | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Gemini CLI | planned | not yet | manual JSON below | ❓ **help wanted** |
+| OpenCode | planned | not yet | manual JSON below | ❓ **help wanted** |
+| JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Continue.dev | planned | not yet | manual JSON below | ❓ **help wanted** |
 
 "Verified" means `brain doctor --integration` passes against it: the host
 launches the server, completes the MCP handshake, writes a checkpoint, reads it
@@ -516,9 +516,9 @@ brain projects | project <name>                 auto-detected projects and dossi
 brain loop [add|done|drop]                      open commitments
 brain graph [focus] [--hops N] [--similar]      the note graph around a note
 brain context <task> [--project p] [--budget n] everything bearing on a task, budgeted
-brain note <project> <what you did>             record progress; uncommitted until checkpoint
-brain checkpoint <project> [--handoff who]      commit where you stopped, into the vault
-brain resume <project> | sessions <project>     pick up; read the checkpoint log
+brain note [project] <what you did>             record progress; uncommitted until checkpoint
+brain checkpoint [project] [--handoff who]      commit where you stopped, into the vault
+brain resume [project] | sessions [project]     pick up; read the checkpoint log
 brain tried <approach> [--project p]            has this already been ruled out?
 brain bench continuity [--brain-only]           the handoff suite, against every system installed
 brain index [--watch]                           sync the vault into the cache and embed
@@ -564,6 +564,28 @@ $ brain memory
 
 Same ids, same confidence. `memories/<kind>.md` is a plain bullet list — edit a
 line to correct a fact, delete one to forget it, then reindex.
+
+### Sharing a vault with a team
+
+Because the vault is a directory of markdown, git is the sync layer, the
+history, and the conflict resolution — nothing in Logos duplicates any of
+that. Put the vault in a repo, and:
+
+- `.brain/` is a disposable cache, so `brain index` keeps it out of every
+  commit — it adds `.brain/` to the vault's `.gitignore` itself, and says so
+  the first time it does.
+- Memory arrives the way code does: a teammate's `brain memory add` becomes a
+  line in `memories/<kind>.md`, and it reaches you the same way their code
+  changes do — commit, push, pull, or a pull request if that's how the repo
+  works.
+- `git pull`ing in someone else's checkpoints, notes or memories is enough by
+  itself. `brain index` rescans the whole vault on every run, so new markdown
+  that appeared on disk between runs — from a pull, not just from Logos — is
+  picked up the next time it runs, with no separate "import" step.
+- Logos never runs git for you. Not staging, not committing, not pulling. The
+  vault is yours to sync on your own terms — a plain repo, a private fork, a
+  sync tool that watches the directory — and Logos only ever reads and writes
+  the markdown.
 
 Model tiers run T0 embeddings (137M) through T2 synthesis (8–24B) locally; T3 is
 cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather

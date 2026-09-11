@@ -148,6 +148,28 @@ func TestAMalformedLineIsSkippedAndCountedRatherThanFailingTheWholeSession(t *te
 	}
 }
 
+// A file whose every line is garbage is a parse failure, not an empty session.
+// The reader must return an error and a nil session, so harvest never emits a
+// "0 turns" candidate that cannot be told apart from a real empty transcript
+// (invariant 4).
+func TestATranscriptOfOnlyMalformedLinesIsAnError(t *testing.T) {
+	garbage := "not json at all\n{ still not valid\nplain prose line\n"
+	for _, h := range []string{"claude-code", "codex"} {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "rollout-2026-01-05T14-30-00-01a05124-f309-7cd3-86e6-d0d303880456.jsonl")
+		if err := os.WriteFile(p, []byte(garbage), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := transcript.ReadFile(h, p)
+		if err == nil {
+			t.Errorf("%s: an all-malformed transcript must be an error, not a success", h)
+		}
+		if s != nil {
+			t.Errorf("%s: want a nil session on parse failure, got %+v", h, s)
+		}
+	}
+}
+
 func TestAHarnessWithNoReaderIsReportedWithTheReasonItWasSkipped(t *testing.T) {
 	_, err := transcript.Sessions("emacs-gptel")
 	if err == nil {
@@ -314,6 +336,27 @@ func copyTree(t *testing.T, src, dst string) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A file fed via `brain ingest --path` has a filename stem that is not the
+// session id — often something like "export.jsonl". The reader must take the
+// id from the transcript's own sessionId field so harvest and distil are
+// findable by the id agents actually use; the stem is only the fallback for a
+// truncated file that never states one.
+func TestTheSessionIDComesFromTheTranscriptNotTheFilename(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "some-random-export.jsonl")
+	const line = `{"type":"user","sessionId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","cwd":"/home/alice/code/widgets","timestamp":"2026-01-05T14:30:00Z","message":{"role":"user","content":"hello"}}` + "\n"
+	if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := transcript.ReadFile("claude-code", p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if s.ID != "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" {
+		t.Errorf("ID = %q, want the inner sessionId, not the filename stem", s.ID)
 	}
 }
 

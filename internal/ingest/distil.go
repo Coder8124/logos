@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Coder8124/brain/internal/text"
 	"github.com/Coder8124/brain/internal/transcript"
 	"github.com/Coder8124/brain/internal/vault"
 )
@@ -295,17 +296,11 @@ func renderList(b *strings.Builder, label string, items []string) {
 }
 
 func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-1] + "…"
+	return text.Ellipsize(s, n)
 }
 
 func shortRef(id string) string {
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
+	return text.Truncate(id, 12)
 }
 
 // Accept writes a filtered distillation back over the pending candidate it came

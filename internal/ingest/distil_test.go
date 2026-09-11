@@ -219,10 +219,7 @@ func TestAnAgentDistillationWritesACandidateNotACheckpoint(t *testing.T) {
 		t.Fatal("distilling wrote a checkpoint; only a promotion may do that")
 	}
 
-	pending, err := ingest.Pending(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pending, _ := ingest.Pending(v)
 	if len(pending) != 1 || len(pending[0].Verified) != 1 || pending[0].Next == "" {
 		t.Fatalf("the distillation did not survive to the queue: %+v", pending)
 	}

@@ -66,8 +66,15 @@ type Candidate struct {
 	Blockers []string
 	Next     string
 
-	Turns   int // turn count of the source, for a sense of session size
-	Skipped int // malformed lines the reader stepped over (invariant 3)
+	TurnCount int // turn count of the source, for a sense of session size
+	Skipped   int // malformed lines the reader stepped over (invariant 3)
+
+	// FrontmatterUnreadable is set when the note's YAML frontmatter would not
+	// parse. The candidate is kept anyway (its session id is recovered from the
+	// filename) so a corrupt note never silently vanishes from the queue the way
+	// a dropped candidate used to — but review must flag it rather than trust
+	// stale-looking zero fields.
+	FrontmatterUnreadable bool
 }
 
 const projectUnattributed = "unattributed"
@@ -86,6 +93,18 @@ func (c Candidate) scope() string {
 // existence is the cursor.
 func (c Candidate) Filename() string {
 	return safeSegment(c.Harness) + "-" + safeSegment(c.SessionID) + ".md"
+}
+
+// sessionIDFromStem recovers a candidate's session id from its filename when the
+// frontmatter is unreadable. Filename() builds the stem as
+// <harness>-<session-id>.md, so stripping the extension and the known harness
+// prefix inverts it; with no harness known, the whole stem is the best guess.
+func sessionIDFromStem(filename, harness string) string {
+	stem := strings.TrimSuffix(filepath.Base(filename), ".md")
+	if harness != "" {
+		stem = strings.TrimPrefix(stem, safeSegment(harness)+"-")
+	}
+	return stem
 }
 
 // RelPath is the candidate's slash path under the vault root.
@@ -138,7 +157,7 @@ func (c Candidate) Markdown() string {
 		harvested = time.Now().Unix()
 	}
 	fmt.Fprintf(&b, "harvested: %s\n", time.Unix(harvested, 0).UTC().Format(time.RFC3339))
-	fmt.Fprintf(&b, "turns: %d\n", c.Turns)
+	fmt.Fprintf(&b, "turns: %d\n", c.TurnCount)
 	if c.Skipped > 0 {
 		fmt.Fprintf(&b, "skipped: %d\n", c.Skipped)
 	}
@@ -148,7 +167,7 @@ func (c Candidate) Markdown() string {
 	fmt.Fprintf(&b, "  - { pred: ingested_from, obj: \"%s session %s\", conf: 1.0, src: stated }\n", c.Harness, c.SessionID)
 	b.WriteString("---\n")
 
-	summary := fmt.Sprintf("%s session %s, %d turns", c.Harness, c.SessionID, c.Turns)
+	summary := fmt.Sprintf("%s session %s, %d turns", c.Harness, c.SessionID, c.TurnCount)
 	if c.Skipped > 0 {
 		summary += fmt.Sprintf(" (%d unparsed line(s) skipped)", c.Skipped)
 	}
@@ -165,12 +184,22 @@ func (c Candidate) Markdown() string {
 	return b.String()
 }
 
-// Parse reads a candidate back from its note.
-func Parse(raw string) Candidate {
+// Parse reads a candidate back from its note. filename is the note's base name
+// (<harness>-<session-id>.md); it is the fallback source of the session id when
+// the frontmatter will not unmarshal, so a corrupt note is still a findable
+// candidate rather than a silent drop.
+func Parse(raw, filename string) Candidate {
 	fmStr, body := splitFM(raw)
 	var fm candidateFM
+	fmUnreadable := false
 	if fmStr != "" {
-		_ = yaml.Unmarshal([]byte(fmStr), &fm)
+		// Contrast internal/vault/note.go, which also swallows a YAML error but
+		// keeps the note; the queue previously dropped the candidate entirely
+		// because SessionID came back empty. Keep it, and recover the id from
+		// the filename stem the same way claudecode.go does for a transcript.
+		if err := yaml.Unmarshal([]byte(fmStr), &fm); err != nil {
+			fmUnreadable = true
+		}
 	}
 	c := Candidate{
 		Harness:   fm.Harness,
@@ -181,26 +210,30 @@ func Parse(raw string) Candidate {
 		Tier:      orDefault(fm.Tier, TierHarvest),
 		Model:     fm.Model,
 		Status:    orDefault(fm.Status, StatusPending),
-		Turns:     fm.Turns,
+		TurnCount: fm.Turns,
 		Skipped:   fm.Skipped,
 	}
+	if c.SessionID == "" {
+		c.SessionID = sessionIDFromStem(filename, c.Harness)
+	}
+	c.FrontmatterUnreadable = fmUnreadable
 	c.Started = parseTS(fm.Started)
 	c.Ended = parseTS(fm.Ended)
 	c.Harvested = parseTS(fm.Harvested)
-	for heading, text := range sections(body) {
-		switch heading {
+	for _, s := range sections(body) {
+		switch s.Heading {
 		case "Verified":
-			c.Verified = parseBullets(text)
+			c.Verified = append(c.Verified, parseBullets(s.Text)...)
 		case "Didn't work":
-			c.Failed = parseBullets(text)
+			c.Failed = append(c.Failed, parseBullets(s.Text)...)
 		case "Blockers":
-			c.Blockers = parseBullets(text)
+			c.Blockers = append(c.Blockers, parseBullets(s.Text)...)
 		case "Commands run":
-			c.Commands = parseBullets(text)
+			c.Commands = append(c.Commands, parseBullets(s.Text)...)
 		case "Files":
-			c.Files = parseBullets(text)
+			c.Files = append(c.Files, parseBullets(s.Text)...)
 		case "Next":
-			c.Next = text
+			c.Next = s.Text
 		}
 	}
 	return c

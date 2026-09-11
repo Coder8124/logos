@@ -21,7 +21,10 @@ func runActivity(args []string) error {
 	if len(args) > 0 && args[0] == "record" {
 		return recordActivity(args[1:])
 	}
-	vault := vaultPath()
+	vault, err := requireVault()
+	if err != nil {
+		return err
+	}
 
 	q := activity.Query{
 		Project: strings.TrimSpace(flagStr(args, "--project", "")),

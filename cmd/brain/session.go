@@ -23,10 +23,21 @@ import (
 
 // runNote appends a working note: cheap, uncommitted, the working tree.
 func runNote(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: brain note <project> <what you did>")
+	// One argument is the note, and the project is the directory you are
+	// standing in — `brain resume`'s own empty-state message says to run
+	// `brain note <project> "..."`, having worked the project out from the cwd
+	// in order to print that line. Two or more keeps the older reading, where
+	// the first names the project explicitly.
+	var project, text string
+	switch {
+	case len(args) >= 2:
+		project, text = args[0], strings.Join(args[1:], " ")
+	case len(args) == 1:
+		project, text = projectHere(), args[0]
 	}
-	project, text := args[0], strings.Join(args[1:], " ")
+	if text == "" || project == "" {
+		return fmt.Errorf("usage: brain note [project] <what you did>")
+	}
 
 	ix, err := openEvents()
 	if err != nil {
@@ -47,15 +58,15 @@ func runNote(args []string) error {
 // from stdin as a markdown document when piped — an agent writing a checkpoint
 // has prose, not a shell-quoting problem.
 func runCheckpoint(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: brain checkpoint <project> [--task ...] [--next ...] " +
+	project, rest := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: brain checkpoint [project] [--task ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
 			"[--question ...] [--file ...] [--handoff <agent>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
 	}
-	c := &session.Checkpoint{Project: args[0], Agent: agentName()}
+	c := &session.Checkpoint{Project: project, Agent: agentName()}
 
-	rest := args[1:]
 	for i := 0; i < len(rest); i++ {
 		val := func() string {
 			if i+1 < len(rest) {
@@ -129,18 +140,18 @@ func runCheckpoint(args []string) error {
 
 // runResume prints where the last agent stopped, followed by full context.
 func runResume(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: brain resume <project> [--budget <tokens>] [--since day|week|month|quarter|year|all]")
+	project, rest := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: brain resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all]")
 	}
-	project := args[0]
 	budget := 0
 	since := ""
-	for i := 1; i < len(args)-1; i++ {
-		switch args[i] {
+	for i := 0; i < len(rest)-1; i++ {
+		switch rest[i] {
 		case "--budget", "-b":
-			budget, _ = strconv.Atoi(args[i+1])
+			budget, _ = strconv.Atoi(rest[i+1])
 		case "--since":
-			since = args[i+1]
+			since = rest[i+1]
 		}
 	}
 
@@ -230,10 +241,10 @@ func printNothingToResume(vaultDir, project string) {
 // --close <id> is the other half: resolving one entry the "abandoned" list
 // below names, rather than only being told about it.
 func runSessionLog(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: brain sessions <project> [--close <session-id>]")
+	project, _ := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: brain sessions [project] [--close <session-id>]")
 	}
-	project := args[0]
 
 	if id := flagStr(args, "--close", ""); id != "" {
 		return runCloseAbandoned(project, id)
