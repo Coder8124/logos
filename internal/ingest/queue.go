@@ -19,9 +19,10 @@ import (
 // Result reports what a queue write did, so the caller can announce it with a
 // number (invariant 3).
 type Result struct {
-	Path    string // vault-relative path written
-	Written bool   // false when an identical candidate was already present
-	Reason  string // when !Written: why it was skipped
+	Path       string      // vault-relative path written
+	Written    bool        // false when an identical candidate was already present
+	Reason     string      // when !Written: why it was skipped
+	Redactions []Redaction // secret-shaped tokens masked before this write
 }
 
 // Put writes a candidate to the vault, atomically and privately. Vault first;
@@ -49,10 +50,12 @@ func Put(vaultDir string, c Candidate) (Result, error) {
 		}
 	}
 
+	redactions := redactCandidateText(&c)
+
 	if err := vault.WriteAtomic(abs, []byte(c.Markdown())); err != nil {
 		return Result{}, err
 	}
-	return Result{Path: rel, Written: true}, nil
+	return Result{Path: rel, Written: true, Redactions: redactions}, nil
 }
 
 // variantRelPath is the hash-suffixed path used when a session's transcript

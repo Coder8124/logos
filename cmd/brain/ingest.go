@@ -60,7 +60,7 @@ func runIngest(args []string) error {
 	}
 
 	// Announce what was read and what was skipped, with numbers (invariant 3).
-	read, queued, skippedDup, skippedProj := 0, 0, 0, 0
+	read, queued, skippedDup, skippedProj, redacted := 0, 0, 0, 0, 0
 	var ix *index.Index
 	for _, s := range sessions {
 		read++
@@ -85,6 +85,12 @@ func runIngest(args []string) error {
 		}
 		queued++
 		fmt.Printf("  queued  %s  %s\n", orUnattributed(c.Project), res.Path)
+		if len(res.Redactions) > 0 {
+			redacted += len(res.Redactions)
+			for _, r := range res.Redactions {
+				fmt.Printf("    redacted  %s: %s\n", r.Field, r.Reason)
+			}
+		}
 		if ix == nil {
 			if ix, err = openEvents(); err != nil {
 				return err
@@ -111,6 +117,9 @@ func runIngest(args []string) error {
 	default:
 		fmt.Printf("\n%d transcript(s) read · %d queued · %d already ingested · %d skipped (other project) · %d unreadable\n",
 			read, queued, skippedDup, skippedProj, len(readErrs))
+		if redacted > 0 {
+			fmt.Printf("%d secret-shaped token(s) redacted before writing\n", redacted)
+		}
 		if queued > 0 {
 			fmt.Println("review them:  brain ingest review")
 		}

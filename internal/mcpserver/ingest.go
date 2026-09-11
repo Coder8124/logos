@@ -70,7 +70,7 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 	if strings.TrimSpace(ref) == "" {
 		return "", fmt.Errorf("ingest_distil needs the session it is distilling — call ingest_harvest first")
 	}
-	c, drops, err := ingest.AcceptWithin(s.vault, ref, s.servedWindow(ref), ingest.Distillation{
+	c, drops, redactions, err := ingest.AcceptWithin(s.vault, ref, s.servedWindow(ref), ingest.Distillation{
 		Model:    model,
 		Verified: verified,
 		Failed:   failed,
@@ -85,6 +85,13 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 	b.WriteString(s.receipt(fmt.Sprintf("distilled %s session %s into a candidate — %d verified, %d didn't work",
 		c.Harness, shortSession(c.SessionID), len(c.Verified), len(c.Failed))))
 	b.WriteString("\n\n")
+	if len(redactions) > 0 {
+		fmt.Fprintf(&b, "%d secret-shaped token(s) redacted before writing:\n", len(redactions))
+		for _, r := range redactions {
+			fmt.Fprintf(&b, "  %s: %s\n", r.Field, r.Reason)
+		}
+		b.WriteString("\n")
+	}
 	if len(drops) > 0 {
 		fmt.Fprintf(&b, "%d claim(s) dropped by the citation filter:\n", len(drops))
 		for _, d := range drops {
