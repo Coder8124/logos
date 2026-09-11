@@ -541,7 +541,7 @@ func openIndex() (*index.Index, error) {
 
 // openEvents opens the index and ensures the episodic tables exist alongside it.
 // openEvents used to also ensure the ambient-capture tables existed alongside
-// the index. That tier was cut in 0.3.0 (plans/plan0-3-0.md), so this is now
+// the index. That tier was cut in 0.3.0, so this is now
 // exactly openIndex; kept as its own name because most callers below predate
 // the cut and the rename churn buys nothing.
 func openEvents() (*index.Index, error) {

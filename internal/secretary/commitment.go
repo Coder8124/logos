@@ -4,7 +4,7 @@
 //
 // This package used to also compose an ambient daily briefing over captured
 // calendar and activity events; that half was cut in 0.3.0 along with the rest
-// of the ambient-capture tier (see plans/plan0-3-0.md). What remains is
+// of the ambient-capture tier. What remains is
 // event-independent: a commitment is added, extracted, or closed, never mined
 // from something observed in the background.
 package secretary

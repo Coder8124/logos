@@ -10,7 +10,7 @@ import (
 // on the vendor" — the event-independent half of what used to be the
 // secretary package. Its ambient half (an unprompted daily brief composed
 // over captured calendar and activity events) was cut in 0.3.0 along with the
-// rest of the ambient-capture tier (plans/plan0-3-0.md); manual open-loop
+// rest of the ambient-capture tier; manual open-loop
 // tracking has nothing to do with that and stays.
 func commitmentCmd(args []string) error {
 	ix, err := openEvents()

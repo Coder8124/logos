@@ -13,7 +13,7 @@ import (
 // Nothing stopped a transcript ingest from writing a live API key straight
 // into memories/*.md in plaintext: Harvest copies tool-call text into
 // Candidate.Commands verbatim, and Put writes that straight to disk. This is
-// the write-path proof for plans/plan0-5-0.md's A2 secret-detection item —
+// the write-path proof for secret detection on the write path —
 // it fails on the unfixed code because the key survives the round trip to
 // disk untouched.
 func TestASecretPastedIntoAToolCallNeverReachesTheVaultFile(t *testing.T) {

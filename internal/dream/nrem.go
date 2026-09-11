@@ -25,8 +25,8 @@ const SalienceFloor = 0.05
 // A third step used to sit between these two: gist extraction, which mined
 // ambient capture (internal/routine's FindPeriodic/FindSequences) for recurring
 // structure and stored the strongest patterns as standing facts. That step was
-// cut in 0.3.0 along with the rest of the ambient-capture tier
-// (plans/plan0-3-0.md) — it had no data source left. The gap it leaves is
+// cut in 0.3.0 along with the rest of the ambient-capture tier — it had no
+// data source left. The gap it leaves is
 // deliberate and open: genuine multi-memory compression (several corroborating
 // facts folded into one denser, higher-confidence one, as opposed to today's
 // pairwise memory.Consolidate) belongs here once it exists, targeted for 0.4.0.

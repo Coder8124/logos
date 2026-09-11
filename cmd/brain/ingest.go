@@ -21,7 +21,7 @@ import (
 // runIngest is `brain ingest`: read other coding agents' transcripts on this
 // machine and turn each into a checkpoint *candidate* in the vault. It never
 // replays a transcript and never copies one in — only a distillate plus a
-// pointer back to the source. See plans/plan0-4-7.md and internal/ingest.
+// pointer back to the source. See internal/ingest.
 func runIngest(args []string) error {
 	if len(args) >= 1 && args[0] == "review" {
 		return runIngestReview(args[1:])

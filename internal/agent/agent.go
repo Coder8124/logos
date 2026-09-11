@@ -83,7 +83,7 @@ func Reply(
 	// --- what's on the user's plate right now ---
 	//
 	// This used to also lead with the next calendar meeting, sourced from
-	// ambient capture. That subsystem was cut in 0.3.0 (plans/plan0-3-0.md);
+	// ambient capture. That subsystem was cut in 0.3.0;
 	// open loops are the event-independent half and are all that remains.
 	var context strings.Builder
 	if open, err := secretary.Open_(db); err == nil && len(open) > 0 {

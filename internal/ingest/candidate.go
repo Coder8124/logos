@@ -3,7 +3,7 @@
 // transcript. It is the back half of `brain ingest`; internal/transcript is the
 // front half that reads the raw session.
 //
-// The thesis (plans/plan0-4-7.md): a resumed transcript hands the next agent
+// The thesis: a resumed transcript hands the next agent
 // every abandoned approach as a live option, which is the stale-answer failure
 // the continuity benchmark measures. So what lands in the vault is a distillate
 // — files touched, commands run, and (with a model) verified/failed/next — plus

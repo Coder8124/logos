@@ -8,7 +8,7 @@ import (
 	"github.com/Coder8124/brain/internal/text"
 )
 
-// B3 of plans/plan0-4-7.md: distillation done by the agent that asked for it.
+// Distillation done by the agent that asked for the ingest.
 //
 // The agent on the other end of this server is usually running a model far
 // stronger than any local T1 tier will hold, is already in the user's session

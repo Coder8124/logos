@@ -17,7 +17,7 @@ import (
 
 // Distillation is the second tier of the ingest pipeline: the judgement a
 // harvest deliberately refuses to make. It arrives either from a local model
-// (B2) or from the agent that asked for the ingest (B3, plans/plan0-4-7.md).
+// (B2) or from the agent that asked for the ingest (B3).
 //
 // Both go through Filter. A stronger distiller is not a more trusted one: the
 // citation rule exists because an uncited claim is a fabrication with good

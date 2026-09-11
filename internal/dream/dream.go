@@ -38,7 +38,7 @@ type Result struct {
 //
 // date and embedModel are accepted for compatibility with a per-night result
 // (the Date field) and were formerly also used to scope gist extraction over a
-// window of captured events; that step was cut in 0.3.0 (plans/plan0-3-0.md)
+// window of captured events; that step was cut in 0.3.0
 // along with the rest of ambient capture, so both nrem and rem now work purely
 // over the memory store.
 func Run(db *sql.DB, vaultDir string, rt *router.Router, date time.Time, phase string, dryRun bool) (Result, error) {

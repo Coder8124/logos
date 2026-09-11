@@ -15,7 +15,7 @@ import (
 //
 // This file used to also run `brain rollup` and review its proposed vault
 // notes, mined from ambient capture. That half was cut in 0.3.0 along with the
-// rest of the ambient-capture tier (plans/plan0-3-0.md). What remains —
+// rest of the ambient-capture tier. What remains —
 // Stage 4's quarantined-memory review — is unrelated to it: it is the queue
 // the `remember` MCP tool fills so no agent writes straight into the vault
 // (internal/mcpserver's quarantine handling, internal/memory/quarantine.go),

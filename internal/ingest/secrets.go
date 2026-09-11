@@ -12,7 +12,7 @@ import (
 // both turn transcript text into candidate fields that get written to
 // memories/*.md verbatim, and nothing before this file stopped a live
 // credential from riding along into the vault in plaintext. This is the
-// minimum bar from plans/plan0-5-0.md's A2: detect known credential shapes
+// minimum bar: detect known credential shapes
 // and high-entropy tokens, mask them, and say what was masked (invariant 3) —
 // never redact silently, and never let a masked value round-trip back to the
 // looking-legitimate text it replaced.

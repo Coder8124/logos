@@ -11,7 +11,7 @@ chatgpt.com does not give third-party extensions a hook to let the model call
 tools directly. The other way to get that — scrape the model's streamed
 response for a hand-rolled "tool call" block — is DOM/prompt-engineering
 against a UI that changes without notice, and was deliberately not the
-starting point (see `plans/plan0-4-5.md`, "Web bridge research findings").
+starting point.
 
 So v1 is user-triggered: a small panel lists brain's tools (`recall`,
 `remember`, and the rest), the user picks one, fills its arguments, and the

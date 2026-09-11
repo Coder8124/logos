@@ -1,7 +1,7 @@
 // Package transcript reads other coding agents' on-disk session logs and
 // normalises them into a common shape.
 //
-// It is the front half of `brain ingest`. The thesis (plans/plan0-4-7.md) is
+// It is the front half of `brain ingest`. The thesis is
 // "read transcripts, never replay them": a raw transcript resumed as context
 // hands the next agent every abandoned approach as a live option, which is the
 // stale-answer failure the continuity benchmark measures. So this package's job
