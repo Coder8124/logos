@@ -577,8 +577,8 @@ func doctor(probe bool) error {
 			fmt.Printf("  %-*s   → %s\n", w, "", c.Fix)
 		}
 	}
-	ok, failed, unknown := rep.Counts()
-	fmt.Printf("\n  %d ok · %d failed · %d unchecked\n", ok, failed, unknown)
+	ok, warn, failed, unknown := rep.Counts()
+	fmt.Printf("\n  %d ok · %d to do · %d failed · %d unchecked\n", ok, warn, failed, unknown)
 
 	if mcpserver.HasToken(vaultPath()) {
 		fmt.Println("\nweb bridge: paired — `brain mcp serve --http` will reuse the existing token")
@@ -755,6 +755,11 @@ func renderState(s health.State) string {
 	switch s {
 	case health.OK:
 		return "ok"
+	case health.Warn:
+		// Lower case and unshouted on purpose: this row is a chore waiting for
+		// the user, and rendering it the way a broken index is rendered is what
+		// made people stop reading the report.
+		return "to do"
 	case health.Failed:
 		return "FAILED"
 	default:

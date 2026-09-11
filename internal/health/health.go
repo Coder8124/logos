@@ -39,6 +39,13 @@ const (
 	OK State = "ok"
 	// Failed means checked, and broken. Actionable.
 	Failed State = "failed"
+	// Warn means checked, working, and holding a backlog — a chore, not a
+	// defect. Sessions nobody checkpointed, proposals nobody reviewed: work
+	// waiting on the user, which has to be visible without being graded as
+	// breakage. Without this tier the three chore checks each picked a side and
+	// disagreed: one was Failed, so `brain doctor` exited 1 forever on a
+	// perfectly healthy install, and the other two were OK, which hid them.
+	Warn State = "warn"
 	// Unknown means not checked — a precondition was missing, so no claim is
 	// made either way. Never use this for "probably fine".
 	Unknown State = "unknown"
@@ -64,11 +71,13 @@ func (r *Report) Add(c Check) { r.Checks = append(r.Checks, c) }
 
 // Counts summarises the report, which is what a caller needs to decide an exit
 // code or a headline.
-func (r Report) Counts() (ok, failed, unknown int) {
+func (r Report) Counts() (ok, warn, failed, unknown int) {
 	for _, c := range r.Checks {
 		switch c.State {
 		case OK:
 			ok++
+		case Warn:
+			warn++
 		case Failed:
 			failed++
 		default:
@@ -79,9 +88,11 @@ func (r Report) Counts() (ok, failed, unknown int) {
 }
 
 // Healthy reports whether nothing is broken. Unknowns do not make a system
-// unhealthy — they make it unverified, which is a different sentence.
+// unhealthy — they make it unverified, which is a different sentence. Nor do
+// warnings: a queue waiting to be reviewed is the product working, and a
+// verdict that cannot tell that from a corrupt index is a verdict nobody reads.
 func (r Report) Healthy() bool {
-	_, failed, _ := r.Counts()
+	_, _, failed, _ := r.Counts()
 	return failed == 0
 }
 
@@ -531,6 +542,8 @@ func checkIngest(vaultDir string) Check {
 		c.Detail = "readable: " + strings.Join(readable, ", ")
 	}
 	if pending > 0 {
+		// The same backlog the other two chore checks report, graded the same.
+		c.State = Warn
 		c.Detail += fmt.Sprintf("; %d candidate(s) pending review", pending)
 		c.Fix = "run `brain ingest review`"
 	}
@@ -585,7 +598,12 @@ func checkAbandonment(db *sql.DB) Check {
 		}
 		return c
 	}
-	c.State = Failed
+	// Warn, not Failed. Notes held by a session that stopped is exactly what
+	// this check exists to surface, but it is a chore — nothing is broken, and
+	// there is no state the user can reach where it stays empty for long. As
+	// Failed it made `brain doctor` exit 1 on every healthy install that had
+	// ever lost a session, which is every install.
+	c.State = Warn
 	lines := make([]string, 0, len(holding))
 	for _, a := range holding {
 		who := a.Agent
@@ -633,7 +651,7 @@ func checkMemoryReview(db *sql.DB) Check {
 		c.State, c.Detail = OK, "nothing pending"
 		return c
 	}
-	c.State = OK
+	c.State = Warn
 	c.Detail = fmt.Sprintf("%d memor%s awaiting review", n, plural(n))
 	c.Fix = "run `brain review` to accept or reject them"
 	return c

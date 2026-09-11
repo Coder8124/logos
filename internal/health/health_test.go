@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/brain/internal/index"
+	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/setup"
 	"github.com/Coder8124/brain/internal/vault"
@@ -151,14 +152,14 @@ func TestAbandonedSessionsAreReported(t *testing.T) {
 	}
 
 	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
-	if c.State != Failed {
-		t.Fatalf("abandoned sessions state = %q, want %q", c.State, Failed)
+	if c.State != Warn {
+		t.Fatalf("abandoned sessions state = %q, want %q", c.State, Warn)
 	}
 	if !strings.Contains(c.Detail, "kestrel") || !strings.Contains(c.Detail, "codex") {
 		t.Errorf("detail %q does not name the abandoned session", c.Detail)
 	}
 	if c.Fix == "" {
-		t.Error("a failed abandonment check should say what to do about it")
+		t.Error("an abandonment check with work held should say what to do about it")
 	}
 }
 
@@ -187,14 +188,16 @@ func TestCountsAndHealthy(t *testing.T) {
 		{Name: "a", State: OK},
 		{Name: "b", State: Unknown},
 		{Name: "c", State: Unknown},
+		{Name: "d", State: Warn},
 	}}
-	ok, failed, unknown := r.Counts()
-	if ok != 1 || failed != 0 || unknown != 2 {
-		t.Errorf("counts = %d/%d/%d, want 1/0/2", ok, failed, unknown)
+	ok, warn, failed, unknown := r.Counts()
+	if ok != 1 || warn != 1 || failed != 0 || unknown != 2 {
+		t.Errorf("counts = %d/%d/%d/%d, want 1/1/0/2", ok, warn, failed, unknown)
 	}
-	// Unknowns mean unverified, not unhealthy — a different sentence.
+	// Unknowns mean unverified, not unhealthy — a different sentence. Warnings
+	// mean there is something to do, which is also not the same sentence.
 	if !r.Healthy() {
-		t.Error("unknowns alone should not make a report unhealthy")
+		t.Error("unknowns and chores alone should not make a report unhealthy")
 	}
 }
 
@@ -388,7 +391,7 @@ func TestAnEmptySessionDoesNotHideOneHoldingWork(t *testing.T) {
 	}
 
 	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "abandoned sessions")
-	if c.State != Failed {
+	if c.State != Warn {
 		t.Fatalf("a session holding work reports %q: %s", c.State, c.Detail)
 	}
 	if !strings.Contains(c.Detail, "kestrel") {
@@ -783,5 +786,57 @@ func writeCheckpointFile(t *testing.T, vaultDir, project, name string) {
 	body := "---\ntype: checkpoint\nproject: " + project + "\n---\n\n## Task\n\nland the ingest pipeline\n\n## Next\n\nmerge ws-b-control\n"
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A chore is work waiting for the user; a defect is something broken. Grading
+// the first as the second is how `brain doctor` came to exit 1 forever on a
+// healthy install, and it did it inconsistently: four sessions never
+// checkpointed was FAILED, two memories awaiting review was ok, and candidates
+// waiting in the ingest queue was ok as well. Same kind of backlog, three
+// different verdicts, one of them blocking `brain doctor && deploy`.
+func TestABacklogOfChoresIsNotGradedAsADefect(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * session.AbandonAfter).Unix()
+	if _, err := session.AddNoteAt(ix.DB, "kestrel", "codex", "found the bad batch", old); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{
+		Text: "the batch ran at 3am", Kind: memory.Fact, Source: "mcp", Quarantined: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep := Run(Input{Vault: dir, DB: ix.DB})
+	// Only the chore rows: the rest of a Run against a scratch directory says
+	// true things about the machine this test is running on, none of which is
+	// what is being asserted here.
+	var chores Report
+	for _, name := range []string{"abandoned sessions", "memory review"} {
+		c := find(t, rep, name)
+		if c.State != Warn {
+			t.Errorf("%s state = %q with work waiting, want %q", name, c.State, Warn)
+		}
+		if c.Fix == "" {
+			t.Errorf("%s says there is a backlog but not what to do about it", name)
+		}
+		chores.Add(c)
+	}
+	if !chores.Healthy() {
+		t.Error("a backlog of chores should not make the report unhealthy — nothing is broken")
+	}
+	if _, warn, _, _ := chores.Counts(); warn != 2 {
+		t.Errorf("warn count = %d, want 2", warn)
 	}
 }
