@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Coder8124/brain/internal/gitstate"
+	"github.com/Coder8124/brain/internal/untrusted"
 )
 
 // The checkpoint's on-disk form.
@@ -138,7 +139,42 @@ func section(b *strings.Builder, heading, body string) {
 	if body == "" {
 		return
 	}
-	fmt.Fprintf(b, "\n## %s\n\n%s\n", heading, body)
+	fmt.Fprintf(b, "\n## %s\n\n%s\n", heading, escapeHeadings(body))
+}
+
+// escapeHeadings and unescapeHeadings keep a field's own text out of the note's
+// structure. The sections that delimit a checkpoint are "## " lines, and every
+// field is free text an agent wrote — so an unescaped body *was* the structure.
+// Both directions were reachable: a "## Task" inside `next` forged the field the
+// resuming agent reads first, and a heading inside `task` ended its own section,
+// blanking the real task and reporting success. A backslash is markdown's own
+// escape, so the file still reads correctly to a human and the round trip stays
+// exact.
+func escapeHeadings(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		indent := len(l) - len(strings.TrimLeft(l, " \t"))
+		rest := l[indent:]
+		// One more backslash than the line already has, so an escaped line and a
+		// line that literally begins "\## " stay distinguishable.
+		if n := len(rest) - len(strings.TrimLeft(rest, "\\")); strings.HasPrefix(rest[n:], "#") {
+			lines[i] = l[:indent] + "\\" + rest
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func unescapeHeadings(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		indent := len(l) - len(strings.TrimLeft(l, " \t"))
+		rest := l[indent:]
+		n := len(rest) - len(strings.TrimLeft(rest, "\\"))
+		if n > 0 && strings.HasPrefix(rest[n:], "#") {
+			lines[i] = l[:indent] + rest[1:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func bullets(b *strings.Builder, heading string, items []string) {
@@ -148,7 +184,12 @@ func bullets(b *strings.Builder, heading string, items []string) {
 	}
 	fmt.Fprintf(b, "\n## %s\n\n", heading)
 	for _, it := range items {
-		fmt.Fprintf(b, "- %s\n", strings.TrimSpace(it))
+		// One bullet is one line. parseBullets only ever read the first line of a
+		// multi-line item, so every line after it was written to the vault and
+		// then silently lost on the way back — and any of those lines could be a
+		// "## " heading. Collapsing here makes the list written and the list read
+		// back the same list.
+		fmt.Fprintf(b, "- %s\n", untrusted.Inline(it))
 	}
 }
 
@@ -207,11 +248,11 @@ func ParseCheckpoint(raw string) Checkpoint {
 	for heading, text := range sections(body) {
 		switch heading {
 		case secTask:
-			c.Task = text
+			c.Task = unescapeHeadings(text)
 		case secState:
-			c.State = text
+			c.State = unescapeHeadings(text)
 		case secNext:
-			c.Next = text
+			c.Next = unescapeHeadings(text)
 		case secDecisions:
 			c.Decisions = parseBullets(text)
 		case secFailed:
