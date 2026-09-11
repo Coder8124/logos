@@ -111,6 +111,7 @@ CONTINUITY
                                       everything bearing on a task, budgeted (also an MCP tool)
     brain tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
+    brain insights [project]          patterns already in the vault: a recurring blocker, a dormant memory
     brain why <file>                  what was being decided when this file was touched
     brain projects | project <name>   auto-detected projects and their dossiers
 
@@ -246,6 +247,8 @@ func main() {
 		err = runIngest(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
+	case cmd == "insights":
+		err = runInsights(args)
 	case cmd == "why":
 		err = runWhy(args)
 	case cmd == "tried":
