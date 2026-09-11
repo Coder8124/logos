@@ -13,6 +13,7 @@ import (
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/provider"
 	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/selfupdate"
 	"github.com/Coder8124/brain/internal/setup"
 	"github.com/Coder8124/brain/internal/vault"
 )
@@ -52,7 +53,7 @@ func setupCmd(args []string) error {
 	// somewhere else. That is the exact failure internal/vault/path.go was
 	// written to end, reintroduced by the flag people use precisely because
 	// they are being careful.
-	dir, created, err := chooseVault(args, opts.dryRun)
+	dir, created, rec, err := chooseVault(args, opts.dryRun)
 	if err != nil {
 		return err
 	}
@@ -66,10 +67,20 @@ func setupCmd(args []string) error {
 	}
 	fmt.Println()
 	switch {
-	case opts.dryRun:
+	case opts.dryRun && rec == recordedHere:
 		fmt.Println("             would be recorded — the desktop app opens this vault too")
-	case vault.Recorded() == dir:
+	case rec == recordedHere && vault.Recorded() == dir:
 		fmt.Println("             recorded — the desktop app opens this vault too")
+	case rec == recordFailed:
+		// The error itself is already on screen. What must not follow it is the
+		// environment's explanation, which would be a second, false reason.
+		fmt.Println("             not recorded — this vault is in use for this run only")
+		fmt.Println("             → fix the error above and run setup again to record it")
+	default:
+		// Say it, because the whole failure this prevents is a pointer that
+		// changed without anybody seeing it happen.
+		fmt.Println("             not recorded — BRAIN_VAULT names a vault for this process only")
+		fmt.Println("             → pass --vault to make it this machine's vault instead")
 	}
 
 	// Everything below wants the vault to be the one we just chose, whatever
@@ -99,15 +110,47 @@ func wireOptsFrom(args []string) wireOpts {
 // makes sure it exists and is the one this machine remembers.
 //
 // created reports whether the directory was missing, so a dry run can say what
-// it would have made without making it.
-func chooseVault(args []string, dryRun bool) (dir string, created bool, err error) {
+// it would have made without making it. recorded reports whether this vault was
+// written down as the machine's, which is not the same question.
+//
+// A vault named only by BRAIN_VAULT is deliberately not recorded. BRAIN_VAULT
+// is a per-process override — it is how the documented scratch-vault workflow
+// works, and how an MCP host config pins one server to one vault — so treating
+// it as a machine-wide choice means a single `setup` run against a throwaway
+// directory silently repoints every front end at it. That shipped: a scratch
+// vault under an agent's job directory became the recorded pointer, and because
+// the directory still existed, Recorded() kept returning it. Every command, the
+// MCP server and the SessionStart hook then read an empty vault and truthfully
+// reported nothing, while twenty-eight checkpoints sat in ~/brain. --vault, and
+// the default, are choices someone made; an inherited environment variable is
+// not.
+// recorded says whether this vault became the machine's recorded pointer, and
+// why not when it did not. The reason is load-bearing: the three ways to end up
+// unrecorded — the environment chose the vault, the write failed, or this was a
+// dry run — need three different next steps, and reporting one of them for all
+// three told a user whose config directory was unwritable to "pass --vault",
+// which is exactly what they had just done.
+type recordOutcome int
+
+const (
+	recordedHere  recordOutcome = iota // written down
+	recordSkipEnv                      // BRAIN_VAULT chose it, so it is this process only
+	recordFailed                       // the write was attempted and failed; the error is already printed
+)
+
+func chooseVault(args []string, dryRun bool) (dir string, created bool, rec recordOutcome, err error) {
 	dir = flagStr(args, "--vault", "")
+	fromEnv := false
 	if dir == "" {
-		dir = vaultPath() // BRAIN_VAULT, then the recorded path, then ~/brain
+		if v := os.Getenv("BRAIN_VAULT"); v != "" {
+			dir, fromEnv = v, true
+		} else {
+			dir = vaultPath() // the recorded path, then ~/brain
+		}
 	}
 	abs, err := filepath.Abs(expandHome(dir))
 	if err != nil {
-		return "", false, err
+		return "", false, recordFailed, err
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
 		created = true
@@ -116,20 +159,30 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, err erro
 			// tightened later is a vault that was world-readable for however long
 			// the user took to run `brain doctor`.
 			if err := vault.MkdirPrivate(abs); err != nil {
-				return "", false, fmt.Errorf("creating %s: %w", abs, err)
+				return "", false, recordFailed, fmt.Errorf("creating %s: %w", abs, err)
 			}
 		}
 	}
+	// A dry run reports the outcome the real run would reach, which under
+	// BRAIN_VAULT is "not recorded" — the one command whose whole job is
+	// previewing was promising the opposite of what followed.
 	if dryRun {
-		return abs, created, nil
+		if fromEnv {
+			return abs, created, recordSkipEnv, nil
+		}
+		return abs, created, recordedHere, nil
+	}
+	if fromEnv {
+		return abs, created, recordSkipEnv, nil
 	}
 	// Write the choice down where a front end with no shell can read it. The
 	// desktop app is launched from Finder and inherits no BRAIN_VAULT, so
 	// without this it can only ever find a vault at the default location.
 	if err := vault.Record(abs); err != nil {
 		fmt.Printf("             could not record this vault for the desktop app: %v\n", err)
+		return abs, created, recordFailed, nil
 	}
-	return abs, created, nil
+	return abs, created, recordedHere, nil
 }
 
 // checkRuntime reports the local model runtime and offers to pull what is
@@ -362,21 +415,65 @@ var (
 // same server; a hand-typed config that differs from what `brain setup` itself
 // would have written is a bug users would have no way to notice.
 func brainServer(vault string) (setup.Server, error) {
+	bin, err := selfPath()
+	if err != nil {
+		return setup.Server{}, err
+	}
+	return serverFor(bin, vault), nil
+}
+
+func selfPath() (string, error) {
 	bin, err := os.Executable()
 	if err != nil {
-		return setup.Server{}, fmt.Errorf("could not find my own path, which the host config needs: %w", err)
+		return "", fmt.Errorf("could not find my own path, which the host config needs: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = resolved
 	}
-	return setup.Server{
-		Bin:  bin,
-		Args: []string{"mcp", "serve"},
-		// Absolute, and always written: a host launches the server from a
-		// directory nobody chose, and a relative vault would silently resolve
-		// somewhere the user will never look.
-		Env: map[string]string{"BRAIN_VAULT": vault},
-	}, nil
+	return bin, nil
+}
+
+// probeTarget is what the integration check launches, which is deliberately not
+// always what the hosts launch.
+//
+// Under npx the wired command is `npx -y @noeton/logos mcp serve`, and running
+// that here would make `brain doctor` fetch the package whenever npm's cache has
+// been pruned — an egress from a command that promises nothing leaves the
+// machine, and slow enough that the probe's ten-second handshake deadline
+// expires first, reporting a perfectly healthy install as broken. The server
+// binary is identical either way; npx only adds the fetch. So probe this binary
+// and say out loud that the wired command differs, rather than quietly claiming
+// to have tried it.
+func probeTarget(self string, srv setup.Server) (bin string, args []string, note string) {
+	if srv.Bin != self {
+		return self, []string{"mcp", "serve"},
+			fmt.Sprintf("probed this binary; hosts launch `%s %s`, which resolves the same server on demand",
+				srv.Bin, strings.Join(srv.Args, " "))
+	}
+	return srv.Bin, srv.Args, ""
+}
+
+// serverFor is the decision brainServer makes, separated from finding this
+// process's own path so it can be tested for a binary this test run is not
+// executing from.
+//
+// The README's own install line is `npx -y @noeton/logos setup`, and under npx
+// the binary lives in a cache directory npm prunes. Writing that path into a
+// host config produces the worst shape of failure this product has: setup says
+// "Working", and weeks later the host fails to launch a binary that is simply
+// gone, with nothing tying it back to the install. npx resolves a copy on
+// demand, so name the command instead of the file — which is also the config
+// npm/README.md tells people to write by hand, "portable between machines,
+// which an absolute binary path is not".
+func serverFor(bin, vault string) setup.Server {
+	// Absolute, and always written: a host launches the server from a directory
+	// nobody chose, and a relative vault would silently resolve somewhere the
+	// user will never look.
+	env := map[string]string{"BRAIN_VAULT": vault}
+	if selfupdate.DetectInstall(bin) == selfupdate.NPX {
+		return setup.Server{Bin: "npx", Args: []string{"-y", "@noeton/logos", "mcp", "serve"}, Env: env}
+	}
+	return setup.Server{Bin: bin, Args: []string{"mcp", "serve"}, Env: env}
 }
 
 // resolvedVault is the vault --print-config and --config act on: an explicit
@@ -456,10 +553,14 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 	bin := srv.Bin
 
-	hosts, unmatched := setup.Only(detectHosts(), opts.only)
+	known := detectHosts()
+	hosts, unmatched := setup.Only(known, opts.only)
 	if len(unmatched) > 0 {
+		// Named off the same list the match was made against. Reaching past the
+		// seam to setup.Hosts() meant the message could list a roster the match
+		// never consulted.
 		return fmt.Errorf("unknown host %s — brain knows: %s",
-			strings.Join(unmatched, ", "), strings.Join(setup.Names(setup.Hosts()), ", "))
+			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
 	}
 
 	// Show the plan before touching anything. Registering brain with every AI
@@ -548,7 +649,11 @@ func wireHosts(vault string, opts wireOpts) error {
 	if wired > 0 {
 		fmt.Println("\n  checking it works")
 		ok := true
-		for _, c := range integrationChecks(bin, vault) {
+		probeBin, probeArgs, note := probeTarget(bin, srv)
+		if note != "" {
+			fmt.Printf("    %-16s    %s\n", "", note)
+		}
+		for _, c := range integrationChecks(probeBin, probeArgs, vault) {
 			if c.State == health.Failed {
 				ok = false
 				fmt.Printf("    %-16s ✗  %s\n", c.Name, c.Detail)

@@ -27,7 +27,7 @@ func TestADryRunSetupNeitherCreatesTheVaultNorRepointsTheMachine(t *testing.T) {
 	before := vault.Recorded()
 
 	scratch := filepath.Join(t.TempDir(), "try-it")
-	dir, created, err := chooseVault([]string{"--vault", scratch}, true)
+	dir, created, _, err := chooseVault([]string{"--vault", scratch}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestARealSetupCreatesTheVaultAndRecordsIt(t *testing.T) {
 	t.Setenv("HOME", cfg)
 
 	scratch := filepath.Join(t.TempDir(), "for-real")
-	dir, created, err := chooseVault([]string{"--vault", scratch}, false)
+	dir, created, _, err := chooseVault([]string{"--vault", scratch}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,5 +204,91 @@ func TestConfigMergesIntoAnArbitraryFile(t *testing.T) {
 	// for a client brain cannot see must not create or record a vault either.
 	if _, err := os.Stat(vaultDir); err == nil {
 		t.Errorf("--config created %s", vaultDir)
+	}
+}
+
+// A scratch vault named by BRAIN_VAULT is for this process, not for this
+// machine. Setup used to record it anyway, and because the recorded pointer is
+// ignored only when the directory is *gone* — not when it is merely the wrong
+// one — a throwaway vault under an agent's job directory stayed the answer for
+// every front end afterwards. The symptom is the worst one this product has:
+// resume, sessions and doctor all truthfully report an empty vault while the
+// real history sits untouched somewhere else.
+func TestSetupDoesNotMakeAScratchVaultNamedByTheEnvironmentThisMachinesVault(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+
+	real := filepath.Join(t.TempDir(), "the-real-one")
+	// Recorded() ignores a pointer whose directory is gone, so the vault this
+	// test is protecting has to actually be there.
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Record(real); err != nil {
+		t.Fatal(err)
+	}
+
+	scratch := filepath.Join(t.TempDir(), "survey-vault")
+	t.Setenv("BRAIN_VAULT", scratch)
+
+	dir, _, rec, err := chooseVault(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != scratch {
+		t.Errorf("chooseVault returned %q, want the BRAIN_VAULT vault %q to act on", dir, scratch)
+	}
+	if rec != recordSkipEnv {
+		t.Errorf("record outcome = %v for a vault named only by BRAIN_VAULT, want recordSkipEnv", rec)
+	}
+	if got := vault.Recorded(); got != real {
+		t.Errorf("this machine's vault moved to %q; it must still be %q", got, real)
+	}
+}
+
+// `npx -y @noeton/logos setup` is the install line the README leads with, and
+// under npx the running binary is a copy in a cache npm prunes. Writing that
+// path into every host config wired the machine to a file that later stops
+// existing — setup reports "Working", and the failure arrives weeks later as a
+// host that cannot launch its MCP server, with nothing pointing back at the
+// install that caused it.
+func TestAnNpxInstallWiresHostsToTheCommandRatherThanTheCachedBinary(t *testing.T) {
+	npxBin := "/Users/someone/.npm/_npx/2f3ac/node_modules/@noeton/logos/bin/brain"
+	srv := serverFor(npxBin, "/Users/someone/brain")
+
+	if strings.Contains(srv.Bin, "_npx") {
+		t.Errorf("host config points at %q, a path npm's cache prune deletes", srv.Bin)
+	}
+	if srv.Bin != "npx" {
+		t.Errorf("Bin = %q, want npx so the host resolves a copy on demand", srv.Bin)
+	}
+	if got := strings.Join(srv.Args, " "); got != "-y @noeton/logos mcp serve" {
+		t.Errorf("Args = %q, want the launcher npm/README.md documents", got)
+	}
+	if srv.Env["BRAIN_VAULT"] != "/Users/someone/brain" {
+		t.Errorf("BRAIN_VAULT = %q, the vault must be pinned however brain was installed", srv.Env["BRAIN_VAULT"])
+	}
+
+	// An ordinary install is still wired by absolute path: there is no command
+	// name that resolves to it, and the file is one the user put there.
+	plain := serverFor("/usr/local/bin/brain", "/Users/someone/brain")
+	if plain.Bin != "/usr/local/bin/brain" {
+		t.Errorf("Bin = %q, want the binary's own path for a standalone install", plain.Bin)
+	}
+}
+
+// The one command whose entire job is previewing must not describe the opposite
+// of what follows. Under BRAIN_VAULT the real run records nothing, and the dry
+// run said "would be recorded — the desktop app opens this vault too".
+func TestADryRunUnderBrainVaultDoesNotPromiseARecordingThatWillNotHappen(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("BRAIN_VAULT", filepath.Join(t.TempDir(), "scratch"))
+
+	if _, _, rec, err := chooseVault(nil, true); err != nil {
+		t.Fatal(err)
+	} else if rec != recordSkipEnv {
+		t.Errorf("dry run reported %v, want recordSkipEnv — the real run records nothing here", rec)
 	}
 }

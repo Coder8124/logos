@@ -27,7 +27,7 @@ func fakeHosts(t *testing.T, registered ...string) {
 	}
 	old, oldCheck := detectHosts, integrationChecks
 	detectHosts = func() []setup.Host { return hosts }
-	integrationChecks = func(string, string) []health.Check {
+	integrationChecks = func(string, []string, string) []health.Check {
 		return []health.Check{{Name: "handshake", State: health.OK, Detail: "faked"}}
 	}
 	t.Cleanup(func() { detectHosts, integrationChecks = old, oldCheck })

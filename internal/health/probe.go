@@ -30,7 +30,12 @@ import (
 // removes it.
 //
 // Needs no model: every tool it exercises is markdown and SQL.
-func Integration(bin, vault string) []Check {
+// args is the server's argument list rather than a hardcoded "mcp serve",
+// because the command written into a host config is not always this binary: an
+// npx install is wired as `npx -y @noeton/logos mcp serve`, and a probe that
+// launched the running executable instead would pass while the thing the host
+// will actually run was never tried.
+func Integration(bin string, args []string, vault string) []Check {
 	var checks []Check
 	fail := func(name, detail, fix string) []Check {
 		return append(checks, Check{Name: name, State: Failed, Detail: detail, Fix: fix})
@@ -40,7 +45,7 @@ func Integration(bin, vault string) []Check {
 	// at once cannot tread on each other.
 	project := fmt.Sprintf("brain-selftest-%d", os.Getpid())
 
-	cmd := exec.Command(bin, "mcp", "serve")
+	cmd := exec.Command(bin, args...)
 	cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

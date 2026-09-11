@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -679,17 +678,27 @@ func doctorVerdict(failed int) error {
 // agents can reach this vault". It is the same probe setup runs, exposed so it
 // can be re-run after a host update or a config edit.
 func doctorIntegration() error {
-	bin, err := os.Executable()
+	vault := vaultPath()
+	// The same description setup writes into every host config, so this check
+	// launches what the hosts launch — under npx that is the `npx` command, not
+	// the cached binary this process happens to be running from.
+	srv, err := brainServer(vault)
 	if err != nil {
 		return err
 	}
-	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
-		bin = resolved
-	}
-	vault := vaultPath()
 
-	fmt.Printf("─── integration ───\n  binary  %s\n  vault   %s\n\n", bin, vault)
-	checks := health.Integration(bin, vault)
+	self, err := selfPath()
+	if err != nil {
+		return err
+	}
+	probeBin, probeArgs, note := probeTarget(self, srv)
+
+	fmt.Printf("─── integration ───\n  binary  %s %s\n  vault   %s\n", srv.Bin, strings.Join(srv.Args, " "), vault)
+	if note != "" {
+		fmt.Printf("  note    %s\n", note)
+	}
+	fmt.Println()
+	checks := health.Integration(probeBin, probeArgs, vault)
 	failed := 0
 	for _, c := range checks {
 		fmt.Printf("  %-12s %s\n", c.Name, renderState(c.State))
