@@ -21,6 +21,15 @@ says so) rather than silently (a parser misreads a tool call and inserts
 garbage). Claude.ai and Perplexity content scripts, and a more automatic
 tool-call flow for any of the three, are follow-on work, not part of this cut.
 
+## Why `host_permissions` says `http://`, not `ws://`
+
+The extension only ever opens a WebSocket (`ws://127.0.0.1:<port>/mcp`), so
+`"ws://127.0.0.1/*"` looks like the permission it should be asking for. It is
+not: MV3 match patterns accept `http`, `https`, `file`, `ftp`, `urn` and `*`
+only, and Chrome rejects a `ws://` entry with an "Invalid value for
+'host_permissions'" warning at load. The `http://127.0.0.1/*` entry is what
+covers the loopback origin; the handshake is an HTTP upgrade against it.
+
 ## Setup
 
 1. Build and run brain's web bridge:
