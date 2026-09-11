@@ -40,6 +40,25 @@ func projectsCmd(args []string) error {
 		return nil
 	}
 	if len(ps) == 0 {
+		// The rollup is a different subsystem from the checkpoints in
+		// sessions/. On a vault with real work in it but no rollup run yet,
+		// "no projects detected" is false in the way that makes a person
+		// close the tool — their projects are right there on disk. Say what
+		// is actually in the vault, with the number (invariant 3).
+		if names, err := session.Projects(vaultPath()); err == nil && len(names) > 0 {
+			checkpoints := 0
+			for _, n := range names {
+				h, err := session.History(vaultPath(), n, 0)
+				if err != nil {
+					continue
+				}
+				checkpoints += len(h)
+			}
+			fmt.Printf("no rollup dossiers yet, but the vault holds %d checkpoint(s) across %d project(s): %s\n",
+				checkpoints, len(names), strings.Join(names, ", "))
+			fmt.Println("dossiers emerge as the rollup files your activity into project notes; `brain sessions <name>` reads the checkpoints directly in the meantime.")
+			return nil
+		}
 		fmt.Println("no projects detected yet — they emerge as the rollup files your activity into project notes.")
 		return nil
 	}
