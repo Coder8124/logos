@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/brain/internal/untrusted"
 )
 
 // Learning from conversations. After an exchange, the model is asked what — if
@@ -101,7 +102,10 @@ func Render(mems []Memory) string {
 	var b strings.Builder
 	b.WriteString("What you remember about the user:\n")
 	for _, m := range mems {
-		fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, m.Text)
+		// m.Text was written by an earlier session, not the person talking now
+		// (invariant 6) — untrusted.Inline stops a newline in it from forging
+		// its own "- (kind) ..." bullet under this frame.
+		fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, untrusted.Inline(m.Text))
 	}
 	return b.String()
 }

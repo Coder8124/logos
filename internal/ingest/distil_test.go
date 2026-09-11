@@ -191,6 +191,33 @@ func TestAnEvidenceRequestRefusesASourceThatChangedSinceTheHarvest(t *testing.T)
 	}
 }
 
+// A distilled claim is text an agent wrote after reading the transcript, not
+// a mechanical copy — but the agent is still free to paraphrase a secret
+// right back into the claim it cites, so the write half of B3 needs the same
+// redaction ingest.Put already has, not an assumption that distillation is
+// somehow safer.
+func TestASecretPastedIntoADistilledClaimNeverReachesTheVaultFile(t *testing.T) {
+	v, id := queuedVault(t, widgetsFixture(t))
+
+	c, _, redactions, err := ingest.AcceptWithin(v, id, 0, ingest.Distillation{
+		Verified: []string{"deployed with sk-live-abcdefghijklmnopqrstuvwxyzAB (turn 5)"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(redactions) == 0 {
+		t.Fatal("AcceptWithin did not report the redaction — invariant 3 says a caught secret must be announced")
+	}
+
+	raw, err := os.ReadFile(filepath.Join(v, filepath.FromSlash(c.RelPath())))
+	if err != nil {
+		t.Fatalf("reading the written candidate: %v", err)
+	}
+	if strings.Contains(string(raw), "sk-live-abcdefghijklmnopqrstuvwxyzAB") {
+		t.Fatalf("the candidate note on disk still contains the raw secret:\n%s", raw)
+	}
+}
+
 // The return trip writes a candidate. A distillation is still something nobody
 // has read, and promotion stays a human decision — B3 must not become a way for
 // an agent to write its own checkpoint.
@@ -296,7 +323,7 @@ func TestAClaimCitingAnAbridgedTurnIsDropped(t *testing.T) {
 func TestAcceptValidatesAgainstTheWindowThatWasServed(t *testing.T) {
 	v, id := queuedVault(t, widgetsFixture(t))
 
-	c, drops, err := ingest.AcceptWithin(v, id, 4, ingest.Distillation{
+	c, drops, _, err := ingest.AcceptWithin(v, id, 4, ingest.Distillation{
 		Failed: []string{"the build failed on undefined: Frob (turn 3)"},
 	})
 	if err != nil {

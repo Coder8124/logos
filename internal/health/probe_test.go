@@ -1,9 +1,13 @@
 package health
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // A checkpoint the probe writes does not always land directly under
@@ -66,5 +70,42 @@ func TestCleanUpLeavesAForeignFileInTheWorktreeDirectoryAlone(t *testing.T) {
 	}
 	if _, err := os.Stat(foreign); err != nil {
 		t.Errorf("a foreign file was removed or its directory destroyed: %v", err)
+	}
+}
+
+// Integration's stdout reader pushes every scanned line into a 64-entry
+// buffered channel. If the consumer stops reading before the child process
+// stops writing — the exact shape of a probe that got the answer it needed
+// from an early message and never called await again — the 65th line blocks
+// the send forever. Nothing before this test gave that goroutine a way out,
+// so it outlives Integration itself for as long as the process runs `brain
+// doctor`.
+func TestScanStdoutStopsWhenNobodyIsReadingTheChannel(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		defer w.Close()
+		for i := 0; i < 200; i++ {
+			fmt.Fprintf(w, "line %d\n", i)
+		}
+	}()
+
+	sc := bufio.NewScanner(r)
+	out := make(chan string, 4) // deliberately never drained past its buffer
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		scanStdout(sc, out, stop)
+		close(done)
+	}()
+
+	// Give it time to fill the buffer and block on the send, exactly the state
+	// a probe that stopped reading early leaves it in.
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scanStdout is still blocked on the channel send after stop was closed — the goroutine leak")
 	}
 }

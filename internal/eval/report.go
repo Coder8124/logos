@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Coder8124/brain/internal/text"
 )
 
 // A Result is one adapter's full run.
@@ -201,10 +203,7 @@ func distinct(results []Result, key func(Score) string) []string {
 }
 
 func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-1] + "…"
+	return text.Ellipsize(s, n)
 }
 
 // Composition summarises what the suite contains, so a reader can see the

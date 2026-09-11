@@ -309,19 +309,24 @@ func shortRef(id string) string {
 //
 // Vault first, index second (invariant 2) — the caller reindexes.
 func Accept(vaultDir, ref string, d Distillation) (Candidate, []Drop, error) {
-	return AcceptWithin(vaultDir, ref, 0, d)
+	c, drops, _, err := AcceptWithin(vaultDir, ref, 0, d)
+	return c, drops, err
 }
 
 // AcceptWithin is Accept against a specific abridgement — the same window the
 // distiller was served, so a citation to a turn it was never shown is caught.
-func AcceptWithin(vaultDir, ref string, maxTurns int, d Distillation) (Candidate, []Drop, error) {
+// A distilled claim is a paraphrase of transcript text an agent chose to
+// quote, so it can carry a pasted secret just as easily as the mechanical
+// harvest can — the returned Redactions report what was masked before this
+// write, same as ingest.Put's.
+func AcceptWithin(vaultDir, ref string, maxTurns int, d Distillation) (Candidate, []Drop, []Redaction, error) {
 	ev, err := EvidenceFor(vaultDir, ref, maxTurns)
 	if err != nil {
-		return Candidate{}, nil, err
+		return Candidate{}, nil, nil, err
 	}
 	_, abs, ok, err := Find(vaultDir, ref)
 	if err != nil || !ok {
-		return Candidate{}, nil, fmt.Errorf("candidate %q vanished between read and write", ref)
+		return Candidate{}, nil, nil, fmt.Errorf("candidate %q vanished between read and write", ref)
 	}
 
 	kept, drops := Filter(ev, d)
@@ -336,8 +341,10 @@ func AcceptWithin(vaultDir, ref string, maxTurns int, d Distillation) (Candidate
 	c.Model = orDefault(kept.Model, "calling agent")
 	c.Status = StatusPending
 
+	redactions := redactCandidateText(&c)
+
 	if err := vault.WriteAtomic(abs, []byte(c.Markdown())); err != nil {
-		return Candidate{}, drops, err
+		return Candidate{}, drops, redactions, err
 	}
-	return c, drops, nil
+	return c, drops, redactions, nil
 }
