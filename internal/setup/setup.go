@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Coder8124/brain/internal/vault"
@@ -301,6 +302,95 @@ type serverEntry struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+}
+
+// MergeFile is mergeJSON, exported for `brain setup --config <path>` — a host
+// whose location on disk brain has no convention for, but whose file is the
+// same mcpServers-keyed JSON that Claude Desktop and Cursor already read. The
+// internal hosts in Hosts() are a closed, curated list on purpose (see the
+// package doc); this is the escape hatch for every MCP client that is not on
+// it, so that "not one of the four we special-case" does not mean "brain
+// cannot help you connect this".
+func MergeFile(path string, s Server) (Outcome, error) {
+	return mergeJSON(path, s)
+}
+
+// RenderConfig renders the server block a host's config needs, in the
+// requested format, for printing rather than writing. It exists for the same
+// reason MergeFile does: a host brain does not know how to find can still be
+// wired, by hand, if the user can see what a working entry looks like. An
+// empty format means json — the shape most MCP hosts actually use, and the
+// one this package already writes for Claude Desktop and Cursor.
+func RenderConfig(s Server, format string) (string, error) {
+	switch format {
+	case "", "json":
+		return renderConfigJSON(s)
+	case "toml":
+		return renderConfigTOML(s), nil
+	default:
+		return "", fmt.Errorf("unknown format %q — brain knows: json, toml", format)
+	}
+}
+
+func renderConfigJSON(s Server) (string, error) {
+	wrapper := struct {
+		Servers map[string]serverEntry `json:"mcpServers"`
+	}{Servers: map[string]serverEntry{
+		Name: {Command: s.Bin, Args: s.Args, Env: s.Env},
+	}}
+	out, err := json.MarshalIndent(wrapper, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out) + "\n", nil
+}
+
+// renderConfigTOML mirrors the shape Codex's own config.toml uses
+// ([mcp_servers.<name>], with env as a nested table) — the one host in this
+// package's list that speaks TOML rather than JSON, and so the format most
+// likely to make a hand-edited entry actually match what its neighbors expect.
+//
+// Escaping only backslash and quote, not the full TOML basic-string grammar:
+// what lands here is an absolute binary path and a vault directory, never
+// arbitrary user text, so control characters and stray unicode are not a case
+// this needs to cover.
+func renderConfigTOML(s Server) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[mcp_servers.%s]\n", Name)
+	fmt.Fprintf(&b, "command = %s\n", tomlString(s.Bin))
+	if len(s.Args) > 0 {
+		parts := make([]string, len(s.Args))
+		for i, a := range s.Args {
+			parts[i] = tomlString(a)
+		}
+		fmt.Fprintf(&b, "args = [%s]\n", strings.Join(parts, ", "))
+	}
+	if len(s.Env) > 0 {
+		fmt.Fprintf(&b, "\n[mcp_servers.%s.env]\n", Name)
+		for _, k := range sortedKeys(s.Env) {
+			fmt.Fprintf(&b, "%s = %s\n", k, tomlString(s.Env[k]))
+		}
+	}
+	return b.String()
+}
+
+func tomlString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}
+
+// sortedKeys makes the env table's line order deterministic. Map iteration
+// order is not, and a config a user is meant to read (or diff, or paste into a
+// bug report) should not reshuffle itself between two runs of the same
+// command.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // mergeJSON writes the server into a host's JSON config without disturbing what

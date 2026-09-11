@@ -61,3 +61,27 @@ func TestHelpAllNamesEveryFlagTheParsersAccept(t *testing.T) {
 		}
 	}
 }
+
+// The same ratchet, for the flags that make brain installable on an MCP client
+// setup.Hosts() has never heard of. Adding a flag to setupCmd or
+// setup.RenderConfig without a line of help beside it hides the one route a
+// user of a fifth host has.
+func TestHelpAllNamesTheUniversalMCPInstallFlags(t *testing.T) {
+	var b bytes.Buffer
+	helpAll(&b)
+	help := b.String()
+
+	for _, want := range []string{
+		// The escape hatch for any MCP client that is not one of the four
+		// setup.Hosts() knows how to find or register.
+		"--print-config",
+		"--format",
+		// Merges into a config file at a location brain has no built-in
+		// convention for, reusing the same merge Claude Desktop and Cursor get.
+		"--config",
+	} {
+		if !strings.Contains(help, want) {
+			t.Errorf("brain setup accepts %s, and `brain help all` never says so", want)
+		}
+	}
+}

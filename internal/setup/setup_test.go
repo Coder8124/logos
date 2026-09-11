@@ -415,3 +415,88 @@ func TestReadMCPServersOnAMissingFileIsNotAnError(t *testing.T) {
 		t.Errorf("readMCPServers on an absent file = %+v, %v; want nil, nil", regs, err)
 	}
 }
+
+// RenderConfig exists for MCP clients brain does not know how to find or
+// register — anything outside the four hosts in Hosts(). Those users are
+// real, and until this existed the only answer for them was "not supported":
+// no way to see what a working config even looks like, so no way to type one
+// in by hand.
+
+func TestRenderConfigJSONIsWhatMergeJSONWouldHaveWritten(t *testing.T) {
+	s := server()
+	out, err := RenderConfig(s, "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Servers map[string]serverEntry `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
+		t.Fatalf("--print-config --format json produced invalid JSON: %v\n%s", err, out)
+	}
+	got, ok := cfg.Servers[Name]
+	if !ok {
+		t.Fatalf("no %q entry in the printed config:\n%s", Name, out)
+	}
+	if got.Command != s.Bin || got.Env["BRAIN_VAULT"] != s.Env["BRAIN_VAULT"] {
+		t.Errorf("printed entry = %+v, want the same server mergeJSON would have written", got)
+	}
+}
+
+// json is the implicit default: the same shape Claude Desktop and Cursor
+// already use, so copying it into either config file by hand just works.
+func TestRenderConfigDefaultsToJSON(t *testing.T) {
+	withFormat, err := RenderConfig(server(), "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutFormat, err := RenderConfig(server(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withFormat != withoutFormat {
+		t.Errorf("an empty format produced a different render than an explicit \"json\":\n%s\nvs\n%s", withoutFormat, withFormat)
+	}
+}
+
+func TestRenderConfigTOMLNamesTheServerTableAndItsEnv(t *testing.T) {
+	s := server()
+	out, err := RenderConfig(s, "toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "[mcp_servers.brain]") {
+		t.Errorf("toml output has no [mcp_servers.brain] table:\n%s", out)
+	}
+	if !strings.Contains(out, `command = "`+s.Bin+`"`) {
+		t.Errorf("toml output does not name the binary as command:\n%s", out)
+	}
+	if !strings.Contains(out, "[mcp_servers.brain.env]") ||
+		!strings.Contains(out, `BRAIN_VAULT = "`+s.Env["BRAIN_VAULT"]+`"`) {
+		t.Errorf("toml output does not carry BRAIN_VAULT in an env table:\n%s", out)
+	}
+}
+
+func TestRenderConfigRejectsAnUnknownFormat(t *testing.T) {
+	if _, err := RenderConfig(server(), "yaml"); err == nil {
+		t.Error("RenderConfig(..., \"yaml\") = nil error, want a complaint naming the formats it does know")
+	}
+}
+
+// MergeFile is mergeJSON, exported for `brain setup --config <path>` — a host
+// whose location brain does not know by convention, but whose file is the same
+// mcpServers-keyed JSON Claude Desktop and Cursor already read.
+func TestMergeFileIsMergeJSONExported(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom-host.json")
+	outcome, err := MergeFile(path, server())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome != Registered {
+		t.Errorf("outcome = %q, want %q for a file that did not exist yet", outcome, Registered)
+	}
+	got := readServers(t, path)
+	if _, ok := got[Name]; !ok {
+		t.Errorf("%s was not written into %s", Name, path)
+	}
+}

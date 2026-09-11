@@ -25,6 +25,18 @@ import (
 // half-configured machine is worse than a configured one with a warning on it.
 
 func setupCmd(args []string) error {
+	// --print-config and --config are the escape hatch for every MCP client
+	// that is not one of setup.Hosts()'s curated four. Both short-circuit
+	// before the vault is created or a host wired: neither one registers
+	// anything brain itself can see, so neither belongs inside the interactive
+	// flow that assumes it does.
+	if hasFlag(args, "--print-config") {
+		return printConfigCmd(args)
+	}
+	if path := flagStr(args, "--config", ""); path != "" {
+		return configFileCmd(args, path)
+	}
+
 	opts := wireOptsFrom(args)
 	yes := opts.yes
 
@@ -344,6 +356,90 @@ var (
 	integrationChecks = health.Integration
 )
 
+// brainServer is the command line and environment any host — known to
+// setup.Hosts() or not — needs to reach this brain and this vault. Shared by
+// wireHosts, --print-config and --config so that all three describe the exact
+// same server; a hand-typed config that differs from what `brain setup` itself
+// would have written is a bug users would have no way to notice.
+func brainServer(vault string) (setup.Server, error) {
+	bin, err := os.Executable()
+	if err != nil {
+		return setup.Server{}, fmt.Errorf("could not find my own path, which the host config needs: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	return setup.Server{
+		Bin:  bin,
+		Args: []string{"mcp", "serve"},
+		// Absolute, and always written: a host launches the server from a
+		// directory nobody chose, and a relative vault would silently resolve
+		// somewhere the user will never look.
+		Env: map[string]string{"BRAIN_VAULT": vault},
+	}, nil
+}
+
+// resolvedVault is the vault --print-config and --config act on: an explicit
+// --vault, falling back to the one this machine already has configured. Never
+// created here — printing or merging a config is not the step that brings a
+// vault into existence, and doing so behind a flag whose whole point is "just
+// show me / just write this" would be the same silent-vault-creation mistake
+// chooseVault's own doc comment already explains.
+func resolvedVault(args []string) (string, error) {
+	v := flagStr(args, "--vault", "")
+	if v == "" {
+		v = vaultPath()
+	}
+	return filepath.Abs(expandHome(v))
+}
+
+// printConfigCmd is `brain setup --print-config`: the server block by hand,
+// for an MCP client that is not one of the four Hosts() knows how to find or
+// register. Those clients are real — MCP has more of them than this package
+// will ever special-case — and until this existed, the only answer for their
+// users was silence.
+func printConfigCmd(args []string) error {
+	vault, err := resolvedVault(args)
+	if err != nil {
+		return err
+	}
+	srv, err := brainServer(vault)
+	if err != nil {
+		return err
+	}
+	out, err := setup.RenderConfig(srv, flagStr(args, "--format", ""))
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
+}
+
+// configFileCmd is `brain setup --config <path>`: merge brain into a config
+// file at a location brain has no built-in convention for, reusing the exact
+// merge (parse-before-touch, backup-before-write, no-op-writes-nothing)
+// mergeJSON already gives Claude Desktop and Cursor.
+func configFileCmd(args []string, path string) error {
+	vault, err := resolvedVault(args)
+	if err != nil {
+		return err
+	}
+	srv, err := brainServer(vault)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(expandHome(path))
+	if err != nil {
+		return err
+	}
+	outcome, err := setup.MergeFile(abs, srv)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("  %-16s %s (%s)\n", "config", outcome, abs)
+	return nil
+}
+
 func wireHosts(vault string, opts wireOpts) error {
 	// --no-hosts is for someone evaluating brain, or setting up a second vault
 	// on a machine that already has one wired. Until it existed the only way to
@@ -354,22 +450,11 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Println("             `brain mcp install` connects them when you are ready")
 		return nil
 	}
-	bin, err := os.Executable()
+	srv, err := brainServer(vault)
 	if err != nil {
-		return fmt.Errorf("could not find my own path, which the host config needs: %w", err)
+		return err
 	}
-	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
-		bin = resolved
-	}
-
-	srv := setup.Server{
-		Bin:  bin,
-		Args: []string{"mcp", "serve"},
-		// Absolute, and always written: a host launches the server from a
-		// directory nobody chose, and a relative vault would silently resolve
-		// somewhere the user will never look.
-		Env: map[string]string{"BRAIN_VAULT": vault},
-	}
+	bin := srv.Bin
 
 	hosts, unmatched := setup.Only(detectHosts(), opts.only)
 	if len(unmatched) > 0 {

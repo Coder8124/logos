@@ -60,7 +60,7 @@ func runNote(args []string) error {
 func runCheckpoint(args []string) error {
 	project, rest := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: brain checkpoint <project> [--task ...] [--next ...] " +
+		return fmt.Errorf("usage: brain checkpoint [project] [--task ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
 			"[--question ...] [--file ...] [--handoff <agent>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
@@ -142,7 +142,7 @@ func runCheckpoint(args []string) error {
 func runResume(args []string) error {
 	project, rest := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: brain resume <project> [--budget <tokens>] [--since day|week|month|quarter|year|all]")
+		return fmt.Errorf("usage: brain resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all]")
 	}
 	budget := 0
 	since := ""
@@ -243,7 +243,7 @@ func printNothingToResume(vaultDir, project string) {
 func runSessionLog(args []string) error {
 	project, _ := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: brain sessions <project> [--close <session-id>]")
+		return fmt.Errorf("usage: brain sessions [project] [--close <session-id>]")
 	}
 
 	if id := flagStr(args, "--close", ""); id != "" {

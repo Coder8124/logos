@@ -670,3 +670,31 @@ func TestAVaultRecordedUnderSlashTmpIsCaughtToo(t *testing.T) {
 		}
 	}
 }
+
+// `brain setup --print-config` exists precisely for the MCP clients this
+// check cannot see — anything that is not one of setup.Hosts()'s four. Both
+// branches of the report must say so: the empty case, where it is the whole
+// answer, and the some-detected case, where an agent on this machine talking
+// to a fifth client still deserves to be told how.
+func TestHostsCheckMentionsPrintConfigWhenNoneAreDetected(t *testing.T) {
+	c := hostsCheck(nil)
+	if c.State != Unknown {
+		t.Errorf("state = %v, want %v when no known host is detected", c.State, Unknown)
+	}
+	if !strings.Contains(c.Fix, "--print-config") {
+		t.Errorf("fix = %q, want it to mention `brain setup --print-config` for a host this check cannot see", c.Fix)
+	}
+}
+
+func TestHostsCheckNamesWhatItSeesAndStillMentionsPrintConfig(t *testing.T) {
+	c := hostsCheck([]string{"Claude Code"})
+	if c.State != OK {
+		t.Errorf("state = %v, want %v when a known host is detected", c.State, OK)
+	}
+	if !strings.Contains(c.Detail, "Claude Code") {
+		t.Errorf("detail = %q, want it to name the detected host", c.Detail)
+	}
+	if !strings.Contains(c.Fix, "--print-config") {
+		t.Errorf("fix = %q, want it to still mention `brain setup --print-config` for any client this check does not know", c.Fix)
+	}
+}
