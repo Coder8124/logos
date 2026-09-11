@@ -126,11 +126,22 @@ func (r *Router) Probe(model string) Capability {
 // missing or broken degrades to the next tier down with a warning, rather than
 // failing the whole pipeline — a rollup running on a smaller model is worth more
 // than no rollup.
+//
+// The descent stops above T0, because T0 is the embedding tier and embeddings
+// are not generation. Falling into it handed nomic-embed-text to a distil call,
+// which came back as `Ollama returned 400 Bad Request` from deep inside a
+// rollup — a wrong-shaped error for what is really "no generation model is
+// installed". Asking for T0 itself still resolves T0; it is only the descent
+// into it that is wrong.
 func (r *Router) Model(t Tier) (string, error) {
 	if m, ok := r.resolved[t]; ok {
 		return m, nil
 	}
 
+	floor := T1
+	if t == T0 {
+		floor = T0
+	}
 	for tier := t; ; tier-- {
 		tc, ok := r.cfg.Tiers[tier.String()]
 		if ok && tc.Model != "" && r.models[tc.Model] {
@@ -140,9 +151,12 @@ func (r *Router) Model(t Tier) (string, error) {
 			r.resolved[t] = tc.Model
 			return tc.Model, nil
 		}
-		if tier == T0 {
+		if tier == floor {
 			break
 		}
+	}
+	if t > T0 {
+		return "", fmt.Errorf("%w: %s needs a generation model and none is installed — run `brain setup` to install one", ErrNoModel, t)
 	}
 	return "", fmt.Errorf("%w: %s or any lower tier", ErrNoModel, t)
 }

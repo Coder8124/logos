@@ -122,3 +122,31 @@ func TestPreviewTruncatesLongPayloads(t *testing.T) {
 		t.Error("long payloads should be truncated in the preview")
 	}
 }
+
+// A generation tier whose model is not installed used to descend all the way
+// into T0, which is the embedding tier. The distil call that followed handed
+// nomic-embed-text a chat prompt and surfaced as `Ollama returned 400 Bad
+// Request` from inside a rollup, instead of saying that no generation model is
+// installed.
+func TestAGenerationTierDoesNotDegradeIntoTheEmbeddingModel(t *testing.T) {
+	r := &Router{
+		cfg: &Config{Tiers: map[string]TierConfig{
+			"T0": {Model: "nomic-embed-text"},
+			"T1": {Model: "not-installed"},
+			"T2": {Model: "also-not-installed"},
+		}},
+		models:   map[string]bool{"nomic-embed-text": true},
+		caps:     map[string]Capability{},
+		resolved: map[Tier]string{},
+	}
+
+	if m, err := r.Model(T2); err == nil {
+		t.Errorf("T2 resolved to %q; with no generation model installed it must fail, not hand back an embedding model", m)
+	}
+
+	// Asking for the embedding tier itself still resolves it — only the descent
+	// into it from above is wrong.
+	if m, err := r.Model(T0); err != nil || m != "nomic-embed-text" {
+		t.Errorf("Model(T0) = %q, %v; want the configured embedding model", m, err)
+	}
+}
