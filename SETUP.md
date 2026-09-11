@@ -565,6 +565,28 @@ $ brain memory
 Same ids, same confidence. `memories/<kind>.md` is a plain bullet list — edit a
 line to correct a fact, delete one to forget it, then reindex.
 
+### Sharing a vault with a team
+
+Because the vault is a directory of markdown, git is the sync layer, the
+history, and the conflict resolution — nothing in Logos duplicates any of
+that. Put the vault in a repo, and:
+
+- `.brain/` is a disposable cache, so `brain index` keeps it out of every
+  commit — it adds `.brain/` to the vault's `.gitignore` itself, and says so
+  the first time it does.
+- Memory arrives the way code does: a teammate's `brain memory add` becomes a
+  line in `memories/<kind>.md`, and it reaches you the same way their code
+  changes do — commit, push, pull, or a pull request if that's how the repo
+  works.
+- `git pull`ing in someone else's checkpoints, notes or memories is enough by
+  itself. `brain index` rescans the whole vault on every run, so new markdown
+  that appeared on disk between runs — from a pull, not just from Logos — is
+  picked up the next time it runs, with no separate "import" step.
+- Logos never runs git for you. Not staging, not committing, not pulling. The
+  vault is yours to sync on your own terms — a plain repo, a private fork, a
+  sync tool that watches the directory — and Logos only ever reads and writes
+  the markdown.
+
 Model tiers run T0 embeddings (137M) through T2 synthesis (8–24B) locally; T3 is
 cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather
 than tool-calling — small local models are unreliable at tool schemas and

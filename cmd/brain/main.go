@@ -773,6 +773,17 @@ func runIndex(watch bool) error {
 	}
 	defer ix.Close()
 
+	// A vault someone put under git must never be offered .brain/ to commit —
+	// it is a rebuildable cache, and two people sharing a vault over git would
+	// otherwise fight a merge conflict in a SQLite file on every pull. Runs
+	// every time and reports only the run that actually changed something, so
+	// `brain index` calling this on every invocation never turns into noise.
+	if wrote, err := vault.EnsureGitignore(ix.Vault); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not update .gitignore:", err)
+	} else if wrote {
+		fmt.Println("· added .brain/ to .gitignore")
+	}
+
 	// Sync is pure file reading — it needs no model, and it is what keeps the
 	// FTS table current. Only the embedding passes need a provider.
 	//
