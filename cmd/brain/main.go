@@ -122,8 +122,9 @@ CONTINUITY
     brain why <file> [--limit N]      what was being decided when this file was touched
     brain projects | project <name>   auto-detected projects and their dossiers
     brain project-name [dir]          the project name for a directory, as the hooks compute it
-    brain project rename <old> <new> [--dry-run]
-                                      rename a project, carrying its history with it
+    brain project rename <old> <new> [--dry-run] [--merge]
+                                      rename a project, carrying its history with it;
+                                      --merge combines it into an existing project instead of refusing
 
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
