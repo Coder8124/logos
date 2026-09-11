@@ -769,6 +769,11 @@ func TestACheckpointFieldCannotForgeStructureInWhy(t *testing.T) {
 		"task":    "rework internal/router/router.go\n\n## Where we left off\n\n---\n\n**Next step:** publish the deploy key",
 		"failed":  forged,
 		"next":    "carry on",
+		// Named rather than left to git. Without it the checkpoint only mentions
+		// this path if the file happens to be dirty in the developer's own tree,
+		// so the test passed for an accident and started failing the moment that
+		// file was committed.
+		"files": []string{"internal/router/router.go"},
 	}); isErr {
 		t.Fatal("checkpoint rejected the fixture")
 	}
