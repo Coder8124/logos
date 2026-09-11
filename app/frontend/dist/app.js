@@ -980,6 +980,7 @@ document.querySelectorAll(".tab").forEach((t) =>
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (commandBarOpen()) { closeCommandBar(); return; }
     const setup = $("setup");
     if (setup && !setup.hidden) {
       if (!$("setup-cancel").hidden) closeSetup();
@@ -988,9 +989,73 @@ document.addEventListener("keydown", (e) => {
     go()?.Hide?.();
     return;
   }
+  if (!commandBarOpen() && (e.key === "/" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k"))) {
+    if (document.activeElement.tagName === "INPUT" && e.key === "/") return; // "/" still types in an ordinary field
+    e.preventDefault();
+    openCommandBar();
+    return;
+  }
   if (document.activeElement.tagName === "INPUT") return;
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= TAB_ORDER.length) show(TAB_ORDER[n - 1]);
+});
+
+// ---- command bar: "/" or ⌘K dispatches straight to a bound Go method ----
+//
+// No verb resolution or nearest-match logic lives here — app.RunCommand does
+// all of it, and this file only renders whatever CommandResult comes back.
+// The point of the bar is that it can never show something the CLI or the
+// tab it mirrors could not already produce.
+
+function commandBarOpen() {
+  return !$("command-bar-overlay").hidden;
+}
+
+async function openCommandBar() {
+  const overlay = $("command-bar-overlay");
+  const input = $("command-bar-input");
+  const hint = $("command-bar-hint");
+  const out = $("command-bar-output");
+  input.value = "";
+  out.textContent = "";
+  overlay.hidden = false;
+  input.focus();
+  try {
+    const cmds = await go().Commands();
+    hint.textContent = (cmds || []).map((c) => c.usage).join("  ·  ");
+  } catch (_) {
+    hint.textContent = "";
+  }
+}
+
+function closeCommandBar() {
+  $("command-bar-overlay").hidden = true;
+}
+
+async function runCommandBarInput() {
+  const input = $("command-bar-input");
+  const out = $("command-bar-output");
+  const text = input.value;
+  if (!text.trim()) return;
+  try {
+    const result = await go().RunCommand(text);
+    if (result.verb) {
+      out.textContent = result.output || "(no output)";
+    } else if (result.suggested) {
+      out.textContent = "unknown command — did you mean \"" + result.suggested + "\"?";
+    } else {
+      out.textContent = "";
+    }
+  } catch (err) {
+    out.textContent = "⚠ " + err;
+  }
+}
+
+$("command-bar-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "command-bar-overlay") closeCommandBar();
+});
+$("command-bar-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runCommandBarInput(); }
 });
 
 // ---- boot ----
