@@ -170,3 +170,94 @@ func TestAnAbsentLoopFileLeavesTheCacheAlone(t *testing.T) {
 		t.Errorf("importing a vault with no loop file must write one: %v", err)
 	}
 }
+
+// loops.md is the record and the cache is rebuilt from it, so anything the
+// renderer can write the parser has to read back unchanged. It could not:
+// field() encoded only a space as "-", while parse turned *every* "-" back into
+// a space. A hyphenated name, an ISO due date and a dated source ref — the
+// common case, not the edge case — all came back corrupted, and were written
+// back corrupted on the next flush.
+func TestLoopMetadataSurvivesTheRoundTripThroughTheVault(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+
+	want := &Commitment{
+		Text:      "send the tooling PO",
+		Who:       "Jean-Luc",
+		DueHint:   "2026-09-12",
+		SourceRef: "sessions/2026-09-10.md",
+	}
+	if _, err := Add(db, want); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parse(string(raw))
+	if len(got) != 1 {
+		t.Fatalf("parsed %d records from %q, want 1", len(got), raw)
+	}
+	if got[0].Who != want.Who || got[0].DueHint != want.DueHint || got[0].SourceRef != want.SourceRef {
+		t.Errorf("metadata was corrupted by the round trip:\n got who=%q due=%q src=%q\nwant who=%q due=%q src=%q",
+			got[0].Who, got[0].DueHint, got[0].SourceRef, want.Who, want.DueHint, want.SourceRef)
+	}
+}
+
+// The file tells the user a line is theirs to delete, so a line is theirs to
+// duplicate — a copy-paste is an expected edit. parse took the *first* "<!--"
+// as the start of brain's bookkeeping, so a loop whose own text mentioned one
+// was truncated at that point on every import.
+func TestALoopWhoseTextContainsAMarkdownCommentIsNotTruncated(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+
+	text := "strip the <!-- hack --> from the page"
+	if _, err := Add(db, &Commitment{Text: text}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(LoopsPath(dir))
+	got := parse(string(raw))
+	if len(got) != 1 || got[0].Text != text {
+		t.Errorf("text did not round-trip: %+v, want %q", got, text)
+	}
+}
+
+// A duplicated line collided with the fingerprint UNIQUE index, which
+// ON CONFLICT(id) does not cover. Import returned that error up through
+// `brain index` — after some rows had already been upserted and before the
+// reconciling delete pass ran, leaving the cache half-imported. A repeated
+// commitment is one commitment, not a failed rebuild.
+func TestADuplicatedLineInTheLoopFileDoesNotFailTheImport(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+
+	if _, err := Add(db, &Commitment{Text: "book the freight slot"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dup string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, "book the freight slot") {
+			dup = strings.Replace(line, "id=1", "id=2", 1)
+		}
+	}
+	if dup == "" {
+		t.Fatal("could not find the rendered line to duplicate")
+	}
+	if err := os.WriteFile(LoopsPath(dir), []byte(string(raw)+dup+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Import(db, dir); err != nil {
+		t.Fatalf("a duplicated line failed the import: %v", err)
+	}
+	open, _ := Open_(db)
+	if len(open) != 1 {
+		t.Errorf("open loops = %+v, want the duplicate collapsed into one", open)
+	}
+}

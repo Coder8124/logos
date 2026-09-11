@@ -193,9 +193,58 @@ func oneLine(s string) string {
 // field makes a value safe to sit in a space-separated metadata comment, and
 // safe to close it: a "-->" inside who= or src= would end the comment early and
 // spill bookkeeping into the rendered page.
+//
+// Percent-encoding rather than substitution, because loops.md is the record and
+// the cache is rebuilt from it — so the encoding has to be reversible. Writing a
+// space as "-" was not: unfield turned every "-" back into a space, which made
+// "Jean-Luc" into "Jean Luc", "2026-09-12" into "2026 09 12" and a dated source
+// ref into nonsense. It was progressive, too — the corrupted value was written
+// back on the next flush, and since who feeds the fingerprint, a re-extracted
+// loop stopped deduping against its own corrupted row and arrived twice.
 func field(s string) string {
-	s = strings.ReplaceAll(oneLine(s), "--", "—")
-	return strings.ReplaceAll(s, " ", "-")
+	var b strings.Builder
+	for _, r := range oneLine(s) {
+		switch r {
+		// Space ends a field, ">" is the only character that can close the
+		// comment, and "%" has to escape itself for any of it to be reversible.
+		case '%':
+			b.WriteString("%25")
+		case ' ':
+			b.WriteString("%20")
+		case '>':
+			b.WriteString("%3E")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// unfield is field's inverse. Unknown escapes are left alone rather than
+// dropped: a value hand-typed into the file is still the user's record.
+func unfield(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '%' && i+2 < len(s) {
+			switch strings.ToUpper(s[i : i+3]) {
+			case "%25":
+				b.WriteByte('%')
+				i += 3
+				continue
+			case "%20":
+				b.WriteByte(' ')
+				i += 3
+				continue
+			case "%3E":
+				b.WriteByte('>')
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 // Import restores loops from the vault, and is what makes deleting the cache
@@ -242,7 +291,21 @@ func Import(db *sql.DB, dir string) (int, error) {
 	parsed := parse(string(raw))
 	keep := map[int64]bool{}
 	restored := 0
+	// The file tells the user a line is theirs to delete, which makes a
+	// copy-pasted line an expected edit rather than an exotic one. Two lines
+	// with the same text collide on the fingerprint UNIQUE index, which
+	// ON CONFLICT(id) does not cover — and the error came back from `brain
+	// index` after some rows had been upserted and before the reconciling
+	// delete pass below, leaving the cache half-imported. A repeated commitment
+	// is one commitment. The next flush rewrites the file without the duplicate,
+	// so the user sees which line won.
+	seen := map[string]bool{}
 	for _, c := range parsed {
+		fp := fingerprint(c.Text, c.Who)
+		if seen[fp] {
+			continue
+		}
+		seen[fp] = true
 		created, err := upsert(db, c)
 		if err != nil {
 			return restored, err
@@ -316,7 +379,11 @@ func parse(raw string) []Commitment {
 		if !strings.HasPrefix(line, "- [") {
 			continue
 		}
-		i := strings.Index(line, "<!--")
+		// Last, not first. brain's bookkeeping is always the final comment on the
+		// line, and a loop whose own text mentions "<!--" — "strip the <!-- hack
+		// --> from the page" — was otherwise cut off at the word before it, on
+		// every import, with no error.
+		i := strings.LastIndex(line, "<!--")
 		j := strings.LastIndex(line, "-->")
 		if i < 0 || j < i {
 			continue
@@ -331,7 +398,7 @@ func parse(raw string) []Commitment {
 			if !ok {
 				continue
 			}
-			value = strings.ReplaceAll(value, "-", " ")
+			value = unfield(value)
 			switch key {
 			case "id":
 				c.ID, _ = strconv.ParseInt(strings.TrimSpace(value), 10, 64)
