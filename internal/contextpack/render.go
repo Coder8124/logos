@@ -481,11 +481,22 @@ func (p *Pack) wantProject() []string {
 		}
 		want = append(want, "- people: "+strings.Join(names, ", "))
 	}
-	for i, m := range pr.Memories {
-		if i >= maxListed {
+	// A memory the pack is going to render properly further down is not listed
+	// here as well. "What you've told me" carries the source, date and
+	// confidence; this line carries none of them, comes first, and was printing
+	// the same sentence a second time for every fact the project profile and
+	// retrieval both found — which on a small pack was most of them.
+	elsewhere := p.renderedMemories()
+	shown := 0
+	for _, m := range pr.Memories {
+		if shown >= maxListed {
 			break
 		}
+		if elsewhere[m.ID] {
+			continue
+		}
 		want = append(want, fmt.Sprintf("- known: (%s) %s", m.Kind, oneLine(m.Text)))
+		shown++
 	}
 	return want
 }
@@ -521,6 +532,19 @@ func (p *Pack) wantNotes() ([]string, []string) {
 // Preferences do not get one. A preference is not an event — "bring me
 // proposals as bullet points" is as true now as when it was said — and dating it
 // invites a reader to discount it for age.
+// renderedMemories is the set of ids the memory sections will print in full.
+// Built from the same three slices wantMemories and wantPinned draw on, so the
+// two cannot drift into disagreeing about what has already been said.
+func (p *Pack) renderedMemories() map[int64]bool {
+	seen := map[int64]bool{}
+	for _, group := range [][]memory.Memory{p.Pinned, p.Preferences, p.Related} {
+		for _, m := range group {
+			seen[m.ID] = true
+		}
+	}
+	return seen
+}
+
 func (p *Pack) wantMemories() []string {
 	var want []string
 	seen := map[int64]bool{}

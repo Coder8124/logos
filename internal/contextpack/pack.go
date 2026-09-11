@@ -255,7 +255,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// them one by one.
 	if embed != nil && query != "" {
 		if hits, err := ix.HybridSearch(embed, embedModel, query, maxNotes); err == nil {
-			p.Notes = withoutSessionNotes(hits)
+			p.Notes = withoutOwnSections(hits)
 		}
 	}
 	p.Notes = interleave(p.Notes, p.graphReach(db))
@@ -414,7 +414,8 @@ func inferSince(checkpoint *session.Checkpoint, now time.Time) Since {
 	}
 }
 
-// withoutSessionNotes keeps checkpoints out of the vault-prose arm.
+// withoutOwnSections keeps out of the vault-prose arm the two things that
+// already have a section of their own: checkpoints and memories.
 //
 // Checkpoints are markdown in the vault, which is what makes them durable — and
 // also means ordinary retrieval finds them, as files, with no idea what they
@@ -432,10 +433,21 @@ func inferSince(checkpoint *session.Checkpoint, now time.Time) Since {
 //
 // So the whole directory is excluded here. Continuity has its own section and
 // its own rules; letting the raw file in through a second door bypasses them.
-func withoutSessionNotes(hits []index.Hit) []index.Hit {
+//
+// Memories are excluded for the identical reason, one door over. They are rows,
+// not files, but index.memoryHits injects them into the same hit stream so that
+// `brain search` and `brain ask` can find a remembered fact — and a pack was
+// then rendering each matched memory twice: once here as bare prose under "From
+// the vault", and again under "What you've told me" with the kind, date, source
+// and confidence that say how much to trust it. The bare copy is the worse one
+// and it came first. It also bypassed the reasoning the memories section
+// applies — project scoping, supersession, the pin tier — so a fact a later one
+// had superseded was suppressed below and printed verbatim above, exactly the
+// checkpoint failure described a paragraph up.
+func withoutOwnSections(hits []index.Hit) []index.Hit {
 	out := hits[:0]
 	for _, h := range hits {
-		if strings.HasPrefix(h.Slug, session.CheckpointDir+"/") {
+		if strings.HasPrefix(h.Slug, session.CheckpointDir+"/") || h.Kind == "memory" {
 			continue
 		}
 		out = append(out, h)

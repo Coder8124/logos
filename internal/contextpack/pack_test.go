@@ -947,3 +947,38 @@ func TestAPackFromAVaultWithNothingInItIsEmpty(t *testing.T) {
 		t.Errorf("a pack from an empty vault does not report empty:\n%s", pack.Render())
 	}
 }
+
+// A memory is a row, not a file — but the search arm injects memories into the
+// same hit stream as vault prose, so every remembered fact that matched the
+// query was rendered twice: once under "From the vault" as a bare hit, and
+// again under "What you've told me" with its kind, date and confidence. On a
+// small pack a quarter of the budget went on saying the same things twice, and
+// the footer counted them as two separate categories.
+func TestARememberedFactIsNotAlsoRenderedAsAVaultNote(t *testing.T) {
+	ix := seedVault(t)
+	embed := fakeEmbedder(t)
+
+	fact := "the annual toggle belongs in PricingTable"
+	m := memory.Memory{Text: fact, Kind: memory.Fact, Project: "kestrel-one", Source: "manual"}
+	if _, err := memory.Store(ix.DB, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.SyncMemories(embed, "fake-model"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, embed, "fake-model", Request{
+		Task: "where does the annual toggle belong?", Hint: "kestrel-one",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range p.Notes {
+		if h.Kind == "memory" {
+			t.Errorf("a memory reached the vault-prose section as %q: %q", h.Slug, h.Body)
+		}
+	}
+	if n := strings.Count(p.Render(), fact); n != 1 {
+		t.Errorf("the fact is rendered %d times, want 1:\n%s", n, p.Render())
+	}
+}

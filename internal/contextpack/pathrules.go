@@ -245,7 +245,7 @@ func (p *Pack) applyPathRules(ix *index.Index, rules []PathRule) {
 				continue
 			}
 			// Checkpoints are excluded from Notes everywhere else in Build
-			// (withoutSessionNotes) because they have their own section and
+			// (withoutOwnSections) because they have their own section and
 			// double-printing one undoes the reasoning applied to it. A pin
 			// on a sessions/ path must not reopen that door.
 			if strings.HasPrefix(slug, session.CheckpointDir+"/") {
