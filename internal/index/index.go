@@ -191,6 +191,18 @@ func (ix *Index) SyncPending() (int, error) {
 	return memory.ImportPending(ix.DB, ix.Vault)
 }
 
+// SyncLog restores the memory timeline from the vault.
+//
+// Must run after SyncMemories and SyncPending, for the same reason they run in
+// that order: an event is about a memory, and the memory has to be back before
+// the history of it means anything.
+//
+// Returns how many events it put back, counting the ones it synthesised for
+// memories that predate the file.
+func (ix *Index) SyncLog() (int, error) {
+	return memory.ImportLog(ix.DB, ix.Vault)
+}
+
 // SyncLoops restores open loops from the vault.
 //
 // The fifth thing that only the database knew, and the one with no excuse left:

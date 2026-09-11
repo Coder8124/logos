@@ -619,33 +619,6 @@ function toast(msg) {
   setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 300); }, 3200);
 }
 
-async function wireVoice() {
-  const btn = $("mic-btn");
-  if (!btn) return;
-  let ok = false;
-  try { ok = await go().VoiceAvailable(); } catch (_) {}
-  if (!ok) return;
-  btn.hidden = false;
-  btn.onclick = async () => {
-    btn.classList.add("listening");
-    btn.textContent = "…";
-    try {
-      const text = await go().VoiceInput();
-      if (text) {
-        const inp = $("ask");
-        inp.value = text;
-        inp.focus();
-      } else {
-        toast("Didn't catch that — try again.");
-      }
-    } catch (e) {
-      toast("⚠ " + e);
-    }
-    btn.classList.remove("listening");
-    btn.textContent = "🎤";
-  };
-}
-
 function wireChat() {
   const rt = window.runtime;
   if (!rt || !rt.EventsOn) return;
@@ -830,7 +803,6 @@ window.addEventListener("DOMContentLoaded", () => {
   refreshStatus();
   refreshOverview();
   wireChat();
-  wireVoice();
   wireSetup();
   wireContext();
   wireTreeEditor();

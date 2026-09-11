@@ -614,9 +614,11 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
 			m.Source, m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
-		if err == nil {
-			logEvent(db, m.ID, EvCreated, m.Text, 0)
-		}
+		// No event. Restoring a row the rebuild deleted is not a creation, and
+		// logging one stamped with time.Now() is how `brain memory log` came to
+		// report every fact you had ever learned as learned today. The real
+		// beginning is either already in memories/log.md or synthesised from the
+		// memory's own `created` by backfillCreations — both of them honest dates.
 		return m.ID, err
 	}
 

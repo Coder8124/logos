@@ -88,9 +88,16 @@ func logEvent(db *sql.DB, memID int64, event, detail string, refID int64) {
 // the time logEvent would look the project up there is nothing to look up. The
 // project has to be carried in from the snapshot the caller took beforehand.
 func logEventIn(db *sql.DB, memID int64, event, detail string, refID int64, project string) {
+	ts := time.Now().Unix()
 	_, err := db.Exec(`INSERT INTO memory_log (ts, mem_id, event, detail, ref_id, project) VALUES (?,?,?,?,?,?)`,
-		time.Now().Unix(), memID, event, detail, refID, project)
+		ts, memID, event, detail, refID, project)
 	if err == nil {
+		// The vault second, the index first — the reverse of invariant 2 on
+		// purpose. This is the one table whose row is written from a dozen call
+		// sites mid-mutation; a vault write that failed here must not abort the
+		// memory change that caused it, and a line in the file with no row is
+		// harmless while the reverse looks like the event never happened.
+		appendLog(db, LogEntry{TS: ts, MemID: memID, Event: event, Detail: detail, RefID: refID, Project: project})
 		return
 	}
 	// The audit log is what `why`, `memory history` and `memory_diff` read, so a

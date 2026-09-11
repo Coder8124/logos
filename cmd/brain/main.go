@@ -873,6 +873,16 @@ func runIndex(watch bool) error {
 				queued, pluralY(queued))
 		}
 
+		// The timeline, after both. Announced because the alternative — a silent
+		// repair — is how the old failure hid: `brain memory log` answered
+		// confidently after a rebuild, with dates invented on the spot, and
+		// nothing on stdout ever said the history had been touched.
+		if events, err := ix.SyncLog(); err != nil {
+			fmt.Fprintln(os.Stderr, "· could not restore the memory timeline:", err)
+		} else if events > 0 {
+			fmt.Printf("restored %d memory %s — run `brain memory log`\n", events, plural(events, "event"))
+		}
+
 		// Open loops, which need no model either. Announced for the reason the
 		// working notes are: an empty `brain loop` after a rebuild reads as a
 		// list the user finished, not one the rebuild threw away. The count is
