@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Coder8124/brain/internal/router"
 )
 
 // A verb that fails with a usage error where it could have done the obvious
@@ -52,6 +55,30 @@ func TestDoctorFailsExitCodeWhenACheckFails(t *testing.T) {
 	}
 	if err := doctorVerdict(2); err == nil {
 		t.Error("doctorVerdict(2) = nil, want an error naming the failure count")
+	}
+}
+
+// The probe was the one check whose result nothing could act on. `failed` is
+// totalled before the probe loop runs, so a model that could not load printed
+// FAILS TO LOAD and the command still exited 0 — a CI step or a shell
+// `brain doctor --probe && ...` walked straight past a runtime it had just been
+// told was broken.
+func TestAModelThatFailsToLoadCountsTowardsTheDoctorVerdict(t *testing.T) {
+	line, failed := probeRow(router.T1, "gemma3:4b", router.Capability{Err: "Ollama returned 400 Bad Request"})
+	if !failed {
+		t.Error("a model that does not load was not counted as a failure, so doctor --probe exits 0")
+	}
+	if !strings.Contains(line, "FAILS TO LOAD") {
+		t.Errorf("row = %q, want it to say the model failed to load", line)
+	}
+
+	// A model that loads but ignores schemas is degraded output, not a broken
+	// install, and must not fail the exit code.
+	if _, failed := probeRow(router.T2, "qwen3:8b", router.Capability{Loads: true}); failed {
+		t.Error("a model that loads but ignores JSON schemas was counted as a failure")
+	}
+	if _, failed := probeRow(router.T2, "qwen3:8b", router.Capability{Loads: true, StructuredOutput: true}); failed {
+		t.Error("a healthy model was counted as a failure")
 	}
 }
 

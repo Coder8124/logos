@@ -635,20 +635,32 @@ func doctor(probe bool) error {
 			fmt.Printf("  %s  %v\n", t, err)
 			continue
 		}
-		cap := rt.Probe(model)
-		switch {
-		case !cap.Loads:
-			fmt.Printf("  %s  %-24s FAILS TO LOAD — %s\n", t, model, truncate(cap.Err, 70))
+		line, broken := probeRow(t, model, rt.Probe(model))
+		fmt.Println(line)
+		if broken {
 			failed++
-		case !cap.StructuredOutput:
-			// Not a failure. Every tier degrades to prose when a model ignores
-			// a schema, which is worse output, not a broken install.
-			fmt.Printf("  %s  %-24s loads, but ignores JSON schemas\n", t, model)
-		default:
-			fmt.Printf("  %s  %-24s ok, honours JSON schemas\n", t, model)
 		}
 	}
 	return doctorVerdict(failed)
+}
+
+// probeRow renders one probe result and says whether it counts as a failure.
+// It is a function of its own so the verdict can be tested without a live model
+// runtime: the bug it exists to stop — FAILS TO LOAD printed in the report while
+// the command exits 0 — is only visible where the row and the count are decided
+// together.
+//
+// A model that loads but ignores JSON schemas is not a failure. Every tier
+// degrades to prose in that case, which is worse output, not a broken install.
+func probeRow(t router.Tier, model string, cap router.Capability) (line string, failed bool) {
+	switch {
+	case !cap.Loads:
+		return fmt.Sprintf("  %s  %-24s FAILS TO LOAD — %s", t, model, truncate(cap.Err, 70)), true
+	case !cap.StructuredOutput:
+		return fmt.Sprintf("  %s  %-24s loads, but ignores JSON schemas", t, model), false
+	default:
+		return fmt.Sprintf("  %s  %-24s ok, honours JSON schemas", t, model), false
+	}
 }
 
 // doctorVerdict turns the report into an exit code. The rows already say what
