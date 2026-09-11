@@ -34,14 +34,9 @@ let current = "sessions";
 
 async function refreshStatus() {
   try {
-    const s = await go().Status();
-    const orb = $("orb");
-    orb.className = "orb idle";
-
-    const badge = $("pending-badge");
-    const waiting = s.pending || 0;
-    badge.textContent = waiting;
-    badge.hidden = waiting === 0;
+    // The call itself is the check: if the backend answers, the orb rests.
+    await go().Status();
+    $("orb").className = "orb idle";
   } catch (_) {
     // Backend not up yet during dev; leave the UI in its resting state.
   }
@@ -537,244 +532,6 @@ async function loadMemory() {
   }
 }
 
-// ---- brief: the secretary leading ----
-
-async function loadBrief() {
-  const b = await go().Brief();
-  let pres = null;
-  try { pres = await go().Presence(); } catch {}
-  const box = $("brief");
-  box.innerHTML = "";
-
-  const greet = el("div", "greeting", userName ? `${b.greeting}, ${userName}.` : b.greeting + ".");
-  if (pres && pres.name) greet.append(el("span", "presence-name", " — " + pres.name));
-  box.append(greet);
-
-  if (pres && pres.nudge) {
-    const n = el("div", "presence-banner" + (pres.nudge.critical ? " critical" : ""));
-    n.append(el("div", "main", pres.nudge.text));
-    if (pres.nudge.detail) n.append(el("div", "detail", pres.nudge.detail));
-    box.append(n);
-  }
-
-  const quiet = (!b.loops || !b.loops.length) &&
-    (!b.dormant || !b.dormant.length) &&
-    (!b.usual || !b.usual.length) && !b.review;
-  if (quiet) {
-    const c = el("div", "clear");
-    c.append(el("div", "big", "✦"), el("div", null, "Nothing pressing — you're clear."));
-    box.append(c);
-    return;
-  }
-
-  if (b.upcoming && b.upcoming.length) {
-    box.append(section("Coming up", b.upcoming.map(renderMeeting)));
-  }
-  if (b.loops && b.loops.length) {
-    box.append(section("Open loops", b.loops.map(renderLoop)));
-  }
-  if (b.dormant && b.dormant.length) {
-    box.append(section("Gone quiet", b.dormant.map(renderNudge)));
-  }
-  if (b.usual && b.usual.length) {
-    box.append(section("Around now, you usually", b.usual.map(renderNudge)));
-  }
-  if (b.remembers && b.remembers.length) {
-    box.append(section("Keeping in mind", b.remembers.map((m) => {
-      const row = el("div", "nudge");
-      row.append(el("div", "main", m));
-      return row;
-    })));
-  }
-  if (b.review > 0) {
-    const r = el("div", "brief-review", `${b.review} proposal${b.review > 1 ? "s" : ""} waiting to review →`);
-    r.onclick = () => show("review");
-    box.append(r);
-  }
-}
-
-function section(title, children) {
-  const s = el("div", "brief-section");
-  s.append(el("h3", null, title));
-  children.forEach((c) => s.append(c));
-  return s;
-}
-
-function renderMeeting(m) {
-  const row = el("div", "loop meeting" + (m.imminent ? " imminent" : ""));
-  row.append(el("div", "dot"));
-  const txt = el("div", "txt");
-  txt.append(el("div", "main", m.title));
-  const sub = [];
-  sub.push(m.in_min < 90 ? "in " + m.in_min + "m" : "at " + m.at);
-  if (m.cal) sub.push(m.cal);
-  txt.append(el("div", "sub", sub.join("  ·  ")));
-  row.append(txt);
-  return row;
-}
-
-function renderLoop(l) {
-  const row = el("div", "loop" + (l.stale ? " stale" : ""));
-  row.append(el("div", "dot"));
-
-  const txt = el("div", "txt");
-  txt.append(el("div", "main", l.text));
-  const parts = [];
-  if (l.age_days > 0) parts.push(l.age_days + "d open");
-  if (l.who) parts.push("→ " + l.who);
-  if (l.due) parts.push("(" + l.due + ")");
-  if (parts.length) txt.append(el("div", "sub", parts.join("  ")));
-  row.append(txt);
-
-  const acts = el("div", "acts");
-  const done = el("button", "mini done", "✓");
-  done.title = "done";
-  done.onclick = () => closeLoop(l.id, true, row);
-  const drop = el("button", "mini", "×");
-  drop.title = "not a task — stop showing this";
-  drop.onclick = () => closeLoop(l.id, false, row);
-  acts.append(done, drop);
-  row.append(acts);
-  return row;
-}
-
-function renderNudge(n) {
-  const row = el("div", "nudge");
-  row.append(el("div", "main", n.text));
-  if (n.detail) row.append(el("div", "sub", n.detail));
-  return row;
-}
-
-async function closeLoop(id, done, row) {
-  await (done ? go().LoopDone(id) : go().LoopDrop(id));
-  row.style.transition = "opacity .2s, transform .2s";
-  row.style.opacity = "0";
-  row.style.transform = "translateX(8px)";
-  setTimeout(loadBrief, 200);
-}
-
-// ---- today ----
-
-async function loadTimeline() {
-  const items = await go().Timeline();
-  const box = $("timeline");
-  if (!items || items.length === 0) {
-    box.innerHTML = '<div class="empty"><div class="big">◷</div>Nothing recorded today yet — captured app focus, commits, and URLs appear here as they\'re seen, if capture is running (check CAPTURE in the state strip above).</div>';
-    return;
-  }
-
-  box.innerHTML = "";
-  for (const it of items) {
-    const row = el("div", "row");
-    row.append(el("span", "t", it.time));
-    const body = el("div", "body");
-    if (it.app) body.append(el("div", "app", it.app));
-    body.append(el("div", "label", it.label || ""));
-    row.append(body);
-    if (it.dur) row.append(el("span", "d", it.dur));
-    box.append(row);
-  }
-}
-
-// ---- review queue ----
-
-async function loadQueue() {
-  const items = await go().Proposals();
-  const box = $("queue");
-  if (!items || items.length === 0) {
-    box.innerHTML = '<div class="empty"><div class="big">✓</div>Queue is empty — proposals appear here when the rollup pass finds something worth surfacing from captured activity.</div>';
-    return;
-  }
-  box.innerHTML = "";
-  items.forEach((p, i) => box.append(renderProposal(p, i === 0)));
-  box.querySelector(".card")?.focus();
-}
-
-function renderProposal(p, focusable) {
-  const card = el("div", "card");
-  card.tabIndex = 0;
-  card.dataset.id = p.id;
-
-  card.append(el("div", "k", p.kind.replace("_", " ")));
-  card.append(el("div", "s", p.summary));
-
-  const meta = el("div", "meta");
-  const bar = el("span", "conf");
-  bar.style.width = Math.round(p.conf * 40) + "px";
-  meta.append(bar, document.createTextNode(`  ${p.conf.toFixed(2)} · ${p.model}`));
-  card.append(meta);
-
-  const ev = el("div", "evidence");
-  (p.evidence || []).forEach((line) => ev.append(el("div", null, line)));
-  card.append(ev);
-
-  const actions = el("div", "actions");
-  const accept = el("button", "btn accept", "Accept");
-  accept.onclick = () => decide(p.id, true, card);
-  const reject = el("button", "btn", "Reject");
-  reject.onclick = () => decide(p.id, false, card);
-  const why = el("button", "btn link", "evidence");
-  why.onclick = () => ev.classList.toggle("open");
-  actions.append(accept, reject, why);
-  card.append(actions);
-
-  card.addEventListener("keydown", (e) => {
-    switch (e.key) {
-      case "a": case "Enter": decide(p.id, true, card); break;
-      case "r": case "x": decide(p.id, false, card); break;
-      case "e": ev.classList.toggle("open"); break;
-      case "j": card.nextElementSibling?.focus(); break;
-      case "k": card.previousElementSibling?.focus(); break;
-      default: return;
-    }
-    e.preventDefault();
-  });
-
-  return card;
-}
-
-async function decide(id, accept, card) {
-  const next = card.nextElementSibling || card.previousElementSibling;
-  try {
-    thinking(true);
-    await (accept ? go().Accept(id) : go().Reject(id));
-    card.style.transition = "opacity .2s, transform .2s";
-    card.style.opacity = "0";
-    card.style.transform = "translateX(" + (accept ? "" : "-") + "12px)";
-    setTimeout(() => {
-      card.remove();
-      next?.focus();
-      if (!$("queue").querySelector(".card"))
-        $("queue").innerHTML = '<div class="empty"><div class="big">✓</div>all reviewed</div>';
-    }, 200);
-  } finally {
-    thinking(false);
-    refreshStatus();
-  }
-}
-
-// ---- routines ----
-
-async function loadRoutines() {
-  const items = await go().Routines();
-  const box = $("routines");
-  if (!items || items.length === 0) {
-    box.innerHTML = '<div class="empty"><div class="big">↻</div>No routines detected yet — a routine needs a few repeats of the same app or site at a similar time of day before it\'s confident enough to name.</div>';
-    return;
-  }
-
-  box.innerHTML = "";
-  for (const line of items) {
-    const row = el("div", "row");
-    const [name, when] = line.split(" · ");
-    const body = el("div", "body");
-    body.append(el("div", "app", name));
-    body.append(el("div", "label", when || ""));
-    row.append(body);
-    box.append(row);
-  }
-}
-
 // ---- ask ----
 
 let streamingBubble = null;
@@ -948,7 +705,6 @@ async function saveSetup() {
   }
   userName = (user || "").trim();
   closeSetup();
-  if (current === "brief") loadBrief();
 }
 
 function wireSetup() {
@@ -962,7 +718,7 @@ function wireSetup() {
 
 // ---- tabs ----
 
-const TAB_ORDER = ["sessions", "context", "memory", "brief", "today", "review", "routines", "graph"];
+const TAB_ORDER = ["sessions", "context", "memory", "graph"];
 
 function show(tab) {
   current = tab;
@@ -974,10 +730,6 @@ function show(tab) {
   if (tab === "sessions") loadSessions();
   if (tab === "context") { primeContextProjects(); primeVaultTree(); primeInsights(); }
   if (tab === "memory") loadMemory();
-  if (tab === "brief") loadBrief();
-  if (tab === "today") loadTimeline();
-  if (tab === "review") loadQueue();
-  if (tab === "routines") loadRoutines();
   if (tab === "graph") GraphView.open();
 }
 
