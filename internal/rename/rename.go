@@ -50,6 +50,14 @@ type Result struct {
 	Rows        int // index rows updated
 	Dir         string
 	NewDir      string
+
+	// Merged and Collisions are only meaningful when Run was called with
+	// merge=true: Merged is how many entries moved from the old project's
+	// session directory into the existing target directory, and Collisions
+	// is how many of those shared a filename with something already there
+	// and were renamed rather than overwriting it.
+	Merged     int
+	Collisions int
 }
 
 // Empty reports whether the rename found nothing at all under the old name —
@@ -65,7 +73,19 @@ func (r Result) Empty() bool {
 // would produce. It exists because this rewrites files in the user's vault,
 // and "show me what you would touch" has to be available without asking the
 // user to trust a description of it.
-func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
+//
+// merge changes what happens when sessions/<to>/ already exists. Without it,
+// that is refused (see the comment at the Stat below) because an ordinary
+// rename onto an existing project raises a question this function does not
+// answer: whose checkpoint from the same minute is authoritative. With it,
+// the question does not need answering, because nothing is discarded — every
+// entry under sessions/<from>/ is moved into sessions/<to>/, and a filename
+// collision is resolved by keeping both under distinct names rather than
+// picking a winner. This is the fix for a project whose folder was renamed
+// after it already had history: the old and new names are not two projects in
+// conflict, they are one project's history that got split, and merge heals
+// that without asking the user to choose which half to keep.
+func Run(db *sql.DB, vaultDir, from, to string, dryRun, merge bool) (Result, error) {
 	from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 	var res Result
 	if from == "" || to == "" {
@@ -94,11 +114,13 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 
 	res.Dir = filepath.Join(vaultDir, "sessions", from)
 	res.NewDir = filepath.Join(vaultDir, "sessions", to)
-	if _, err := os.Stat(res.NewDir); err == nil {
+	if _, err := os.Stat(res.NewDir); err == nil && !merge {
 		// Merging two projects is a different operation with different
 		// questions (whose checkpoint is authoritative when both have one from
 		// the same minute?). Refusing is honest; silently interleaving is not.
-		return res, fmt.Errorf("sessions/%s already exists — rename it or pick another name; this does not merge two projects", to)
+		// --merge answers those questions by keeping both sides rather than
+		// picking one, so it is allowed to proceed past this check.
+		return res, fmt.Errorf("sessions/%s already exists — rename it or pick another name, or pass --merge to combine both histories", to)
 	}
 
 	n, err := rewriteCheckpoints(res.Dir, from, to, dryRun)
@@ -114,7 +136,23 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 	// count left all of it behind under a name that no longer exists, while the
 	// index had already moved on. The two then disagreed, and `brain index`
 	// resolved the disagreement in favour of the stale copy.
-	if !dryRun {
+	if merge {
+		// os.Rename onto an existing, non-empty directory fails on every
+		// platform this targets, so a plain directory move cannot express a
+		// merge at all — it has to move entry by entry, which is also what
+		// makes filename collisions visible and handleable one at a time
+		// instead of the whole rename failing on the first one.
+		moved, collisions, err := mergeDirInto(res.Dir, res.NewDir, dryRun)
+		res.Merged, res.Collisions = moved, collisions
+		if err != nil {
+			// Reported, not swallowed: whatever moved before the failure stays
+			// moved (recoverable — those files are already under the new name
+			// and rerunning the merge only touches what is left in Dir), and
+			// the caller is told exactly that rather than being handed a
+			// result that looks like it finished.
+			return res, fmt.Errorf("merging sessions/%s into sessions/%s: %w", from, to, err)
+		}
+	} else if !dryRun {
 		if _, err := os.Stat(res.Dir); err == nil {
 			if err := os.Rename(res.Dir, res.NewDir); err != nil {
 				return res, fmt.Errorf("moving sessions/%s: %w", from, err)
@@ -134,6 +172,85 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun bool) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// mergeDirInto moves every entry from src into dst, recursively (a worktree
+// sub-scope is a directory of its own and needs the same treatment as the
+// checkpoints beside it), without ever letting one entry silently replace
+// another of the same name. A name already present in dst is not proof the
+// incoming file is a duplicate — it is two different checkpoints that happen
+// to share a timestamp-and-agent filename, one from each half of a split
+// history — so the incoming one is renamed instead of clobbering what is
+// there, and the count of times that happened is returned so the caller can
+// say so (a merge that resolved five collisions and reported only "moved 12
+// files" would hide the one fact a user most needs to know here).
+//
+// dryRun still walks and counts, but writes nothing, matching Run's existing
+// contract that a dry run's numbers are the real ones.
+func mergeDirInto(src, dst string, dryRun bool) (moved, collisions int, err error) {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	if !dryRun {
+		if err := os.MkdirAll(dst, 0o700); err != nil {
+			return 0, 0, err
+		}
+	}
+	for _, e := range entries {
+		sp := filepath.Join(src, e.Name())
+		dp := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			m, c, err := mergeDirInto(sp, dp, dryRun)
+			moved += m
+			collisions += c
+			if err != nil {
+				return moved, collisions, err
+			}
+			if !dryRun {
+				// Only succeeds once every entry below it has actually moved
+				// out, so a non-empty leftover here is a sign something under
+				// it failed silently — and os.Remove refusing to delete a
+				// non-empty directory is exactly the safety net that catches
+				// that rather than losing the leftover files.
+				os.Remove(sp)
+			}
+			continue
+		}
+		if _, statErr := os.Stat(dp); statErr == nil {
+			dp = disambiguate(dp)
+			collisions++
+		}
+		moved++
+		if dryRun {
+			continue
+		}
+		if err := os.Rename(sp, dp); err != nil {
+			return moved, collisions, fmt.Errorf("moving %s: %w", sp, err)
+		}
+	}
+	if !dryRun {
+		os.Remove(src) // best-effort: only empties, never errors the merge
+	}
+	return moved, collisions, nil
+}
+
+// disambiguate finds a filename beside path that nothing already occupies, by
+// inserting "-<n>" before the extension. Starts at 2 ("the second file with
+// this name") rather than 1, so a lone survivor never carries a suffix that
+// implies a sibling that isn't there.
+func disambiguate(path string) string {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	for i := 2; ; i++ {
+		cand := fmt.Sprintf("%s-%d%s", base, i, ext)
+		if _, err := os.Stat(cand); os.IsNotExist(err) {
+			return cand
+		}
+	}
 }
 
 // checkName rejects a name that cannot be one directory under sessions/.

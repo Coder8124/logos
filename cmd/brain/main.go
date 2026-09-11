@@ -122,8 +122,9 @@ CONTINUITY
     brain why <file> [--limit N]      what was being decided when this file was touched
     brain projects | project <name>   auto-detected projects and their dossiers
     brain project-name [dir]          the project name for a directory, as the hooks compute it
-    brain project rename <old> <new> [--dry-run]
-                                      rename a project, carrying its history with it
+    brain project rename <old> <new> [--dry-run] [--merge]
+                                      rename a project, carrying its history with it;
+                                      --merge combines it into an existing project instead of refusing
 
 MEMORY
     brain memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
@@ -771,6 +772,17 @@ func runIndex(watch bool) error {
 		return err
 	}
 	defer ix.Close()
+
+	// A vault someone put under git must never be offered .brain/ to commit —
+	// it is a rebuildable cache, and two people sharing a vault over git would
+	// otherwise fight a merge conflict in a SQLite file on every pull. Runs
+	// every time and reports only the run that actually changed something, so
+	// `brain index` calling this on every invocation never turns into noise.
+	if wrote, err := vault.EnsureGitignore(ix.Vault); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not update .gitignore:", err)
+	} else if wrote {
+		fmt.Println("· added .brain/ to .gitignore")
+	}
 
 	// Sync is pure file reading — it needs no model, and it is what keeps the
 	// FTS table current. Only the embedding passes need a provider.

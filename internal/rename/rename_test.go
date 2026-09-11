@@ -14,7 +14,7 @@ func TestRenameMovesEverySurface(t *testing.T) {
 	v := seedVault(t)
 	db := seedDB(t)
 
-	res, err := Run(db, v, "brain", "logos", false)
+	res, err := Run(db, v, "brain", "logos", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestRenameMovesEverySurface(t *testing.T) {
 // that would falsify history while claiming to relocate it.
 func TestRenameLeavesProseAlone(t *testing.T) {
 	v := seedVault(t)
-	if _, err := Run(nil, v, "brain", "logos", false); err != nil {
+	if _, err := Run(nil, v, "brain", "logos", false, false); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(v, "sessions", "logos", "20260101-000000-claude.md"))
@@ -75,7 +75,7 @@ func TestRenameLeavesProseAlone(t *testing.T) {
 // being renamed, which is the failure that makes a bulk edit untrustworthy.
 func TestRenameDoesNotTouchASimilarlyNamedProject(t *testing.T) {
 	v := seedVault(t)
-	if _, err := Run(nil, v, "brain", "logos", false); err != nil {
+	if _, err := Run(nil, v, "brain", "logos", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if m := read(t, filepath.Join(v, "memories", "fact.md")); !strings.Contains(m, "project=brain-www") {
@@ -92,7 +92,7 @@ func TestRenameDoesNotTouchASimilarlyNamedProject(t *testing.T) {
 func TestRenameCarriesWorktreeSubScopes(t *testing.T) {
 	v := seedVault(t)
 	db := seedDB(t)
-	if _, err := Run(db, v, "brain", "logos", false); err != nil {
+	if _, err := Run(db, v, "brain", "logos", false, false); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(v, "sessions", "logos", "feature-x", "20260102-000000-claude.md"))
@@ -113,7 +113,7 @@ func TestRenameCarriesWorktreeSubScopes(t *testing.T) {
 func TestDryRunReportsWithoutWriting(t *testing.T) {
 	v := seedVault(t)
 	db := seedDB(t)
-	res, err := Run(db, v, "brain", "logos", true)
+	res, err := Run(db, v, "brain", "logos", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestDryRunReportsWithoutWriting(t *testing.T) {
 // rather than interleaving them silently.
 func TestRenameRefusesToMergeIntoAnExistingProject(t *testing.T) {
 	v := seedVault(t)
-	if _, err := Run(nil, v, "brain", "brain-www", false); err == nil {
+	if _, err := Run(nil, v, "brain", "brain-www", false, false); err == nil {
 		t.Fatal("renaming onto an existing project should have failed")
 	}
 	if _, err := os.Stat(filepath.Join(v, "sessions", "brain")); err != nil {
@@ -151,11 +151,11 @@ func TestRenameRefusesToMergeIntoAnExistingProject(t *testing.T) {
 func TestRenameRejectsUnusableNames(t *testing.T) {
 	v := seedVault(t)
 	for _, bad := range []string{"logos/feature-x", "..", ".hidden", ""} {
-		if _, err := Run(nil, v, "brain", bad, false); err == nil {
+		if _, err := Run(nil, v, "brain", bad, false, false); err == nil {
 			t.Errorf("rename to %q should have been rejected", bad)
 		}
 	}
-	if _, err := Run(nil, v, "brain", "brain", false); err == nil {
+	if _, err := Run(nil, v, "brain", "brain", false, false); err == nil {
 		t.Error("renaming a project to its own name should have been rejected")
 	}
 }
@@ -164,7 +164,7 @@ func TestRenameRejectsUnusableNames(t *testing.T) {
 // the caller can tell the two apart.
 func TestEmptyResultIsDistinguishable(t *testing.T) {
 	v := seedVault(t)
-	res, err := Run(nil, v, "no-such-project", "logos", false)
+	res, err := Run(nil, v, "no-such-project", "logos", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestRenameRefusesToEscapeTheVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, from := range []string{rel, "../..", "../../etc", `..\..`, ".hidden", ""} {
-		if _, err := Run(nil, v, from, "stolen", false); err == nil {
+		if _, err := Run(nil, v, from, "stolen", false, false); err == nil {
 			t.Errorf("rename from %q should have been rejected", from)
 		}
 	}
@@ -312,7 +312,7 @@ func TestRenameMovesADirectoryThatHasNoCheckpointsYet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Run(nil, v, "kestrel", "falcon", false); err != nil {
+	if _, err := Run(nil, v, "kestrel", "falcon", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -330,7 +330,7 @@ func TestDryRunDoesNotMoveACheckpointlessDirectory(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(nil, v, "kestrel", "falcon", true); err != nil {
+	if _, err := Run(nil, v, "kestrel", "falcon", true, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); err != nil {
@@ -348,7 +348,7 @@ func TestRenameSucceedsOnAnIndexWithNoTablesYet(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	if _, err := Run(db, v, "brain", "logos", false); err != nil {
+	if _, err := Run(db, v, "brain", "logos", false, false); err != nil {
 		t.Fatalf("rename against an empty index failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(v, "sessions", "logos")); err != nil {
