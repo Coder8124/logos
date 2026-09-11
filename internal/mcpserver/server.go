@@ -585,10 +585,14 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 		// Tag anything from outside the current project, so a fact borrowed
 		// from elsewhere cannot be read as this project's own settled truth.
 		switch {
+		// Inline, because each memory is one bullet and a stored fact may contain
+		// anything: a newline plus "## Where we left off" turned a recalled fact
+		// into a section of brain's own frame, with a "Next step" the reading
+		// agent had no way to tell from the real one.
 		case m.Project == "" || m.Project == project:
-			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, m.Text)
+			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, untrusted.Inline(m.Text))
 		default:
-			fmt.Fprintf(&b, "- (%s, from %s) %s\n", m.Kind, m.Project, m.Text)
+			fmt.Fprintf(&b, "- (%s, from %s) %s\n", m.Kind, m.Project, untrusted.Inline(m.Text))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
@@ -614,7 +618,7 @@ func (s *Server) listMemories() (string, error) {
 		case memory.PinNever:
 			tag = " [excluded]"
 		}
-		fmt.Fprintf(&b, "[%d] (%s)%s %s\n", m.ID, m.Kind, tag, m.Text)
+		fmt.Fprintf(&b, "[%d] (%s)%s %s\n", m.ID, m.Kind, tag, untrusted.Inline(m.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -784,7 +788,10 @@ func (s *Server) why(file string, limit int) (string, error) {
 		}
 		b.WriteString("\n\n")
 		if m.Task != "" {
-			fmt.Fprintf(&b, "While: %s\n\n", m.Task)
+			// "While:" is a label, so its value is one line. A task recorded with
+			// a heading in it could otherwise close the label and open a section
+			// of its own, directly above the evidence why exists to present.
+			fmt.Fprintf(&b, "While: %s\n\n", untrusted.Inline(m.Task))
 		}
 		// Ruled out first: a decision explains the shape of the code, and a dead
 		// end explains why it is not some other shape — which is what someone
@@ -811,7 +818,10 @@ func writeList(b *strings.Builder, label string, items []string) {
 	}
 	fmt.Fprintf(b, "**%s:**\n", label)
 	for _, it := range kept {
-		fmt.Fprintf(b, "- %s\n", it)
+		// Every item here is a checkpoint field somebody else's agent wrote. One
+		// bullet, one line — a newline in a recorded dead end was enough to end
+		// the list and start a heading of brain's own.
+		fmt.Fprintf(b, "- %s\n", untrusted.Inline(it))
 	}
 	b.WriteString("\n")
 }
@@ -939,14 +949,17 @@ func (s *Server) memoryDiff(subject string, days int) (string, error) {
 		return "Nothing changed in that window.", nil
 	}
 	var b strings.Builder
+	// One line per entry, for the same reason recall collapses: the +/-/~ marker
+	// is the only thing distinguishing brain's reading of the window from the
+	// stored text beside it.
 	for _, e := range res.Added {
-		fmt.Fprintf(&b, "+ %s\n", e.Text)
+		fmt.Fprintf(&b, "+ %s\n", untrusted.Inline(e.Text))
 	}
 	for _, e := range res.Removed {
-		fmt.Fprintf(&b, "- %s\n", e.Text)
+		fmt.Fprintf(&b, "- %s\n", untrusted.Inline(e.Text))
 	}
 	for _, e := range res.Corroborated {
-		fmt.Fprintf(&b, "~ %s\n", e.Text)
+		fmt.Fprintf(&b, "~ %s\n", untrusted.Inline(e.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
