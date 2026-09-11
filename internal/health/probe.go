@@ -70,14 +70,17 @@ func Integration(bin, vault string) []Check {
 		}
 	}()
 
+	// Closed on every return path below, so the stdout-scanning goroutine has
+	// somewhere to go once nobody is reading `lines` any more — see
+	// scanStdout's comment for why that mattered.
+	stop := make(chan struct{})
+	defer close(stop)
+
 	lines := make(chan string, 64)
 	go func() {
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
-		for sc.Scan() {
-			lines <- sc.Text()
-		}
-		close(lines)
+		scanStdout(sc, lines, stop)
 	}()
 
 	send := func(v any) error {
@@ -240,6 +243,24 @@ func cleanUp(vault, project, checkpoint string) error {
 		return err
 	}
 	return nil
+}
+
+// scanStdout copies scanner lines into out, one at a time, until the scanner
+// runs dry or stop is closed. The stop case exists because out is a
+// fixed-size buffer and nothing guarantees a reader keeps draining it: once
+// the probe gets the answer it needs it stops calling await, and a plain
+// `out <- sc.Text()` blocks this goroutine forever the moment the 65th line
+// arrives with the buffer already full — a leak for the life of the process
+// running `brain doctor`.
+func scanStdout(sc *bufio.Scanner, out chan<- string, stop <-chan struct{}) {
+	defer close(out)
+	for sc.Scan() {
+		select {
+		case out <- sc.Text():
+		case <-stop:
+			return
+		}
+	}
 }
 
 // findCheckpoint walks rather than lists: checkpoints are filed under
