@@ -146,6 +146,10 @@ RETRIEVAL
 SETUP AND DIAGNOSTICS
     brain setup [--vault DIR] [--host NAME] [--dry-run] [--yes] [--all-models]
                                       connect brain to the AI agents on this machine
+    brain setup --print-config [--vault DIR] [--format json|toml]
+                                      print the server block by hand, for any MCP client not listed above
+    brain setup --config <path> [--vault DIR]
+                                      merge brain into a config file at a location brain does not know by convention
     brain mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
     brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this brain with the MCP hosts found
