@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/mcpserver"
@@ -88,4 +89,68 @@ func runMCPServe() error {
 
 	srv := mcpserver.New(ix.DB, rt, vault)
 	return srv.Serve(os.Stdin, os.Stdout)
+}
+
+// runMCPServeHTTP is runMCPServe's local-network sibling: same Server, a
+// second transport (internal/mcpserver/http.go) so a client that isn't the
+// process that started us — a browser extension bridging brain into a web
+// AI's chat UI, see extension/ — can reach the same memory an MCP host on
+// stdio does.
+func runMCPServeHTTP(port int) error {
+	rt, err := openRouterOptional()
+	if err != nil {
+		return err
+	}
+	if rt == nil {
+		fmt.Fprintln(os.Stderr,
+			"brain: no local model runtime found — serving with lexical retrieval; "+
+				"checkpoint, resume and before_you_try are unaffected")
+	}
+
+	vault := vaultPath()
+	if _, err := os.Stat(vault); err != nil {
+		return missingVaultError(vault)
+	}
+
+	ix, err := index.Open(vault)
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+
+	token, err := mcpserver.LoadOrCreateToken(vault)
+	if err != nil {
+		return fmt.Errorf("pairing token: %w", err)
+	}
+
+	// The extension id is not knowable in advance the way a CLI default can
+	// be: Chrome assigns a different id to every unpacked/dev load, and only a
+	// published listing gets a stable one. Rather than guess or accept "*"
+	// (which would defeat the whole point of an Origin allowlist), require it
+	// explicitly — BRAIN_BRIDGE_ORIGIN, comma-separated for more than one.
+	origins := splitCSV(os.Getenv("BRAIN_BRIDGE_ORIGIN"))
+	if len(origins) == 0 {
+		return fmt.Errorf(
+			"BRAIN_BRIDGE_ORIGIN is not set — the web bridge refuses to accept " +
+				"connections from an unnamed origin; set it to the extension's " +
+				"chrome-extension://<id> (see extension/README.md)")
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	fmt.Printf("brain: web bridge listening on %s, paired for %v\n", addr, origins)
+	fmt.Printf("brain: pairing token: %s\n", token)
+
+	srv := mcpserver.New(ix.DB, rt, vault)
+	return srv.ServeHTTP(mcpserver.HTTPConfig{Addr: addr, Token: token, Origins: origins})
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
