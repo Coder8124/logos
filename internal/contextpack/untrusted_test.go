@@ -168,9 +168,11 @@ func TestAPoisonedMemoryCannotForgeThePacksStructure(t *testing.T) {
 
 func TestBlockNeutralisesFrameConstructs(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"## Heading", "### Heading"},
+		// Below "### <note title>", the deepest heading the pack's own frame
+		// writes — "### Heading" would have been a sibling of one.
+		{"## Heading", "#### Heading"},
 		{"###### Deepest", "**Deepest**"},
-		{"   ## Indented", "### Indented"},
+		{"   ## Indented", "#### Indented"},
 		{"---", "···"},
 		{"***", "···"},
 		{"  _ _ _  ", "···"},

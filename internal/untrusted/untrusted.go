@@ -93,10 +93,19 @@ func Inline(s string) string {
 // Block neutralises multi-line payload while keeping its shape.
 //
 // Headings are demoted rather than removed — a note that organises itself with
-// "## Constraints" is easier to read with that structure intact, and one more
-// "#" is enough to put it below every heading the frame uses. Six is markdown's
-// limit, so anything already at the bottom is turned into bold text instead of
-// being left as a heading that outranks nothing.
+// "## Constraints" is easier to read with that structure intact, and a heading
+// below every level the frame writes is still readable without being able to
+// impersonate one. Six is markdown's limit, so anything already at the bottom is
+// turned into bold text instead of being left as a heading that outranks
+// nothing.
+//
+// frameDepth, not "one more #". Demoting by a single level assumed the frame was
+// one level deep. It is not: a pack opens "## From the vault" and titles each
+// note inside it "### <title>", so a body containing "## From the vault" came
+// out as "### From the vault" — a convincing sibling entry inside the real
+// section, which is the whole attack.
+const frameDepth = 3
+
 func Block(body string) string {
 	lines := strings.Split(body, "\n")
 	for i, l := range lines {
@@ -105,6 +114,9 @@ func Block(body string) string {
 		case strings.HasPrefix(trimmed, "#"):
 			level := len(trimmed) - len(strings.TrimLeft(trimmed, "#"))
 			rest := strings.TrimSpace(trimmed[level:])
+			if level < frameDepth {
+				level = frameDepth
+			}
 			if level >= 6 {
 				// Out of heading levels. Bold keeps it looking like a heading to
 				// a human and stops it being one to a parser.
