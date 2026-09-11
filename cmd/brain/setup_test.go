@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,5 +93,116 @@ func TestContinuityDoesNotSayOneMinutes(t *testing.T) {
 		if got := roughAge(now.Add(-tc.ago).Unix()); got != tc.want {
 			t.Errorf("roughAge(%s ago) = %q, want %q", tc.ago, got, tc.want)
 		}
+	}
+}
+
+// --print-config exists for the MCP client that is not one of setup.Hosts()'s
+// curated four: this test is the proof that the flag actually reaches
+// setupCmd and prints a real, parseable server block, not just that
+// setup.RenderConfig works in isolation.
+func TestPrintConfigPrintsAParseableServerBlock(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+
+	vaultDir := filepath.Join(t.TempDir(), "myvault")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--print-config", "--vault", vaultDir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var parsed struct {
+		Servers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("--print-config did not print valid JSON: %v\noutput was:\n%s", err, out)
+	}
+	srv, ok := parsed.Servers["brain"]
+	if !ok {
+		t.Fatalf("no \"brain\" entry in printed config:\n%s", out)
+	}
+	if srv.Env["BRAIN_VAULT"] != vaultDir {
+		t.Errorf("BRAIN_VAULT = %q, want %q", srv.Env["BRAIN_VAULT"], vaultDir)
+	}
+	// --print-config must never create or record the vault: it is describing a
+	// config for a host brain cannot see, not registering one it can.
+	if _, err := os.Stat(vaultDir); err == nil {
+		t.Errorf("--print-config created %s", vaultDir)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "Library", "Application Support", "brain", "vault-path")); err == nil {
+		t.Errorf("--print-config recorded a vault pointer for this machine")
+	}
+}
+
+// --format toml is the second half of the same escape hatch, for a host (like
+// Codex) whose config file is TOML rather than JSON.
+func TestPrintConfigFormatTomlNamesTheServerTable(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+
+	vaultDir := filepath.Join(t.TempDir(), "myvault")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--print-config", "--format", "toml", "--vault", vaultDir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(out, "[mcp_servers.brain]") {
+		t.Errorf("toml output missing [mcp_servers.brain] table:\n%s", out)
+	}
+	if !strings.Contains(out, vaultDir) {
+		t.Errorf("toml output does not mention the vault path %q:\n%s", vaultDir, out)
+	}
+}
+
+// --config <path> is the write-it-for-me half of the same escape hatch: it
+// merges brain's server block into a config file at a location brain has no
+// built-in convention for, reusing the exact JSON-merge Claude Desktop and
+// Cursor already get.
+func TestConfigMergesIntoAnArbitraryFile(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+
+	vaultDir := filepath.Join(t.TempDir(), "myvault")
+	target := filepath.Join(t.TempDir(), "some-client", "config.json")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--config", target, "--vault", vaultDir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, target) {
+		t.Errorf("output does not mention the config path it wrote:\n%s", out)
+	}
+
+	b, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("--config did not write %s: %v", target, err)
+	}
+	var parsed struct {
+		Servers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatalf("written config is not valid JSON: %v\ncontent:\n%s", err, b)
+	}
+	if parsed.Servers["brain"].Env["BRAIN_VAULT"] != vaultDir {
+		t.Errorf("written config's BRAIN_VAULT = %q, want %q", parsed.Servers["brain"].Env["BRAIN_VAULT"], vaultDir)
+	}
+
+	// Same non-registration guarantee as --print-config: describing a config
+	// for a client brain cannot see must not create or record a vault either.
+	if _, err := os.Stat(vaultDir); err == nil {
+		t.Errorf("--config created %s", vaultDir)
 	}
 }
