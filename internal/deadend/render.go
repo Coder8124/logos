@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/brain/internal/project"
+	"github.com/Coder8124/brain/internal/untrusted"
 )
 
 // Render writes the interruption.
@@ -38,26 +39,30 @@ func Render(proposed string, hits []Ruling) string {
 		if who == "" {
 			who = "someone"
 		}
-		fmt.Fprintf(&b, "- **%s**", h.Text)
+		// Every field below was written by whichever agent recorded the dead
+		// end, on a vault a team can share — untrusted.Inline is what stops a
+		// newline in one of them forging its own "## " heading or footer rule
+		// under brain's own frame. See internal/untrusted's package doc.
+		fmt.Fprintf(&b, "- **%s**", untrusted.Inline(h.Text))
 		if h.Record.Observation != "" {
-			fmt.Fprintf(&b, " — %s", h.Record.Observation)
+			fmt.Fprintf(&b, " — %s", untrusted.Inline(h.Record.Observation))
 		}
-		fmt.Fprintf(&b, " — tried by %s, %s", who, project.Age(h.When))
+		fmt.Fprintf(&b, " — tried by %s, %s", untrusted.Inline(who), project.Age(h.When))
 		if h.Elsewhere {
-			fmt.Fprintf(&b, ", on **%s** rather than the project you are working on", h.Project)
+			fmt.Fprintf(&b, ", on **%s** rather than the project you are working on", untrusted.Inline(h.Project))
 		}
 		if h.Source == FromNote {
 			b.WriteString(", recorded in a working note that was never checkpointed")
 		}
 		if h.Slug != "" {
-			fmt.Fprintf(&b, " · `%s`", h.Slug)
+			fmt.Fprintf(&b, " · `%s`", untrusted.Inline(h.Slug))
 		}
 		b.WriteString("\n")
 		if tags := recordTags(h.Record); tags != "" {
 			fmt.Fprintf(&b, "  %s\n", tags)
 		}
 		if h.Record.Alternative != "" {
-			fmt.Fprintf(&b, "  try instead: %s\n", h.Record.Alternative)
+			fmt.Fprintf(&b, "  try instead: %s\n", untrusted.Inline(h.Record.Alternative))
 		}
 		if h.Stale {
 			b.WriteString("  ⚠ possibly superseded — version-bound and old enough that the dependency it names may have moved since\n")
