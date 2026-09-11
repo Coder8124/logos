@@ -35,6 +35,17 @@ type InsightsView struct {
 	Insights []Insight `json:"insights"`
 	Drops    []Drop    `json:"drops"`
 	Degraded string    `json:"degraded"`
+	// Scanned is what the generators looked at. The panel shows it even —
+	// especially — when Insights is empty: a blank panel with no numbers on
+	// it is the empty state a user reads as a broken feature.
+	Scanned Scanned `json:"scanned"`
+}
+
+// Scanned mirrors internal/insight.Scan for the frontend.
+type Scanned struct {
+	Projects    int `json:"projects"`
+	Checkpoints int `json:"checkpoints"`
+	Memories    int `json:"memories"`
 }
 
 // Insights runs the mechanical generators against the vault, scoped to
@@ -53,12 +64,15 @@ func (a *App) Insights(project string) (InsightsView, error) {
 		return InsightsView{}, err
 	}
 
-	found, dropped, err := insight.Generate(ix.DB, a.vault, project)
+	found, dropped, scan, err := insight.Generate(ix.DB, a.vault, project)
 	if err != nil {
 		return InsightsView{}, err
 	}
 
-	view := InsightsView{Degraded: insight.Degraded}
+	view := InsightsView{
+		Degraded: insight.Degraded,
+		Scanned:  Scanned{Projects: scan.Projects, Checkpoints: scan.Checkpoints, Memories: scan.Memories},
+	}
 	for _, in := range found {
 		view.Insights = append(view.Insights, Insight{Kind: in.Kind, Text: in.Text, Sources: in.Sources})
 	}

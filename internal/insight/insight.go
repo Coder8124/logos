@@ -92,6 +92,17 @@ func blockerAkin(a, b string) bool {
 	return textmatch.Overlap(sa, sb) >= 0.5
 }
 
+// Scan is what Generate looked at. It exists because "0 insights found" on
+// its own is indistinguishable from a command that declined to run, and an
+// empty state a user cannot tell apart from a broken one is the empty state
+// they close the tool over. Reporting the size of the haystack turns it into
+// "looked at this much, found nothing" (invariant 3).
+type Scan struct {
+	Projects    int
+	Checkpoints int
+	Memories    int
+}
+
 // Generate produces every insight the mechanical generators can find. project
 // scopes to one project's checkpoints and memories; "" scans every project
 // session.Projects lists and every memory regardless of project.
@@ -100,20 +111,23 @@ func blockerAkin(a, b string) bool {
 // same expectation every other package taking a *sql.DB in this codebase
 // makes, so this package does not duplicate schema setup that belongs to the
 // packages that own those tables.
-func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, error) {
+func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, Scan, error) {
 	var all []Insight
+	var scan Scan
 
-	rb, err := recurringBlockers(vaultDir, project)
+	rb, checkpoints, projects, err := recurringBlockers(vaultDir, project)
 	if err != nil {
-		return nil, nil, fmt.Errorf("scanning checkpoints for recurring blockers: %w", err)
+		return nil, nil, scan, fmt.Errorf("scanning checkpoints for recurring blockers: %w", err)
 	}
 	all = append(all, rb...)
+	scan.Checkpoints, scan.Projects = checkpoints, projects
 
-	dm, err := dormantMemories(db, project, time.Now())
+	dm, memories, err := dormantMemories(db, project, time.Now())
 	if err != nil {
-		return nil, nil, fmt.Errorf("scanning memories for dormant ones: %w", err)
+		return nil, nil, scan, fmt.Errorf("scanning memories for dormant ones: %w", err)
 	}
 	all = append(all, dm...)
+	scan.Memories = memories
 
 	kept, drops := Filter(all)
 	sort.SliceStable(kept, func(i, j int) bool {
@@ -122,7 +136,7 @@ func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, error) {
 		}
 		return kept[i].Text < kept[j].Text
 	})
-	return kept, drops, nil
+	return kept, drops, scan, nil
 }
 
 // recurringBlockers finds, per project, a blocker that appears — in the same
@@ -135,12 +149,12 @@ func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, error) {
 // blind in the case it exists for: a real vault whose newest checkpoint said
 // "none currently known" reported nothing at all, hiding every standing
 // problem in the eight checkpoints behind it.
-func recurringBlockers(vaultDir, project string) ([]Insight, error) {
+func recurringBlockers(vaultDir, project string) (found []Insight, checkpoints, scanned int, err error) {
 	projects := []string{project}
 	if project == "" {
 		all, err := session.Projects(vaultDir)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
 		projects = all
 	}
@@ -155,8 +169,12 @@ func recurringBlockers(vaultDir, project string) ([]Insight, error) {
 	for _, p := range projects {
 		history, err := session.History(vaultDir, p, recurringBlockerWindow)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
+		// Counted before the two-checkpoint guard: a project with one
+		// checkpoint was still looked at, and saying otherwise understates
+		// the haystack the caller is about to report.
+		checkpoints += len(history)
 		if len(history) < 2 {
 			continue
 		}
@@ -195,14 +213,14 @@ func recurringBlockers(vaultDir, project string) ([]Insight, error) {
 			})
 		}
 	}
-	return out, nil
+	return out, checkpoints, len(projects), nil
 }
 
 // dormantMemories finds a memory nobody has drawn on in dormantAfter, so it
 // can be re-confirmed, re-pinned, or forgotten rather than silently going
 // stale. A memory already excluded from recall (PinNever) is not this
 // generator's business — its owner already decided to stop hearing about it.
-func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, error) {
+func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, int, error) {
 	var mems []memory.Memory
 	var err error
 	if project == "" {
@@ -211,7 +229,7 @@ func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, erro
 		mems, err = memory.AllInProject(db, project)
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	cutoff := now.Add(-dormantAfter).Unix()
@@ -234,5 +252,5 @@ func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, erro
 			Sources: []string{fmt.Sprintf("memory#%d", m.ID)},
 		})
 	}
-	return out, nil
+	return out, len(mems), nil
 }

@@ -35,7 +35,7 @@ func runInsights(args []string) error {
 		return err
 	}
 
-	insights, drops, err := insight.Generate(ix.DB, ix.Vault, project)
+	insights, drops, scan, err := insight.Generate(ix.DB, ix.Vault, project)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,16 @@ func runInsights(args []string) error {
 	if len(drops) > 0 {
 		fmt.Printf(", %d dropped for missing citations", len(drops))
 	}
-	fmt.Println()
+	// What was looked at, always — on a quiet vault this line is the whole
+	// difference between "looked, found nothing" and a command the user
+	// assumes silently declined to run.
+	fmt.Printf(" — scanned %d checkpoint(s) and %d memory(s) across %d project(s)\n",
+		scan.Checkpoints, scan.Memories, scan.Projects)
+
+	if len(insights) == 0 {
+		fmt.Println("· nothing recurring yet; the generators need a blocker in two checkpoints,")
+		fmt.Println("  or a memory nobody has drawn on in 60 days")
+	}
 
 	for _, in := range insights {
 		fmt.Printf("\n[%s] %s\n", in.Kind, in.Text)

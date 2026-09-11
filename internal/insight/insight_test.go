@@ -69,7 +69,7 @@ func TestARecurringBlockerIsReportedWithEveryCheckpointItAppearedIn(t *testing.T
 		t.Fatal(err)
 	}
 
-	insights, drops, err := Generate(db, dir, "kestrel-one")
+	insights, drops, _, err := Generate(db, dir, "kestrel-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestABlockerMentionedOnlyOnceIsNotReportedAsRecurring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	insights, _, err := Generate(db, dir, "kestrel-one")
+	insights, _, _, err := Generate(db, dir, "kestrel-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestADormantMemoryIsReportedWithItsMemoryIDAsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	insights, _, err := Generate(db, dir, "")
+	insights, _, _, err := Generate(db, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestAnExcludedMemoryIsNeverReportedAsDormant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	insights, _, err := Generate(db, dir, "")
+	insights, _, _, err := Generate(db, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestABlockerRecurringBehindTheLatestCheckpointIsStillReported(t *testing.T)
 	commit("second", "still waiting on the connector firmware from the vendor")
 	commit("third", "none currently known")
 
-	insights, _, err := Generate(db, dir, "kestrel-one")
+	insights, _, _, err := Generate(db, dir, "kestrel-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestOneCheckpointRestatingABlockerTwiceIsNotRecurring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	insights, _, err := Generate(db, dir, "kestrel-one")
+	insights, _, _, err := Generate(db, dir, "kestrel-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,5 +281,52 @@ func TestOneCheckpointRestatingABlockerTwiceIsNotRecurring(t *testing.T) {
 		if in.Kind == "recurring-blocker" {
 			t.Fatalf("one checkpoint saying it twice is not a recurring blocker: %v", in)
 		}
+	}
+}
+
+// "0 insight(s) found" on its own is indistinguishable from a command that
+// declined to run, which is the empty state that makes a person close the
+// tool. Generate reports what it looked at so the caller can say "looked at
+// this much, found nothing" (invariant 3).
+func TestGenerateReportsWhatItScannedEvenWhenItFindsNothing(t *testing.T) {
+	dir := t.TempDir()
+	db := testDB(t)
+
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one",
+		Next:    "first",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one",
+		Next:    "second",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Store(db, nil, "kestrel-one", &memory.Memory{
+		Text:   "the connector is keyed backwards on rev C boards",
+		Kind:   memory.Fact,
+		Source: "manual",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	insights, _, scan, err := Generate(db, dir, "kestrel-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(insights) != 0 {
+		t.Fatalf("this vault has no pattern in it; got %v", insights)
+	}
+	if scan.Checkpoints != 2 {
+		t.Errorf("scanned %d checkpoints, want 2", scan.Checkpoints)
+	}
+	if scan.Memories != 1 {
+		t.Errorf("scanned %d memories, want 1", scan.Memories)
+	}
+	if scan.Projects != 1 {
+		t.Errorf("scanned %d projects, want 1", scan.Projects)
 	}
 }

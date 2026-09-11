@@ -410,9 +410,15 @@ async function loadInsights() {
     const view = await go().Insights("");
     notice.textContent = "· " + view.degraded;
     box.innerHTML = "";
+    // What was looked at, on every load. A panel showing no findings and no
+    // numbers is indistinguishable from a panel that failed to load.
+    const s = view.scanned || {};
+    box.append(el("div", "insights-scan",
+      "scanned " + (s.checkpoints || 0) + " checkpoint(s) and " + (s.memories || 0) +
+      " memory(s) across " + (s.projects || 0) + " project(s)"));
     const insights = view.insights || [];
     if (insights.length === 0) {
-      box.append(el("div", "empty", "◌ nothing found yet — a recurring blocker or a dormant memory will appear here once the vault has enough history."));
+      box.append(el("div", "empty", "◌ nothing recurring yet — a blocker named in two checkpoints, or a memory nobody has drawn on in 60 days, will appear here."));
       return;
     }
     insights.forEach((in_) => box.append(renderInsightCard(in_)));
