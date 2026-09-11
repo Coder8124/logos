@@ -179,8 +179,94 @@ func checkVault(dir string) Check {
 		return c
 	}
 
+	// A blocklist of temporary roots is always one directory short: the pointer
+	// that actually did the damage named ~/.claude/jobs/<id>/tmp/survey-vault,
+	// which is not a system temp root at all, and underTempDir walked straight
+	// past it. So ask the question that does not depend on knowing where the
+	// next harness will put its scratch directories.
+	//
+	// Neither half is a fault on its own. A vault with no checkpoints is a
+	// perfectly good new install, and history in a second vault is a perfectly
+	// good second vault. It is the pair that means the pointer is wrong — and
+	// the pair is precisely what the user cannot see, because every command
+	// they run reads the empty one and truthfully reports nothing.
+	//
+	// Scoped to the recorded pointer for the same reason the check above is: an
+	// explicit BRAIN_VAULT is a scratch vault someone chose for this one
+	// command, and it is supposed to be empty. Complaining about it would make
+	// the documented workflow print a failure on every run.
+	if os.Getenv("BRAIN_VAULT") == "" {
+		if other, n := populatedVaultElsewhere(dir); n > 0 {
+			c.State = Failed
+			c.Detail = fmt.Sprintf("no checkpoints here, but %s holds %d — every front end is reading this empty vault instead", other, n)
+			c.Fix = "run `brain setup --vault " + other + "` to repoint this machine"
+			return c
+		}
+	}
+
 	c.State, c.Detail = OK, dir
 	return c
+}
+
+// populatedVaultElsewhere reports another vault on disk that has history in it,
+// when the vault in use has none. Only the default location is looked at: it is
+// where a vault is unless somebody moved it, and searching the disk for vaults
+// would be a slow answer to a question doctor asks on every run.
+func populatedVaultElsewhere(dir string) (string, int) {
+	// Only "is there any", so stop at the first one. This runs on every doctor.
+	if checkpointCount(dir, 1) > 0 {
+		return "", 0
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", 0
+	}
+	def := filepath.Join(home, "brain")
+	for _, a := range forms(def) {
+		for _, b := range forms(dir) {
+			if a == b {
+				return "", 0
+			}
+		}
+	}
+	// The real total here: it is printed, and "28 checkpoints sit in ~/brain" is
+	// the number that tells the user which vault is the one they meant.
+	if n := checkpointCount(def, 0); n > 0 {
+		return def, n
+	}
+	return "", 0
+}
+
+// checkpointCount totals the checkpoints across every project in a vault,
+// reading the markdown rather than the index — the index of the vault nobody is
+// using is exactly the one that will not be built.
+//
+// stopAt bounds the work for the caller that only needs "is there any": names
+// are counted rather than files parsed, because doctor runs this on every
+// invocation over two vaults, and parsing a user's entire history to answer a
+// yes/no question makes the command slower the longer they have used it.
+func checkpointCount(dir string, stopAt int) int {
+	projects, err := session.Projects(dir)
+	if err != nil {
+		return 0
+	}
+	total := 0
+	for _, p := range projects {
+		entries, err := os.ReadDir(filepath.Join(dir, session.CheckpointDir, p))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !session.IsCheckpointFile(e.Name()) {
+				continue
+			}
+			total++
+			if stopAt > 0 && total >= stopAt {
+				return total
+			}
+		}
+	}
+	return total
 }
 
 // underTempDir reports whether path sits inside a system temporary directory.
@@ -196,8 +282,15 @@ func checkVault(dir string) Check {
 // and /var/folders/... to /private/var/folders/..., and a string compare of the
 // two forms says they are unrelated.
 func underTempDir(path string) bool {
+	// An agent's per-job scratch directory is a temporary root that lives under
+	// $HOME, so none of the system roots below match it. ~/.claude/jobs/<id>/tmp
+	// is where the pointer that broke a real installation was made.
+	roots := []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, filepath.Join(home, ".claude", "jobs"), filepath.Join(home, ".claude", "tmp"))
+	}
 	for _, p := range forms(path) {
-		for _, root := range []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"} {
+		for _, root := range roots {
 			for _, t := range forms(root) {
 				// Separator-anchored, so /tmpfoo is not read as living under /tmp.
 				if p == t || strings.HasPrefix(p, t+string(filepath.Separator)) {

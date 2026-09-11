@@ -698,3 +698,90 @@ func TestHostsCheckNamesWhatItSeesAndStillMentionsPrintConfig(t *testing.T) {
 		t.Errorf("fix = %q, want it to still mention `brain setup --print-config` for any client this check does not know", c.Fix)
 	}
 }
+
+// The blocklist in underTempDir will always be one directory short. The pointer
+// that actually broke a real installation named ~/.claude/jobs/<id>/tmp/
+// survey-vault — an agent's scratch directory, under $HOME, matching no system
+// temp root — and every front end read it for a day while twenty-eight
+// checkpoints sat in ~/brain. Nothing failed: the empty vault was present,
+// writable and honestly reported zero of everything.
+//
+// So doctor also asks the question that does not depend on knowing where the
+// next harness puts its scratch directories: is this vault empty while the
+// default one is not?
+func TestAnEmptyVaultIsReportedWhenTheDefaultVaultHoldsTheHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+
+	writeCheckpointFile(t, filepath.Join(home, "brain"), "brain", "20260910-171521-claude.md")
+
+	// Not under any temp root, so only the emptiness comparison can catch it.
+	scratch := filepath.Join(home, ".agent-jobs", "b204c342", "survey-vault")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	c := checkVault(scratch)
+	if c.State != Failed {
+		t.Fatalf("vault check = %v (%q), want failed — this vault is empty and the real one is not", c.State, c.Detail)
+	}
+	if !strings.Contains(c.Detail, filepath.Join(home, "brain")) {
+		t.Fatalf("failed, but did not name the vault holding the history: %q", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Fatal("no fix offered for a vault the user cannot be expected to diagnose")
+	}
+}
+
+// The other side of it: a genuinely new install has no checkpoints anywhere,
+// and must not be told its own vault is the wrong one.
+// And the workflow CLAUDE.md tells contributors to use: a scratch vault named
+// by BRAIN_VAULT is meant to be empty, so the comparison above must not turn
+// every `BRAIN_VAULT=/tmp/scratch brain doctor` into a failing report.
+func TestAScratchVaultChosenForOneCommandIsNotComparedAgainstTheDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	writeCheckpointFile(t, filepath.Join(home, "brain"), "brain", "20260910-171521-claude.md")
+
+	scratch := filepath.Join(home, "scratch-vault")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BRAIN_VAULT", scratch)
+
+	if c := checkVault(scratch); c.State != OK {
+		t.Fatalf("vault check = %v (%q), want ok — a scratch vault is supposed to be empty", c.State, c.Detail)
+	}
+}
+
+func TestANewVaultWithNoHistoryAnywhereIsNotAComplaint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+
+	dir := filepath.Join(home, "somewhere", "brain")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if c := checkVault(dir); c.State != OK {
+		t.Fatalf("vault check = %v (%q), want ok — a first-run vault is empty everywhere", c.State, c.Detail)
+	}
+}
+
+// writeCheckpointFile puts one checkpoint that parses non-empty into a vault.
+func writeCheckpointFile(t *testing.T, vaultDir, project, name string) {
+	t.Helper()
+	dir := filepath.Join(vaultDir, session.CheckpointDir, project)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: checkpoint\nproject: " + project + "\n---\n\n## Task\n\nland the ingest pipeline\n\n## Next\n\nmerge ws-b-control\n"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
