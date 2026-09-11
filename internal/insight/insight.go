@@ -125,10 +125,16 @@ func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, error) {
 	return kept, drops, nil
 }
 
-// recurringBlockers finds, per project, a blocker in the most recent
-// checkpoint that also appears — in the same or different words — in an
-// earlier one. A blocker mentioned once is just a blocker; one that survives
+// recurringBlockers finds, per project, a blocker that appears — in the same
+// or different words — in two or more of the last recurringBlockerWindow
+// checkpoints. A blocker mentioned once is just a blocker; one that survives
 // across checkpoints is a standing problem nobody has come back to.
+//
+// It clusters across the whole window rather than seeding from the most recent
+// checkpoint's blockers, because seeding from the latest made the generator
+// blind in the case it exists for: a real vault whose newest checkpoint said
+// "none currently known" reported nothing at all, hiding every standing
+// problem in the eight checkpoints behind it.
 func recurringBlockers(vaultDir, project string) ([]Insight, error) {
 	projects := []string{project}
 	if project == "" {
@@ -137,6 +143,12 @@ func recurringBlockers(vaultDir, project string) ([]Insight, error) {
 			return nil, err
 		}
 		projects = all
+	}
+
+	// One standing problem, however many checkpoints and wordings it has.
+	type cluster struct {
+		text    string // the newest wording, since history is newest-first
+		sources []string
 	}
 
 	var out []Insight
@@ -148,24 +160,38 @@ func recurringBlockers(vaultDir, project string) ([]Insight, error) {
 		if len(history) < 2 {
 			continue
 		}
-		latest := history[0]
-		for _, blocker := range latest.Blockers {
-			sources := []string{latest.Slug}
-			for _, older := range history[1:] {
-				for _, ob := range older.Blockers {
-					if blockerAkin(blocker, ob) {
-						sources = append(sources, older.Slug)
+
+		var clusters []*cluster
+		for _, cp := range history {
+			for _, blocker := range cp.Blockers {
+				var hit *cluster
+				for _, c := range clusters {
+					if blockerAkin(blocker, c.text) {
+						hit = c
 						break
 					}
 				}
+				if hit == nil {
+					clusters = append(clusters, &cluster{text: blocker, sources: []string{cp.Slug}})
+					continue
+				}
+				// One checkpoint restating the same blocker twice is one
+				// appearance. Counting it twice would report a standing
+				// problem that has only ever been raised once.
+				if hit.sources[len(hit.sources)-1] != cp.Slug {
+					hit.sources = append(hit.sources, cp.Slug)
+				}
 			}
-			if len(sources) < 2 {
+		}
+
+		for _, c := range clusters {
+			if len(c.sources) < 2 {
 				continue
 			}
 			out = append(out, Insight{
 				Kind:    "recurring-blocker",
-				Text:    fmt.Sprintf("%s — still blocking %s after %d checkpoints", blocker, p, len(sources)),
-				Sources: sources,
+				Text:    fmt.Sprintf("%s — still blocking %s after %d checkpoints", c.text, p, len(c.sources)),
+				Sources: c.sources,
 			})
 		}
 	}

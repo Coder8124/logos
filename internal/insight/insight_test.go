@@ -203,3 +203,83 @@ func TestDegradedNamesTheMechanicalTier(t *testing.T) {
 		t.Fatalf("expected the notice to name the mechanical tier, got %q", Degraded)
 	}
 }
+
+// The generator used to seed only from the most recent checkpoint's blockers,
+// which made it blind in exactly the case it exists for: the newest checkpoint
+// on a real vault said "none currently known", so every standing problem in
+// the eight checkpoints behind it became invisible. A blocker is recurring
+// because it appears twice, not because the latest agent happened to restate
+// it.
+func TestABlockerRecurringBehindTheLatestCheckpointIsStillReported(t *testing.T) {
+	dir := t.TempDir()
+	db := testDB(t)
+
+	commit := func(next string, blockers ...string) {
+		t.Helper()
+		if err := session.Commit(db, dir, &session.Checkpoint{
+			Project:  "kestrel-one",
+			Next:     next,
+			Blockers: blockers,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(1100 * time.Millisecond) // checkpoint filenames are second-resolution
+	}
+
+	commit("first", "the vendor has not shipped the connector firmware")
+	commit("second", "still waiting on the connector firmware from the vendor")
+	commit("third", "none currently known")
+
+	insights, _, err := Generate(db, dir, "kestrel-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *Insight
+	for i := range insights {
+		if insights[i].Kind == "recurring-blocker" {
+			found = &insights[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the firmware blocker recurred in two checkpoints and was not reported: %v", insights)
+	}
+	if len(found.Sources) != 2 {
+		t.Fatalf("expected both checkpoints that carried the blocker, got %v", found.Sources)
+	}
+}
+
+// A checkpoint that restates the same blocker twice in one list is one
+// appearance, not a pattern. Counting it as two would report a standing
+// problem that has only ever been raised once.
+func TestOneCheckpointRestatingABlockerTwiceIsNotRecurring(t *testing.T) {
+	dir := t.TempDir()
+	db := testDB(t)
+
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one",
+		Next:    "first",
+		Blockers: []string{
+			"the vendor has not shipped the connector firmware",
+			"the connector firmware is still not shipped by the vendor",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one",
+		Next:    "second",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	insights, _, err := Generate(db, dir, "kestrel-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range insights {
+		if in.Kind == "recurring-blocker" {
+			t.Fatalf("one checkpoint saying it twice is not a recurring blocker: %v", in)
+		}
+	}
+}
