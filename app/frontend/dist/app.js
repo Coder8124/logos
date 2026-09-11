@@ -278,6 +278,159 @@ function wireContext() {
   });
 }
 
+// ---- tree view: steer context from the vault, edit in place ----
+//
+// One tree, backed by the same .context/rules.md contextpack.Build reads and
+// `brain context --pin/--exclude` writes — clicking a node here is not a
+// second opinion, it is the same durable rule shown a different way.
+
+let treeLoaded = false;
+let treeOpenFile = null; // path currently shown in the editor pane, or null
+
+async function primeVaultTree() {
+  if (treeLoaded) return;
+  treeLoaded = true;
+  await loadVaultTree();
+}
+
+async function loadVaultTree() {
+  const box = $("vault-tree");
+  try {
+    const nodes = await go().VaultTree();
+    box.innerHTML = "";
+    box.append(renderTreeLevel(nodes || []));
+  } catch (err) {
+    box.innerHTML = "";
+    box.append(el("div", "empty", "⚠ " + err));
+  }
+}
+
+function renderTreeLevel(nodes) {
+  const wrap = el("div", "tnode");
+  nodes.forEach((n) => wrap.append(renderTreeNode(n)));
+  return wrap;
+}
+
+function renderTreeNode(n) {
+  const item = document.createElement("div");
+  const row = el("div", "tnode-row" + (n.isDir ? " tn-dir" : ""));
+  row.append(el("span", "tn-name", (n.isDir ? "▸ " : "· ") + n.name));
+  if (n.pin) row.append(el("span", "tn-pin " + n.pin, n.pin));
+  row.title = n.isDir
+    ? "click to pin/exclude everything under " + n.path
+    : "click to pin/exclude · double-click to edit " + n.path;
+
+  row.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cycleTreePin(n.path, n.pin);
+  });
+  if (!n.isDir && n.path.endsWith(".md")) {
+    row.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      openTreeFile(n.path);
+    });
+  }
+  item.append(row);
+
+  if (n.isDir && n.children && n.children.length) {
+    const kids = el("div", "tnode-children");
+    n.children.forEach((c) => kids.append(renderTreeNode(c)));
+    item.append(kids);
+  }
+  return item;
+}
+
+// A node cycles pin → exclude → clear → pin, so one control does everything
+// the rules file supports without a context menu.
+async function cycleTreePin(path, current) {
+  const next = current === "pin" ? "exclude" : current === "exclude" ? "" : "pin";
+  try {
+    await go().SetTreePin(path, next);
+    await loadVaultTree();
+    if ($("ctx-task").value.trim() || $("ctx-hint").value.trim()) {
+      $("ctx-form").dispatchEvent(new Event("submit", { cancelable: true }));
+    }
+  } catch (err) {
+    alert("could not set the rule on " + path + ": " + err);
+  }
+}
+
+async function openTreeFile(path) {
+  const empty = $("tree-editor-empty");
+  const active = $("tree-editor-active");
+  const status = $("tree-editor-status");
+  try {
+    const content = await go().ReadVaultFile(path);
+    treeOpenFile = path;
+    $("tree-editor-path").textContent = path;
+    $("tree-editor-body").value = content;
+    status.textContent = "";
+    empty.hidden = true;
+    active.hidden = false;
+  } catch (err) {
+    alert("could not open " + path + ": " + err);
+  }
+}
+
+function wireTreeEditor() {
+  $("tree-editor-save").addEventListener("click", async () => {
+    if (!treeOpenFile) return;
+    const status = $("tree-editor-status");
+    status.textContent = "saving…";
+    try {
+      await go().WriteVaultFile(treeOpenFile, $("tree-editor-body").value);
+      status.textContent = "· saved " + treeOpenFile + " and reindexed it";
+      if ($("ctx-task").value.trim() || $("ctx-hint").value.trim()) {
+        $("ctx-form").dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    } catch (err) {
+      status.textContent = "⚠ " + err;
+    }
+  });
+}
+
+// ---- generated insights: patterns already in the vault ----
+//
+// A second lens on the same vault the tree pane shows, not a second store —
+// app.Insights holds no state of its own (see internal/insight's doc comment),
+// so this just calls it and renders what comes back.
+
+let insightsLoaded = false;
+
+async function primeInsights() {
+  if (insightsLoaded) return;
+  insightsLoaded = true;
+  await loadInsights();
+}
+
+async function loadInsights() {
+  const notice = $("insights-notice");
+  const box = $("insights-list");
+  try {
+    const view = await go().Insights("");
+    notice.textContent = "· " + view.degraded;
+    box.innerHTML = "";
+    const insights = view.insights || [];
+    if (insights.length === 0) {
+      box.append(el("div", "empty", "◌ nothing found yet — a recurring blocker or a dormant memory will appear here once the vault has enough history."));
+      return;
+    }
+    insights.forEach((in_) => box.append(renderInsightCard(in_)));
+  } catch (err) {
+    notice.textContent = "";
+    box.innerHTML = "";
+    box.append(el("div", "empty", "⚠ " + err));
+  }
+}
+
+function renderInsightCard(in_) {
+  const card = el("div", "insight-card");
+  card.append(el("div", "insight-kind", in_.kind));
+  card.append(el("div", "insight-text", in_.text));
+  card.append(el("div", "insight-sources", (in_.sources || []).join(" · ")));
+  return card;
+}
+
 // ---- memory: what the assistant has learned ----
 
 let allMemories = [];
@@ -813,7 +966,7 @@ function show(tab) {
     p.classList.toggle("active", p.id === "panel-" + tab));
 
   if (tab === "sessions") loadSessions();
-  if (tab === "context") primeContextProjects();
+  if (tab === "context") { primeContextProjects(); primeVaultTree(); primeInsights(); }
   if (tab === "memory") loadMemory();
   if (tab === "brief") loadBrief();
   if (tab === "today") loadTimeline();
@@ -827,6 +980,7 @@ document.querySelectorAll(".tab").forEach((t) =>
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (commandBarOpen()) { closeCommandBar(); return; }
     const setup = $("setup");
     if (setup && !setup.hidden) {
       if (!$("setup-cancel").hidden) closeSetup();
@@ -835,9 +989,73 @@ document.addEventListener("keydown", (e) => {
     go()?.Hide?.();
     return;
   }
+  if (!commandBarOpen() && (e.key === "/" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k"))) {
+    if (document.activeElement.tagName === "INPUT" && e.key === "/") return; // "/" still types in an ordinary field
+    e.preventDefault();
+    openCommandBar();
+    return;
+  }
   if (document.activeElement.tagName === "INPUT") return;
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= TAB_ORDER.length) show(TAB_ORDER[n - 1]);
+});
+
+// ---- command bar: "/" or ⌘K dispatches straight to a bound Go method ----
+//
+// No verb resolution or nearest-match logic lives here — app.RunCommand does
+// all of it, and this file only renders whatever CommandResult comes back.
+// The point of the bar is that it can never show something the CLI or the
+// tab it mirrors could not already produce.
+
+function commandBarOpen() {
+  return !$("command-bar-overlay").hidden;
+}
+
+async function openCommandBar() {
+  const overlay = $("command-bar-overlay");
+  const input = $("command-bar-input");
+  const hint = $("command-bar-hint");
+  const out = $("command-bar-output");
+  input.value = "";
+  out.textContent = "";
+  overlay.hidden = false;
+  input.focus();
+  try {
+    const cmds = await go().Commands();
+    hint.textContent = (cmds || []).map((c) => c.usage).join("  ·  ");
+  } catch (_) {
+    hint.textContent = "";
+  }
+}
+
+function closeCommandBar() {
+  $("command-bar-overlay").hidden = true;
+}
+
+async function runCommandBarInput() {
+  const input = $("command-bar-input");
+  const out = $("command-bar-output");
+  const text = input.value;
+  if (!text.trim()) return;
+  try {
+    const result = await go().RunCommand(text);
+    if (result.verb) {
+      out.textContent = result.output || "(no output)";
+    } else if (result.suggested) {
+      out.textContent = "unknown command — did you mean \"" + result.suggested + "\"?";
+    } else {
+      out.textContent = "";
+    }
+  } catch (err) {
+    out.textContent = "⚠ " + err;
+  }
+}
+
+$("command-bar-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "command-bar-overlay") closeCommandBar();
+});
+$("command-bar-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runCommandBarInput(); }
 });
 
 // ---- boot ----
@@ -857,6 +1075,7 @@ window.addEventListener("DOMContentLoaded", () => {
   wireVoice();
   wireSetup();
   wireContext();
+  wireTreeEditor();
   restoreHistory();
   show("sessions");
   maybeOnboard();
