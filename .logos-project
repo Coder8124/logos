@@ -1,2 +1,4 @@
-# Logos is checked out as brain/; the work is called logos.
-logos
+# The product is Logos; the repository, the module and the vault project are
+# all brain. This marker keeps the history under one name after the earlier
+# split — do not change it back to logos.
+brain
