@@ -389,6 +389,48 @@ function wireTreeEditor() {
   });
 }
 
+// ---- generated insights: patterns already in the vault ----
+//
+// A second lens on the same vault the tree pane shows, not a second store —
+// app.Insights holds no state of its own (see internal/insight's doc comment),
+// so this just calls it and renders what comes back.
+
+let insightsLoaded = false;
+
+async function primeInsights() {
+  if (insightsLoaded) return;
+  insightsLoaded = true;
+  await loadInsights();
+}
+
+async function loadInsights() {
+  const notice = $("insights-notice");
+  const box = $("insights-list");
+  try {
+    const view = await go().Insights("");
+    notice.textContent = "· " + view.degraded;
+    box.innerHTML = "";
+    const insights = view.insights || [];
+    if (insights.length === 0) {
+      box.append(el("div", "empty", "◌ nothing found yet — a recurring blocker or a dormant memory will appear here once the vault has enough history."));
+      return;
+    }
+    insights.forEach((in_) => box.append(renderInsightCard(in_)));
+  } catch (err) {
+    notice.textContent = "";
+    box.innerHTML = "";
+    box.append(el("div", "empty", "⚠ " + err));
+  }
+}
+
+function renderInsightCard(in_) {
+  const card = el("div", "insight-card");
+  card.append(el("div", "insight-kind", in_.kind));
+  card.append(el("div", "insight-text", in_.text));
+  card.append(el("div", "insight-sources", (in_.sources || []).join(" · ")));
+  return card;
+}
+
 // ---- memory: what the assistant has learned ----
 
 let allMemories = [];
@@ -924,7 +966,7 @@ function show(tab) {
     p.classList.toggle("active", p.id === "panel-" + tab));
 
   if (tab === "sessions") loadSessions();
-  if (tab === "context") { primeContextProjects(); primeVaultTree(); }
+  if (tab === "context") { primeContextProjects(); primeVaultTree(); primeInsights(); }
   if (tab === "memory") loadMemory();
   if (tab === "brief") loadBrief();
   if (tab === "today") loadTimeline();

@@ -468,6 +468,13 @@
     }
     .tree-editor-status { font-size: 10.5px; color: var(--ink-3); margin-top: 6px; min-height: 14px; }
 
+    /* ── generated insights ── */
+    .insights-notice { font-size: 10.5px; color: var(--ink-3); margin-bottom: 8px; }
+    .insight-card { border: 1px solid var(--rule); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; }
+    .insight-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3); }
+    .insight-text { font-size: 12.5px; margin: 3px 0 5px; }
+    .insight-sources { font-family: var(--f-mono); font-size: 10.5px; color: var(--ink-3); }
+
     /* ── memory browser ── */
     .mem-health { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--f-mono); font-size: 10.5px; color: var(--ink-3); margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); }
     .mem-health b { color: var(--ink); }
@@ -611,6 +618,10 @@
             </div>
           </div>
         </div>
+
+        <h2 class="sec">generated insights</h2>
+        <div class="insights-notice" id="insights-notice"></div>
+        <div id="insights-list"><div class="empty"><div class="big">⋯</div>looking for a recurring blocker or a dormant memory…</div></div>
       </section>
 
       <section class="panel" id="panel-memory" role="tabpanel">
