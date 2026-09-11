@@ -97,10 +97,17 @@ func Add(db *sql.DB, c *Commitment) (bool, error) {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
-	if n > 0 {
-		c.ID, _ = res.LastInsertId()
+	if n == 0 {
+		return false, nil // a fingerprint-equal loop is already on the record
 	}
-	return n > 0, nil
+	c.ID, _ = res.LastInsertId()
+	// The vault copy, immediately. A loop that reached only the cache is one
+	// the next `brain index` throws away without saying so, and the caller has
+	// to hear that the write is half-done rather than be told "tracked".
+	if err := flush(db); err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 func Open_(db *sql.DB) ([]Commitment, error) { return list(db, Open) }
@@ -135,8 +142,10 @@ func SetStatus(db *sql.DB, id int64, s Status) error {
 	if s != Open {
 		resolved = time.Now().Unix()
 	}
-	_, err := db.Exec("UPDATE commitments SET status = ?, resolved_at = ? WHERE id = ?", string(s), resolved, id)
-	return err
+	if _, err := db.Exec("UPDATE commitments SET status = ?, resolved_at = ? WHERE id = ?", string(s), resolved, id); err != nil {
+		return err
+	}
+	return flush(db)
 }
 
 func OpenCount(db *sql.DB) (int, error) {

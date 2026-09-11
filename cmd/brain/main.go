@@ -623,6 +623,11 @@ func doctor(probe bool) error {
 
 	// Listing a model proves nothing: a corrupt pull lists fine and fails on
 	// load. Probing is what catches it before a rollup does at 3am.
+	//
+	// And a model that fails to load counts towards the verdict, or the probe
+	// is the one check whose result nothing can act on: `failed` is totalled
+	// before this loop runs, so `brain doctor --probe && deploy` used to print
+	// FAILS TO LOAD in red and then exit 0 into the next command.
 	fmt.Println("\n─── probe ───")
 	for _, t := range []router.Tier{router.T1, router.T2} {
 		model, err := rt.Model(t)
@@ -634,7 +639,10 @@ func doctor(probe bool) error {
 		switch {
 		case !cap.Loads:
 			fmt.Printf("  %s  %-24s FAILS TO LOAD — %s\n", t, model, truncate(cap.Err, 70))
+			failed++
 		case !cap.StructuredOutput:
+			// Not a failure. Every tier degrades to prose when a model ignores
+			// a schema, which is worse output, not a broken install.
 			fmt.Printf("  %s  %-24s loads, but ignores JSON schemas\n", t, model)
 		default:
 			fmt.Printf("  %s  %-24s ok, honours JSON schemas\n", t, model)
@@ -842,6 +850,17 @@ func runIndex(watch bool) error {
 		} else if queued > 0 {
 			fmt.Printf("restored %d memor%s awaiting review — run `brain review`\n",
 				queued, pluralY(queued))
+		}
+
+		// Open loops, which need no model either. Announced for the reason the
+		// working notes are: an empty `brain loop` after a rebuild reads as a
+		// list the user finished, not one the rebuild threw away. The count is
+		// every loop put back, closed ones included — they are what stops a
+		// dismissed commitment being extracted and surfaced all over again.
+		if loops, err := ix.SyncLoops(); err != nil {
+			fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
+		} else if loops > 0 {
+			fmt.Printf("restored %d tracked %s — run `brain loop`\n", loops, plural(loops, "loop"))
 		}
 
 		if p == nil {

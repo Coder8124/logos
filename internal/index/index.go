@@ -19,6 +19,7 @@ import (
 	"github.com/Coder8124/brain/internal/ingest"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/brain/internal/secretary"
 	"github.com/Coder8124/brain/internal/session"
 	"github.com/Coder8124/brain/internal/vault"
 	_ "modernc.org/sqlite"
@@ -142,6 +143,9 @@ func Open(vaultDir string) (*Index, error) {
 	// promises a note survives the agent's context running out, and a note held
 	// only here does not survive the user being told to delete this file.
 	session.SetVault(db, vaultDir)
+	// And open loops, for the same reason again: `brain loop` promised a list
+	// that survived a rebuild and kept it only here.
+	secretary.SetVault(db, vaultDir)
 	return &Index{Vault: vaultDir, DB: db}, nil
 }
 
@@ -185,6 +189,18 @@ func (ix *Index) SyncNotes() (int, error) {
 // Returns how many proposals it put back.
 func (ix *Index) SyncPending() (int, error) {
 	return memory.ImportPending(ix.DB, ix.Vault)
+}
+
+// SyncLoops restores open loops from the vault.
+//
+// The fifth thing that only the database knew, and the one with no excuse left:
+// `brain loop add` wrote a commitment into commitments and nowhere else, so the
+// documented-safe rebuild emptied the list, and the list coming back empty is
+// indistinguishable from having finished everything on it.
+//
+// Returns how many loops it put back.
+func (ix *Index) SyncLoops() (int, error) {
+	return secretary.Import(ix.DB, ix.Vault)
 }
 
 // deadAmbientTables held ambient-capture state — events, rollup proposals,
@@ -275,6 +291,7 @@ func (ix *Index) Close() error {
 	// and closes many vaults does not accumulate them.
 	memory.SetVault(ix.DB, "")
 	session.SetVault(ix.DB, "")
+	secretary.SetVault(ix.DB, "")
 	return ix.DB.Close()
 }
 
@@ -311,6 +328,13 @@ func (ix *Index) Sync() (SyncReport, error) {
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+		// loops.md is the commitment list written down, not a note. Indexing it
+		// would put every open loop into vault search as a document, so closing
+		// one changes a note the user never wrote. secretary.Import reconciles
+		// it instead.
+		if path == secretary.LoopsPath(ix.Vault) {
 			return nil
 		}
 		// Symlinks are skipped rather than followed. A link in the vault
