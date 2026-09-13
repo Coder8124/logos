@@ -183,3 +183,33 @@ func TestSetupDoesNotMentionThePluginWhenClaudeCodeIsNotWired(t *testing.T) {
 		t.Errorf("setup mentioned the Claude Code plugin with no Claude Code wired:\n%s", out)
 	}
 }
+
+// The README's Cursor button writes a `logos` entry. Setup then added `brain`
+// beside it and printed only `✓ registered`, so the moment the duplicate was
+// created was also the moment nothing mentioned it.
+func TestSetupNamesAnotherBrainEntryAlreadyInTheHost(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Cursor")
+	hosts := detectHosts()
+	hosts[0].List = func() ([]setup.Registration, error) {
+		return []setup.Registration{
+			{Name: "logos", Command: "npx -y @noeton/logos mcp serve"},
+			{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
+			{Name: "github", Command: "github-mcp"},
+		}, nil
+	}
+	detectHosts = func() []setup.Host { return hosts }
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "logos") || !strings.Contains(out, "twice") {
+		t.Errorf("setup did not name the other brain entry it sat beside:\n%s", out)
+	}
+	if strings.Contains(out, "github") {
+		t.Errorf("setup named an unrelated server as a duplicate:\n%s", out)
+	}
+}

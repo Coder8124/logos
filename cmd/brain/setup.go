@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Coder8124/brain/internal/health"
@@ -693,6 +694,10 @@ func wireHosts(vault string, opts wireOpts) error {
 	if showPlan {
 		fmt.Println() // separate the roster above from the outcomes below
 	}
+	byName := map[string]setup.Host{}
+	for _, h := range hosts {
+		byName[h.Name] = h
+	}
 	var wired int
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
@@ -708,6 +713,18 @@ func wireHosts(vault string, opts wireOpts) error {
 			// what makes a wrong --vault recoverable.
 			if r.Backup != "" {
 				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
+			}
+			// The README's Cursor button writes a `logos` entry, and a
+			// hand-written config may use any name. Setup adding `brain` beside
+			// it loads the server twice, each copy possibly on a different
+			// vault, and it used to report only that it registered.
+			if others := otherBrainEntries(byName[r.Host]); len(others) > 0 {
+				verb, which := "runs", "that entry"
+				if len(others) > 1 {
+					verb, which = "run", "those entries"
+				}
+				fmt.Printf("    %-16s    %s also %s brain here, so it now loads twice — remove %s\n",
+					"", strings.Join(others, ", "), verb, which)
 			}
 			// `claude mcp add` gives Claude Code the tools but not the
 			// plugin's hooks, so nothing restores the last checkpoint when a
@@ -836,4 +853,28 @@ func expandHome(path string) string {
 		}
 	}
 	return path
+}
+
+// otherBrainEntries names the host's registrations, other than the one setup
+// just wrote, that also start brain — matched the way doctor's duplicate
+// check matches them, so the two never disagree about what counts.
+func otherBrainEntries(h setup.Host) []string {
+	if h.List == nil {
+		return nil
+	}
+	regs, err := h.List()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, r := range regs {
+		if r.Name == setup.Name {
+			continue
+		}
+		if strings.Contains(r.Command, "mcp serve") || strings.HasPrefix(r.Name, "plugin:logos:") {
+			names = append(names, r.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
