@@ -134,6 +134,9 @@ func Run(in Input) Report {
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
 	r.Add(checkDuplicateRegistration(in.Hosts))
+	if c, ok := checkCachedRegistration(in.Hosts); ok {
+		r.Add(c)
+	}
 	if c, ok := checkPlugin(in.Version); ok {
 		r.Add(c)
 	}
@@ -768,6 +771,36 @@ func checkDuplicateRegistration(hosts []setup.Host) Check {
 	}
 	c.State = OK
 	return c
+}
+
+// checkCachedRegistration finds a host launching brain from inside npm's npx
+// cache. `npx … setup` on 0.4.2 wired that path, every check passed, and weeks
+// later npm pruned the file and the host could not start the server, with
+// nothing tying it back to setup. ok is false when no such entry exists.
+func checkCachedRegistration(hosts []setup.Host) (Check, bool) {
+	for _, h := range hosts {
+		if h.List == nil || h.Detect == nil || !h.Detect() {
+			continue
+		}
+		regs, err := h.List()
+		if err != nil {
+			continue
+		}
+		for _, r := range regs {
+			if !strings.Contains(r.Command, "mcp serve") {
+				continue
+			}
+			if strings.Contains(r.Command, "/_npx/") || strings.Contains(r.Command, `\_npx\`) {
+				return Check{
+					Name:   "host command",
+					State:  Failed,
+					Detail: fmt.Sprintf("%s runs %s from npm's npx cache, which npm deletes when it prunes", h.Name, r.Name),
+					Fix:    "run `npx -y @noeton/logos setup` again — it registers a command that does not live in the cache",
+				}, true
+			}
+		}
+	}
+	return Check{}, false
 }
 
 // checkPlugin compares the Logos plugin installed in Claude Code with this

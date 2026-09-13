@@ -963,3 +963,40 @@ func TestDoctorSaysNothingAboutAPluginThatIsNotInstalled(t *testing.T) {
 		t.Error("no plugin is installed, so there is nothing to report")
 	}
 }
+
+// `npx … setup` on 0.4.2 wired hosts to the binary inside npm's npx cache,
+// which npm prunes. Re-running setup now repairs the entry, but nothing told
+// the people who already had one that it would stop launching.
+func TestARegistrationInsideNpmsCacheIsFlagged(t *testing.T) {
+	hosts := []setup.Host{{
+		Name:   "Claude Desktop",
+		Detect: func() bool { return true },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{
+				{Name: "brain", Command: "/Users/someone/.npm/_npx/c2f5b285a40b44b5/node_modules/@noeton/logos-darwin-arm64/bin/brain mcp serve"},
+			}, nil
+		},
+	}}
+	c, ok := checkCachedRegistration(hosts)
+	if !ok || c.State != Failed {
+		t.Fatalf("a registration in npm's cache was not flagged: ok=%v state=%v", ok, c.State)
+	}
+	if !strings.Contains(c.Detail, "Claude Desktop") || !strings.Contains(c.Fix, "setup") {
+		t.Errorf("the check must name the host and say to re-run setup: %q / %q", c.Detail, c.Fix)
+	}
+}
+
+// `npx -y @noeton/logos mcp serve` is what setup registers now; it resolves
+// the package on each launch and is not a path npm can delete.
+func TestARegistrationThatRunsNpxIsNotFlagged(t *testing.T) {
+	hosts := []setup.Host{{
+		Name:   "Cursor",
+		Detect: func() bool { return true },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{{Name: "brain", Command: "npx -y @noeton/logos mcp serve"}}, nil
+		},
+	}}
+	if _, ok := checkCachedRegistration(hosts); ok {
+		t.Error("an npx registration was flagged as living in npm's cache")
+	}
+}
