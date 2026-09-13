@@ -247,10 +247,10 @@ itself.
 | **Codex** | supported | yes | `codex mcp add` | ✅ handshake + round trip |
 | **Cursor** | supported | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
 | **Claude Desktop** | supported | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
-| Cline (VS Code) | wired | yes | merges the extension's `cline_mcp_settings.json` | ❓ **help wanted** |
+| Cline (VS Code, Cursor, Windsurf) | wired | yes | merges the extension's `cline_mcp_settings.json` in each editor | ❓ **help wanted** |
 | Cline CLI | wired | yes | merges `~/.cline/data/settings/cline_mcp_settings.json` | ❓ **help wanted** |
 | Devin for Terminal | wired | yes | merges `~/.config/devin/mcp_config.json` (user scope) | ❓ **help wanted** |
-| GitHub Copilot CLI | wired | yes | merges `~/.copilot/mcp-config.json` | ❓ **help wanted** |
+| GitHub Copilot CLI | wired | yes | merges `~/.copilot/mcp-config.json`, or `$COPILOT_HOME/mcp-config.json` when set | ❓ **help wanted** |
 | GitHub Copilot in VS Code | wired | yes | merges VS Code's user `mcp.json` (`servers`) | ❓ **help wanted** |
 | Aider | not possible | no | Aider has no MCP client | — |
 | Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |

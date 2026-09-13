@@ -20,7 +20,7 @@ import (
 func Hosts() []Host {
 	return []Host{
 		claudeCode(), claudeDesktop(), cursor(), codex(),
-		cline(), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
+		cline("Cline", "Code"), cline("Cline in Cursor", "Cursor"), cline("Cline in Windsurf", "Windsurf"), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
 	}
 }
 
@@ -167,19 +167,21 @@ func jsonHost(name, path, root string, detect func() bool, entry func(Server) an
 
 func plainEntry(s Server) any { return serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env} }
 
-// cline is the Cline VS Code extension. It keeps its servers in the
-// extension's global storage, not in VS Code's own settings, and the storage
-// directory appears once the extension has run.
-func cline() Host {
+// cline is the Cline extension in a VS Code-family editor. It keeps its
+// servers in the extension's global storage, not in the editor's own settings,
+// and the storage directory appears once the extension has run. Cursor and
+// Windsurf each have their own storage, so Cline in them was never seen when
+// only VS Code's was looked at.
+func cline(name, app string) Host {
 	ext := ""
-	if dir := vscodeUserDir(); dir != "" {
+	if dir := editorUserDir(app); dir != "" {
 		ext = joinPath(dir, "globalStorage", "saoudrizwan.claude-dev")
 	}
 	path := ""
 	if ext != "" {
 		path = joinPath(ext, "settings", "cline_mcp_settings.json")
 	}
-	return jsonHost("Cline", path, "mcpServers", func() bool { return exists(ext) }, plainEntry)
+	return jsonHost(name, path, "mcpServers", func() bool { return exists(ext) }, plainEntry)
 }
 
 // clineCLI is Cline's terminal client. Its docs name ~/.cline/mcp.json, but
@@ -215,6 +217,11 @@ func devin() Host {
 // is not evidence of it: the VS Code extension leaves ~/.copilot/ide behind.
 func copilotCLI() Host {
 	path := inHome(".copilot", "mcp-config.json")
+	// COPILOT_HOME moves the whole config directory; writing ~/.copilot anyway
+	// reported a registration into a file Copilot never reads.
+	if dir := os.Getenv("COPILOT_HOME"); dir != "" {
+		path = joinPath(dir, "mcp-config.json")
+	}
 	return jsonHost("Copilot CLI", path, "mcpServers", func() bool {
 		return onPath("copilot") || exists(path)
 	}, func(s Server) any {
@@ -254,17 +261,21 @@ func copilotVSCode() Host {
 }
 
 // vscodeUserDir is VS Code's per-user settings directory, per platform.
-func vscodeUserDir() string {
+func vscodeUserDir() string { return editorUserDir("Code") }
+
+// editorUserDir is the per-user settings directory of a VS Code-family editor
+// whose application directory is app, per platform.
+func editorUserDir(app string) string {
 	switch runtime.GOOS {
 	case "darwin":
-		return inHome("Library", "Application Support", "Code", "User")
+		return inHome("Library", "Application Support", app, "User")
 	case "windows":
 		if dir := appData(); dir != "" {
-			return joinPath(dir, "Code", "User")
+			return joinPath(dir, app, "User")
 		}
 		return ""
 	default:
-		return inHome(".config", "Code", "User")
+		return inHome(".config", app, "User")
 	}
 }
 

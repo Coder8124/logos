@@ -217,3 +217,31 @@ func TestAnExistingVSCodeMCPConfigCountsAsCopilotInVSCode(t *testing.T) {
 		t.Error("a VS Code mcp.json was not taken as VS Code's MCP being in use")
 	}
 }
+
+// Copilot CLI reads its config from COPILOT_HOME when that is set. Setup wrote
+// ~/.copilot/mcp-config.json regardless and reported it registered, into a
+// file Copilot never reads.
+func TestCopilotCLIIsWiredUnderCOPILOT_HOMEWhenItIsSet(t *testing.T) {
+	fakeHome(t)
+	dir := filepath.Join(t.TempDir(), "copilot")
+	t.Setenv("COPILOT_HOME", dir)
+	if want := filepath.Join(dir, "mcp-config.json"); hostNamed(t, "Copilot CLI").Config() != want {
+		t.Errorf("Copilot CLI config = %s, want %s", hostNamed(t, "Copilot CLI").Config(), want)
+	}
+}
+
+// Cline installed in Cursor or Windsurf keeps its storage under that editor's
+// user directory, not VS Code's, and setup did not see it at all.
+func TestClineInCursorAndWindsurfIsDetectedAndWired(t *testing.T) {
+	for _, editor := range []struct{ host, app string }{
+		{"Cline in Cursor", "Cursor"},
+		{"Cline in Windsurf", "Windsurf"},
+	} {
+		user := filepath.Join(".config", editor.app, "User")
+		if runtime.GOOS == "darwin" {
+			user = filepath.Join("Library", "Application Support", editor.app, "User")
+		}
+		fakeHome(t, filepath.Join(user, "globalStorage", "saoudrizwan.claude-dev"))
+		installAndRead(t, hostNamed(t, editor.host), "mcpServers")
+	}
+}
