@@ -147,3 +147,39 @@ func TestSetupWithOnlyThePluginDoesNotSayNoHostsWereFound(t *testing.T) {
 		t.Errorf("setup must still say the plugin connects Claude Code:\n%s", out)
 	}
 }
+
+// Setup only runs `claude mcp add`, which gives Claude Code the tools but none
+// of the plugin's hooks — nothing restores the last checkpoint at session
+// start, so "resume" happens only if the model thinks to call it. The README
+// calls the plugin the version to prefer; setup never said it existed.
+func TestSetupPointsAClaudeCodeUserWithoutThePluginAtIt(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Claude Code")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "/plugin install logos@logos") {
+		t.Errorf("setup did not mention the plugin to a Claude Code user:\n%s", out)
+	}
+}
+
+// The hint is for Claude Code users. Someone wiring only Cursor has no use
+// for a Claude Code slash command.
+func TestSetupDoesNotMentionThePluginWhenClaudeCodeIsNotWired(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Desktop")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if strings.Contains(out, "/plugin") {
+		t.Errorf("setup mentioned the Claude Code plugin with no Claude Code wired:\n%s", out)
+	}
+}

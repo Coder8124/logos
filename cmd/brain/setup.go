@@ -671,6 +671,15 @@ func wireHosts(vault string, opts wireOpts) error {
 			if r.Backup != "" {
 				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
 			}
+			// `claude mcp add` gives Claude Code the tools but not the
+			// plugin's hooks, so nothing restores the last checkpoint when a
+			// session starts. A user who never hears of the plugin never gets
+			// the part of the product that works without being asked.
+			if r.Host == "Claude Code" {
+				fmt.Printf("    %-16s    for resume at every session start, install the Logos plugin in Claude Code:\n", "")
+				fmt.Printf("    %-16s    /plugin marketplace add Coder8124/logos, then /plugin install logos@logos,\n", "")
+				fmt.Printf("    %-16s    then `claude mcp remove --scope user brain` so it is not registered twice\n", "")
+			}
 		}
 	}
 
