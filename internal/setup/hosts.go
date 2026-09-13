@@ -2,6 +2,7 @@ package setup
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -38,7 +39,24 @@ func claudeCode() Host {
 			}
 			args = append(args, "--", s.Bin)
 			args = append(args, s.Args...)
-			return viaCLI("claude", args)
+			outcome, err := viaCLI("claude", args)
+			if err != nil || outcome != Updated {
+				return outcome, err
+			}
+			// "already exists" is Claude Code refusing to replace the entry,
+			// not a sign that it matches. Taken as success, re-running setup
+			// with a new vault or a new binary left Claude Code on the old one
+			// while reporting it connected. Replace it.
+			if _, err := viaCLI("claude", []string{"mcp", "remove", "--scope", "user", Name}); err != nil {
+				return Failed, fmt.Errorf("could not replace the existing brain entry in Claude Code: %w", err)
+			}
+			if outcome, err = viaCLI("claude", args); err != nil {
+				return Failed, fmt.Errorf("removed the old brain entry from Claude Code but could not add the new one — run `brain setup` again: %w", err)
+			}
+			if outcome != Registered {
+				return Failed, fmt.Errorf("Claude Code still refuses to replace its brain entry after removing it — check `claude mcp list`")
+			}
+			return Updated, nil
 		},
 		List: func() ([]Registration, error) {
 			out, err := exec.Command("claude", "mcp", "list").CombinedOutput()
