@@ -15,12 +15,28 @@
 # cause is a search that stopped one directory short. So look in the places
 # Go, Homebrew and npm actually install to, before giving up.
 #
-# Sets LOGOS as an array and returns 0, or returns 1 having set nothing.
+# Sets LOGOS as an array and returns 0, or returns 1 having set nothing. Either
+# way LOGOS_REJECTED names the first candidate that was found but passed over.
+#
+# A candidate is run, not just found. A file that exists proves nothing: other
+# npm packages install a `logos` bin of their own, and an npm install's shim
+# dies with `env: node: No such file or directory` in an app launched from the
+# Dock. Every brain since the plugin existed answers --version with "brain …".
+
+logos_runs() {
+  case "$("$@" --version 2>/dev/null)" in
+    "brain "*) return 0 ;;
+  esac
+  [ -n "$LOGOS_REJECTED" ] || LOGOS_REJECTED="$*"
+  return 1
+}
 
 logos_resolve() {
   local name dir cand
+  LOGOS_REJECTED=""
   for name in logos brain; do
-    if command -v "$name" >/dev/null 2>&1; then
+    cand=$(command -v "$name" 2>/dev/null) || continue
+    if logos_runs "$cand"; then
       LOGOS=("$name")
       return 0
     fi
@@ -30,7 +46,7 @@ logos_resolve() {
     [ -n "$dir" ] || continue
     for name in logos brain; do
       cand="$dir/$name"
-      if [ -x "$cand" ]; then
+      if [ -x "$cand" ] && logos_runs "$cand"; then
         LOGOS=("$cand")
         return 0
       fi

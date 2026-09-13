@@ -25,7 +25,10 @@ fi
 
 # Nothing to exec. Say so on stderr, where the host surfaces it, rather than
 # dying silently and leaving the user with a connection error and no cause.
-echo "logos: no logos or brain binary found on PATH or in the usual install directories," >&2
+if [ -n "${LOGOS_REJECTED:-}" ]; then
+  echo "logos: found $LOGOS_REJECTED, but it does not run as Logos — another program by that name, or an npm install with no node on this app's PATH," >&2
+fi
+echo "logos: no working logos or brain binary found on PATH or in the usual install directories," >&2
 echo "logos: and @noeton/logos is not installable here." >&2
 echo "logos: install one — go install github.com/Coder8124/brain/cmd/brain@latest — then restart Claude Code." >&2
 exit 1
