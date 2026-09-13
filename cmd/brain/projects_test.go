@@ -58,4 +58,8 @@ func TestProjectsNamesTheCheckpointProjectsItFoundWithNoDossier(t *testing.T) {
 	if !strings.Contains(out, "checkpoint") {
 		t.Errorf("the empty state must say what it did find, got:\n%s", out)
 	}
+	// One checkpoint in one project reads as a sentence, not a form field.
+	if !strings.Contains(out, "1 checkpoint across 1 project:") {
+		t.Errorf("the counts must be pluralised by number, got:\n%s", out)
+	}
 }

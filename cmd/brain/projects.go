@@ -45,17 +45,19 @@ func projectsCmd(args []string) error {
 		// "no projects detected" is false in the way that makes a person
 		// close the tool — their projects are right there on disk. Say what
 		// is actually in the vault, with the number (invariant 3).
-		if names, err := session.Projects(vaultPath()); err == nil && len(names) > 0 {
+		vault := vaultPath()
+		if names, err := session.Projects(vault); err == nil && len(names) > 0 {
 			checkpoints := 0
 			for _, n := range names {
-				h, err := session.History(vaultPath(), n, 0)
+				h, err := session.History(vault, n, 0)
 				if err != nil {
 					continue
 				}
 				checkpoints += len(h)
 			}
-			fmt.Printf("no rollup dossiers yet, but the vault holds %d checkpoint(s) across %d project(s): %s\n",
-				checkpoints, len(names), strings.Join(names, ", "))
+			fmt.Printf("no rollup dossiers yet, but the vault holds %d %s across %d %s: %s\n",
+				checkpoints, plural(checkpoints, "checkpoint"), len(names), plural(len(names), "project"),
+				strings.Join(names, ", "))
 			fmt.Println("dossiers emerge as the rollup files your activity into project notes; `brain sessions <name>` reads the checkpoints directly in the meantime.")
 			return nil
 		}
