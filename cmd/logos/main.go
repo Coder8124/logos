@@ -208,6 +208,7 @@ func unknownCommand(name string) {
 }
 
 func main() {
+	carryOldNames(os.Stderr)
 	if len(os.Args) < 2 {
 		usage()
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 
+	"github.com/Coder8124/logos/internal/legacy"
 	"github.com/Coder8124/logos/internal/vault"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,6 +21,9 @@ var assets embed.FS
 func vaultPath() string { return vault.Path() }
 
 func main() {
+	// Launched from Finder the app inherits no BRAIN_ variables, but one run
+	// from a shell with a 0.4 profile does; see internal/legacy.
+	legacy.Env()
 	app := NewApp(vaultPath())
 
 	err := wails.Run(&options.App{

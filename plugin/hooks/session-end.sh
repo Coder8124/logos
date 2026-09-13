@@ -41,8 +41,10 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # logos ignores the variable and notes as it always did.
 #
 # LOGOS_AGENT because the CLI otherwise signs as "cli", and this note is the
-# Claude Code session's, under the name its MCP calls already carry.
-if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
+# Claude Code session's, under the name its MCP calls already carry. The BRAIN_
+# names too, because the resolver still accepts a 0.4 brain binary, which reads
+# only those.
+if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 BRAIN_AGENT=claude-code BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
   case "$out" in
     skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
     *)        echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2 ;;
