@@ -65,8 +65,9 @@ func appendLogLocked(dir string, e LogEntry) error {
 	path := logPath(dir)
 	// The memory directory need not exist yet: the first thing that ever happens
 	// to a fresh vault can be a remember, and a timeline that refused to record
-	// it would be missing exactly the event that starts the history.
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// it would be missing exactly the event that starts the history. Private, like
+	// every other vault directory: this is often the call that creates it.
+	if err := vault.MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)

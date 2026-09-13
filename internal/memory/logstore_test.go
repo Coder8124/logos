@@ -163,3 +163,24 @@ func TestARestoredProposalKeepsTheDateItWasProposed(t *testing.T) {
 		t.Errorf("proposal dated %d, want %d — the rebuild re-dated it", got[0].TS, proposed)
 	}
 }
+
+// The timeline is often the first writer on a fresh vault, and it made
+// memories/ with 0755 while every other vault directory is 0700 — so the first
+// remember produced a directory `brain doctor` then warned about, a privacy
+// warning caused by brain itself on every new install.
+func TestTheFirstRememberOnAFreshVaultLeavesTheMemoryDirectoryPrivate(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "invoices are generated on the first of the month", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := os.Stat(filepath.Join(dir, Dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("memories/ was created %o; other users on the machine can list it", perm)
+	}
+}
