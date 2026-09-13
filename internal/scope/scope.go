@@ -43,8 +43,8 @@ const MarkerFile = ".logos-project"
 // silently rename every project underneath it.
 const maxWalk = 24
 
-// Name is the project for dir: the nearest .logos-project at or above it, and
-// otherwise dir's own basename.
+// Name is the project for dir: the nearest .logos-project at or above it, then
+// the git repository dir is inside, and otherwise dir's own basename.
 //
 // Callers that also honour an explicit argument or BRAIN_PROJECT check those
 // first — this is deliberately only the part that reads the disk, so the
@@ -54,7 +54,41 @@ func Name(dir string) string {
 	if n := FromMarker(dir); n != "" {
 		return n
 	}
+	if root := gitRoot(dir); root != "" {
+		return Basename(root)
+	}
 	return Basename(dir)
+}
+
+// gitRoot is the nearest directory at or above dir holding a .git — a
+// directory, or the file a worktree or submodule has instead — and "" when
+// there is none. A host launched in internal/db filed its checkpoint under "db",
+// and the session opened at the repository root never saw it.
+//
+// The walk stops short of the home directory: a home kept under git for its
+// dotfiles is not a project, and treating it as one would file every folder
+// beneath it under the user's name.
+func gitRoot(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	dir = filepath.Clean(dir)
+	home, _ := os.UserHomeDir()
+	for i := 0; i < maxWalk; i++ {
+		if home != "" && dir == filepath.Clean(home) {
+			return ""
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // FromMarker reads the nearest MarkerFile at or above dir, and returns "" when

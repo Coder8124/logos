@@ -93,3 +93,20 @@ func TestThePluginSaysWhenTheBinaryItFoundDoesNotRun(t *testing.T) {
 		t.Errorf("mcp.sh did not name the candidate it passed over:\n%s", out)
 	}
 }
+
+// `brain project-name ~` prints nothing, which means no project, and the hook
+// read that as an old binary and fell back to the folder name, so every session
+// started in the home directory was filed under the user's name.
+func TestThePluginKeepsTheBinarysAnswerOfNoProject(t *testing.T) {
+	bin := t.TempDir()
+	fakeProgram(t, bin, "global", `exit 0`)
+	fakeProgram(t, bin, "old", `echo "unknown command" >&2; exit 1`)
+	got, err := runResolver(t, "/usr/bin:/bin", "LOGOS=('"+filepath.Join(bin, "global")+"'); logos_project /Users/someone")
+	if err != nil || got != "" {
+		t.Errorf("an empty answer from the binary became %q (err %v), want no project", got, err)
+	}
+	got, _ = runResolver(t, "/usr/bin:/bin", "LOGOS=('"+filepath.Join(bin, "old")+"'); logos_project /Users/someone")
+	if got != "someone" {
+		t.Errorf("a binary without the verb gave %q, want the basename fallback %q", got, "someone")
+	}
+}

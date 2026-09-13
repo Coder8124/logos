@@ -115,3 +115,45 @@ func write(t *testing.T, path, body string) {
 		t.Fatal(err)
 	}
 }
+
+// A host launched in a subfolder filed its checkpoint under the subfolder's
+// name, and the next session opened at the repository root never saw it. The
+// repository is the project; a monorepo that wants one per service says so with
+// a marker, which is still read first.
+func TestASubfolderOfAGitRepositoryIsTheRepository(t *testing.T) {
+	for _, git := range []string{"directory", "file"} {
+		repo := filepath.Join(t.TempDir(), "api")
+		deep := filepath.Join(repo, "internal", "db")
+		if err := os.MkdirAll(deep, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A worktree or a submodule has a .git file rather than a directory.
+		if git == "directory" {
+			if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			write(t, filepath.Join(repo, ".git"), "gitdir: /elsewhere\n")
+		}
+		if got := Name(deep); got != "api" {
+			t.Errorf("with a .git %s, Name(subfolder) = %q, want %q", git, got, "api")
+		}
+	}
+}
+
+// A home directory kept under git for its dotfiles is not a project, and every
+// folder beneath it would otherwise be filed under the user's name.
+func TestAGitRepositoryAtHomeDoesNotNameWhatIsUnderIt(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "someone")
+	t.Setenv("HOME", home)
+	deep := filepath.Join(home, "notes", "drafts")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := Name(deep); got != "drafts" {
+		t.Errorf("Name under a git-tracked home = %q, want the folder's own name %q", got, "drafts")
+	}
+}

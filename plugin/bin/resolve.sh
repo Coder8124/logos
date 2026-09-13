@@ -73,12 +73,15 @@ logos_resolve() {
 # Falls back to the basename when the binary is too old to know the verb — an
 # old binary prints usage to stderr and nothing usable to stdout, and a hook
 # must not go silent over a version skew. Anything that is not a single clean
-# token is treated as that case.
+# token is treated as that case. A binary that succeeds and prints nothing is
+# answering "no project" (the home directory, /), and that answer is kept:
+# falling back there filed every session started in ~ under the user's name.
 logos_project() {
   local dir="${1:-$PWD}" name
-  name=$("${LOGOS[@]}" project-name "$dir" 2>/dev/null) || name=""
+  name=$("${LOGOS[@]}" project-name "$dir" 2>/dev/null) || name=" "
   case "$name" in
-    ""|*[[:space:]]*) basename "$dir" ;;
+    "") ;;
+    *[[:space:]]*) basename "$dir" ;;
     *) printf '%s\n' "$name" ;;
   esac
 }
