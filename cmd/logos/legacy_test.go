@@ -67,3 +67,23 @@ func TestTheCLIAnnouncesCarryingTheOldVault(t *testing.T) {
 		t.Errorf("start did not name the old vault it is using:\n%s", stderr.String())
 	}
 }
+
+// The move has to happen before any command opens the index, or that command
+// builds a fresh .logos/ and the old one is left over for good.
+func TestTheCLIMovesTheOldStateDirectoryBeforeAnyCommand(t *testing.T) {
+	v := t.TempDir()
+	t.Setenv("LOGOS_VAULT", v)
+	if err := os.Mkdir(v+"/.brain", 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	carryOldNames(&stderr)
+
+	if _, err := os.Stat(v + "/.logos"); err != nil {
+		t.Errorf(".logos is missing after start: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "moved") {
+		t.Errorf("start did not announce the move:\n%s", stderr.String())
+	}
+}

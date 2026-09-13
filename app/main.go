@@ -25,6 +25,7 @@ func main() {
 	// from a shell with a 0.4 profile does; see internal/legacy.
 	legacy.Env()
 	legacy.Vault()
+	legacy.StateDir(vaultPath())
 	app := NewApp(vaultPath())
 
 	err := wails.Run(&options.App{

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/logos/internal/legacy"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // carryOldNames lets an install from before the rename keep running, and says
@@ -18,6 +19,10 @@ func carryOldNames(stderr io.Writer) {
 	}
 	// After Env, so a BRAIN_VAULT already counts as a choice for this process.
 	if notice := legacy.Vault(); notice != "" {
+		fmt.Fprintf(stderr, "logos: %s\n", notice)
+	}
+	// After Vault, which may have just changed which vault this is.
+	if notice := legacy.StateDir(vault.Path()); notice != "" {
 		fmt.Fprintf(stderr, "logos: %s\n", notice)
 	}
 }
