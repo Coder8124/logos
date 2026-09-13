@@ -70,6 +70,8 @@ carried=$(printf '%s\n' "$handoff" | awk '
 # — every bullet in the pack, say — would inflate the receipt, and a receipt
 # that overstates what was restored is worse than none: the user checks it once,
 # finds half the promised items missing, and never reads it again.
+# "didn.t": the program sits inside single quotes, so no literal apostrophe.
+/^\*\*Already tried, didn.t work:\*\*/        { k = "0ruled-out approach";   next }
 /^\*\*Verified — safe to continue from:\*\*/  { k = "1verified fact";        next }
 /^\*\*Known broken — do not build on it:\*\*/ { k = "2known blocker";        next }
 /^## Not settled/                             { k = "3open question";        next }
@@ -87,7 +89,7 @@ END {
     for (i = 1; i <= m; i++) {
         c = n[key[i]]
         label = substr(key[i], 2)          # drop the sort prefix
-        if (c != 1) label = label "s"
+        if (c != 1) label = label (label ~ /h$/ ? "es" : "s")
         out = out (out ? ", " : "") c " " label
     }
     print out
