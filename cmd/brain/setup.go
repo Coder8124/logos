@@ -288,7 +288,8 @@ func allModels(args []string) bool { return hasFlag(args, "--all-models") }
 // one that is wrong on their machine.
 func modelSize(model string) string {
 	switch {
-	case strings.Contains(model, "embed"):
+	// The default only: a custom BRAIN_EMBED containing "embed" is not this size.
+	case strings.HasPrefix(model, "nomic-embed-text"):
 		return "~270 MB"
 	case strings.HasPrefix(model, "gemma3:4b"):
 		return "~3.3 GB"
