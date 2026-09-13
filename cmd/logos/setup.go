@@ -539,7 +539,9 @@ func terminalCommand(self string) (cmd, hint string) {
 // and say out loud that the wired command differs, rather than quietly claiming
 // to have tried it.
 func probeTarget(self string, srv setup.Server) (bin string, args []string, note string) {
-	if srv.Bin != self {
+	// Only npx's launcher fetches; an absolute path (this binary, or Homebrew's
+	// opt link to it) is probed as written.
+	if srv.Bin == "npx" {
 		return self, []string{"mcp", "serve"},
 			fmt.Sprintf("probed this binary; hosts launch `%s %s`, which resolves the same server on demand",
 				srv.Bin, strings.Join(srv.Args, " "))
@@ -566,6 +568,11 @@ func serverFor(bin, vault string) setup.Server {
 	env := map[string]string{"LOGOS_VAULT": vault}
 	if selfupdate.DetectInstall(bin) == selfupdate.NPX {
 		return setup.Server{Bin: "npx", Args: []string{"-y", "@noeton/logos", "mcp", "serve"}, Env: env}
+	}
+	// Under Homebrew bin is the versioned Cellar path, which `brew upgrade`
+	// deletes; the opt link follows upgrades.
+	if stable := selfupdate.HomebrewStablePath(bin); stable != "" {
+		bin = stable
 	}
 	return setup.Server{Bin: bin, Args: []string{"mcp", "serve"}, Env: env}
 }

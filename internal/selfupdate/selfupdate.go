@@ -282,7 +282,28 @@ const (
 	// (global or local). Replacing the binary works, but npm's own version
 	// bookkeeping will not reflect it.
 	NPMManaged
+	// Homebrew lives in a versioned directory under the Cellar that the next
+	// `brew upgrade` deletes, and brew's receipt records which version it put
+	// there. Replacing the file would be undone by brew, so brew updates it.
+	Homebrew
 )
+
+// HomebrewStablePath is <prefix>/opt/logos/bin/logos for a binary under
+// <prefix>/Cellar/logos/<version>/, or "" when path is not a Homebrew install
+// or the opt link does not exist. Homebrew points opt/logos at the current
+// version, so that path keeps working after `brew upgrade` removes this one.
+func HomebrewStablePath(path string) string {
+	norm := filepath.ToSlash(path)
+	i := strings.Index(norm, "/Cellar/logos/")
+	if i < 0 {
+		return ""
+	}
+	stable := filepath.Join(filepath.FromSlash(norm[:i]), "opt", "logos", "bin", filepath.Base(path))
+	if _, err := os.Stat(stable); err != nil {
+		return ""
+	}
+	return stable
+}
 
 // DetectInstall classifies a resolved executable path. Callers should run it
 // through filepath.EvalSymlinks first.
@@ -293,6 +314,8 @@ func DetectInstall(path string) InstallKind {
 		return NPX
 	case strings.Contains(norm, "node_modules/@noeton/logos"):
 		return NPMManaged
+	case strings.Contains(norm, "/Cellar/logos/"):
+		return Homebrew
 	default:
 		return Standalone
 	}
@@ -482,6 +505,11 @@ func Update(currentVersion string, opts Options) (Result, error) {
 	if DetectInstall(target) == NPX {
 		return Result{}, &Error{StepCheck, fmt.Errorf(
 			"running via npx, which resolves a fresh copy on every invocation — there is nothing here to replace. If npx has pinned an old version, try `npx clear-npx-cache`")}
+	}
+
+	if DetectInstall(target) == Homebrew {
+		return Result{}, &Error{StepCheck, fmt.Errorf(
+			"installed by Homebrew, which would undo a replaced binary on its next upgrade or cleanup — run `brew upgrade logos`")}
 	}
 
 	client := opts.client(currentVersion)
