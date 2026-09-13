@@ -32,6 +32,13 @@ import (
 // half-configured machine is worse than a configured one with a warning on it.
 
 func setupCmd(args []string) error {
+	// Checked before anything else: setup creates and records a vault and, at
+	// a terminal, offers to wire every host with Enter meaning yes. Asking for
+	// the flags must not be one keystroke from an install.
+	if hasFlag(args, "--help") || hasFlag(args, "-h") {
+		fmt.Print(setupUsage)
+		return nil
+	}
 	// --print-config and --config are the escape hatch for every MCP client
 	// that is not one of setup.Hosts()'s curated four. Both short-circuit
 	// before the vault is created or a host wired: neither one registers
@@ -852,7 +859,31 @@ func wireHosts(vault string, opts wireOpts) error {
 }
 
 // mcpInstallCmd is the wiring on its own, for someone who already has a vault.
+// setupUsage is what `brain setup --help` and `brain mcp install --help`
+// print instead of running.
+const setupUsage = `usage:
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
+                                      connect brain to the AI agents on this machine
+    brain setup --print-config [--vault DIR] [--format json|toml]
+                                      print the server block by hand, for any MCP client brain does not wire
+    brain setup --config <path> [--vault DIR]
+                                      merge brain into a config file at a location brain does not know by convention
+    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
+                                      register an existing vault with the MCP hosts found
+
+  --vault DIR     the vault to use (default: $BRAIN_VAULT, else the recorded vault, else ~/brain)
+  --host NAME     wire only this host; repeat for more
+  --no-hosts      create the vault but wire nothing
+  --dry-run       describe what would happen and change nothing
+  --yes           accept every prompt, for scripts
+  --all-models    list every local model, not just the recommended ones
+`
+
 func mcpInstallCmd(args []string) error {
+	if hasFlag(args, "--help") || hasFlag(args, "-h") {
+		fmt.Print(setupUsage)
+		return nil
+	}
 	vault := flagStr(args, "--vault", "")
 	if vault == "" {
 		vault = vaultPath()
