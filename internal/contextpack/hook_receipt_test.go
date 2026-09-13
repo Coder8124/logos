@@ -67,3 +67,41 @@ func TestTheRestoreReceiptCountsEverySectionTheHandoffCarriesRuledOutFirst(t *te
 		t.Errorf("receipt = %q\nwant      %q\nfrom the pack:\n%s", got, want, p.Render())
 	}
 }
+
+// Working notes open at checkpoint time are folded into the checkpoint under a
+// plain "Recorded during the session:" line, which the counter did not treat as
+// the end of a section — so one verified fact and two notes restored as "3
+// verified facts".
+func TestTheRestoreReceiptDoesNotCountFoldedNotesAsVerified(t *testing.T) {
+	if _, err := exec.LookPath("awk"); err != nil {
+		t.Skip("no awk on this machine")
+	}
+	ix := seedVault(t)
+	for _, note := range []string{"tariff table found", "waveguide quote requested"} {
+		if _, err := session.AddNote(ix.DB, "kestrel-one", "claude", note); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude",
+		Task:     "cut the BOM",
+		Verified: []string{"the single-mic BOM clears $118"},
+		Next:     "refresh the tariff table",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("awk", receiptCounter(t))
+	cmd.Stdin = strings.NewReader(p.Render())
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("awk: %v", err)
+	}
+	if got, want := strings.TrimSpace(string(out)), "1 verified fact"; got != want {
+		t.Errorf("receipt = %q\nwant      %q\nfrom the pack:\n%s", got, want, p.Render())
+	}
+}

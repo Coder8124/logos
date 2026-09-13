@@ -77,6 +77,9 @@ carried=$(printf '%s\n' "$handoff" | awk '
 /^## Not settled/                             { k = "3open question";        next }
 /^## Recorded since, not yet checkpointed/    { k = "4uncheckpointed note";  next }
 /^(## |\*\*)/                                 { k = "";                      next }
+# Notes folded into the checkpoint follow Verified under a plain line, not a
+# heading; without this their bullets were counted as verified facts.
+/^Recorded during the session:/               { k = "";                      next }
 # The marker the SessionEnd hook writes is not work anyone recorded; counting it
 # as a note would inflate the receipt with the hook talking about itself.
 k ~ /uncheckpointed/ && /session ended$/      { next }
