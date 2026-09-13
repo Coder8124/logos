@@ -22,7 +22,22 @@ import (
 // and this is the only place in the codebase that ever resolves it.
 
 // runReview accepts or rejects memories waiting in quarantine.
-func runReview(all bool) error {
+const reviewUsage = `usage:
+    brain review [--all]
+
+Accept or reject memories agents saved, which wait in quarantine until you do.
+
+    --all   go through every pending memory instead of the first 20
+`
+
+func runReview(args []string) error {
+	// The review reads answers from stdin, so running it when someone only
+	// asked for the flags blocks on the first pending memory.
+	if hasFlag(args, "--help") || hasFlag(args, "-h") {
+		fmt.Print(reviewUsage)
+		return nil
+	}
+	all := hasFlag(args, "--all")
 	ix, err := openEvents()
 	if err != nil {
 		return err

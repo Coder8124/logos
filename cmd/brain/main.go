@@ -293,7 +293,7 @@ func main() {
 	case cmd == "project" && len(args) > 0 && args[0] == "rename":
 		err = runProjectRename(args[1:])
 	case cmd == "review":
-		err = runReview(hasFlag(args, "--all"))
+		err = runReview(args)
 	case cmd == "dream":
 		err = dreamCmd(args)
 	case cmd == "replay":
