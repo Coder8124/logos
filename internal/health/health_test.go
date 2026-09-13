@@ -840,3 +840,37 @@ func TestABacklogOfChoresIsNotGradedAsADefect(t *testing.T) {
 		t.Errorf("warn count = %d, want 2", warn)
 	}
 }
+
+// A fix is a command the user copies. A vault path with a space in it, pasted
+// unquoted, is two arguments — `brain setup --vault /tmp/av fresh` sets up
+// /tmp/av and hands setup a stray "fresh" — so the path has to arrive quoted.
+func TestAFixCommandQuotesAVaultPathWithASpace(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "av fresh")
+	if got, want := checkVault(missing).Fix, "run `brain setup --vault '"+missing+"'`"; got != want {
+		t.Errorf("vault fix:\n got %s\nwant %s", got, want)
+	}
+
+	open := filepath.Join(t.TempDir(), "av fresh")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := checkPrivacy(open).Fix, "run `chmod -R go-rwx '"+open+"'` if this machine has other accounts on it"; got != want {
+		t.Errorf("privacy fix:\n got %s\nwant %s", got, want)
+	}
+}
+
+// Quoting is for the paths that need it. Wrapping every ordinary path in quotes
+// would make the common case read worse to fix a rare one.
+func TestShellArgLeavesAPlainPathAloneAndEscapesAQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"/Users/me/brain":  "/Users/me/brain",
+		"~/brain":          "~/brain",
+		"/tmp/av fresh":    "'/tmp/av fresh'",
+		"/tmp/it's mine":   `'/tmp/it'\''s mine'`,
+		"/tmp/$HOME/vault": "'/tmp/$HOME/vault'",
+	} {
+		if got := shellArg(in); got != want {
+			t.Errorf("shellArg(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

@@ -145,7 +145,7 @@ func checkVault(dir string) Check {
 	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		c.State, c.Detail = Failed, dir+" does not exist"
-		c.Fix = "run `brain setup --vault " + dir + "`"
+		c.Fix = "run `brain setup --vault " + shellArg(dir) + "`"
 		return c
 	}
 	if err != nil {
@@ -210,7 +210,7 @@ func checkVault(dir string) Check {
 		if other, n := populatedVaultElsewhere(dir); n > 0 {
 			c.State = Failed
 			c.Detail = fmt.Sprintf("no checkpoints here, but %s holds %d — every front end is reading this empty vault instead", other, n)
-			c.Fix = "run `brain setup --vault " + other + "` to repoint this machine"
+			c.Fix = "run `brain setup --vault " + shellArg(other) + "` to repoint this machine"
 			return c
 		}
 	}
@@ -932,6 +932,24 @@ func checkPrivacy(dir string) Check {
 		c.Detail = fmt.Sprintf("%s is private, but %s inside it %s readable by other users on this machine",
 			dir, strings.Join(open, ", "), isAre(len(open)))
 	}
-	c.Fix = "run `chmod -R go-rwx " + dir + "` if this machine has other accounts on it"
+	c.Fix = "run `chmod -R go-rwx " + shellArg(dir) + "` if this machine has other accounts on it"
 	return c
+}
+
+// shellArg makes a path safe to paste into a shell as one argument. A Fix is a
+// command the user copies, and a vault under "~/My Drive" pasted bare is two
+// arguments that set up the wrong directory. Single quotes, because inside them
+// the shell expands nothing — a path with a "$" in it stays that path.
+func shellArg(s string) string {
+	plain := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-~+,:@%=", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
