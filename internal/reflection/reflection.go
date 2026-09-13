@@ -13,8 +13,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/secretary"
 )
 
 // growthWeeks is how many trailing weeks of learning the growth series covers.

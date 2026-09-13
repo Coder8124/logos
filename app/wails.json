@@ -1,16 +1,16 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "brain",
-  "outputfilename": "brain-app",
+  "name": "logos",
+  "outputfilename": "logos-app",
   "frontend:dir": "frontend",
   "frontend:install": "",
   "frontend:build": "",
   "wailsjsdir": "./frontend",
   "author": {
-    "name": "brain"
+    "name": "logos"
   },
   "info": {
-    "productName": "brain",
+    "productName": "logos",
     "productVersion": "0.4.3"
   }
 }

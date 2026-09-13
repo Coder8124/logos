@@ -3,7 +3,7 @@ package index
 import (
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // seedMemory inserts a memory directly, the way `seed` inserts a note directly
@@ -82,10 +82,10 @@ func TestLexicalOnGarbageQueryDoesNotError(t *testing.T) {
 	}
 }
 
-// The state BRAIN_EMBED=off puts a shell in: a runtime may be reachable, but
+// The state LOGOS_EMBED=off puts a shell in: a runtime may be reachable, but
 // the caller has asked for no embeddings. HybridSearch must degrade to the
 // lexical arm rather than pass an empty (or "off") model name down to the
-// runtime — which is how `brain ask` came to return a 404 from Ollama instead
+// runtime — which is how `logos ask` came to return a 404 from Ollama instead
 // of an answer.
 func TestHybridSearchWithoutAnEmbedderFallsBackToLexical(t *testing.T) {
 	ix := newTestIndex(t)
@@ -101,9 +101,9 @@ func TestHybridSearchWithoutAnEmbedderFallsBackToLexical(t *testing.T) {
 	}
 }
 
-// Before this fix, `brain search`/`brain ask` queried only notes/embeddings —
+// Before this fix, `logos search`/`logos ask` queried only notes/embeddings —
 // a fact stored with `memory add` was invisible to the two commands billed as
-// "retrieval", even though `brain memory log` confirmed it was stored and
+// "retrieval", even though `logos memory log` confirmed it was stored and
 // indexed. HybridSearch (and its no-embedder fallback below) must surface it.
 func TestHybridSearchSurfacesAStoredMemory(t *testing.T) {
 	ix := newTestIndex(t)

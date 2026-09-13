@@ -8,19 +8,11 @@ wrapper package, and this file deliberately does not.
 it is the convention MCP hosts already use, which is why this is the primary
 distribution channel rather than an afterthought behind a `go install`.
 
-## Two names, on purpose
+## Formerly brain
 
-**Logos** is the product. **brain** is the development name — the Go module
-(`github.com/Coder8124/brain`), the command the binary calls itself
-in its own help, and `BRAIN_VAULT`.
-
-The seam is exactly one file, `bin/logos.js`: the npm packages carry the product
-name, and the executable inside them keeps the development name. Nothing in the
-Go tree was renamed to publish this, which is why the two can be settled
-independently.
-
-The wrapper installs `logos` and `brain` as the same command, so either reads
-correctly next to whichever set of docs you are looking at.
+Logos was developed as `brain`. The wrapper still installs `brain` as a second
+name for the same command through 0.4.x, so scripts and host configs written
+against the old name keep working. It goes before 0.5.0.
 
 ## How it is packaged
 
@@ -96,7 +88,7 @@ its own, so what npm ships is byte-identical to the GitHub release and covered
 by the same `SHA256SUMS`.
 
 Bump the version in `package.json` — `build.js` reads it, stamps every platform
-package with it, and looks for `dist/brain_v<version>_*` archives, so a mismatch
+package with it, and looks for `dist/logos_v<version>_*` archives, so a mismatch
 between the tag and the package version is caught as a missing archive rather
 than shipping quietly.
 

@@ -27,7 +27,7 @@
              silent stream instead of failing — so recording "succeeds" and
              transcribes nothing. -->
         <key>NSMicrophoneUsageDescription</key>
-        <string>brain transcribes what you say on this machine, so you can talk to it instead of typing. Audio never leaves your Mac.</string>
+        <string>logos transcribes what you say on this machine, so you can talk to it instead of typing. Audio never leaves your Mac.</string>
         <key>NSHumanReadableCopyright</key>
         <string>{{.Info.Copyright}}</string>
         {{if .Info.FileAssociations}}

@@ -55,8 +55,8 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 }
 
-// resolveObj turns an edge's normalised target ("brain") into the actual note
-// slug ("projects/brain"). Edges store the trailing segment; this matches it
+// resolveObj turns an edge's normalised target ("logos") into the actual note
+// slug ("projects/logos"). Edges store the trailing segment; this matches it
 // back the same way retrieval does.
 func resolveObj(db *sql.DB, obj string) (string, bool) {
 	var slug string

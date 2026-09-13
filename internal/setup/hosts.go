@@ -10,12 +10,12 @@ import (
 	"strings"
 )
 
-// Hosts returns every MCP host brain knows how to connect to, in the order
+// Hosts returns every MCP host logos knows how to connect to, in the order
 // they are reported.
 //
 // Each entry is a promise to keep working as somebody else's application
 // changes, so a host is added when people ask for it, not speculatively. Aider
-// is not here because it has no MCP client to register with; `brain setup
+// is not here because it has no MCP client to register with; `logos setup
 // --print-config` is the answer for a client that is not on the list.
 func Hosts() []Host {
 	return []Host{
@@ -28,7 +28,7 @@ func Hosts() []Host {
 //
 // --scope user, not the default local scope: local scope binds the server to
 // whatever directory the command happened to run in, and a memory that only
-// exists in one folder is not what anyone means by connecting their brain.
+// exists in one folder is not what anyone means by connecting their logos.
 func claudeCode() Host {
 	return Host{
 		Name:   "Claude Code",
@@ -53,13 +53,13 @@ func claudeCode() Host {
 			// with a new vault or a new binary left Claude Code on the old one
 			// while reporting it connected. Replace it.
 			if _, err := viaCLI("claude", []string{"mcp", "remove", "--scope", "user", Name}); err != nil {
-				return Failed, fmt.Errorf("could not replace the existing brain entry in Claude Code: %w", err)
+				return Failed, fmt.Errorf("could not replace the existing logos entry in Claude Code: %w", err)
 			}
 			if outcome, err = viaCLI("claude", args); err != nil {
-				return Failed, fmt.Errorf("removed the old brain entry from Claude Code but could not add the new one — run `brain setup` again: %w", err)
+				return Failed, fmt.Errorf("removed the old logos entry from Claude Code but could not add the new one — run `logos setup` again: %w", err)
 			}
 			if outcome != Registered {
-				return Failed, fmt.Errorf("Claude Code still refuses to replace its brain entry after removing it — check `claude mcp list`")
+				return Failed, fmt.Errorf("Claude Code still refuses to replace its logos entry after removing it — check `claude mcp list`")
 			}
 			return Updated, nil
 		},
@@ -151,7 +151,7 @@ func cursor() Host {
 }
 
 // jsonHost is a host whose registration is a merge into one JSON file:
-// entry shapes brain's server the way that host reads it, under root.
+// entry shapes logos's server the way that host reads it, under root.
 func jsonHost(name, path, root string, detect func() bool, entry func(Server) any) Host {
 	return Host{
 		Name:   name,
@@ -195,7 +195,7 @@ func clineCLI() Host {
 
 // devin is Devin for Terminal. `devin mcp add` defaults to a scope bound to
 // the directory it ran in, so the user-scope file is written directly: a
-// memory that exists in one folder is not a connected brain.
+// memory that exists in one folder is not a connected logos.
 func devin() Host {
 	path := inHome(".config", "devin", "mcp_config.json")
 	if runtime.GOOS == "windows" {
@@ -301,7 +301,7 @@ func onPath(bin string) bool {
 }
 
 // LogosPlugin reports whether the Logos plugin is installed in Claude Code, and
-// at which version. The plugin carries its own MCP server, so registering brain
+// at which version. The plugin carries its own MCP server, so registering logos
 // with `claude mcp add` on top of it lists every tool twice and pays the
 // per-session cost twice. Claude Code records installed plugins in this file,
 // keyed "<plugin>@<marketplace>".

@@ -12,11 +12,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secretary"
 )
 
 // Turn is one message in the conversation.

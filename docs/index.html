@@ -728,7 +728,7 @@ footer .sp { margin-left: auto; }
         <span class="thread down"></span>
       </div>
       <div class="vaultbox">
-        <b>~/brain</b>
+        <b>~/logos</b>
         <span>
           Markdown files, one directory, on your machine. Open them in any editor.
           <code>grep</code> them. Commit them. Delete the index and it rebuilds from
@@ -743,7 +743,7 @@ footer .sp { margin-left: auto; }
     <div class="body">
       <h2>Two values for one thing</h2>
       <p>
-        Everything below is output from <code>brain demo</code>, copied out of a real
+        Everything below is output from <code>logos demo</code>, copied out of a real
         run against a scratch vault. Nothing here is a mockup, and you can produce the
         same six panes on your own machine in about four seconds.
       </p>
@@ -760,7 +760,7 @@ footer .sp { margin-left: auto; }
             <div class="shot">
               <div class="bar"><b>claude code</b> <span class="side">tool: remember</span></div>
 <pre>  <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
-  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #1</span></pre>
+  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #1</span></pre>
             </div>
           </div>
         </div>
@@ -775,7 +775,7 @@ footer .sp { margin-left: auto; }
             <div class="shot">
               <div class="bar"><b>cursor</b> <span class="side">tool: remember</span></div>
 <pre>  <span class="g">&gt;</span> <span class="say">"we moved staging to port 9090"</span>
-  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #2</span></pre>
+  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #2</span></pre>
             </div>
           </div>
         </div>
@@ -837,7 +837,7 @@ footer .sp { margin-left: auto; }
               <p>Append-only. You can ask any memory when it was learned, what corroborated it, and what replaced it.</p>
             </div>
             <div class="shot record-tint">
-              <div class="bar"><b>brain memory log</b> <span class="side">append-only timeline</span></div>
+              <div class="bar"><b>logos memory log</b> <span class="side">append-only timeline</span></div>
 <pre>  <span class="g">created    </span> <span class="br">#1</span>  Staging runs on port 8080.
   <span class="g">created    </span> <span class="br">#2</span>  Staging runs on port 9090.
   <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
@@ -921,13 +921,13 @@ a5e72a2 &middot; 2 files uncommitted
         writes nothing until you drop <code>--dry-run</code>.
       </p>
       <div class="shot">
-        <div class="bar"><b>brain bootstrap --dry-run</b> <span class="side">nothing written</span></div>
-<pre><span class="say">From the git history of ~/code/logos, scoped to project "brain":</span>
+        <div class="bar"><b>logos bootstrap --dry-run</b> <span class="side">nothing written</span></div>
+<pre><span class="say">From the git history of ~/code/logos, scoped to project "logos":</span>
 
   <span class="g">1.</span> Coder8124 writes most of this codebase &mdash; 145 of the last 145 commits.
      <span class="g">git shortlog -sn: Coder8124 145/145 &middot; confidence 0.80</span>
 
-  <span class="g">2.</span> Change concentrates in cmd/brain/ (145), (root) (93) and
+  <span class="g">2.</span> Change concentrates in cmd/logos/ (145), (root) (93) and
      internal/memory/ (72) &mdash; file-touch counts over the last 145 commits.
      <span class="g">git log --name-only: 977 paths across 69 areas &middot; confidence 0.80</span>
 
@@ -943,7 +943,7 @@ a5e72a2 &middot; 2 files uncommitted
       </div>
       <p class="note">
         Every line carries the command behind it, so you can check any claim rather than
-        take it. Changed your mind after writing them? <code>brain memory forget --source bootstrap</code>
+        take it. Changed your mind after writing them? <code>logos memory forget --source bootstrap</code>
         removes exactly what the machine added and nothing you did.
       </p>
     </div>
@@ -962,9 +962,9 @@ a5e72a2 &middot; 2 files uncommitted
 
       <ul class="layers">
         <li><b>Vault format</b><span>Markdown with YAML front matter. Human-readable, diffable, greppable, and committable to your own git. Truth lives here.</span></li>
-        <li><b>Index</b><span><code>.brain/index.db</code> is SQLite and is a <em>cache</em>. Delete it; it rebuilds from the files. Nothing is only in the database.</span></li>
+        <li><b>Index</b><span><code>.logos/index.db</code> is SQLite and is a <em>cache</em>. Delete it; it rebuilds from the files. Nothing is only in the database.</span></li>
         <li><b>MCP interface</b><span>The wire protocol every host already speaks. Not a plugin per editor &mdash; one server, and the hosts are interchangeable.</span></li>
-        <li><b>Go package</b><span><code>import "github.com/Coder8124/brain"</code> and embed the engine directly if you are building your own agent.</span></li>
+        <li><b>Go package</b><span><code>import "github.com/Coder8124/logos"</code> and embed the engine directly if you are building your own agent.</span></li>
         <li><b>CLI</b><span>Every operation available over MCP is also a command, so a shell script, a CI job, or an agent framework nobody has written yet is a first-class client.</span></li>
         <li><b>Provenance</b><span>Each memory records which agent learned it, from what source, when, and at what confidence &mdash; taken from the MCP handshake, never asked of the model.</span></li>
         <li><b>Semantics</b><span>Supersession, dead ends and abstention mean the same thing to every client, because they are properties of the record rather than of a prompt.</span></li>
@@ -1066,9 +1066,9 @@ a5e72a2 &middot; 2 files uncommitted
       </p>
       <div class="shot">
         <div class="bar"><b>in the chat</b> <span class="side">receipts</span></div>
-<pre>  <span class="ok">&#10003; Logos &middot; stored in brain &mdash; memory #41 (fact, kestrel)</span>
+<pre>  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #41 (fact, kestrel)</span>
   <span class="ok">&#10003; Logos &middot; already knew that &mdash; reinforced memory #12 (fact, kestrel)</span>
-  <span class="ok">&#10003; Logos &middot; checkpoint saved to brain &mdash; 20260902-171104-claude.md</span>
+  <span class="ok">&#10003; Logos &middot; checkpoint saved to logos &mdash; 20260902-171104-claude.md</span>
   <span class="ok">&#10003; Logos &middot; recalled 1 checkpoint, 3 notes, 2 open questions</span></pre>
       </div>
       <p class="note">
@@ -1078,7 +1078,7 @@ a5e72a2 &middot; 2 files uncommitted
       </p>
       <p style="margin-top:1.1rem">
         And a separate, host-level record that does not depend on a model choosing to write
-        it: <code>brain activity</code> replays every prompt, tool call and turn the agent
+        it: <code>logos activity</code> replays every prompt, tool call and turn the agent
         actually took, captured by hooks rather than volunteered.
       </p>
     </div>
@@ -1147,7 +1147,7 @@ a5e72a2 &middot; 2 files uncommitted
   }
 }'>Copy</button>
       </div>
-      <p class="note">Add <code>"env": { "BRAIN_VAULT": "/path/to/vault" }</code> to keep the vault somewhere other than <code>~/brain</code>.</p>
+      <p class="note">Add <code>"env": { "LOGOS_VAULT": "/path/to/vault" }</code> to keep the vault somewhere other than <code>~/logos</code>.</p>
     </div>
   </div>
 
@@ -1172,8 +1172,8 @@ a5e72a2 &middot; 2 files uncommitted
       </div>
       <p class="note">
         Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/SHA256SUMS">SHA256SUMS</a>
-        &middot; the executable inside keeps the development name, <code>brain</code>.
-        With Go on the machine: <code>go install github.com/Coder8124/brain/cmd/brain@latest</code>.
+        &middot; releases up to v0.4.3 name the executable <code>brain</code>.
+        With Go on the machine: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>.
       </p>
     </div>
   </div>
@@ -1204,12 +1204,12 @@ a5e72a2 &middot; 2 files uncommitted
     <div class="body">
       <h2>What installing actually does to your machine</h2>
       <ul class="facts">
-        <li><strong>A directory of markdown files</strong>, at <code>~/brain</code> unless you say otherwise. Open them, grep them, commit them, delete them.</li>
+        <li><strong>A directory of markdown files</strong>, at <code>~/logos</code> unless you say otherwise. Open them, grep them, commit them, delete them.</li>
         <li><strong>Nothing is wired without a yes.</strong> Setup lists the agents it found and what it would write to each, and <code>--dry-run</code> prints the plan without touching anything.</li>
-        <li><strong>Nothing an agent proposes is believed on the spot.</strong> A memory written over MCP waits in a review queue &mdash; <code>brain review</code> accepts or rejects it, and it carries which agent proposed it.</li>
+        <li><strong>Nothing an agent proposes is believed on the spot.</strong> A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it, and it carries which agent proposed it.</li>
         <li><strong>No <code>postinstall</code> script.</strong> The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs both work.</li>
         <li><strong>No AI runtime required.</strong> Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical, which for identifiers and stack traces is arguably the right tool anyway.</li>
-        <li><strong>No account, no server, no telemetry.</strong> <code>.brain/index.db</code> is a cache; delete it and it rebuilds from the files.</li>
+        <li><strong>No account, no server, no telemetry.</strong> <code>.logos/index.db</code> is a cache; delete it and it rebuilds from the files.</li>
       </ul>
       <div class="tablewrap" style="margin-top:1.4rem">
         <table>
@@ -1228,7 +1228,7 @@ a5e72a2 &middot; 2 files uncommitted
     <span>Logos v0.4.3 &middot; Apache 2.0</span>
     <a href="https://github.com/Coder8124/logos">Coder8124/logos</a>
     <a href="https://www.npmjs.com/package/@noeton/logos">@noeton/logos</a>
-    <span class="sp">&ldquo;brain&rdquo; is the development name and stays one.</span>
+    <span class="sp">Formerly &ldquo;brain&rdquo;.</span>
   </footer>
 
 </div>

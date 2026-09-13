@@ -171,7 +171,7 @@ Nine systems: four real, five controls.
 
 | System | Description |
 |---|---|
-| **brain** | markdown checkpoints, hybrid BM25+vector retrieval with RRF fusion, budgeted context assembly |
+| **logos** | markdown checkpoints, hybrid BM25+vector retrieval with RRF fusion, budgeted context assembly |
 | **letta** | Letta 0.16.8 (formerly MemGPT), archival memory, local server |
 | **mem0** | mem0ai, verbatim store with BM25/vector search |
 | **mempalace** | MemPalace, local spatially-scoped store |
@@ -196,7 +196,7 @@ where a row of zeros would be a false claim about that system.
 
 ```
 system                pass  fidelity  carry   leak  signal  tokens  dens/1k
-brain                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
+logos                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%     308      4.0
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%     230     11.0
 full-dump            46.9%    68.8%   84.4%  83.3%   22.2%     264     10.9
@@ -211,7 +211,7 @@ By family:
 
 ```
 system              continuity  durability  memory
-brain                      86%        100%     73%
+logos                      86%        100%     73%
 mempalace                  50%          0%     53%
 recency-window             50%          0%     53%
 full-dump                  50%          0%     53%
@@ -250,11 +250,11 @@ Three scenarios write, delete every rebuildable artifact, and read again. One
 system scores 100%; every other system, including every control, scores 0%.
 
 This measures where the source of truth lives rather than retrieval quality.
-brain writes to markdown files the user owns and treats its SQLite index as a
+logos writes to markdown files the user owns and treats its SQLite index as a
 cache; the others keep knowledge inside their own store, so deleting the store
 deletes what they know.
 
-We note this family exists because **it was once false for brain too**: memories
+We note this family exists because **it was once false for logos too**: memories
 lived only in the cache, and the project's own documentation instructed users to
 delete it. The benchmark caught it. We report this because a family that only
 ever passed would be evidence of nothing.
@@ -286,9 +286,9 @@ Reported because a benchmark that shows only wins is marketing.
 |---|---|
 | **arithmetic** | **0% for every system.** Aggregating values across records. Retrieval is not computation. |
 | **recency-conflict** | **0% for every system.** Two sources disagree *and* one is newer; preferring recency unprompted. |
-| **temporal** | **brain 0%, MemPalace 50%.** Ordering events and answering windowed questions. The one skill where a competitor wins outright. |
-| **multi-hop** | **brain 0%; recency-window and full-dump 100%.** The dumb controls win by carrying everything — the tradeoff their 83.3% leak pays for, but a loss regardless. |
-| **conflict** | **brain 50%.** Half the contradiction cases remain unflagged. |
+| **temporal** | **logos 0%, MemPalace 50%.** Ordering events and answering windowed questions. The one skill where a competitor wins outright. |
+| **multi-hop** | **logos 0%; recency-window and full-dump 100%.** The dumb controls win by carrying everything — the tradeoff their 83.3% leak pays for, but a loss regardless. |
+| **conflict** | **logos 50%.** Half the contradiction cases remain unflagged. |
 
 The temporal result is corroborated externally: an independent comparison
 reports Zep's temporal knowledge graph scoring ~15 points higher than
@@ -346,9 +346,9 @@ pgvector and a running server.
 Harness, scenarios, scoring and adapters are released with the system.
 
 ```sh
-go run ./cmd/brain bench continuity --brain-only   # needs only Ollama
-go run ./cmd/brain bench continuity                # the full field
-go run ./cmd/brain bench continuity list           # every scenario and what it asks
+go run ./cmd/logos bench continuity --logos-only   # needs only Ollama
+go run ./cmd/logos bench continuity                # the full field
+go run ./cmd/logos bench continuity list           # every scenario and what it asks
 ```
 
 Scenario definitions are in `internal/eval/scenarios.go`, scoring in

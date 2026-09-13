@@ -1,6 +1,6 @@
 package contextpack
 
-import "github.com/Coder8124/brain/internal/untrusted"
+import "github.com/Coder8124/logos/internal/untrusted"
 
 // inline, block and boundary used to be defined here. They moved to
 // internal/untrusted so a second renderer — internal/procedure's

@@ -29,13 +29,13 @@ document.getElementById("test").addEventListener("click", async () => {
     port: parseInt(portEl.value, 10) || 8137,
     token: tokenEl.value.trim(),
   });
-  chrome.runtime.sendMessage({ type: "brain-call", method: "tools/list", params: {} }, (resp) => {
+  chrome.runtime.sendMessage({ type: "logos-call", method: "tools/list", params: {} }, (resp) => {
     if (!resp || !resp.ok) {
       setStatus(`failed: ${resp ? resp.error : "no response"}`, false);
       return;
     }
     const n = (resp.result?.tools || []).length;
-    setStatus(`connected — brain reports ${n} tools.`, true);
+    setStatus(`connected — logos reports ${n} tools.`, true);
   });
 });
 

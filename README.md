@@ -2,7 +2,7 @@
 
 **When one coding agent stops, the next one continues the work.**
 
-| [Setup](SETUP.md) | [Benchmark](docs/continuity-benchmark.md) | [Agent guide](systemmd/BRAINPROMPT.md) | [Contributing](CONTRIBUTING.md) | [Site](https://coder8124.github.io/logos/) |
+| [Setup](SETUP.md) | [Benchmark](docs/continuity-benchmark.md) | [Agent guide](systemmd/LOGOSPROMPT.md) | [Contributing](CONTRIBUTING.md) | [Site](https://coder8124.github.io/logos/) |
 | --- | --- | --- | --- | --- |
 
 ## About
@@ -18,14 +18,14 @@ Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──�
 ```
 
 It runs on your machine, against a directory of markdown files you own, and
-uploads nothing. `.brain/index.db` is a cache you can delete and rebuild from
+uploads nothing. `.logos/index.db` is a cache you can delete and rebuild from
 the markdown. If this project dies, you keep a vault.
 
 **Nothing is observed.** Logos does not watch your screen, your browser
 history, your files or your calendar. The only things in your vault are things
 an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
 remember and you approved. The one network call Logos ever makes on its own is
-`brain update` checking for a new release, and only when you type it; nothing
+`logos update` checking for a new release, and only when you type it; nothing
 else leaves the machine, ever. Launched through `npx`, npm itself asks the
 registry for the package on every start — the package name, none of your
 data — and without a connection it waits and then fails. An installed binary
@@ -46,7 +46,7 @@ data — and without a connection it waits and then fails. An installed binary
 - Markdown is the truth; the SQLite index is a disposable cache
 - Runs with no model runtime at all — semantic search degrades to lexical, nothing breaks
 - Hybrid retrieval: FTS5 plus local embeddings through Ollama, when one is available
-- Vault files are written 0600, and `brain doctor` reports what the rest of the machine can read
+- Vault files are written 0600, and `logos doctor` reports what the rest of the machine can read
 - Survives SIGKILL mid-write, a full disk, and two processes racing on one vault ([`chaos/`](chaos/))
 - Project- and worktree-scoped, so one repository's facts do not surface in another
 
@@ -55,7 +55,7 @@ data — and without a connection it waits and then fails. An installed binary
 - MCP server for Claude Code, Claude Desktop, Cursor, Codex, Cline, Devin, GitHub Copilot and anything else that speaks the protocol
 - Read-only tools annotated as such, so they stay available in read-only chat modes
 - A CLI equivalent for every tool, for agents that only have a shell
-- A Go package to embed the engine directly — `import "github.com/Coder8124/brain"`
+- A Go package to embed the engine directly — `import "github.com/Coder8124/logos"`
 - A Wails v2 desktop app: menubar orb, panel, graph canvas
 
 ## Does it work?
@@ -92,7 +92,7 @@ From source, if you have Go:
 
 ```sh
 git clone https://github.com/Coder8124/logos && cd logos
-go build -o bin/brain ./cmd/brain && ./bin/brain setup
+go build -o bin/logos ./cmd/logos && ./bin/logos setup
 ```
 
 One-click buttons for Cursor and VS Code, release binaries, and wiring a host by
@@ -106,16 +106,15 @@ the truth, and every feature announces itself.
 
 If you are an *agent* working in this repository, the `context-connect` and
 `continuity` skills that ship with the Logos plugin (`plugin/skills/`) cover
-how to connect to brain here and how to use it — this repository dogfoods its
+how to connect to logos here and how to use it — this repository dogfoods its
 own plugin, so both are already available in a Claude Code session.
 
-## On the two names
+## Formerly brain
 
-Logos is the product — the repository, the npm packages, the MCP server hosts
-see. `brain` is the development name and stays one internally: the Go module
-`github.com/Coder8124/brain`, the `brain` command, `BRAIN_VAULT`, and `.brain/`.
-The npm wrapper installs `logos` and `brain` as the same command, so either
-spelling works wherever you meet it.
+Logos was developed as `brain`. Through 0.4.x the old names still work — the
+`brain` command from npm, `BRAIN_*` variables, and an existing `~/brain` vault
+or `.brain/` directory — so an existing install keeps running. Use `logos` for
+anything new.
 
 ## Contact
 

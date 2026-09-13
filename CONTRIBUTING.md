@@ -6,24 +6,20 @@ breaks a promise the product makes.
 
 If you are an agent working in this repository, the Logos plugin's own
 `context-connect` and `continuity` skills (`plugin/skills/`) tell you how to
-connect to brain here and how to pick up where the last agent stopped — this
+connect to logos here and how to pick up where the last agent stopped — this
 repository runs its own plugin, so both are already available to you.
 
-## The two names
+## The name
 
-The product is **Logos**. The development name is **brain**, and it is what you
-type:
+Everything is **Logos**: the product and user-facing text say Logos; the Go
+module `github.com/Coder8124/logos`, the binary and CLI verb (`logos resume …`),
+the vault dir `~/logos`, `LOGOS_*` variables and `.logos/` say logos.
 
-| Logos | brain |
-| --- | --- |
-| the product, the site, every user-facing string | the Go module `github.com/Coder8124/brain` |
-| the GitHub repo `Coder8124/logos` | the binary, the CLI verb (`brain resume …`) |
-| the npm package `@noeton/logos` | the vault dir, `BRAIN_VAULT`, `.brain/` |
-
-Both are correct in their own place. User-facing text says Logos; code, paths,
-commands and imports say brain. Don't "fix" one into the other — a pull request
-that renames `brain` to `logos` in the module path breaks every embedder, and
-one that renames Logos to brain in the docs is just wrong.
+Before 0.4.x the development name was **brain**. Through 0.4.x the old names
+keep working so an existing install is not stranded: `BRAIN_*` variables are
+still read, an existing `~/brain` vault and `.brain/` directory are found, and
+the npm package still installs a `brain` command. Don't add new uses of the old
+name; the fallbacks are removed before 0.5.0.
 
 ## Build
 
@@ -31,8 +27,8 @@ Go 1.26.5 or newer. No cgo — the SQLite driver is `modernc.org/sqlite`, so the
 tree builds and cross-compiles without a C toolchain.
 
 ```sh
-go build -o bin/brain ./cmd/brain
-./bin/brain setup            # picks a vault, wires nothing without asking
+go build -o bin/logos ./cmd/logos
+./bin/logos setup            # picks a vault, wires nothing without asking
 ```
 
 The desktop app is Wails v2 and lives in [`app/`](app/); it is not needed to
@@ -51,23 +47,23 @@ go test -tags chaos ./chaos/...     # SIGKILL mid-write, full disk, racing proce
 The chaos tier is behind a build tag because it mounts a disk image and kills
 real processes. Run it when you touch anything that writes to the vault.
 
-Use a scratch vault when you exercise the CLI by hand — `BRAIN_VAULT=$(mktemp -d)`
+Use a scratch vault when you exercise the CLI by hand — `LOGOS_VAULT=$(mktemp -d)`
 — rather than your own.
 
 ### Probing the MCP server
 
-A shell pipeline into `brain mcp serve` hangs — the server holds stdin open for
-the next frame and `echo … | brain mcp serve` never gives it a clean close.
+A shell pipeline into `logos mcp serve` hangs — the server holds stdin open for
+the next frame and `echo … | logos mcp serve` never gives it a clean close.
 `scripts/mcp-probe.py` does the newline-framed JSON-RPC exchange instead:
 
 ```sh
-go build -o bin/brain ./cmd/brain
-BRAIN_VAULT=$(mktemp -d) scripts/mcp-probe.py            # initialize + tools/list
-BRAIN_VAULT=$(mktemp -d) scripts/mcp-probe.py resume brain
+go build -o bin/logos ./cmd/logos
+LOGOS_VAULT=$(mktemp -d) scripts/mcp-probe.py            # initialize + tools/list
+LOGOS_VAULT=$(mktemp -d) scripts/mcp-probe.py resume logos
 ```
 
-It prefers `./bin/brain` over whatever is on PATH, so it exercises the code you
-are editing. This repository dogfoods its own plugin: the `brain` your editor is
+It prefers `./bin/logos` over whatever is on PATH, so it exercises the code you
+are editing. This repository dogfoods its own plugin: the `logos` your editor is
 wired to is a *release*, not your checkout, so a broken change to
 `internal/mcpserver` cannot brick the session you are debugging it from as long
 as you probe the local build and leave the wired one alone.
@@ -79,14 +75,14 @@ is only meaningful with the bug in front of you, describe the bug.
 ## The conventions that matter
 
 **The vault is the truth; the index is a cache.** Every durable thing must be
-reconstructible from the markdown by `brain index`. If you add state that lives
-only in `.brain/index.db`, you have added a silent data-loss bug: the
+reconstructible from the markdown by `logos index`. If you add state that lives
+only in `.logos/index.db`, you have added a silent data-loss bug: the
 documentation tells people that deleting the cache is safe, and they do it. This
 has been the cause of three separate bugs here — memories, working notes, and
 checkpoints each had to be rescued from it.
 
 **Write the vault first, the index second.** A crash between the two leaves a
-stale cache, which `brain index` fixes. The reverse leaves an index pointing at
+stale cache, which `logos index` fixes. The reverse leaves an index pointing at
 something the vault does not have, which nothing fixes.
 
 **Every feature announces itself.** Silent background work is
@@ -116,9 +112,9 @@ this file, not the vault.
 ## Repository layout
 
 ```
-brain.go         the public API — what an embedding agent imports
+logos.go         the public API — what an embedding agent imports
 enginetest/      that API exercised from outside, as an embedder sees it
-cmd/brain/       the CLI
+cmd/logos/       the CLI
 internal/        index, memory, session, contextpack, deadend, mcpserver, …
 chaos/           fault injection, behind the `chaos` build tag
 testdata/vault/  a fixture vault — four notes; not a live one, see its README
@@ -129,7 +125,7 @@ systemmd/        credits and the prompt agents are given
 examples/        runnable embeddings
 ```
 
-`brain.go` is the module's public surface. Moving or renaming it changes the
+`logos.go` is the module's public surface. Moving or renaming it changes the
 import path for everyone embedding the engine, so treat it as API.
 
 ## Adding an AI host
@@ -192,13 +188,13 @@ Three rules the existing hosts follow:
 
 ## The agent prompt
 
-[`systemmd/BRAINPROMPT.md`](systemmd/BRAINPROMPT.md) is shipped to every user's
+[`systemmd/LOGOSPROMPT.md`](systemmd/LOGOSPROMPT.md) is shipped to every user's
 agent as the MCP server's `instructions`. It is embedded into the binary from
-[`internal/agentprompt/BRAINPROMPT.md`](internal/agentprompt/), and a test fails
+[`internal/agentprompt/LOGOSPROMPT.md`](internal/agentprompt/), and a test fails
 if the two copies drift. Edit the one under `internal/agentprompt/`, then:
 
 ```sh
-cp internal/agentprompt/BRAINPROMPT.md systemmd/BRAINPROMPT.md
+cp internal/agentprompt/LOGOSPROMPT.md systemmd/LOGOSPROMPT.md
 ```
 
 ## Pull requests
@@ -216,7 +212,7 @@ cp internal/agentprompt/BRAINPROMPT.md systemmd/BRAINPROMPT.md
 ## Reporting bugs
 
 [GitHub Issues](https://github.com/Coder8124/logos/issues). Include the output
-of `brain doctor` — it reports what is healthy, what is stale, and what it could
+of `logos doctor` — it reports what is healthy, what is stale, and what it could
 not check, and it is usually enough to locate the problem.
 
 Please do not paste vault contents into an issue. It is your private memory, and

@@ -1,7 +1,7 @@
 // Package gitstate reads what the repository was, so a checkpoint does not have
 // to rely on being told.
 //
-// Everything else brain records is model-initiated: an agent decides to call
+// Everything else logos records is model-initiated: an agent decides to call
 // checkpoint, and if it does not, nothing happens. That is the single largest
 // reliability gap in the product — the core promise depends on a host model
 // remembering a tool at the one moment it is least likely to.

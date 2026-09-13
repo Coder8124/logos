@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The insights view is a second lens on the same vault the tree pane already

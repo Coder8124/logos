@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/contextpack"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // The folder tree is the same vault a hand-edit already trusts — memories/,
@@ -16,7 +16,7 @@ import (
 // so this binds no new storage, only a walk of it plus the pin/exclude rules
 // contextpack.Build already enforces (see internal/contextpack/pathrules.go).
 // A node's pin state is read from that one file, and setting it writes that
-// same file, so the tree view and `brain context --pin/--exclude` are two
+// same file, so the tree view and `logos context --pin/--exclude` are two
 // faces of one durable record, not two.
 
 // TreeNode is one file or directory in the vault, relative to its root.
@@ -32,7 +32,7 @@ type TreeNode struct {
 // exclude rule that currently covers it (inherited from the nearest ancestor
 // rule, the same precedence contextpack.Build applies when it assembles a
 // pack). Dot-directories are skipped — the same rule index.Sync uses to keep
-// .brain and .context out of search — so the rules file that drives this view
+// .logos and .context out of search — so the rules file that drives this view
 // never appears as a node inside it.
 func (a *App) VaultTree() ([]TreeNode, error) {
 	if _, err := os.Stat(a.vault); err != nil {
@@ -62,7 +62,7 @@ func buildTree(root, rel string, rules []contextpack.PathRule) ([]TreeNode, erro
 	var out []TreeNode
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
-			continue // .brain (cache), .context (this feature's own rules file), .git
+			continue // .logos (cache), .context (this feature's own rules file), .git
 		}
 		childRel := e.Name()
 		if rel != "" {
@@ -132,7 +132,7 @@ func resolveVaultPath(root, rel string) (string, error) {
 // ReadVaultFile returns one file's raw content for the edit pane. Markdown
 // only — the tree can list anything, but the promise this pane makes
 // ("edit any line to correct it") is a promise about the hand-editable vault
-// files brain itself writes, not an invitation to open arbitrary binaries.
+// files logos itself writes, not an invitation to open arbitrary binaries.
 func (a *App) ReadVaultFile(path string) (string, error) {
 	abs, err := resolveVaultPath(a.vault, path)
 	if err != nil {

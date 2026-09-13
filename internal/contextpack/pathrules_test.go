@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // A rule file that never existed must read back as "no rules", not an error —

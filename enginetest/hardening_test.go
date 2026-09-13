@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Coder8124/brain"
+	"github.com/Coder8124/logos"
 )
 
 func vaultAt(t *testing.T, name string) string {
@@ -48,28 +48,28 @@ func memoryFiles(t *testing.T, vault string) string {
 	return b.String()
 }
 
-// CLAIM: a Brain is bound to the vault it was opened on.
+// CLAIM: a Logos is bound to the vault it was opened on.
 //
-// Newly reachable because brain.Open is public: an embedder can hold two vaults
+// Newly reachable because logos.Open is public: an embedder can hold two vaults
 // at once — a work vault and a personal one, or one per tenant.
 func TestTwoVaultsInOneProcessDoNotCrossContaminate(t *testing.T) {
 	a, b := vaultAt(t, "vault-a"), vaultAt(t, "vault-b")
 
-	ba, err := brain.Open(a, brain.WithoutEmbedding())
+	ba, err := logos.Open(a, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ba.Close()
-	bb, err := brain.Open(b, brain.WithoutEmbedding())
+	bb, err := logos.Open(b, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bb.Close()
 
-	if _, err := ba.Remember("vault A holds the aluminium spec", brain.Fact); err != nil {
+	if _, err := ba.Remember("vault A holds the aluminium spec", logos.Fact); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bb.Remember("vault B holds the pricing model", brain.Fact); err != nil {
+	if _, err := bb.Remember("vault B holds the pricing model", logos.Fact); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,14 +81,14 @@ func TestTwoVaultsInOneProcessDoNotCrossContaminate(t *testing.T) {
 		t.Errorf("vault B's own memory is not in vault B:\n%s", fb)
 	}
 	if strings.Contains(fb, "aluminium spec") {
-		t.Errorf("vault A's memory leaked into vault B — the vault binding is global, not per-Brain:\n%s", fb)
+		t.Errorf("vault A's memory leaked into vault B — the vault binding is global, not per-Logos:\n%s", fb)
 	}
 	if strings.Contains(fa, "pricing model") {
 		t.Errorf("vault B's memory leaked into vault A:\n%s", fa)
 	}
 }
 
-// CLAIM: memories are files, so `rm -rf .brain` costs nothing.
+// CLAIM: memories are files, so `rm -rf .logos` costs nothing.
 //
 // That holds only if the file write actually happened. Here it cannot: the
 // memories directory is read-only. Either Remember reports the failure, or the
@@ -104,13 +104,13 @@ func TestRememberReportsWhenItCannotWriteTheDurableCopy(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(mem, 0o755) })
 
-	b, err := brain.Open(v, brain.WithoutEmbedding())
+	b, err := logos.Open(v, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer b.Close()
 
-	_, err = b.Remember("the BOM target is $38", brain.Fact)
+	_, err = b.Remember("the BOM target is $38", logos.Fact)
 	if err == nil {
 		t.Error("Remember reported success while the durable copy could not be written; " +
 			"the memory exists only in the cache the README tells users to delete")
@@ -123,7 +123,7 @@ func TestRememberReportsWhenItCannotWriteTheDurableCopy(t *testing.T) {
 // invariant and reports what is not, so the claim can be narrowed to the truth.
 func TestRebuildPreservesEverythingKnown(t *testing.T) {
 	v := vaultAt(t, "rebuild")
-	b, err := brain.Open(v, brain.WithoutEmbedding())
+	b, err := logos.Open(v, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,17 +134,17 @@ func TestRebuildPreservesEverythingKnown(t *testing.T) {
 	}
 	for _, m := range []struct {
 		text string
-		kind brain.Kind
+		kind logos.Kind
 	}{
-		{"I prefer terse replies", brain.Preference},
-		{"the BOM target is $38", brain.Fact},
-		{"Sam runs the audio team", brain.Person},
+		{"I prefer terse replies", logos.Preference},
+		{"the BOM target is $38", logos.Fact},
+		{"Sam runs the audio team", logos.Person},
 	} {
 		if _, err := b.Remember(m.text, m.kind); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := b.Checkpoint(brain.Checkpoint{
+	if _, err := b.Checkpoint(logos.Checkpoint{
 		Project: "kestrel-one",
 		Failed:  []string{"re-quoting the waveguide — no movement"},
 		Next:    "quote the driver",
@@ -161,11 +161,11 @@ func TestRebuildPreservesEverythingKnown(t *testing.T) {
 	}
 	b.Close()
 
-	if err := os.RemoveAll(filepath.Join(v, ".brain")); err != nil {
+	if err := os.RemoveAll(filepath.Join(v, ".logos")); err != nil {
 		t.Fatal(err)
 	}
 
-	b2, err := brain.Open(v, brain.WithoutEmbedding())
+	b2, err := logos.Open(v, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestRebuildPreservesEverythingKnown(t *testing.T) {
 	if len(before) != len(after) {
 		t.Fatalf("rebuild changed the memory count: %d → %d", len(before), len(after))
 	}
-	byID := map[int64]brain.Memory{}
+	byID := map[int64]logos.Memory{}
 	for _, m := range after {
 		byID[m.ID] = m
 	}
@@ -214,16 +214,16 @@ func TestRebuildPreservesEverythingKnown(t *testing.T) {
 // CLAIM: retrieval degrades without a model runtime, it does not break.
 func TestEveryReadPathWorksWithNoModel(t *testing.T) {
 	v := vaultAt(t, "nomodel")
-	b, err := brain.Open(v, brain.WithoutEmbedding())
+	b, err := logos.Open(v, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer b.Close()
 
-	if _, err := b.Remember("the BOM target is $38", brain.Fact); err != nil {
+	if _, err := b.Remember("the BOM target is $38", logos.Fact); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Checkpoint(brain.Checkpoint{
+	if _, err := b.Checkpoint(logos.Checkpoint{
 		Project: "kestrel-one",
 		Failed:  []string{"re-quoting the waveguide — no movement under 10k units"},
 		Next:    "quote the driver",
@@ -235,7 +235,7 @@ func TestEveryReadPathWorksWithNoModel(t *testing.T) {
 	}
 
 	t.Run("context", func(t *testing.T) {
-		c, err := b.Context(brain.Request{Task: "cut the BOM", Project: "kestrel-one"})
+		c, err := b.Context(logos.Request{Task: "cut the BOM", Project: "kestrel-one"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,17 +270,17 @@ func TestEveryReadPathWorksWithNoModel(t *testing.T) {
 
 // CLAIM (implicit, and the one a desktop app plus a CLI plus an MCP server make
 // unavoidable): more than one thing can hold the vault at once.
-func TestConcurrentBrainsOnOneVault(t *testing.T) {
+func TestConcurrentLogosInstancesOnOneVault(t *testing.T) {
 	v := vaultAt(t, "concurrent")
 
-	b1, err := brain.Open(v, brain.WithoutEmbedding(), brain.WithAgent("one"))
+	b1, err := logos.Open(v, logos.WithoutEmbedding(), logos.WithAgent("one"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer b1.Close()
-	b2, err := brain.Open(v, brain.WithoutEmbedding(), brain.WithAgent("two"))
+	b2, err := logos.Open(v, logos.WithoutEmbedding(), logos.WithAgent("two"))
 	if err != nil {
-		t.Fatalf("a second Brain could not open the same vault: %v", err)
+		t.Fatalf("a second Logos could not open the same vault: %v", err)
 	}
 	defer b2.Close()
 
@@ -322,13 +322,13 @@ func TestConcurrentBrainsOnOneVault(t *testing.T) {
 // reachable in the default configuration.
 func TestNoRemoteEndpointByDefault(t *testing.T) {
 	v := vaultAt(t, "offline")
-	b, err := brain.Open(v)
+	b, err := logos.Open(v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer b.Close()
 
-	cfg := filepath.Join(v, ".brain", "config.json")
+	cfg := filepath.Join(v, ".logos", "config.json")
 	raw, err := os.ReadFile(cfg)
 	if os.IsNotExist(err) {
 		return // no config written is the strongest possible version of the claim

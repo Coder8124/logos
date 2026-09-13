@@ -1,6 +1,6 @@
 # Credits & inspiration
 
-`brain` is its own codebase, but several features were inspired by prior open
+`logos` is its own codebase, but several features were inspired by prior open
 work. All of the projects below are MIT-licensed; the *ideas* were reimplemented
 in Go rather than the code being copied, and the thinking is gratefully
 acknowledged.
@@ -19,9 +19,9 @@ summarisation.
 (`people/`, `projects/`, `topics/`) rather than the whole vault — and keeping a
 verbatim capture path (braindump) alongside the distilled notes.
 
-MemPalace is also one of the systems brain is measured against in
+MemPalace is also one of the systems logos is measured against in
 [docs/continuity-benchmark.md](docs/continuity-benchmark.md), where it is the
-strongest of the alternatives and beats brain outright on temporal ordering.
+strongest of the alternatives and beats logos outright on temporal ordering.
 Being scored against the work that shaped you is the honest version of a credit.
 
 ## [huytieu/COG-second-brain](https://github.com/huytieu/COG-second-brain) — MIT
@@ -31,7 +31,7 @@ auto-classification, weekly pattern analysis and monthly consolidation, and a
 verification-centric stance (sources required, confidence stamped).
 
 **What it inspired here:** the **braindump** quick-capture command
-(`brain jot`), which classifies a scrap of text and routes it into the review
+(`logos jot`), which classifies a scrap of text and routes it into the review
 queue. The vault-as-truth / DB-as-cache stance and confidence-stamped edges are
 kindred ideas arrived at independently.
 
@@ -50,6 +50,6 @@ reliably as concepts. Measured at +8.9 points over vector-only on LongMemEval-S.
 ## Removed
 
 **TurboLearn AI** previously appeared here for spaced-repetition flashcards in
-the tutor build. The vertical personas were removed — brain is memory that
+the tutor build. The vertical personas were removed — logos is memory that
 agents query, and a tutor was not that — so the feature and the credit both go
 with them.

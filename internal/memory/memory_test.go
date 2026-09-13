@@ -113,7 +113,7 @@ func TestForget(t *testing.T) {
 }
 
 // A missing id used to return nil — a DELETE affecting zero rows is not an
-// error to database/sql — so `brain memory forget 999` printed "forgotten."
+// error to database/sql — so `logos memory forget 999` printed "forgotten."
 // for a memory that never existed, and even logged a fake event for it.
 func TestForgetANonexistentIDReturnsAnError(t *testing.T) {
 	db := testDB(t)

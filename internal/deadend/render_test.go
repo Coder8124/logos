@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// before_you_try's interruption is rendered under brain's own "## This has
+// before_you_try's interruption is rendered under logos's own "## This has
 // been tried" heading, in front of a model that is about to act on it. Every
 // field on a Ruling — Text, Agent, Project, and the typed Record's
 // Observation and Alternative — was written by whichever agent recorded the
@@ -29,7 +29,7 @@ func TestAForgedHeadingInARulingsTextCannotImpersonateTheFrame(t *testing.T) {
 	for _, line := range strings.Split(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "## Next step") || strings.HasPrefix(trimmed, "## Verified") {
-			t.Fatalf("payload text produced its own top-level heading, indistinguishable from brain's own frame:\n%s", out)
+			t.Fatalf("payload text produced its own top-level heading, indistinguishable from logos's own frame:\n%s", out)
 		}
 		if trimmed == "---" {
 			t.Fatalf("payload text produced a bare horizontal rule, which a rendered pack uses to separate its own footer:\n%s", out)

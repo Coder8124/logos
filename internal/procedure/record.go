@@ -12,7 +12,7 @@
 // A procedure earns storage only if it carries a trap: something not
 // derivable from reading the repository, that cost someone time. Without that
 // bar this package would duplicate CONTRIBUTING.md one remembered line at a
-// time, which is the failure BRAINPROMPT.md already warns against — "don't
+// time, which is the failure LOGOSPROMPT.md already warns against — "don't
 // call remember for what the repository already says."
 package procedure
 
@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/deadend"
+	"github.com/Coder8124/logos/internal/deadend"
 )
 
 // Evidence says how hard the claim that this works has been checked. Distinct

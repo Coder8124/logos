@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/transcript"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // widgetsFixture is the checked-in Claude Code session whose turns are:
@@ -38,7 +38,7 @@ func widgetsFixture(t *testing.T) string {
 func queuedVault(t *testing.T, src string) (vaultDir, sessionID string) {
 	t.Helper()
 	vaultDir = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(vaultDir, ".brain"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(vaultDir, ".logos"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(map[string]string{"granted": "2026-09-09T00:00:00Z"})
@@ -130,7 +130,7 @@ func TestAClaimCitingATurnTheSessionDoesNotHaveIsDropped(t *testing.T) {
 	}
 }
 
-// The agent is only ever offered material a `brain ingest` already harvested and
+// The agent is only ever offered material a `logos ingest` already harvested and
 // queued. Reading a transcript stays a CLI decision the user consented to, so a
 // session sitting on disk but never ingested is not servable — and the tool must
 // not go looking for it. The un-ingested file here is unreadable on purpose: if
@@ -153,7 +153,7 @@ func TestServingAHarvestToAnAgentDoesNotReadAnyNewTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(other, 0o644) })
-	t.Setenv(transcript.BrainClaudeProjectsEnv, filepath.Dir(root))
+	t.Setenv(transcript.LogosClaudeProjectsEnv, filepath.Dir(root))
 
 	if _, err := ingest.EvidenceFor(v, "abcdef00-1111", 0); err == nil {
 		t.Fatal("served a session that was never ingested")

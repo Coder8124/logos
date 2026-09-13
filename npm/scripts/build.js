@@ -42,12 +42,9 @@ function die(msg) {
   process.exit(1);
 }
 
-// The archives and the executable inside them keep the development name,
-// `brain`, because that is what scripts/release.sh builds and what the binary
-// calls itself. Only the npm packages carry the product name. bin/logos.js is
-// the seam.
+// The archive names match what scripts/release.sh builds.
 function archiveFor(t) {
-  const base = `brain_v${VERSION}_${t.goos}_${t.goarch}`;
+  const base = `logos_v${VERSION}_${t.goos}_${t.goarch}`;
   const zip = path.join(dist, `${base}.zip`);
   const tgz = path.join(dist, `${base}.tar.gz`);
   if (fs.existsSync(tgz)) return { path: tgz, dir: base, zipped: false };
@@ -55,10 +52,10 @@ function archiveFor(t) {
   return null;
 }
 
-// The archives hold brain_<version>_<os>_<arch>/brain. Extract to a scratch dir
+// The archives hold logos_<version>_<os>_<arch>/logos. Extract to a scratch dir
 // and lift the binary out rather than assuming a flat layout.
 function extractBinary(archive, exe, destDir) {
-  const scratch = fs.mkdtempSync(path.join(require("os").tmpdir(), "brain-npm-"));
+  const scratch = fs.mkdtempSync(path.join(require("os").tmpdir(), "logos-npm-"));
   try {
     if (archive.zipped) {
       execFileSync("unzip", ["-q", archive.path, "-d", scratch], { stdio: "inherit" });
@@ -92,7 +89,7 @@ for (const t of TARGETS) {
     console.error(`  ${t.npm.padEnd(14)} skipped — no archive for v${VERSION}`);
     continue;
   }
-  const exe = t.goos === "windows" ? "brain.exe" : "brain";
+  const exe = t.goos === "windows" ? "logos.exe" : "logos";
   const dir = path.join(out, t.npm);
   const size = extractBinary(archive, exe, path.join(dir, "bin"));
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/gitstate"
+	"github.com/Coder8124/logos/internal/gitstate"
 	_ "modernc.org/sqlite"
 )
 
@@ -192,7 +192,7 @@ func TestTouchingOnAnEmptyVault(t *testing.T) {
 	}
 }
 
-// `brain why` joins a path against what a checkpoint touched. Before git's
+// `logos why` joins a path against what a checkpoint touched. Before git's
 // observed file list was persisted, the only list it could search was the
 // agent's own `Files` — which the CLI cannot set and MCP leaves optional — so
 // the command reported "no checkpoint mentions this file" about a file the

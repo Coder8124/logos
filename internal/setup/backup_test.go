@@ -8,9 +8,9 @@ import (
 )
 
 // Registering through a host's own CLI rewrites that host's config file just as
-// surely as merging it ourselves does — `codex mcp add brain` replaces an
-// existing brain entry outright, environment block and all, and says only
-// "Added global MCP server 'brain'". Backing up only the hosts brain writes by
+// surely as merging it ourselves does — `codex mcp add logos` replaces an
+// existing logos entry outright, environment block and all, and says only
+// "Added global MCP server 'logos'". Backing up only the hosts logos writes by
 // hand left the CLI hosts with no way back from a wrong --vault.
 func TestEveryHostWhoseConfigWeKnowIsBackedUpBeforeRegistering(t *testing.T) {
 	dir := t.TempDir()
@@ -36,11 +36,11 @@ func TestEveryHostWhoseConfigWeKnowIsBackedUpBeforeRegistering(t *testing.T) {
 	}
 	// A backup nobody is told about is a backup nobody uses (invariant 3), so
 	// the result carries the path setup prints.
-	if r[0].Backup != path+".brain-backup" {
+	if r[0].Backup != path+".logos-backup" {
 		t.Errorf("result does not name the backup: %q", r[0].Backup)
 	}
 
-	backup, err := os.ReadFile(path + ".brain-backup")
+	backup, err := os.ReadFile(path + ".logos-backup")
 	if err != nil {
 		t.Fatalf("no backup was written before the host's CLI rewrote its config: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestAHostWithNoConfigYetStillRegisters(t *testing.T) {
 	if r[0].Backup != "" {
 		t.Errorf("named a backup that was never written: %q", r[0].Backup)
 	}
-	if _, err := os.Stat(path + ".brain-backup"); err == nil {
+	if _, err := os.Stat(path + ".logos-backup"); err == nil {
 		t.Error("backed up a file that did not exist")
 	}
 }
@@ -125,13 +125,13 @@ func TestEveryShippedHostNamesTheConfigItRewrites(t *testing.T) {
 // Running setup twice is the normal thing to do — after moving a vault, after
 // an update, or just to check. The second run rewrote each config with bytes
 // identical to the ones already there, announced every host as "updated", and
-// left a .brain-backup beside each one. Reporting work that did not happen is
+// left a .logos-backup beside each one. Reporting work that did not happen is
 // the same fault as swallowing work that did (invariants 3 and 4), and the
 // litter it drops is in the user's own config directory.
 func TestAHostThatIsAlreadyConnectedIsNotReportedAsChanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mcp.json")
-	const settled = "{\"mcpServers\":{\"brain\":{}}}\n"
+	const settled = "{\"mcpServers\":{\"logos\":{}}}\n"
 	if err := os.WriteFile(path, []byte(settled), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestAHostThatIsAlreadyConnectedIsNotReportedAsChanged(t *testing.T) {
 		Detect: func() bool { return true },
 		Where:  func() string { return path },
 		Config: func() string { return path },
-		// A merge that finds brain already pointed where it should be writes
+		// A merge that finds logos already pointed where it should be writes
 		// the same bytes back.
 		Register: func(Server) (Outcome, error) {
 			return Updated, os.WriteFile(path, []byte(settled), 0o600)
@@ -155,7 +155,7 @@ func TestAHostThatIsAlreadyConnectedIsNotReportedAsChanged(t *testing.T) {
 	if r[0].Backup != "" {
 		t.Errorf("named a backup of a file nothing changed: %q", r[0].Backup)
 	}
-	if _, err := os.Stat(path + ".brain-backup"); err == nil {
+	if _, err := os.Stat(path + ".logos-backup"); err == nil {
 		t.Error("left a backup beside a config that was never changed")
 	}
 }

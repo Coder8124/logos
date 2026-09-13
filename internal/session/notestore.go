@@ -10,23 +10,23 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Working notes, made durable.
 //
 // note_progress is sold on exactly one promise: "cheap, and it survives your
 // context running out, which a plan held only in your head does not." It did
-// not. A note lived in session_notes in .brain/index.db and nowhere else, so
+// not. A note lived in session_notes in .logos/index.db and nowhere else, so
 // the operation the documentation calls safe — delete the cache and reindex —
-// destroyed every uncommitted note in the vault without a word. `brain sessions`
+// destroyed every uncommitted note in the vault without a word. `logos sessions`
 // afterwards reported "no checkpoints yet", which is what having lost them
 // looks like and also what never having written them looks like.
 //
 // This is the same repair memories got, for the same reason and in the same
 // shape: the vault is the truth and the index is a cache of it. Notes are
 // written through to sessions/<scope>/uncommitted.md as they are made, read
-// back by `brain index`, and removed when a checkpoint folds them into a
+// back by `logos index`, and removed when a checkpoint folds them into a
 // permanent record.
 //
 // The file is deliberately ordinary markdown in the ordinary place. Someone who
@@ -128,7 +128,7 @@ func renderNotes(scope string, notes []Note) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# uncommitted — %s\n\n", scope)
 	b.WriteString("Working notes from sessions that have not been checkpointed yet.\n")
-	b.WriteString("`brain checkpoint " + scope + "` folds these into a permanent record and\n")
+	b.WriteString("`logos checkpoint " + scope + "` folds these into a permanent record and\n")
 	b.WriteString("empties this file. Until then they live here, so a rebuilt index does not\n")
 	b.WriteString("lose them.\n\n")
 	for _, n := range notes {
@@ -143,7 +143,7 @@ var notePattern = regexp.MustCompile(`^-\s+(.*?)\s*<!--\s*ts=(\d+)\s+agent=(\S*)
 
 // ImportNotes restores working notes from the vault into an empty index.
 //
-// Called by `brain index`, which is the command whose whole promise is that the
+// Called by `logos index`, which is the command whose whole promise is that the
 // cache can be rebuilt from the vault. It adds only what is missing: a note
 // already in the index is left alone, matched on its scope, text and timestamp,
 // so running index twice does not double anything.

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // A Commitment is something you said you would do that is not yet done. The
@@ -102,7 +102,7 @@ func Add(db *sql.DB, c *Commitment) (bool, error) {
 	}
 	c.ID, _ = res.LastInsertId()
 	// The vault copy, immediately. A loop that reached only the cache is one
-	// the next `brain index` throws away without saying so, and the caller has
+	// the next `logos index` throws away without saying so, and the caller has
 	// to hear that the write is half-done rather than be told "tracked".
 	if err := flush(db); err != nil {
 		return true, err

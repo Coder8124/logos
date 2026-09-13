@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/untrusted"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // Render writes the interruption.
@@ -42,7 +42,7 @@ func Render(proposed string, hits []Ruling) string {
 		// Every field below was written by whichever agent recorded the dead
 		// end, on a vault a team can share — untrusted.Inline is what stops a
 		// newline in one of them forging its own "## " heading or footer rule
-		// under brain's own frame. See internal/untrusted's package doc.
+		// under logos's own frame. See internal/untrusted's package doc.
 		fmt.Fprintf(&b, "- **%s**", untrusted.Inline(h.Text))
 		if h.Record.Observation != "" {
 			fmt.Fprintf(&b, " — %s", untrusted.Inline(h.Record.Observation))

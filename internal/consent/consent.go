@@ -3,7 +3,7 @@
 //
 // The gate this package backs is narrow on purpose: it only covers automatic
 // learning from conversation (Stage 4.2). MCP writes have their own,
-// separately-scoped default in internal/mcpserver (BRAIN_TRUST_MCP), and
+// separately-scoped default in internal/mcpserver (LOGOS_TRUST_MCP), and
 // manual/CLI writes are never gated at all. Conflating the three would mean
 // one on/off switch governing every write path in the app, which is exactly
 // the kind of blanket toggle that either nags on every turn or gets flipped
@@ -16,7 +16,7 @@
 // Grant(d) says "stop asking for a while," Revoke undoes that early, and
 // Allowed reports whether the grant is still live. This mirrors how the rest
 // of the app treats trust as a scoped, time-bounded thing rather than a
-// permanent setting: see internal/mcpserver's BRAIN_TRUST_MCP for the sibling
+// permanent setting: see internal/mcpserver's LOGOS_TRUST_MCP for the sibling
 // decision on the MCP side.
 package consent
 
@@ -29,7 +29,7 @@ import (
 // through app.App: chat.go's Send runs in its own goroutine per message and
 // there is exactly one conversation per running app, so a shared package
 // state is no heavier than a field on App would be, without requiring every
-// caller (chat.go today, potentially cmd/brain tomorrow) to carry a *App
+// caller (chat.go today, potentially cmd/logos tomorrow) to carry a *App
 // reference just to ask "am I allowed to learn right now."
 var (
 	mu      sync.Mutex

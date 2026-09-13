@@ -1,8 +1,8 @@
-package brain
+package logos
 
 import (
-	"github.com/Coder8124/brain/internal/deadend"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // Tried reports whether an approach has already been ruled out, searching every
@@ -14,7 +14,7 @@ import (
 // worked on so rulings from elsewhere can be flagged as possibly not
 // transferring. An empty result means no record, which is not the same as
 // approval.
-func (b *Brain) Tried(approach, project string) ([]Ruling, error) {
+func (b *Logos) Tried(approach, project string) ([]Ruling, error) {
 	return deadend.Check(b.ix.Vault, b.ix.DB, b.embed, b.embedModel, approach, project, 6)
 }
 
@@ -28,7 +28,7 @@ func (b *Brain) Tried(approach, project string) ([]Ruling, error) {
 //
 // It reads markdown from the vault, so it needs no model and no index. limit of
 // 0 means every match.
-func (b *Brain) Why(file string, limit int) ([]Mention, error) {
+func (b *Logos) Why(file string, limit int) ([]Mention, error) {
 	return session.Touching(b.ix.Vault, file, limit)
 }
 

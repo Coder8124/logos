@@ -30,5 +30,5 @@ if [ -n "${LOGOS_REJECTED:-}" ]; then
 fi
 echo "logos: no working logos or brain binary found on PATH or in the usual install directories," >&2
 echo "logos: and @noeton/logos is not installable here." >&2
-echo "logos: install one — go install github.com/Coder8124/brain/cmd/brain@latest — then restart Claude Code." >&2
+echo "logos: install one — go install github.com/Coder8124/logos/cmd/logos@latest — then restart Claude Code." >&2
 exit 1

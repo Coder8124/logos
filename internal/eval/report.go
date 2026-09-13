@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/text"
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // A Result is one adapter's full run.

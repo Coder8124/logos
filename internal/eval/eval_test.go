@@ -10,7 +10,7 @@ import (
 // benchmark stops distinguishing anything. These tests are mostly about the
 // ways matching can be wrong in a system's favour.
 
-// The bug that made this test necessary: brain's render opens with "Context
+// The bug that made this test necessary: logos's render opens with "Context
 // for: <the task>", so a gold label whose wording overlapped the question was
 // satisfied by the echo. temporal-ordering scored 100% while returning two
 // undated facts in arbitrary order.

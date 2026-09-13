@@ -15,9 +15,9 @@ import (
 
 func server() Server {
 	return Server{
-		Bin:  "/usr/local/bin/brain",
+		Bin:  "/usr/local/bin/logos",
 		Args: []string{"mcp", "serve"},
-		Env:  map[string]string{"BRAIN_VAULT": "/Users/someone/brain"},
+		Env:  map[string]string{"LOGOS_VAULT": "/Users/someone/logos"},
 	}
 }
 
@@ -50,14 +50,14 @@ func TestCreatesConfigWhenAbsent(t *testing.T) {
 	got := readServers(t, path)
 	entry, ok := got[Name]
 	if !ok {
-		t.Fatalf("brain not in the written config: %+v", got)
+		t.Fatalf("logos not in the written config: %+v", got)
 	}
-	if entry.Command != "/usr/local/bin/brain" {
+	if entry.Command != "/usr/local/bin/logos" {
 		t.Errorf("command = %q, want an absolute path", entry.Command)
 	}
-	if entry.Env["BRAIN_VAULT"] != "/Users/someone/brain" {
-		t.Errorf("BRAIN_VAULT = %q; a host launched from anywhere needs this absolute",
-			entry.Env["BRAIN_VAULT"])
+	if entry.Env["LOGOS_VAULT"] != "/Users/someone/logos" {
+		t.Errorf("LOGOS_VAULT = %q; a host launched from anywhere needs this absolute",
+			entry.Env["LOGOS_VAULT"])
 	}
 }
 
@@ -113,7 +113,7 @@ func TestRerunUpdatesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	moved := server()
-	moved.Env["BRAIN_VAULT"] = "/Users/someone/vaults/work"
+	moved.Env["LOGOS_VAULT"] = "/Users/someone/vaults/work"
 
 	outcome, err := mergeJSON(path, moved)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestRerunUpdatesInPlace(t *testing.T) {
 	if len(got) != 1 {
 		t.Errorf("re-running produced %d entries, want 1 — it must update, not duplicate", len(got))
 	}
-	if got[Name].Env["BRAIN_VAULT"] != "/Users/someone/vaults/work" {
+	if got[Name].Env["LOGOS_VAULT"] != "/Users/someone/vaults/work" {
 		t.Errorf("the vault path did not update: %+v", got[Name])
 	}
 }
@@ -162,7 +162,7 @@ func TestBackupIsWrittenBeforeChanging(t *testing.T) {
 	}
 
 	// Through Install, which is where the backup now happens — for every host,
-	// not only the ones whose config brain writes by hand.
+	// not only the ones whose config logos writes by hand.
 	r := Install(server(), []Host{{
 		Name:     "json-host",
 		Detect:   func() bool { return true },
@@ -173,7 +173,7 @@ func TestBackupIsWrittenBeforeChanging(t *testing.T) {
 	if r[0].Err != nil {
 		t.Fatal(r[0].Err)
 	}
-	backup, err := os.ReadFile(path + ".brain-backup")
+	backup, err := os.ReadFile(path + ".logos-backup")
 	if err != nil {
 		t.Fatalf("no backup was written: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestEmptyConfigIsTreatedAsNew(t *testing.T) {
 				t.Fatalf("%s config was refused: %v", name, err)
 			}
 			if _, ok := readServers(t, path)[Name]; !ok {
-				t.Error("brain was not registered")
+				t.Error("logos was not registered")
 			}
 		})
 	}
@@ -342,14 +342,14 @@ func TestParseClaudeMCPListSkipsNonServerLines(t *testing.T) {
 		"claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected\n" +
 		"plugin:playwright:playwright: npx @playwright/mcp@latest - ✔ Connected\n" +
 		"plugin:logos:logos: /Users/someone/.claude/plugins/cache/logos/logos/0.1.2/bin/mcp.sh  - ✔ Connected\n" +
-		"brain: /usr/local/bin/brain mcp serve - ✔ Connected\n"
+		"logos: /usr/local/bin/logos mcp serve - ✔ Connected\n"
 
 	regs := parseClaudeMCPList([]byte(out))
 	want := map[string]string{
 		"claude.ai Google Drive":       "https://drivemcp.googleapis.com/mcp/v1",
 		"plugin:playwright:playwright": "npx @playwright/mcp@latest",
 		"plugin:logos:logos":           "/Users/someone/.claude/plugins/cache/logos/logos/0.1.2/bin/mcp.sh",
-		"brain":                        "/usr/local/bin/brain mcp serve",
+		"logos":                        "/usr/local/bin/logos mcp serve",
 	}
 	if len(regs) != len(want) {
 		t.Fatalf("got %d registrations, want %d: %+v", len(regs), len(want), regs)
@@ -383,17 +383,17 @@ func TestReadMCPServersRoundTripsWhatMergeJSONWrote(t *testing.T) {
 	if len(regs) != 1 || regs[0].Name != Name {
 		t.Fatalf("got %+v, want one registration named %q", regs, Name)
 	}
-	if regs[0].Command != "/usr/local/bin/brain mcp serve" {
+	if regs[0].Command != "/usr/local/bin/logos mcp serve" {
 		t.Errorf("command = %q", regs[0].Command)
 	}
 }
 
 // A file with more than one server in it — the shape a real machine has,
-// since brain is never the first thing anyone points an MCP host at.
-func TestReadMCPServersReadsEveryEntryNotJustBrains(t *testing.T) {
+// since logos is never the first thing anyone points an MCP host at.
+func TestReadMCPServersReadsEveryEntryNotJustLogos(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	raw := `{"mcpServers": {
-		"brain": {"command": "/usr/local/bin/brain", "args": ["mcp", "serve"]},
+		"logos": {"command": "/usr/local/bin/logos", "args": ["mcp", "serve"]},
 		"some-other-server": {"command": "npx", "args": ["some-other-mcp"]}
 	}}`
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
@@ -416,7 +416,7 @@ func TestReadMCPServersOnAMissingFileIsNotAnError(t *testing.T) {
 	}
 }
 
-// RenderConfig exists for MCP clients brain does not know how to find or
+// RenderConfig exists for MCP clients logos does not know how to find or
 // register — anything outside the four hosts in Hosts(). Those users are
 // real, and until this existed the only answer for them was "not supported":
 // no way to see what a working config even looks like, so no way to type one
@@ -438,7 +438,7 @@ func TestRenderConfigJSONIsWhatMergeJSONWouldHaveWritten(t *testing.T) {
 	if !ok {
 		t.Fatalf("no %q entry in the printed config:\n%s", Name, out)
 	}
-	if got.Command != s.Bin || got.Env["BRAIN_VAULT"] != s.Env["BRAIN_VAULT"] {
+	if got.Command != s.Bin || got.Env["LOGOS_VAULT"] != s.Env["LOGOS_VAULT"] {
 		t.Errorf("printed entry = %+v, want the same server mergeJSON would have written", got)
 	}
 }
@@ -465,15 +465,15 @@ func TestRenderConfigTOMLNamesTheServerTableAndItsEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "[mcp_servers.brain]") {
-		t.Errorf("toml output has no [mcp_servers.brain] table:\n%s", out)
+	if !strings.Contains(out, "[mcp_servers.logos]") {
+		t.Errorf("toml output has no [mcp_servers.logos] table:\n%s", out)
 	}
 	if !strings.Contains(out, `command = "`+s.Bin+`"`) {
 		t.Errorf("toml output does not name the binary as command:\n%s", out)
 	}
-	if !strings.Contains(out, "[mcp_servers.brain.env]") ||
-		!strings.Contains(out, `BRAIN_VAULT = "`+s.Env["BRAIN_VAULT"]+`"`) {
-		t.Errorf("toml output does not carry BRAIN_VAULT in an env table:\n%s", out)
+	if !strings.Contains(out, "[mcp_servers.logos.env]") ||
+		!strings.Contains(out, `LOGOS_VAULT = "`+s.Env["LOGOS_VAULT"]+`"`) {
+		t.Errorf("toml output does not carry LOGOS_VAULT in an env table:\n%s", out)
 	}
 }
 
@@ -483,8 +483,8 @@ func TestRenderConfigRejectsAnUnknownFormat(t *testing.T) {
 	}
 }
 
-// MergeFile is mergeJSON, exported for `brain setup --config <path>` — a host
-// whose location brain does not know by convention, but whose file is the same
+// MergeFile is mergeJSON, exported for `logos setup --config <path>` — a host
+// whose location logos does not know by convention, but whose file is the same
 // mcpServers-keyed JSON Claude Desktop and Cursor already read.
 func TestMergeFileIsMergeJSONExported(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "custom-host.json")

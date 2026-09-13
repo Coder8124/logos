@@ -21,14 +21,13 @@ Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──�
 > whether it can find an old note, it is whether an agent that has never seen
 > your project can continue one that did.
 
-Markdown is truth. `.brain/index.db` is a cache you can delete and rebuild. If
+Markdown is truth. `.logos/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
 
-> **On the two names.** Logos is the product — the repository, the npm packages,
-> the MCP server hosts see. `brain` is the development name and stays one
-> internally: the Go module `github.com/Coder8124/brain`, the `brain` command,
-> `BRAIN_VAULT`, and `.brain/`. The npm wrapper installs `logos` and `brain` as
-> the same command, so either spelling works wherever you meet it.
+> **Formerly brain.** Logos was developed as `brain`. Through 0.4.x the old
+> names still work — the `brain` command from npm, `BRAIN_*` variables, and an
+> existing `~/brain` vault or `.brain/` directory — so an existing install keeps
+> running. Use `logos` for anything new.
 
 ---
 
@@ -68,13 +67,13 @@ and `cpu`, so you fetch one of the five, not all of them).
 ```sh
 # From source, if you have Go
 git clone https://github.com/Coder8124/logos && cd logos
-go build -o bin/brain ./cmd/brain && ./bin/brain setup
+go build -o bin/logos ./cmd/logos && ./bin/logos setup
 
 # Or a release binary — no runtime at all
 # github.com/Coder8124/logos/releases
 # On macOS, a binary downloaded in a browser is quarantined and Gatekeeper
 # refuses to run it. Clear the flag once before the first run:
-xattr -d com.apple.quarantine ./brain
+xattr -d com.apple.quarantine ./logos
 ```
 
 Wiring a host by hand needs no install whatsoever, because `npx` resolves the
@@ -95,14 +94,14 @@ That config is portable between machines, which an absolute binary path is not.
 
 </details>
 
-`setup` picks a vault (`~/brain` unless you say otherwise), finds your local
+`setup` picks a vault (`~/logos` unless you say otherwise), finds your local
 model runtime and offers to pull anything missing, runs the first index, then
 **shows you which agents it would wire and asks before touching any of them**:
 
 ```console
-$ brain setup
+$ logos setup
 
-  vault      /Users/you/brain   (created)
+  vault      /Users/you/logos   (created)
   runtime    Ollama at http://localhost:11434/v1
   embedding  nomic-embed-text ✓
   model      gemma3:4b ✓
@@ -111,8 +110,8 @@ $ brain setup
 
   hosts
     each of these will be pointed at:
-      /Users/you/go/bin/brain mcp serve
-      BRAIN_VAULT=/Users/you/brain
+      /Users/you/go/bin/logos mcp serve
+      LOGOS_VAULT=/Users/you/logos
 
     Claude Code      →  claude mcp add --scope user
     Claude Desktop   →  ~/Library/Application Support/Claude/…
@@ -130,7 +129,7 @@ $ brain setup
     handshake        ✓  server answered initialize
     tools            ✓  continuity tools advertised
     round trip       ✓  checkpoint written and recovered through resume
-    vault            ✓  written to /Users/you/brain, and cleaned up
+    vault            ✓  written to /Users/you/logos, and cleaned up
 ```
 
 That last block is the point: **registering a server and having a working
@@ -140,15 +139,15 @@ landed in the vault it just configured, then deletes it. A host pointed at the
 wrong vault passes a handshake perfectly while knowing nothing, and that is the
 failure worth catching.
 
-`brain doctor --integration` re-runs it any time.
+`logos doctor --integration` re-runs it any time.
 
 `--host cursor` wires exactly one; `--dry-run` prints the plan and writes
-nothing; `--vault ~/notes` points elsewhere; `brain mcp install` re-runs just
+nothing; `--vault ~/notes` points elsewhere; `logos mcp install` re-runs just
 the wiring. All safe to run twice — an existing entry is updated, never
 duplicated, other MCP servers in those files are left alone, and anything edited
-gets a `.brain-backup` beside it.
+gets a `.logos-backup` beside it.
 
-Where a host ships its own registration command (Claude Code, Codex) brain uses
+Where a host ships its own registration command (Claude Code, Codex) logos uses
 it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
 Devin and GitHub Copilot get their JSON merged instead.
 
@@ -158,14 +157,14 @@ with nothing installed. Retrieval falls back to BM25, which for code
 (identifiers, error strings, paths) is the right tool rather than a consolation.
 
 A 274 MB embedding model adds paraphrase-tolerant search if you want it. The
-chat tiers are only for `brain ask` and the nightly dream pass — nothing an
+chat tiers are only for `logos ask` and the nightly dream pass — nothing an
 MCP host calls ever touches them, so a coding agent needs none of it. Ollama,
 LM Studio, Jan and Msty are auto-discovered if present.
 
 ```sh
-brain doctor --probe                # which models load, and honour JSON schemas
-brain index                         # re-sync after editing the vault by hand
-brain ask "what did I decide about pricing?"
+logos doctor --probe                # which models load, and honour JSON schemas
+logos index                         # re-sync after editing the vault by hand
+logos ask "what did I decide about pricing?"
 ```
 
 Want something to point it at? `./scripts/seed-demo-vault.sh` builds a synthetic
@@ -194,7 +193,7 @@ model throughout.
 
 ```
 system                pass  fidelity  carry   leak  signal
-brain                84.4%    85.9%   89.1%  16.7%   88.9%
+logos                84.4%    85.9%   89.1%  16.7%   88.9%
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%
 full-dump            46.9%    68.8%   84.4%  83.3%   22.2%
@@ -213,7 +212,7 @@ three bars, because a system that returns the right fact *and* the stale one it
 replaced has handed the next agent a coin flip.
 
 On the durability family — write, delete every rebuildable artifact, read again
-— brain scores **100%** and every other system scores **0%**.
+— logos scores **100%** and every other system scores **0%**.
 
 It loses too: arithmetic, recency-conflict and multi-hop are 0%, and temporal
 ordering is 0% for every system measured — retrieval is not computation, and no
@@ -222,26 +221,26 @@ caveats in
 [docs/continuity-benchmark.md](docs/continuity-benchmark.md).
 
 ```sh
-go run ./cmd/brain bench continuity --brain-only
+go run ./cmd/logos bench continuity --logos-only
 ```
 
 ---
 
 ## Lending the memory to other agents
 
-`brain mcp serve` exposes the memory over the **Model Context Protocol** — the
+`logos mcp serve` exposes the memory over the **Model Context Protocol** — the
 same protocol Claude Desktop, Claude Code, and Cursor speak, and one any
 application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
 
 ### Which agents work today
 
-`brain setup` detects and wires every row marked yes. The "wired" rows get a
+`logos setup` detects and wires every row marked yes. The "wired" rows get a
 config their host documents, but nobody has yet run the round trip inside them. Everything in the
-second group speaks MCP, so brain should work once pointed at it — but nobody
+second group speaks MCP, so logos should work once pointed at it — but nobody
 has confirmed it, and "should work" is not a claim this project makes about
 itself.
 
-| Agent | Status | Wired by `brain setup` | How | Verified |
+| Agent | Status | Wired by `logos setup` | How | Verified |
 |---|---|---|---|---|
 | **Claude Code** | supported | yes | `claude mcp add --scope user` | ✅ handshake + round trip |
 | **Codex** | supported | yes | `codex mcp add` | ✅ handshake + round trip |
@@ -261,7 +260,7 @@ itself.
 | JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Continue.dev | planned | not yet | manual JSON below | ❓ **help wanted** |
 
-"Verified" means `brain doctor --integration` passes against it: the host
+"Verified" means `logos doctor --integration` passes against it: the host
 launches the server, completes the MCP handshake, writes a checkpoint, reads it
 back through `resume`, and the markdown lands in the vault that was configured.
 Anything less is registration, not integration — and a host pointed at the wrong
@@ -284,32 +283,32 @@ A host is four fields in [`internal/setup/hosts.go`](internal/setup/hosts.go):
 ```
 
 `mergeJSON` already handles the hazards — it parses before writing, refuses a
-malformed file rather than replacing it, backs up to `.brain-backup`, preserves
+malformed file rather than replacing it, backs up to `.logos-backup`, preserves
 every other MCP server in the file, and writes atomically. If the host ships its
 own registration command, prefer `viaCLI` so its config format stays its problem.
 
-Then run `brain doctor --integration` and open a PR with the output. If it
+Then run `logos doctor --integration` and open a PR with the output. If it
 passes, the row moves up. `internal/setup/setup_test.go` has the fixtures.
 
-If your host is not listed at all: brain talks plain MCP over stdio, so the
+If your host is not listed at all: logos talks plain MCP over stdio, so the
 manual config below works anywhere, and a report that it did is worth as much as
 a patch.
 
 ```json
 {
   "mcpServers": {
-    "brain": {
-      "command": "/absolute/path/to/bin/brain",
+    "logos": {
+      "command": "/absolute/path/to/bin/logos",
       "args": ["mcp", "serve"],
-      "env": { "BRAIN_VAULT": "/absolute/path/to/vault" }
+      "env": { "LOGOS_VAULT": "/absolute/path/to/vault" }
     }
   }
 }
 ```
 
 Both paths must be absolute. A host launches the server from a directory nobody
-chose, so a relative `BRAIN_VAULT` resolves somewhere you will never look — and
-brain will appear to work while knowing nothing.
+chose, so a relative `LOGOS_VAULT` resolves somewhere you will never look — and
+logos will appear to work while knowing nothing.
 
 **No model runtime is required.** Every continuity tool below — `checkpoint`,
 `resume`, `note_progress`, `before_you_try` — is markdown and SQL, and works with
@@ -329,8 +328,8 @@ whether it created a fact or corroborated one it already had), `recall`,
 
 ### Seeing it work
 
-Every write tool returns a receipt — `✓ Logos · stored in brain — memory #41`,
-`✓ Logos · checkpoint saved to brain` — and the agent is asked to repeat it to
+Every write tool returns a receipt — `✓ Logos · stored in logos — memory #41`,
+`✓ Logos · checkpoint saved to logos` — and the agent is asked to repeat it to
 you in its own words, because most hosts collapse a tool result to one grey
 line. If your agent has gone quiet about it, you can look for yourself:
 
@@ -342,7 +341,7 @@ line. If your agent has gone quiet about it, you can look for yourself:
 
 Worth doing once, on the first day. A memory layer you cannot see working is
 indistinguishable from one that is silently broken, and the second one is
-common enough that the doubt is reasonable. `brain doctor` answers the same
+common enough that the doubt is reasonable. `logos doctor` answers the same
 question from outside the agent, with counts.
 
 Setting `LOGOS_ANNOUNCE=off` turns the `✓ Logos ·` marker off for anyone who
@@ -360,7 +359,7 @@ suggest.
 something, and the tool interrupts:
 
 ```console
-$ brain tried "switch to a plastic frame to save weight"
+$ logos tried "switch to a plastic frame to save weight"
 
 ## This has been tried
 
@@ -394,7 +393,7 @@ re-attempted every eighteen months by people with no way of knowing they were
 attempted before.
 
 ```console
-$ brain why internal/memory/vaultstore.go
+$ logos why internal/memory/vaultstore.go
 
 internal/memory/vaultstore.go — 1 checkpoint(s)
 
@@ -427,16 +426,16 @@ a different agent — a different *product* — calls `resume` and continues wit
 anyone re-explaining anything.
 
 ```sh
-brain note kestrel-one "re-quoted the waveguide; no movement under 10k units"
-brain checkpoint kestrel-one --agent claude --next "quote the single-mic line"
-brain resume kestrel-one            # from Cursor, from Codex, from anywhere
+logos note kestrel-one "re-quoted the waveguide; no movement under 10k units"
+logos checkpoint kestrel-one --agent claude --next "quote the single-mic line"
+logos resume kestrel-one            # from Cursor, from Codex, from anywhere
 ```
 
 The organising idea is **working tree = SQLite, commits = vault**. A running
 agent scribbles working notes into the cache — cheap, frequent, disposable, lost
 on rebuild by design. `checkpoint` commits that state to a markdown note in
 `sessions/<project>/`, which the indexer then embeds and edges into the graph
-for free. Delete `.brain/` and the checkpoints survive, because the file *is* the
+for free. Delete `.logos/` and the checkpoints survive, because the file *is* the
 record.
 
 The field that earns its keep is **"didn't work."** Anyone can restate the goal;
@@ -457,22 +456,22 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-go get github.com/Coder8124/brain@latest
+go get github.com/Coder8124/logos@latest
 ```
 
-The module keeps the development name, `github.com/Coder8124/brain`, although
-the repository is `Coder8124/logos`; asking for `github.com/Coder8124/logos`
-fails with a module path mismatch. Working against a local checkout instead:
+Releases before the rename were published as `github.com/Coder8124/brain`;
+asking for that path at a newer version fails with a module path mismatch.
+Working against a local checkout instead:
 
 ```sh
 git clone https://github.com/Coder8124/logos
 # then, in your go.mod:
-#   require github.com/Coder8124/brain v0.0.0
-#   replace github.com/Coder8124/brain => ../logos
+#   require github.com/Coder8124/logos v0.0.0
+#   replace github.com/Coder8124/logos => ../logos
 ```
 
 ```go
-b, err := brain.Open("/path/to/vault", brain.WithAgent("my-agent"))
+b, err := logos.Open("/path/to/vault", logos.WithAgent("my-agent"))
 if err != nil {
     log.Fatal(err)
 }
@@ -485,12 +484,12 @@ fmt.Println(c.Render())        // drop straight into a system prompt
 // About to propose something: has it already been ruled out?
 approach := "re-quoting the waveguide to bring the BOM down"
 if ruled, _ := b.Tried(approach, "kestrel-one"); len(ruled) > 0 {
-    fmt.Println(brain.Explain(approach, ruled))
+    fmt.Println(logos.Explain(approach, ruled))
 }
 
 // Finishing: commit where you stopped. Failed is the field that earns its keep.
 b.Note("kestrel-one", "re-quoted the waveguide; no movement under 10k units")
-b.Checkpoint(brain.Checkpoint{
+b.Checkpoint(logos.Checkpoint{
     Project: "kestrel-one",
     Failed:  []string{"re-quoting the waveguide — no movement under 10k units"},
     Next:    "quote the display driver alternatives",
@@ -502,7 +501,7 @@ The rest of the surface is `Context`, `Remember`/`Recall`/`Forget`, `Search`,
 tools than call them. `examples/handoff` is the whole thing end to end: one agent
 works and stops, another opens the same vault and continues.
 
-`brain.WithoutEmbedding()` skips model discovery outright, which is what you want
+`logos.WithoutEmbedding()` skips model discovery outright, which is what you want
 in CI.
 
 Everything else stays under `internal/` on purpose. The exported surface is what
@@ -515,29 +514,29 @@ definitions, which makes them part of the contract rather than a copy that drift
 ## The command surface
 
 ```text
-brain setup [--vault DIR] [--yes]               connect brain to every agent here
-brain mcp serve | mcp install                   serve the memory; wire up the hosts
-brain ask <q> | search <q>                      query what it knows
-brain replay [--peek]                           what changed since you were last here
-brain reflect                                   descriptive stats over your memory
-brain memory [add|forget|log|history|graph|diff] persistent memory and its timeline
-brain review [--all]                            accept or reject quarantined memories
-brain projects | project <name>                 auto-detected projects and dossiers
-brain loop [add|done|drop]                      open commitments
-brain graph [focus] [--hops N] [--similar]      the note graph around a note
-brain context <task> [--project p] [--budget n] everything bearing on a task, budgeted
-brain note [project] <what you did>             record progress; uncommitted until checkpoint
-brain checkpoint [project] [--handoff who]      commit where you stopped, into the vault
-brain resume [project] | sessions [project]     pick up; read the checkpoint log
-brain tried <approach> [--project p]            has this already been ruled out?
-brain bench continuity [--brain-only]           the handoff suite, against every system installed
-brain index [--watch]                           sync the vault into the cache and embed
-brain dream [--phase nrem|rem]                  nightly consolidation: replay, downscale, recombine
-brain doctor [--probe] | key set|rm <ref>       runtimes and tiers; API keys
+logos setup [--vault DIR] [--yes]               connect logos to every agent here
+logos mcp serve | mcp install                   serve the memory; wire up the hosts
+logos ask <q> | search <q>                      query what it knows
+logos replay [--peek]                           what changed since you were last here
+logos reflect                                   descriptive stats over your memory
+logos memory [add|forget|log|history|graph|diff] persistent memory and its timeline
+logos review [--all]                            accept or reject quarantined memories
+logos projects | project <name>                 auto-detected projects and dossiers
+logos loop [add|done|drop]                      open commitments
+logos graph [focus] [--hops N] [--similar]      the note graph around a note
+logos context <task> [--project p] [--budget n] everything bearing on a task, budgeted
+logos note [project] <what you did>             record progress; uncommitted until checkpoint
+logos checkpoint [project] [--handoff who]      commit where you stopped, into the vault
+logos resume [project] | sessions [project]     pick up; read the checkpoint log
+logos tried <approach> [--project p]            has this already been ruled out?
+logos bench continuity [--logos-only]           the handoff suite, against every system installed
+logos index [--watch]                           sync the vault into the cache and embed
+logos dream [--phase nrem|rem]                  nightly consolidation: replay, downscale, recombine
+logos doctor [--probe] | key set|rm <ref>       runtimes and tiers; API keys
 ```
 
-Environment: `BRAIN_VAULT` (default `~/brain`), `BRAIN_MODEL`, `BRAIN_EMBED`,
-`BRAIN_AGENT` (the name recorded in the session trail, default `cli`).
+Environment: `LOGOS_VAULT` (default `~/logos`), `LOGOS_MODEL`, `LOGOS_EMBED`,
+`LOGOS_AGENT` (the name recorded in the session trail, default `cli`).
 
 ---
 
@@ -546,7 +545,7 @@ Environment: `BRAIN_VAULT` (default `~/brain`), `BRAIN_MODEL`, `BRAIN_EMBED`,
 Nothing is observed. The only things in your vault are things an agent
 explicitly wrote there — a checkpoint, a note, a memory the `remember` MCP
 tool filed. Everything an agent proposes as a memory lands in quarantine
-first; nothing is written that you haven't accepted, via `brain review`.
+first; nothing is written that you haven't accepted, via `logos review`.
 
 Retrieval is hybrid: BM25 and vectors fused by reciprocal rank fusion, then
 expanded one hop through the graph — because the note your own link says is
@@ -558,17 +557,17 @@ vault/
   sessions/<project>/<timestamp>-<agent>.md      # checkpoints
   sessions/<project>/uncommitted.md              # notes not yet checkpointed
   memories/<kind>.md                             # what it knows about you
-  memories/pending.md                            # proposed, awaiting `brain review`
-  .brain/                                        # index.db, config — do not sync
+  memories/pending.md                            # proposed, awaiting `logos review`
+  .logos/                                        # index.db, config — do not sync
 ```
 
-Everything above `.brain/` is the record, including the memories:
+Everything above `.logos/` is the record, including the memories:
 
 ```console
-$ brain memory add "I prefer terse replies with no preamble"
-$ rm -rf $BRAIN_VAULT/.brain && brain index
+$ logos memory add "I prefer terse replies with no preamble"
+$ rm -rf $LOGOS_VAULT/.logos && logos index
 +1 ~0 -0 =0 · embedded 1 · 1 notes, 0 edges, 2 memories
-$ brain memory
+$ logos memory
   [1] (fact  sal 0.70 · conf █████ 0.90) I prefer terse replies with no preamble
 ```
 
@@ -581,15 +580,15 @@ Because the vault is a directory of markdown, git is the sync layer, the
 history, and the conflict resolution — nothing in Logos duplicates any of
 that. Put the vault in a repo, and:
 
-- `.brain/` is a disposable cache, so `brain index` keeps it out of every
-  commit — it adds `.brain/` to the vault's `.gitignore` itself, and says so
+- `.logos/` is a disposable cache, so `logos index` keeps it out of every
+  commit — it adds `.logos/` to the vault's `.gitignore` itself, and says so
   the first time it does.
-- Memory arrives the way code does: a teammate's `brain memory add` becomes a
+- Memory arrives the way code does: a teammate's `logos memory add` becomes a
   line in `memories/<kind>.md`, and it reaches you the same way their code
   changes do — commit, push, pull, or a pull request if that's how the repo
   works.
 - `git pull`ing in someone else's checkpoints, notes or memories is enough by
-  itself. `brain index` rescans the whole vault on every run, so new markdown
+  itself. `logos index` rescans the whole vault on every run, so new markdown
   that appeared on disk between runs — from a pull, not just from Logos — is
   picked up the next time it runs, with no separate "import" step.
 - Logos never runs git for you. Not staging, not committing, not pulling. The
@@ -607,15 +606,15 @@ near-perfect with a JSON schema enforced at the sampler.
 ## Repository
 
 ```
-brain.go         the public API — what an embedding agent imports
+logos.go         the public API — what an embedding agent imports
 enginetest/      that API exercised from outside, as an embedder sees it
 examples/        runnable embeddings, starting with the handoff
-cmd/brain/       the CLI — one engine, two front ends
+cmd/logos/       the CLI — one engine, two front ends
 internal/        index, memory, session, contextpack, deadend, graph, setup,
                  dream, secretary, router, mcpserver
 chaos/           fault injection: SIGKILL mid-write, full disks, racing processes
 app/             Wails v2 desktop app (vault browser: memory, graph, sessions)
-bench/           Python adapters for the systems brain is scored against
+bench/           Python adapters for the systems logos is scored against
 docs/            the benchmark, plus per-subsystem notes
 systemmd/        design, credits, and the prompt agents are given
 scripts/         demo vault seeding, icon build, MCP probe

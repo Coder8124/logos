@@ -49,7 +49,7 @@ func TestAHostConfigWithCommentsAndTrailingCommasIsMergedNotRefused(t *testing.T
 		t.Errorf("the user's own server was damaged: %v", cfg.Servers["docs"])
 	}
 	if _, ok := cfg.Servers[Name]; !ok {
-		t.Errorf("brain was not added:\n%s", raw)
+		t.Errorf("logos was not added:\n%s", raw)
 	}
 	// The rewrite cannot keep the comments, so the report has to say where
 	// they went rather than let them vanish without a word.
@@ -57,7 +57,7 @@ func TestAHostConfigWithCommentsAndTrailingCommasIsMergedNotRefused(t *testing.T
 		t.Error("the result does not say the original's comments survive only in the backup")
 	}
 
-	regs, err := readServerBlock(path+".brain-backup", "servers")
+	regs, err := readServerBlock(path+".logos-backup", "servers")
 	if err != nil || len(regs) != 1 {
 		t.Errorf("reading back the commented original gave %v, %v; want the one server it holds", regs, err)
 	}

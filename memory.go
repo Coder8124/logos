@@ -1,11 +1,11 @@
-package brain
+package logos
 
-import "github.com/Coder8124/brain/internal/memory"
+import "github.com/Coder8124/logos/internal/memory"
 
 // Remember stores something durable about the user and reports what happened:
 // whether it created a fact or corroborated one already held. Near-identical
 // statements reinforce rather than duplicate.
-func (b *Brain) Remember(text string, kind Kind) (Receipt, error) {
+func (b *Logos) Remember(text string, kind Kind) (Receipt, error) {
 	if kind == "" {
 		kind = Fact
 	}
@@ -15,7 +15,7 @@ func (b *Brain) Remember(text string, kind Kind) (Receipt, error) {
 }
 
 // Recall retrieves what is known about the user relevant to a query.
-func (b *Brain) Recall(query string, k int) ([]Memory, error) {
+func (b *Logos) Recall(query string, k int) ([]Memory, error) {
 	if k <= 0 {
 		k = 5
 	}
@@ -23,7 +23,7 @@ func (b *Brain) Recall(query string, k int) ([]Memory, error) {
 }
 
 // Memories returns everything currently held.
-func (b *Brain) Memories() ([]Memory, error) { return memory.All(b.ix.DB) }
+func (b *Logos) Memories() ([]Memory, error) { return memory.All(b.ix.DB) }
 
 // Forget deletes a memory by id.
-func (b *Brain) Forget(id int64) error { return memory.Forget(b.ix.DB, id) }
+func (b *Logos) Forget(id int64) error { return memory.Forget(b.ix.DB, id) }

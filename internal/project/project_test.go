@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 	_ "modernc.org/sqlite"
 )
 
@@ -149,7 +149,7 @@ func hasMemoryText(p Project, text string) bool {
 
 // "Last checkpoint by claude, just now" is what this renders into, and it used
 // to say it for anything under an hour. A handoff fifty minutes and one
-// context-switch old is not "just now", and `brain doctor` said "20 minutes
+// context-switch old is not "just now", and `logos doctor` said "20 minutes
 // ago" about the same checkpoint at the same moment.
 func TestAgeDoesNotCallTheLastHourJustNow(t *testing.T) {
 	now := time.Now()

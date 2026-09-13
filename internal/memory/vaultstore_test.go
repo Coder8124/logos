@@ -9,7 +9,7 @@ import (
 )
 
 // The claim under test is the project's second principle, applied to the half
-// of the system where it used to be false: delete .brain, reindex, get the same
+// of the system where it used to be false: delete .logos, reindex, get the same
 // state back.
 
 func vaultDB(t *testing.T) (*sql.DB, string) {
@@ -37,7 +37,7 @@ func TestMemoriesSurviveLosingTheDatabase(t *testing.T) {
 		}
 	}
 
-	// The wipe. A fresh database, as if .brain had been deleted.
+	// The wipe. A fresh database, as if .logos had been deleted.
 	wiped := testDB(t)
 	n, err := Import(wiped, nil, "", dir)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestTheFileReadsAsADocument(t *testing.T) {
 		"type: memory-store",
 		"How you like things done.",
 		"- I prefer written proposals over meetings",
-		"<!-- brain id=",
+		"<!-- logos id=",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q from:\n%s", want, text)
@@ -299,7 +299,7 @@ func TestTheFileReadsAsADocument(t *testing.T) {
 
 // Agent has to make the same round trip as project and source — written into
 // the bookkeeping comment, read back on import — so who learned a fact
-// survives an `rm -rf .brain`, not just the fact itself.
+// survives an `rm -rf .logos`, not just the fact itself.
 func TestAgentSurvivesExportAndImport(t *testing.T) {
 	db, dir := vaultDB(t)
 	if _, err := Store(db, nil, "", &Memory{
@@ -338,7 +338,7 @@ func TestOldVaultFileWithNoAgentMetadataImportsCleanly(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n" +
-		"- a fact written before agents were tracked <!-- brain id=1 conf=0.70 sal=0.50 src=manual created=2025-01-01 uses=0 -->\n"
+		"- a fact written before agents were tracked <!-- logos id=1 conf=0.70 sal=0.50 src=manual created=2025-01-01 uses=0 -->\n"
 	if err := os.WriteFile(filepath.Join(dir, Dir, "fact.md"), []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -358,19 +358,19 @@ func TestOldVaultFileWithNoAgentMetadataImportsCleanly(t *testing.T) {
 	}
 }
 
-// A memory is free text a person or an agent wrote, and it may quote brain's
+// A memory is free text a person or an agent wrote, and it may quote logos's
 // own bookkeeping — a note about the vault format, a pasted line from a store
-// file. brain's comment is always appended last, so splitting the line at the
+// file. logos's comment is always appended last, so splitting the line at the
 // first "<!--" hands the user's own text to the metadata parser and drops it.
 //
 // The loss needs a second, unrelated write to show: the first store renders the
 // file correctly, and only the next one parses it back before rewriting. That
 // rewrite is what makes this silent and permanent — the truncated form is then
 // what the vault holds, so a rebuild is faithful to corrupt data.
-func TestAMemoryQuotingBrainsOwnCommentIsNotTruncatedByTheNextWrite(t *testing.T) {
+func TestAMemoryQuotingLogosOwnCommentIsNotTruncatedByTheNextWrite(t *testing.T) {
 	db, dir := vaultDB(t)
 
-	const quoted = "the deploy script uses <!-- brain id=999 --> as a marker"
+	const quoted = "the deploy script uses <!-- logos id=999 --> as a marker"
 	first := Memory{Text: quoted, Kind: Fact, Source: "manual"}
 	if _, err := Store(db, nil, "", &first); err != nil {
 		t.Fatal(err)

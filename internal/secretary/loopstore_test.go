@@ -26,9 +26,9 @@ func vaultDB(t *testing.T, dir string) *sql.DB {
 	return db
 }
 
-// The promise every document in this project makes: delete .brain/index.db,
-// run `brain index`, lose nothing. Open loops lived only in the cache, so
-// `brain loop` went quietly empty after a rebuild — the loop was not closed,
+// The promise every document in this project makes: delete .logos/index.db,
+// run `logos index`, lose nothing. Open loops lived only in the cache, so
+// `logos loop` went quietly empty after a rebuild — the loop was not closed,
 // it was destroyed, and nothing said so.
 func TestOpenLoopsSurviveDeletingTheIndex(t *testing.T) {
 	dir := t.TempDir()
@@ -164,7 +164,7 @@ func TestAnAbsentLoopFileLeavesTheCacheAlone(t *testing.T) {
 		t.Errorf("open count = %d, want the cached loop left alone", n)
 	}
 	// And it is written down on the way past: a vault holding loops only in its
-	// cache is one rebuild away from losing them, and `brain index` is the
+	// cache is one rebuild away from losing them, and `logos index` is the
 	// command people run immediately before that.
 	if _, err := os.Stat(LoopsPath(dir)); err != nil {
 		t.Errorf("importing a vault with no loop file must write one: %v", err)
@@ -207,7 +207,7 @@ func TestLoopMetadataSurvivesTheRoundTripThroughTheVault(t *testing.T) {
 
 // The file tells the user a line is theirs to delete, so a line is theirs to
 // duplicate — a copy-paste is an expected edit. parse took the *first* "<!--"
-// as the start of brain's bookkeeping, so a loop whose own text mentioned one
+// as the start of logos's bookkeeping, so a loop whose own text mentioned one
 // was truncated at that point on every import.
 func TestALoopWhoseTextContainsAMarkdownCommentIsNotTruncated(t *testing.T) {
 	dir := t.TempDir()
@@ -226,7 +226,7 @@ func TestALoopWhoseTextContainsAMarkdownCommentIsNotTruncated(t *testing.T) {
 
 // A duplicated line collided with the fingerprint UNIQUE index, which
 // ON CONFLICT(id) does not cover. Import returned that error up through
-// `brain index` — after some rows had already been upserted and before the
+// `logos index` — after some rows had already been upserted and before the
 // reconciling delete pass ran, leaving the cache half-imported. A repeated
 // commitment is one commitment, not a failed rebuild.
 func TestADuplicatedLineInTheLoopFileDoesNotFailTheImport(t *testing.T) {

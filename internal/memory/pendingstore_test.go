@@ -8,7 +8,7 @@ import (
 )
 
 // The claim under test is the one every document in this project makes about
-// .brain/index.db: it is a cache, deleting it is safe. That was true for notes,
+// .logos/index.db: it is a cache, deleting it is safe. That was true for notes,
 // then for memories, then for working notes — and false for the review queue,
 // which is the one place holding facts the user has not agreed to yet.
 
@@ -90,7 +90,7 @@ func TestProposalsSurviveDeletingTheIndex(t *testing.T) {
 	}
 }
 
-// Restoring is idempotent. `brain index` runs on a timer in watch mode; a queue
+// Restoring is idempotent. `logos index` runs on a timer in watch mode; a queue
 // that doubled on every pass would be worse than one that vanished.
 func TestRestoringTheQueueTwiceDoesNotDoubleIt(t *testing.T) {
 	db, dir := vaultDB(t)
@@ -287,7 +287,7 @@ func TestAnUnboundDatabaseStillTakesProposals(t *testing.T) {
 // nothing repairs that: flushPending only runs when the queue changes, so a
 // queue nobody is touching stays in the one place that gets deleted. The real
 // vault this was found in had exactly that shape — two proposals from before
-// the file existed, and `brain index` after a wipe reported "the review queue is
+// the file existed, and `logos index` after a wipe reported "the review queue is
 // empty", which is what it also reports to someone who has reviewed everything.
 func TestAReviewQueueThatWasNeverWrittenDownIsWrittenDownBeforeItIsLost(t *testing.T) {
 	db, dir := vaultDB(t)

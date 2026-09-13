@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // These tests build real repositories rather than faking git's output. The
@@ -262,7 +262,7 @@ func TestTopDirs(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"README.md", "(root)"},
 		{"internal/memory/store.go", "internal/memory/"},
-		{"cmd/brain/main.go", "cmd/brain/"},
+		{"cmd/logos/main.go", "cmd/logos/"},
 		{"docs/x.md", "docs/"},
 	} {
 		if got := topDirs(tc.in, 2); got != tc.want {

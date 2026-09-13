@@ -49,7 +49,7 @@ type LogEntry struct {
 // SQLite's default rowid is max(id) + 1, which means an id is handed straight
 // back out the moment the row holding it is deleted. That is fine for a table
 // and wrong for this one, because memory_log outlives the row: forget #7, store
-// something unrelated, and it is also #7 — so `brain memory history 7` prints
+// something unrelated, and it is also #7 — so `logos memory history 7` prints
 // one timeline in which a fact was created, forgotten, and then created again
 // as a completely different fact. The two lifecycles are indistinguishable, and
 // the reading a person naturally takes from it — that the assistant changed its
@@ -151,7 +151,7 @@ func logEventIn(db *sql.DB, memID int64, event, detail string, refID int64, proj
 	// costs the user a memory to protect a note about it. So: never silent,
 	// never fatal. stderr is the right channel — the CLI shows it, and an MCP
 	// host logs it, while stdout carries the protocol and cannot be written to.
-	fmt.Fprintf(os.Stderr, "brain: the audit log dropped a %q event for memory #%d: %v\n", event, memID, err)
+	fmt.Fprintf(os.Stderr, "logos: the audit log dropped a %q event for memory #%d: %v\n", event, memID, err)
 }
 
 // Timeline returns the most recent log entries, newest first, up to limit

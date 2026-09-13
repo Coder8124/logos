@@ -12,11 +12,11 @@
 #
 # Destructive: wipes the target's notes and re-seeds. Never point it at a real
 # vault — it refuses anything that isn't empty or previously seeded by this
-# script (marked by .brain/demo-seed).
+# script (marked by .logos/demo-seed).
 set -euo pipefail
 
 VAULT="${1:-$HOME/vaults/kestrel}"
-MARKER="$VAULT/.brain/demo-seed"
+MARKER="$VAULT/.logos/demo-seed"
 
 if [ -e "$VAULT" ] && [ ! -e "$MARKER" ] && [ -n "$(ls -A "$VAULT" 2>/dev/null)" ]; then
   echo "refusing: $VAULT is non-empty and wasn't seeded by this script." >&2
@@ -25,7 +25,7 @@ if [ -e "$VAULT" ] && [ ! -e "$MARKER" ] && [ -n "$(ls -A "$VAULT" 2>/dev/null)"
 fi
 
 rm -rf "$VAULT"
-mkdir -p "$VAULT"/{people,projects,topics,daily,business,.brain}
+mkdir -p "$VAULT"/{people,projects,topics,daily,business,.logos}
 touch "$MARKER"
 
 w() { mkdir -p "$(dirname "$VAULT/$1")"; cat > "$VAULT/$1"; }
@@ -710,7 +710,7 @@ EOF
 
 # ---------------------------------------------------------------- config
 
-cat > "$VAULT/.brain/flavor.json" <<'EOF'
+cat > "$VAULT/.logos/flavor.json" <<'EOF'
 {
   "active": "business",
   "name": "Kestrel",
@@ -726,11 +726,11 @@ cat > "$VAULT/.brain/flavor.json" <<'EOF'
 EOF
 
 # Open loops live in the cache, not in markdown, so the secretary's brief is
-# empty without them — seed a few so `brain brief` has something to say.
-BRAIN="${BRAIN_BIN:-./bin/brain}"
-if [ -x "$BRAIN" ]; then
+# empty without them — seed a few so `logos brief` has something to say.
+LOGOS="${LOGOS_BIN:-./bin/logos}"
+if [ -x "$LOGOS" ]; then
   while IFS= read -r loop; do
-    [ -n "$loop" ] && BRAIN_VAULT="$VAULT" "$BRAIN" loop add "$loop" >/dev/null
+    [ -n "$loop" ] && LOGOS_VAULT="$VAULT" "$LOGOS" loop add "$loop" >/dev/null
   done <<'LOOPS'
 Cut the front frame tooling PO — 14 week lead, already past the Aug 4 drop-dead date
 Send Elena the August board deck with the honest 100k margin number
@@ -741,12 +741,12 @@ Tell Dana the $249 was set against a BOM target that never included yield loss o
 LOOPS
   echo "  open loops seeded"
 else
-  echo "  (no ./bin/brain — skipped open loops; set BRAIN_BIN to seed them)"
+  echo "  (no ./bin/logos — skipped open loops; set LOGOS_BIN to seed them)"
 fi
 
 echo "seeded $VAULT"
 find "$VAULT" \( -name '*.md' -o -name '*.csv' \) | wc -l | xargs echo "  files:"
 echo
 echo "next:"
-echo "  BRAIN_VAULT=\"$VAULT\" ./bin/brain index"
-echo "  BRAIN_VAULT=\"$VAULT\" ./bin/brain ask 'why is the BOM over target?'"
+echo "  LOGOS_VAULT=\"$VAULT\" ./bin/logos index"
+echo "  LOGOS_VAULT=\"$VAULT\" ./bin/logos ask 'why is the BOM over target?'"

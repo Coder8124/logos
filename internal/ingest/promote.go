@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/text"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // Promote turns a reviewed candidate into a real checkpoint. This is the only

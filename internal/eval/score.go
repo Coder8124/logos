@@ -70,7 +70,7 @@ type Gold struct {
 	Signal []Fact
 }
 
-// Known is what brain is expected to do on a case today. Recording the
+// Known is what logos is expected to do on a case today. Recording the
 // prediction in the suite is what turns a weakness into a tracked one: a
 // "weakness" that starts passing is progress worth noticing, and a "strength"
 // that starts failing is a regression the aggregate numbers would otherwise
@@ -88,7 +88,7 @@ type Scenario struct {
 	Family string // continuity | memory | durability
 	Skill  string // the specific capability under test
 	Why    string // one line, for the report — what this case is really asking
-	Known  Known  // brain's expected outcome, so regressions are visible
+	Known  Known  // logos's expected outcome, so regressions are visible
 
 	Setup []Event
 	Query Query

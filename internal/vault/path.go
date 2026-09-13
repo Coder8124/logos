@@ -8,15 +8,15 @@ import (
 
 // Where the vault lives, and how every front end agrees on it.
 //
-// There were two rules. The CLI defaulted to ~/brain; the desktop app kept its
-// own copy defaulting to ~/brain-vault. index.Open creates the directory it is
+// There were two rules. The CLI defaulted to ~/logos; the desktop app kept its
+// own copy defaulting to ~/logos-vault. index.Open creates the directory it is
 // pointed at, so the app made the wrong vault on first launch and then reported
 // a healthy zero of everything — indistinguishable from a working install with
 // nothing in it, while the user's actual memory sat one directory away.
 //
 // Collapsing the two into one function fixed the default but not the general
 // case, because the escape hatch was an environment variable. A .app launched
-// from Finder or Spotlight inherits no login shell: BRAIN_VAULT exported from a
+// from Finder or Spotlight inherits no login shell: LOGOS_VAULT exported from a
 // profile is invisible to it. So anyone whose vault is not at the default had a
 // desktop app that could not be pointed at it at all.
 //
@@ -25,7 +25,7 @@ import (
 // below has three steps instead of two.
 
 // pointerName is the file holding the chosen vault path, inside the user's
-// config directory (~/Library/Application Support/brain on macOS, ~/.config/brain
+// config directory (~/Library/Application Support/logos on macOS, ~/.config/logos
 // elsewhere). Deliberately not inside the vault: a pointer stored in the place
 // it points at cannot be found by anyone who does not already know where that is.
 const pointerName = "vault-path"
@@ -34,34 +34,34 @@ const pointerName = "vault-path"
 //
 // The order is explicit override, then recorded choice, then default:
 //
-//  1. BRAIN_VAULT, which is how an MCP host config pins a server to one vault
+//  1. LOGOS_VAULT, which is how an MCP host config pins a server to one vault
 //     and how a scratch vault is used in a test or a shell. An explicit
 //     instruction in the current process wins over anything on disk.
-//  2. The path `brain setup` recorded. This is what makes the desktop app find
+//  2. The path `logos setup` recorded. This is what makes the desktop app find
 //     a non-default vault, since it has no environment to inherit.
-//  3. ~/brain. Absolute, because a relative default is resolved against
+//  3. ~/logos. Absolute, because a relative default is resolved against
 //     whatever directory a host happened to launch the binary from — which is
 //     the original version of this bug.
 func Path() string {
-	if v := os.Getenv("BRAIN_VAULT"); v != "" {
+	if v := os.Getenv("LOGOS_VAULT"); v != "" {
 		return v
 	}
 	if v := Pointer(); v != "" {
 		return v
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, "brain")
+		return filepath.Join(h, "logos")
 	}
 	return "vault" // no home directory to speak of; the old behaviour
 }
 
 // Chosen reports the vault path and whether anybody actually chose it — set
-// BRAIN_VAULT in this process, or recorded a path with `brain setup`. When
-// neither is true the answer is the ~/brain default, which nobody has vouched
+// LOGOS_VAULT in this process, or recorded a path with `logos setup`. When
+// neither is true the answer is the ~/logos default, which nobody has vouched
 // for, and a caller may treat "it is not there" as "make it" rather than as a
 // mistake to report.
 func Chosen() (dir string, explicit bool) {
-	if v := os.Getenv("BRAIN_VAULT"); v != "" {
+	if v := os.Getenv("LOGOS_VAULT"); v != "" {
 		return v, true
 	}
 	if v := Pointer(); v != "" {
@@ -74,12 +74,12 @@ func Chosen() (dir string, explicit bool) {
 // whether or not that directory is there right now.
 //
 // It used to be ignored when the directory was missing, falling back to
-// ~/brain. A missing recorded vault is most often on a drive that is not
+// ~/logos. A missing recorded vault is most often on a drive that is not
 // mounted, and the fallback split one project across two vaults: the MCP server
-// created ~/brain and accepted checkpoints into it, and after the drive came
+// created ~/logos and accepted checkpoints into it, and after the drive came
 // back `resume` found none of them. So the recorded path stays the answer, and
 // every caller that opens a vault checks it exists first and refuses by name.
-// Someone who really did delete it moves the pointer with `brain setup --vault`.
+// Someone who really did delete it moves the pointer with `logos setup --vault`.
 func Pointer() string {
 	p, err := pointerPath()
 	if err != nil {
@@ -106,7 +106,7 @@ func Recorded() string {
 }
 
 // Record writes down which vault this machine uses, so a front end with no
-// environment to inherit can still find it. Called by `brain setup` once the
+// environment to inherit can still find it. Called by `logos setup` once the
 // vault is known.
 //
 // Failure is returned rather than swallowed, but callers treat it as a warning:
@@ -132,5 +132,5 @@ func pointerPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cfg, "brain", pointerName), nil
+	return filepath.Join(cfg, "logos", pointerName), nil
 }

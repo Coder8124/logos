@@ -120,7 +120,7 @@ func (t txcriptReader) root() string {
 	}
 	// With txcript present but no standard on-disk location Logos knows, the
 	// reader still can't enumerate — a caller passes an explicit path to
-	// `brain ingest --harness <name> <path>`. Report available-but-empty.
+	// `logos ingest --harness <name> <path>`. Report available-but-empty.
 	return txcriptSentinel
 }
 
@@ -160,7 +160,7 @@ func txcriptOnPath() bool {
 
 // registerTxcriptReaders adds the formats txcript covers that matter to this
 // project's users. The list is deliberately short — it is not a claim to
-// support all 16, only the ones worth naming in `brain doctor`.
+// support all 16, only the ones worth naming in `logos doctor`.
 func registerTxcriptReaders() {
 	for _, f := range []txcriptReader{
 		{name: "cursor", format: "cursor"},

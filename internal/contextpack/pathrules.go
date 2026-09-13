@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // A tree view of the vault is only a control surface if toggling a node is
@@ -20,7 +20,7 @@ import (
 // The rules therefore live as one hand-editable markdown file, not a table:
 // what rebuilds this from markdown is nothing, because the markdown *is* the
 // only copy. There is no cache to fall out of sync with and nothing for
-// `rm -rf .brain` to take with it.
+// `rm -rf .logos` to take with it.
 //
 // The file sits under a dot-directory (.context/) rather than notes/ or
 // alongside it, for the same reason memories/ and ingest/ are walked past by
@@ -63,7 +63,7 @@ func RulesPath(vaultDir string) string {
 const rulesHeader = `# Context rules
 
 Each line pins or excludes everything under one vault path from context packs.
-Edit or delete any line by hand; brain reads this file directly and keeps
+Edit or delete any line by hand; logos reads this file directly and keeps
 nothing about it anywhere else, so there is nothing else to keep in sync.
 
 Format: "- pin: <path>" always includes it, "- exclude: <path>" never does.

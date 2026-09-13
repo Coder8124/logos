@@ -1,4 +1,4 @@
-// background.js — the only file that talks to the local brain process.
+// background.js — the only file that talks to the local logos process.
 //
 // A Manifest V3 service worker is killed and restarted between events, so it
 // cannot hold a long-lived WebSocket the way a persistent background page
@@ -17,9 +17,9 @@ async function getConfig() {
 // One WebSocket round trip: connect, initialize, send the real request,
 // return its response, close. Rejects on any transport error so the caller
 // (the content script) can show the user *why* — "no pairing token" and
-// "brain isn't running" are different problems and should read as different
+// "logos isn't running" are different problems and should read as different
 // errors, not a generic "something went wrong".
-function callBrain(method, params) {
+function callLogos(method, params) {
   return new Promise(async (resolve, reject) => {
     const { port, token } = await getConfig();
     if (!token) {
@@ -31,13 +31,13 @@ function callBrain(method, params) {
     try {
       ws = new WebSocket(url);
     } catch (e) {
-      reject(new Error(`could not open a connection to brain: ${e.message}`));
+      reject(new Error(`could not open a connection to logos: ${e.message}`));
       return;
     }
 
     const timeout = setTimeout(() => {
       ws.close();
-      reject(new Error("brain did not respond in time — is `brain mcp serve --http` running?"));
+      reject(new Error("logos did not respond in time — is `logos mcp serve --http` running?"));
     }, 10000);
 
     let initialized = false;
@@ -45,7 +45,7 @@ function callBrain(method, params) {
 
     ws.onerror = () => {
       clearTimeout(timeout);
-      reject(new Error("could not reach brain on 127.0.0.1 — is `brain mcp serve --http` running, and does the pairing token match?"));
+      reject(new Error("could not reach logos on 127.0.0.1 — is `logos mcp serve --http` running, and does the pairing token match?"));
     };
 
     ws.onopen = () => {
@@ -67,7 +67,7 @@ function callBrain(method, params) {
         if (msg.error) {
           clearTimeout(timeout);
           ws.close();
-          reject(new Error(`brain rejected the handshake: ${msg.error.message || JSON.stringify(msg.error)}`));
+          reject(new Error(`logos rejected the handshake: ${msg.error.message || JSON.stringify(msg.error)}`));
           return;
         }
         ws.send(JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }));
@@ -89,8 +89,8 @@ function callBrain(method, params) {
 // the pairing token out of the page's own JS context, which a hostile script
 // on chatgpt.com could otherwise read.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== "brain-call") return;
-  callBrain(msg.method, msg.params || {})
+  if (msg?.type !== "logos-call") return;
+  callLogos(msg.method, msg.params || {})
     .then((result) => sendResponse({ ok: true, result }))
     .catch((err) => sendResponse({ ok: false, error: String(err.message || err) }));
   return true; // keep the message channel open for the async response

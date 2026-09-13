@@ -2,7 +2,7 @@
 description: Hand this work to another agent or person, with everything they need to continue
 ---
 
-Write a checkpoint to brain that hands this work over, then tell me it is done.
+Write a checkpoint to logos that hands this work over, then tell me it is done.
 
 Call the `checkpoint` tool (or `handoff` if I named who is taking over). Fill in
 every field you can — anything you leave out is lost, because the next agent

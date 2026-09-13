@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The tests that matter here are the ones about restraint.
@@ -329,12 +329,12 @@ func TestAPlaceholderInFailedIsNotADeadEnd(t *testing.T) {
 	dir, db := seed(t)
 	for _, f := range []string{"none this session", "None.", "n/a", "nothing"} {
 		if err := session.Commit(db, dir, &session.Checkpoint{
-			Project: "brain", Agent: "claude", Task: "work", Failed: []string{f},
+			Project: "logos", Agent: "claude", Task: "work", Failed: []string{f},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	all, err := Collect(dir, db, "brain")
+	all, err := Collect(dir, db, "logos")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,12 +348,12 @@ func TestAPlaceholderInFailedIsNotADeadEnd(t *testing.T) {
 func TestOneSharedWordDoesNotMakeARepeat(t *testing.T) {
 	dir, db := seed(t)
 	if err := session.Commit(db, dir, &session.Checkpoint{
-		Project: "brain", Agent: "claude", Task: "work", Failed: []string{"session cookies"},
+		Project: "logos", Agent: "claude", Task: "work", Failed: []string{"session cookies"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := Check(dir, db, nil, "",
-		"Automatically capture session activity and derive checkpoints", "brain", 5)
+		"Automatically capture session activity and derive checkpoints", "logos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestOneSharedWordDoesNotMakeARepeat(t *testing.T) {
 		t.Errorf("matched on one shared word: %q", h.Text)
 	}
 	// A ruling that shares both of its words still matches.
-	hits, _ = Check(dir, db, nil, "", "store session cookies in redis", "brain", 5)
+	hits, _ = Check(dir, db, nil, "", "store session cookies in redis", "logos", 5)
 	if len(hits) == 0 {
 		t.Error("a proposal naming the whole ruling was not matched")
 	}

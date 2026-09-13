@@ -41,12 +41,12 @@ func TestAProcedureDoesNotSurfaceInOrdinaryRecall(t *testing.T) {
 func TestAProcedureDoesNotSurfaceInProjectScopedRecall(t *testing.T) {
 	db := testDB(t)
 	insertProjectMem(t, db, "route: warm the cache before launch | trap: cold cache times out",
-		"brain", []float32{1, 0, 0})
-	storeVec(t, db, "brain uses sqlite", Fact, 0.5, []float32{1, 0, 0})
+		"logos", []float32{1, 0, 0})
+	storeVec(t, db, "logos uses sqlite", Fact, 0.5, []float32{1, 0, 0})
 	db.Exec("UPDATE memories SET kind = ? WHERE text LIKE 'route:%'", string(Procedure))
-	db.Exec("UPDATE memories SET project = 'brain' WHERE text LIKE 'route:%'")
+	db.Exec("UPDATE memories SET project = 'logos' WHERE text LIKE 'route:%'")
 
-	got, err := RecallInProject(db, nil, "", "warm the cache before launch", "brain", 10)
+	got, err := RecallInProject(db, nil, "", "warm the cache before launch", "logos", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestRecallProceduresSeesOnlyProcedures(t *testing.T) {
 	}
 }
 
-// Invariant 1, applied to the fifth kind: rm -rf .brain and reindex must not
+// Invariant 1, applied to the fifth kind: rm -rf .logos and reindex must not
 // lose a procedure, or adding this layer repeats the exact bug that made
 // memories files in the first place.
 func TestProceduresSurviveDeletingTheIndex(t *testing.T) {
@@ -111,7 +111,7 @@ func TestProceduresSurviveDeletingTheIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The wipe. A fresh database, as if .brain/index.db had been deleted.
+	// The wipe. A fresh database, as if .logos/index.db had been deleted.
 	wiped := testDB(t)
 	n, err := Import(wiped, nil, "", dir)
 	if err != nil {

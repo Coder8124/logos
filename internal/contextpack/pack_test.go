@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/secretary"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // fakeEmbedder returns the same vector for every input, so ranking never
@@ -902,7 +902,7 @@ func writeNote(ix *index.Index, rel, body string) error {
 	return os.WriteFile(path, []byte(body), 0o644)
 }
 
-// Empty is what lets `brain resume` tell a person "nothing is here, type this"
+// Empty is what lets `logos resume` tell a person "nothing is here, type this"
 // instead of handing them the model-facing rendering of a void. The risk it
 // carries is drift: a pack that gained content through a field Empty does not
 // look at would still claim to be empty, and the CLI would suppress a real

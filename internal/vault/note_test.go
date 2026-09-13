@@ -3,7 +3,7 @@ package vault
 import "testing"
 
 func TestParsesFrontmatterRelationsAndBodyLinks(t *testing.T) {
-	raw := "---\ntype: person\naliases: [Sam]\nrelations:\n  - { pred: works_on, obj: \"[[brain]]\", conf: 0.8, src: inferred }\n---\nWorks with [[Ana Diaz]] on [[brain]].\n"
+	raw := "---\ntype: person\naliases: [Sam]\nrelations:\n  - { pred: works_on, obj: \"[[logos]]\", conf: 0.8, src: inferred }\n---\nWorks with [[Ana Diaz]] on [[logos]].\n"
 	n := Parse("/v", "/v/people/sameer.md", raw)
 
 	if n.Slug != "people/sameer" {
@@ -16,7 +16,7 @@ func TestParsesFrontmatterRelationsAndBodyLinks(t *testing.T) {
 		t.Errorf("aliases = %v", n.Aliases)
 	}
 
-	// [[brain]] already exists as a typed relation, so the body mention must
+	// [[logos]] already exists as a typed relation, so the body mention must
 	// not create a duplicate weaker edge.
 	if len(n.Edges) != 2 {
 		t.Fatalf("edges = %d, want 2: %+v", len(n.Edges), n.Edges)
@@ -26,8 +26,8 @@ func TestParsesFrontmatterRelationsAndBodyLinks(t *testing.T) {
 	for _, e := range n.Edges {
 		byObj[e.Obj] = e
 	}
-	if got := byObj["brain"]; got.Pred != "works_on" || got.Src != Inferred || got.Conf != 0.8 {
-		t.Errorf("brain edge = %+v", got)
+	if got := byObj["logos"]; got.Pred != "works_on" || got.Src != Inferred || got.Conf != 0.8 {
+		t.Errorf("logos edge = %+v", got)
 	}
 	if got := byObj["ana-diaz"]; got.Pred != "mentions" || got.Conf != 1.0 {
 		t.Errorf("ana edge = %+v", got)
@@ -55,9 +55,9 @@ func TestNoteWithoutFrontmatter(t *testing.T) {
 }
 
 func TestStripsWikilinkAliasesAndHeadings(t *testing.T) {
-	n := Parse("/v", "/v/a.md", "[[brain|the app]] and [[brain#setup]]")
-	if len(n.Edges) != 1 || n.Edges[0].Obj != "brain" {
-		t.Errorf("edges = %+v, want one edge to brain", n.Edges)
+	n := Parse("/v", "/v/a.md", "[[logos|the app]] and [[logos#setup]]")
+	if len(n.Edges) != 1 || n.Edges[0].Obj != "logos" {
+		t.Errorf("edges = %+v, want one edge to logos", n.Edges)
 	}
 }
 

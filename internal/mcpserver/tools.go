@@ -1,7 +1,7 @@
 package mcpserver
 
 // The tools this server exposes to an MCP host — the surface another
-// application can build on to use brain as its memory layer.
+// application can build on to use logos as its memory layer.
 //
 // Two families. The memory tools (remember, recall, list, forget, memory_diff)
 // answer "what do you know about X". The continuity tools (context, resume,
@@ -225,7 +225,7 @@ var toolDefs = []map[string]any{
 		// on the way out, candidate-only on the way back.
 		"name":        "ingest_harvest",
 		"annotations": reads(),
-		"description": "Show what another coding agent's session actually did, so you can distil it. Call with no arguments to list the sessions `brain ingest` has queued; call with one session id to get its harvested commands and files plus the turn sequence as untrusted evidence. It only serves sessions the user already ingested from the CLI — it cannot read a new transcript." + relay,
+		"description": "Show what another coding agent's session actually did, so you can distil it. Call with no arguments to list the sessions `logos ingest` has queued; call with one session id to get its harvested commands and files plus the turn sequence as untrusted evidence. It only serves sessions the user already ingested from the CLI — it cannot read a new transcript." + relay,
 		"inputSchema": obj(map[string]any{
 			"session":   str("the session id (or its first few characters) to fetch evidence for; omit to list what is queued"),
 			"max_turns": intSchema("how many turns to show (default 120); a longer session is abridged and elided turns cannot be cited"),
@@ -247,7 +247,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "list_projects",
 		"annotations": reads(),
-		"description": "Enumerate the projects brain has detected from the user's activity, most recently active first. Use to discover what the user is working on, or before calling context or resume for one.",
+		"description": "Enumerate the projects logos has detected from the user's activity, most recently active first. Use to discover what the user is working on, or before calling context or resume for one.",
 		"inputSchema": obj(map[string]any{}),
 	},
 }

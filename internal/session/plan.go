@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // A Plan is what an agent proposed before any of it was carried out — the
@@ -47,7 +47,7 @@ func (p Plan) Empty() bool {
 // Called from the ExitPlanMode hook path, which runs on the critical path of
 // every plan a user approves and must never block or fail loudly — so unlike
 // Checkpoint.Commit this has no session to close and no index to touch; it
-// only ever appends one new file. `brain index` picks it up on the next run
+// only ever appends one new file. `logos index` picks it up on the next run
 // the same as any other vault note.
 func SavePlan(vaultDir string, p Plan) (string, error) {
 	if strings.TrimSpace(p.Project) == "" {
@@ -112,7 +112,7 @@ func claimPlan(dir string, ts int64, agent string) (string, error) {
 	return "", fmt.Errorf("could not find a free plan filename in a minute of names starting at %s", start)
 }
 
-// Markdown renders the plan as a vault note: indexed by `brain index` like any
+// Markdown renders the plan as a vault note: indexed by `logos index` like any
 // other, reachable by `why` and `recall` through the plan_of relation, exactly
 // the way a checkpoint reaches its project through checkpoint_of.
 func (p Plan) Markdown() string {
@@ -170,7 +170,7 @@ func ParsePlan(raw string) Plan {
 }
 
 // ListPlans returns a project's captured plans, newest first. This is what
-// `brain plans <project>` reads, and what proves a plan the hook saved is
+// `logos plans <project>` reads, and what proves a plan the hook saved is
 // actually reachable rather than write-only.
 func ListPlans(vaultDir, project string) ([]Plan, error) {
 	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)), PlanDir)

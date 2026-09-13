@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // DownscaleFactor is the nightly homeostatic multiplier (the SHY hypothesis:

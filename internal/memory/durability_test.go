@@ -73,7 +73,7 @@ func TestOneMissingFileDoesNotForgetThatKind(t *testing.T) {
 	}
 }
 
-// A torn write: something other than brain wrote the file and stopped partway,
+// A torn write: something other than logos wrote the file and stopped partway,
 // leaving it ending mid-record. Importing it would forget the missing tail.
 //
 // The cut lands mid-line, which is what an interrupted write actually produces.
@@ -158,12 +158,12 @@ func nthIndex(s, sub string, n int) int {
 func TestCorruptStoreIsSurvivable(t *testing.T) {
 	for name, content := range map[string]string{
 		"binary":            "\x00\x01\x02\xff\xfe not markdown at all",
-		"truncated comment": "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- brain id=1 conf=0.9",
-		"bad id":            "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- brain id=notanumber conf=0.9 -->\n",
-		"negative id":       "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- brain id=-5 conf=0.9 -->\n",
-		"huge id":           "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- brain id=99999999999999999999 conf=0.9 -->\n",
-		"crlf":              "---\r\ntype: memory-store\r\nkind: fact\r\ncount: 1\r\n---\r\n\r\n- a fact <!-- brain id=1 conf=0.90 sal=0.50 src=test created=2026-01-01 uses=0 -->\r\n",
-		"duplicate ids":     "---\ntype: memory-store\nkind: fact\ncount: 2\n---\n\n- one <!-- brain id=7 -->\n- two <!-- brain id=7 -->\n",
+		"truncated comment": "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- logos id=1 conf=0.9",
+		"bad id":            "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- logos id=notanumber conf=0.9 -->\n",
+		"negative id":       "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- logos id=-5 conf=0.9 -->\n",
+		"huge id":           "---\ntype: memory-store\nkind: fact\ncount: 1\n---\n\n- a fact <!-- logos id=99999999999999999999 conf=0.9 -->\n",
+		"crlf":              "---\r\ntype: memory-store\r\nkind: fact\r\ncount: 1\r\n---\r\n\r\n- a fact <!-- logos id=1 conf=0.90 sal=0.50 src=test created=2026-01-01 uses=0 -->\r\n",
+		"duplicate ids":     "---\ntype: memory-store\nkind: fact\ncount: 2\n---\n\n- one <!-- logos id=7 -->\n- two <!-- logos id=7 -->\n",
 		"no frontmatter":    "- a bare fact somebody typed\n",
 		"empty":             "",
 	} {
@@ -289,7 +289,7 @@ func kindCount(t *testing.T, db *sql.DB, kind Kind) int {
 }
 
 // An id that comes back after the memory holding it is forgotten merges two
-// unrelated lifecycles into one timeline, and `brain memory history <id>` then
+// unrelated lifecycles into one timeline, and `logos memory history <id>` then
 // reads as the assistant changing its mind about a single fact.
 func TestAForgottenIDIsNeverHandedOutAgain(t *testing.T) {
 	db, _ := store(t)

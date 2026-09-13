@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // dedupStore is a cache-only store: no vault binding keeps these tests off the

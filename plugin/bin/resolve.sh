@@ -9,8 +9,8 @@
 #
 # PATH alone is not enough, and this is the failure that actually shipped. A
 # `go install` build lands in ~/go/bin, which a login shell adds but a GUI-
-# launched app does not inherit; on that machine `command -v brain` finds
-# nothing while `brain` sits installed and working two directories away. The
+# launched app does not inherit; on that machine `command -v logos` finds
+# nothing while `logos` sits installed and working two directories away. The
 # user's conclusion is that the plugin is broken, and they are right, but the
 # cause is a search that stopped one directory short. So look in the places
 # Go, Homebrew and npm actually install to, before giving up.
@@ -21,11 +21,12 @@
 # A candidate is run, not just found. A file that exists proves nothing: other
 # npm packages install a `logos` bin of their own, and an npm install's shim
 # dies with `env: node: No such file or directory` in an app launched from the
-# Dock. Every brain since the plugin existed answers --version with "brain …".
+# Dock. Every build answers --version with "logos …", or "brain …" before the
+# rename; both are kept so a plugin update does not strand an older binary.
 
 logos_runs() {
   case "$("$@" --version 2>/dev/null)" in
-    "brain "*) return 0 ;;
+    "logos "*|"brain "*) return 0 ;;
   esac
   [ -n "$LOGOS_REJECTED" ] || LOGOS_REJECTED="$*"
   return 1

@@ -5,7 +5,7 @@
 // closed and how many still hang, and any connections the nightly dream left for
 // review. Pure aggregation over data other subsystems already compute — no model
 // runs, so it is instant and offline, the same discipline as the brief and the
-// weekly review. Opening brain after two weeks should feel like a briefing, not a
+// weekly review. Opening logos after two weeks should feel like a briefing, not a
 // search.
 package replay
 
@@ -13,10 +13,10 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Coder8124/brain/internal/dream"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/secretary"
+	"github.com/Coder8124/logos/internal/dream"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/secretary"
 )
 
 // defaultLookbackDays is the window used on the very first replay, when there is

@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // The promise every document in this project makes, applied to the one queue
-// that did not keep it: delete .brain, rebuild, lose nothing.
+// that did not keep it: delete .logos, rebuild, lose nothing.
 //
 // A dreamed insight is the most expensive row in the database — a model ran to
 // produce it and a person has not yet looked at it — and it lived only in
 // SQLite. A user who rebuilt the index after a corrupt-cache scare lost every
-// insight waiting in `brain dream review`, and the queue then read empty, which
+// insight waiting in `logos dream review`, and the queue then read empty, which
 // is indistinguishable from having reviewed them all.
 func TestADreamedInsightSurvivesDeletingTheIndex(t *testing.T) {
 	db := testDB(t)
@@ -140,7 +140,7 @@ func TestDeletingALineDropsTheInsight(t *testing.T) {
 // A vault written before insights were durable holds them nowhere, and the
 // cache is still their only copy at exactly this moment — the run right before
 // the one that deletes it. Writing the file here is the last chance to save
-// them, and `brain index` is the command people reach for when they suspect the
+// them, and `logos index` is the command people reach for when they suspect the
 // cache is bad.
 func TestARebuildWritesDownAQueueThatOnlyTheCacheKnew(t *testing.T) {
 	db := testDB(t)
@@ -172,7 +172,7 @@ func TestARebuildWritesDownAQueueThatOnlyTheCacheKnew(t *testing.T) {
 }
 
 // An insight's text is free-form model output and may contain anything,
-// including the characters that close brain's own bookkeeping comment. A record
+// including the characters that close logos's own bookkeeping comment. A record
 // that spills its metadata into the page cannot round-trip, and the vault is
 // the record.
 func TestAnInsightTextCannotBreakOutOfItsRecord(t *testing.T) {
@@ -181,7 +181,7 @@ func TestAnInsightTextCannotBreakOutOfItsRecord(t *testing.T) {
 	SetVault(db, dir)
 	t.Cleanup(func() { SetVault(db, "") })
 
-	const nasty = "the model wrote --> and <!-- brain id=999 --> into its own connection"
+	const nasty = "the model wrote --> and <!-- logos id=999 --> into its own connection"
 	in := Insight{Kind: Connection, Text: nasty, EndpointA: 1, EndpointB: 2, Conf: 0.5}
 	if err := Enqueue(db, &in); err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestATruncatedFileIsRefusedRatherThanTreatedAsDeletions(t *testing.T) {
 	if err := Enqueue(db, &in); err != nil {
 		t.Fatal(err)
 	}
-	torn := "---\ntype: dream-insights\npending: 1\n---\n\n- a record cut off mid-comment <!-- brain id=7 kind=connection"
+	torn := "---\ntype: dream-insights\npending: 1\n---\n\n- a record cut off mid-comment <!-- logos id=7 kind=connection"
 	if err := os.WriteFile(InsightsPath(dir), []byte(torn), 0o644); err != nil {
 		t.Fatal(err)
 	}

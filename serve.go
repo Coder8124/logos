@@ -1,14 +1,14 @@
-package brain
+package logos
 
 import (
 	"io"
 
-	"github.com/Coder8124/brain/internal/mcpserver"
+	"github.com/Coder8124/logos/internal/mcpserver"
 )
 
 // ServeMCP speaks the Model Context Protocol over the given streams, exposing
 // this vault's tools to any MCP host. Use it to put your own product in front
-// of brain's memory rather than reimplementing the tool surface.
+// of logos's memory rather than reimplementing the tool surface.
 //
 // A missing model runtime is not an error, matching Open: retrieval degrades to
 // lexical and every continuity tool works untouched. Refusing to serve would
@@ -16,6 +16,6 @@ import (
 // machine with no models on it.
 //
 // It blocks until the input stream closes.
-func (b *Brain) ServeMCP(in io.Reader, out io.Writer) error {
+func (b *Logos) ServeMCP(in io.Reader, out io.Writer) error {
 	return mcpserver.New(b.ix.DB, b.rt, b.ix.Vault).Serve(in, out)
 }

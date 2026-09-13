@@ -11,17 +11,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 
 	_ "modernc.org/sqlite"
 )
 
 // A machine with no model runtime is the common case for a first install, not
-// an edge case: someone runs `brain setup`, declines the 26GB of models or has
+// an edge case: someone runs `logos setup`, declines the 26GB of models or has
 // no Ollama at all, and their host launches this server anyway.
 //
-// It used to refuse to start. cmd/brain/mcp.go took a hard error from
-// openRouter() and returned it, and Brain.ServeMCP rejected a nil router
+// It used to refuse to start. cmd/logos/mcp.go took a hard error from
+// openRouter() and returned it, and Logos.ServeMCP rejected a nil router
 // outright — so setup could wire four hosts, report success, and leave the user
 // with a host that fails to connect and no indication why. Every layer beneath
 // was already nil-safe; only the two guards at the top were not.
@@ -35,7 +35,7 @@ func startNoModel(t *testing.T) (*asyncClient, string) {
 	// Worktree scoping off: these tests name their project and care about what
 	// works without a model, not about where continuity is filed. See
 	// startServer for the same reasoning.
-	t.Setenv("BRAIN_WORKTREE", "")
+	t.Setenv("LOGOS_WORKTREE", "")
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
 	if err != nil {
@@ -100,7 +100,7 @@ func TestNewWithoutRouterDoesNotPanic(t *testing.T) {
 }
 
 // The handshake is the whole bug: if this fails the host shows a connection
-// error and the user concludes brain is broken.
+// error and the user concludes logos is broken.
 func TestServesWithoutModelRuntime(t *testing.T) {
 	c, _ := startNoModel(t)
 
@@ -193,7 +193,7 @@ func TestMemoryDegradesWithoutModel(t *testing.T) {
 	// quarantine — a quarantined memory is invisible to recall by design, which
 	// would fail this test for an unrelated reason. See TestRememberReturnsAReceipt
 	// and quarantine_test.go for the quarantine behaviour itself.
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	c, _ := startNoModel(t)
 
 	if _, ok := call(t, c, 7, "remember", map[string]any{
@@ -289,10 +289,10 @@ func TestWhyWithoutModel(t *testing.T) {
 // central claim and the reason the durability benchmark scores 100% — but that
 // was measured through the library, and the served path had no coverage.
 //
-// It was in fact broken: cmd/brain/mcp.go opened the SQLite file directly
+// It was in fact broken: cmd/logos/mcp.go opened the SQLite file directly
 // instead of going through index.Open, so memory.SetVault was never called, and
 // flush() returns nil when no vault is registered. Every memory an agent stored
-// went into .brain/index.db and nowhere else — silently, with a success receipt.
+// went into .logos/index.db and nowhere else — silently, with a success receipt.
 //
 // This test registers the vault the way index.Open does. If the wiring is ever
 // dropped again, the assertion below fails rather than the guarantee.
@@ -347,10 +347,10 @@ func truncateForLog(s string) string {
 }
 
 // resume and before_you_try read a checkpoint off disk the moment it is
-// written, so the receipt's "Run `brain index` to make it searchable" told
+// written, so the receipt's "Run `logos index` to make it searchable" told
 // the agent to do something that changed nothing. The CLI dropped the same
 // line for the same reason.
-func TestTheCheckpointReceiptDoesNotSendTheAgentToBrainIndex(t *testing.T) {
+func TestTheCheckpointReceiptDoesNotSendTheAgentToLogosIndex(t *testing.T) {
 	c, _ := startNoModel(t)
 
 	line, ok := call(t, c, 3, "checkpoint", map[string]any{
@@ -360,8 +360,8 @@ func TestTheCheckpointReceiptDoesNotSendTheAgentToBrainIndex(t *testing.T) {
 	if !ok {
 		t.Fatal("checkpoint failed")
 	}
-	if strings.Contains(line, "brain index") {
-		t.Errorf("the checkpoint receipt still says to run brain index:\n%s", truncateForLog(line))
+	if strings.Contains(line, "logos index") {
+		t.Errorf("the checkpoint receipt still says to run logos index:\n%s", truncateForLog(line))
 	}
 }
 
@@ -391,7 +391,7 @@ func TestListProjectsNamesProjectsThatOnlyHaveCheckpoints(t *testing.T) {
 // model that does not know the name was told only "resume needs a project".
 // It had no way to find one, so the handoff Claude Code left was never read.
 func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T) {
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	t.Chdir("/")
 	c, _ := startNoModel(t)
 

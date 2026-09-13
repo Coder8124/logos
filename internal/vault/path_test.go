@@ -13,19 +13,19 @@ func isolate(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 	return home
 }
 
-// The desktop app kept its own copy of this rule, defaulting to ~/brain-vault
-// while every other front end used ~/brain. index.Open creates the directory it
+// The desktop app kept its own copy of this rule, defaulting to ~/logos-vault
+// while every other front end used ~/logos. index.Open creates the directory it
 // is given, so the app made the wrong vault on first launch and then reported a
 // healthy zero of everything — a memory product showing an empty screen while
 // the memory sat one directory away.
-func TestTheDefaultVaultIsBrainInTheHomeDirectory(t *testing.T) {
+func TestTheDefaultVaultIsLogosInTheHomeDirectory(t *testing.T) {
 	home := isolate(t)
 
-	want := filepath.Join(home, "brain")
+	want := filepath.Join(home, "logos")
 	if got := Path(); got != want {
 		t.Errorf("Path() = %q, want %q", got, want)
 	}
@@ -33,12 +33,12 @@ func TestTheDefaultVaultIsBrainInTheHomeDirectory(t *testing.T) {
 
 // The environment still wins, because that is how a host config points the MCP
 // server at a vault that is not the default one.
-func TestBrainVaultOverridesTheDefault(t *testing.T) {
+func TestLogosVaultOverridesTheDefault(t *testing.T) {
 	isolate(t)
 	dir := t.TempDir()
-	t.Setenv("BRAIN_VAULT", dir)
+	t.Setenv("LOGOS_VAULT", dir)
 	if got := Path(); got != dir {
-		t.Errorf("Path() = %q, want the BRAIN_VAULT value %q", got, dir)
+		t.Errorf("Path() = %q, want the LOGOS_VAULT value %q", got, dir)
 	}
 }
 
@@ -53,7 +53,7 @@ func TestTheDefaultIsAbsolute(t *testing.T) {
 }
 
 // The point of recording the path: a .app launched from Finder inherits no
-// login shell, so BRAIN_VAULT set in a profile is invisible to it. Without a
+// login shell, so LOGOS_VAULT set in a profile is invisible to it. Without a
 // written-down location the app can only ever find a vault at the default.
 func TestARecordedVaultIsFoundWithNoEnvironment(t *testing.T) {
 	isolate(t)
@@ -70,20 +70,20 @@ func TestARecordedVaultIsFoundWithNoEnvironment(t *testing.T) {
 // An explicit instruction in this process beats a choice made on disk some
 // other day — otherwise a scratch vault in a test or a per-host MCP config
 // would silently open the machine's main vault.
-func TestBrainVaultBeatsTheRecordedVault(t *testing.T) {
+func TestLogosVaultBeatsTheRecordedVault(t *testing.T) {
 	isolate(t)
 	recorded, env := t.TempDir(), t.TempDir()
 
 	if err := Record(recorded); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	t.Setenv("BRAIN_VAULT", env)
+	t.Setenv("LOGOS_VAULT", env)
 	if got := Path(); got != env {
-		t.Errorf("Path() = %q, want the BRAIN_VAULT value %q", got, env)
+		t.Errorf("Path() = %q, want the LOGOS_VAULT value %q", got, env)
 	}
 }
 
-// Recording twice moves the pointer rather than accumulating; `brain setup`
+// Recording twice moves the pointer rather than accumulating; `logos setup`
 // run against a second vault is a change of mind, not an ambiguity.
 func TestRecordingAgainMovesThePointer(t *testing.T) {
 	isolate(t)
@@ -101,8 +101,8 @@ func TestRecordingAgainMovesThePointer(t *testing.T) {
 }
 
 // A recorded vault that is not there is usually on a drive that is not
-// mounted, not gone. Falling back to ~/brain used to be the answer, and it split
-// one project across two vaults: the MCP server quietly created ~/brain, said
+// mounted, not gone. Falling back to ~/logos used to be the answer, and it split
+// one project across two vaults: the MCP server quietly created ~/logos, said
 // "checkpoint saved" into it, and after the drive came back `resume` found
 // nothing. The recorded path is still the answer; every caller checks that it
 // exists and refuses by name, which is the index.Open problem solved where it

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/eval"
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/eval"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // The baselines exist to keep the headline numbers honest.

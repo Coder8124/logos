@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // Source is stamped on every memory this package produces. It is the undo:
@@ -39,7 +39,7 @@ import (
 const Source = "git-history"
 
 // gitTimeout bounds every call. A large repository on a slow disk must not
-// leave `brain bootstrap` hanging with no output.
+// leave `logos bootstrap` hanging with no output.
 const gitTimeout = 20 * time.Second
 
 // Confidences. All are below the 0.9 a hand-stated fact carries, and they rank
@@ -52,7 +52,7 @@ const (
 
 // Candidate is one memory bootstrap proposes, with the evidence that produced
 // it. Evidence is kept separate from Text so a caller can show its work before
-// writing anything — see cmd/brain, which prints it and asks.
+// writing anything — see cmd/logos, which prints it and asks.
 type Candidate struct {
 	Text       string
 	Kind       memory.Kind

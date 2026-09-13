@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/text"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/text"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // A Checkpoint is where an agent stopped, written down well enough that a
@@ -258,7 +258,7 @@ func firstN(s string, n int) string {
 // none.
 //
 // It reads the vault directory rather than a table on purpose. Checkpoints are
-// the one thing here that must survive `rm -rf .brain` — if resume depended on
+// the one thing here that must survive `rm -rf .logos` — if resume depended on
 // the index, the markdown would be a souvenir rather than the record. Filenames
 // begin with a sortable timestamp, so "most recent" is a sort, not a query.
 func Latest(vaultDir, project string) (*Checkpoint, error) {

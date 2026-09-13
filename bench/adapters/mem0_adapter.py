@@ -5,7 +5,7 @@ Speaks the bridge protocol on stdin/stdout: one JSON object per line in, one
 per line out. See internal/eval/adapters/bridge.go.
 
 Everything runs against Ollama, so no API key is needed and nothing leaves the
-machine — the same local models brain is scored with.
+machine — the same local models logos is scored with.
 
 One deviation worth stating plainly. mem0's `add(infer=True)` runs an LLM over
 every write to extract and reconcile facts, which is its real design and its

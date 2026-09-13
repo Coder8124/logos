@@ -41,7 +41,7 @@ func TestSavedPlanIsListedByListPlans(t *testing.T) {
 	vaultDir := t.TempDir()
 
 	slug, err := SavePlan(vaultDir, Plan{
-		Project: "brain",
+		Project: "logos",
 		Agent:   "claude",
 		Text:    "Persist plan-mode plans into the vault.",
 		TS:      1755172800,
@@ -53,7 +53,7 @@ func TestSavedPlanIsListedByListPlans(t *testing.T) {
 		t.Fatal("SavePlan returned an empty slug")
 	}
 
-	got, err := ListPlans(vaultDir, "brain")
+	got, err := ListPlans(vaultDir, "logos")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,17 +76,17 @@ func TestTwoPlansInTheSameSecondBothSurvive(t *testing.T) {
 	vaultDir := t.TempDir()
 
 	if _, err := SavePlan(vaultDir, Plan{
-		Project: "brain", Agent: "claude-code", Text: "first plan", TS: 1755172800,
+		Project: "logos", Agent: "claude-code", Text: "first plan", TS: 1755172800,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SavePlan(vaultDir, Plan{
-		Project: "brain", Agent: "claude-code", Text: "second plan", TS: 1755172800,
+		Project: "logos", Agent: "claude-code", Text: "second plan", TS: 1755172800,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := ListPlans(vaultDir, "brain")
+	got, err := ListPlans(vaultDir, "logos")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestTwoPlansInTheSameSecondBothSurvive(t *testing.T) {
 // a multi-byte script produces a title yaml.Marshal cannot render as text —
 // it falls back to a base64 !!binary blob instead.
 func TestTitleTruncatesOnARuneBoundary(t *testing.T) {
-	p := Plan{Project: "brain", Text: strings.Repeat("每", 80)}
+	p := Plan{Project: "logos", Text: strings.Repeat("每", 80)}
 	title := p.title()
 	if !utf8.ValidString(title) {
 		t.Fatalf("title is not valid UTF-8: %q", title)
@@ -119,7 +119,7 @@ func TestPlansDoNotAppearInCheckpointHistory(t *testing.T) {
 	vaultDir := t.TempDir()
 
 	if _, err := SavePlan(vaultDir, Plan{
-		Project: "brain",
+		Project: "logos",
 		Agent:   "claude",
 		Text:    "a plan",
 		TS:      1755172800,
@@ -127,13 +127,13 @@ func TestPlansDoNotAppearInCheckpointHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	real := Checkpoint{Session: "20260814-143207-claude", Project: "brain", Agent: "claude", Task: "did a thing", TS: 1755172800}
-	dir := filepath.Join(vaultDir, CheckpointDir, "brain")
+	real := Checkpoint{Session: "20260814-143207-claude", Project: "logos", Agent: "claude", Task: "did a thing", TS: 1755172800}
+	dir := filepath.Join(vaultDir, CheckpointDir, "logos")
 	if err := os.WriteFile(filepath.Join(dir, real.Session+".md"), []byte(real.Markdown("")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	hist, err := History(vaultDir, "brain", 20)
+	hist, err := History(vaultDir, "logos", 20)
 	if err != nil {
 		t.Fatal(err)
 	}

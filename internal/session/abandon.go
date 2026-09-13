@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Abandonment: the case Uncommitted only half-covers.
@@ -64,7 +64,7 @@ ORDER BY COALESCE(MAX(n.ts), s.started) ASC`, cutoff)
 }
 
 // FindAbandonedInProject narrows FindAbandoned to one project — the view
-// `brain sessions <project>` surfaces, where an agent (or a person) is looking
+// `logos sessions <project>` surfaces, where an agent (or a person) is looking
 // at one piece of work rather than the whole vault.
 func FindAbandonedInProject(db *sql.DB, project string, after time.Duration) ([]Abandoned, error) {
 	cutoff := time.Now().Add(-after).Unix()
@@ -160,7 +160,7 @@ func CloseAbandoned(db *sql.DB, vaultDir, id string) (Checkpoint, error) {
 	}
 
 	// The checkpoint's filename is seeded from the abandoned session's own id,
-	// not from now — it belongs where the work actually happened, so `brain
+	// not from now — it belongs where the work actually happened, so `logos
 	// sessions` and `resume` keep reading history in the order it occurred
 	// rather than filing a stale session as the most recent thing that
 	// happened just because someone got around to closing it today.

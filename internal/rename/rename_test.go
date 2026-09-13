@@ -222,7 +222,7 @@ The site.
 	mk("memories/fact.md", strings.Join([]string{
 		"# fact",
 		"",
-		"- the brain module path is github.com/Coder8124/brain <!-- id=1 project=brain created=1 -->",
+		"- the brain module path is github.com/Coder8124/logos <!-- id=1 project=brain created=1 -->",
 		"- the site is separate <!-- id=2 project=brain-www created=1 -->",
 		"",
 	}, "\n"))

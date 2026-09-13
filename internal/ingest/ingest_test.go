@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/transcript"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/transcript"
 
 	_ "modernc.org/sqlite"
 )

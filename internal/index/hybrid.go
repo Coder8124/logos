@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // Hybrid search: lexical FTS5 fused with vector similarity.
 //
-// Inspired by henrydaum/second-brain (MIT), which does hybrid/lexical/semantic
+// Inspired by henrydaum/second-logos (MIT), which does hybrid/lexical/semantic
 // retrieval. Pure cosine is good at concepts but blind to exact tokens — a name,
 // an error code, an ID that never made it into the embedding's notion of
 // "meaning". FTS catches those; fusion keeps the conceptual recall of vectors.
@@ -74,8 +74,8 @@ func (ix *Index) LexicalSearch(query string, k int) ([]Hit, error) {
 // memoryHits pulls in what internal/memory knows, converted to Hits so
 // `search`/`ask` see the same facts `recall` and `context` already do.
 //
-// Before this, brain search and brain ask queried only notes/embeddings —
-// `memory add` a fact, `brain index`, then `brain search`/`ask` on the exact
+// Before this, logos search and logos ask queried only notes/embeddings —
+// `memory add` a fact, `logos index`, then `logos search`/`ask` on the exact
 // text came back empty, because internal/memory keeps its own table and its
 // own ranking (memory.Recall), wired only into the MCP recall tool. This is
 // the fix: reuse memory.Recall itself — it already applies the pin/quarantine/
@@ -83,7 +83,7 @@ func (ix *Index) LexicalSearch(query string, k int) ([]Hit, error) {
 // rather than duplicating that ranking logic here.
 //
 // p and model come from the same guard HybridSearch/Ask already apply
-// (nil / empty means no embedder, or BRAIN_EMBED=off), so a memory-aware
+// (nil / empty means no embedder, or LOGOS_EMBED=off), so a memory-aware
 // caller degrades exactly the way the note-only path already does.
 func (ix *Index) memoryHits(p *provider.Provider, model, query string, k int) []Hit {
 	mems, err := memory.Recall(ix.DB, p, model, query, k)
@@ -134,7 +134,7 @@ func ftsQuery(q string) string {
 // — it only trusts the ordering each method is confident about. k=60 is the
 // value from the original RRF paper and is not sensitive.
 func (ix *Index) HybridSearch(p *provider.Provider, model, query string, k int) ([]Hit, error) {
-	// No embedder, or embeddings turned off at the caller (BRAIN_EMBED=off): the
+	// No embedder, or embeddings turned off at the caller (LOGOS_EMBED=off): the
 	// FTS arm is the whole answer. Folding this in here rather than at each call
 	// site is what makes `ask` degrade the same way `search` does — before, a
 	// nil provider panicked in Embed and an "off" model name came back from the

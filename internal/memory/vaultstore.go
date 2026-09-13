@@ -12,17 +12,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Memories, written down.
 //
 // The project's second principle says the database is a cache: delete
-// .brain/index.db, reindex, get identical state. That was true of notes and
+// .logos/index.db, reindex, get identical state. That was true of notes and
 // checkpoints and quietly false of memories, which lived only in the cache. A
 // benchmark case caught it, and it is worth being precise about how bad it was:
-// `rm -rf .brain` — the thing the README suggests you do — destroyed every
+// `rm -rf .logos` — the thing the README suggests you do — destroyed every
 // preference, every fact about a person, every piece of standing context, with
 // no warning and nothing to restore from.
 //
@@ -254,7 +254,7 @@ func flushLocked(db *sql.DB, kind Kind) error {
 //     absence is not a deletion.
 //
 // A provider is not required. An edited line keeps its old vector — COALESCE in
-// upsert — so search is briefly stale for that one memory until `brain index`
+// upsert — so search is briefly stale for that one memory until `logos index`
 // re-embeds it. Stale ranking is a small, self-correcting cost; a lost edit is
 // permanent.
 func Reconcile(db *sql.DB, kind Kind) error {
@@ -285,7 +285,7 @@ func reconcileLocked(db *sql.DB, kind Kind) error {
 		return nil
 	}
 	if looksTruncated(string(raw)) {
-		// Reported by Import, which the user reaches through `brain index`.
+		// Reported by Import, which the user reaches through `logos index`.
 		// Here it is a reason to leave the file alone, not to fail the write
 		// that prompted the reconcile: refusing to store a memory because an
 		// unrelated file is damaged helps nobody.
@@ -400,9 +400,9 @@ func renderKind(kind Kind, mems []Memory) string {
 	fmt.Fprintf(&b, "---\ntype: memory-store\nkind: %s\ncount: %d\n---\n\n", kind, len(mems))
 	fmt.Fprintf(&b, "%s\n\n", blurb(kind))
 	b.WriteString("Edit any line to correct it. Delete a line to forget it. " +
-		"Then run `brain index` — this file is the record, not the database.\n\n")
+		"Then run `logos index` — this file is the record, not the database.\n\n")
 	for _, m := range mems {
-		fmt.Fprintf(&b, "- %s <!-- brain id=%d conf=%.2f sal=%.2f src=%s created=%s uses=%d",
+		fmt.Fprintf(&b, "- %s <!-- logos id=%d conf=%.2f sal=%.2f src=%s created=%s uses=%d",
 			oneLine(m.Text), m.ID, m.Confidence, m.Salience, orDash(m.Source),
 			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
@@ -452,7 +452,7 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 }
 
-// Import rebuilds the store from the vault. This is what makes `rm -rf .brain`
+// Import rebuilds the store from the vault. This is what makes `rm -rf .logos`
 // survivable.
 //
 // The files win. Where a memory exists in both places the text, confidence and
@@ -462,7 +462,7 @@ func oneLine(s string) string {
 // deleting a line forgets something.
 //
 // Vectors are not stored in the file; anything without one is re-embedded here,
-// which is the same work `brain index` already does for notes.
+// which is the same work `logos index` already does for notes.
 func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, error) {
 	if err := Init(db); err != nil {
 		return 0, err
@@ -472,12 +472,12 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	//
 	// This does what Reconcile does — read the files, then delete every row they
 	// do not mention — so it needs the same protection, and it did not have it.
-	// `brain index` running while an agent's MCP server stores a memory read the
+	// `logos index` running while an agent's MCP server stores a memory read the
 	// file before that memory reached it and forgot the row. The kinds are
 	// locked in the fixed order of `kinds`, so an import and a store can never
 	// take two of them in opposite orders.
 	//
-	// dir is the caller's rather than vaultFor's, because `brain index` imports
+	// dir is the caller's rather than vaultFor's, because `logos index` imports
 	// a vault it has not bound to a store yet.
 	for _, kind := range kinds {
 		g, err := vault.Lock(dir, "memory-"+string(kind))
@@ -553,7 +553,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 
 	// quarantined = 0: a pending memory was never written to the file (see
 	// ExportKind), so it cannot appear in `keep` no matter how thoroughly the
-	// file was read. Without this exclusion, every `brain index` would read
+	// file was read. Without this exclusion, every `logos index` would read
 	// that absence as "the user deleted this line" and Forget the whole review
 	// queue out from under them before they ever saw it.
 	rows, err := db.Query("SELECT id, kind FROM memories WHERE superseded = 0 AND quarantined = 0")
@@ -616,7 +616,7 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
 			m.Source, m.Agent, m.Created, m.Uses, vec, fingerprint(m.Text), m.Pin)
 		// No event. Restoring a row the rebuild deleted is not a creation, and
-		// logging one stamped with time.Now() is how `brain memory log` came to
+		// logging one stamped with time.Now() is how `logos memory log` came to
 		// report every fact you had ever learned as learned today. The real
 		// beginning is either already in memories/log.md or synthesised from the
 		// memory's own `created` by backfillCreations — both of them honest dates.
@@ -670,7 +670,7 @@ func parseKind(kind Kind, raw string) []Memory {
 
 		m := Memory{Kind: kind, Salience: 0.5, Confidence: 0.7, Created: time.Now().Unix()}
 		// LastIndex, not Index, for the reason logstore.go's parser documents:
-		// the text is free-form and may itself quote "<!--", while brain's own
+		// the text is free-form and may itself quote "<!--", while logos's own
 		// bookkeeping comment is always the last thing on the line. Splitting
 		// at the first one hands the user's text to applyMeta and loses it.
 		if i := strings.LastIndex(body, "<!--"); i >= 0 {
@@ -702,7 +702,7 @@ func parseKind(kind Kind, raw string) []Memory {
 //
 // A tear that happens to land exactly on a line boundary is indistinguishable
 // from a deliberate deletion and is accepted. That is a real gap, and it is the
-// narrower one: brain's own writes go through vault.WriteAtomic, which replaces
+// narrower one: logos's own writes go through vault.WriteAtomic, which replaces
 // the file by rename and cannot tear, so this only arises when something else —
 // a sync client, a crashed editor — is writing the file.
 func looksTruncated(raw string) bool {

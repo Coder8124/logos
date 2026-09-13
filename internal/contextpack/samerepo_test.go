@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // ~/work/api and ~/personal/api are both "api". A session opened in the

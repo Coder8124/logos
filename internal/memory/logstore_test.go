@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The sixth thing only the database knew. `brain memory log` and `brain memory
-// diff` read memory_log, and memory_log lived in .brain/index.db alone — so the
+// The sixth thing only the database knew. `logos memory log` and `logos memory
+// diff` read memory_log, and memory_log lived in .logos/index.db alone — so the
 // rebuild every document calls safe deleted the history and re-dated what was
 // left to the moment of the rebuild. A record of what changed that says
 // everything changed today is worse than no record.
@@ -166,8 +166,8 @@ func TestARestoredProposalKeepsTheDateItWasProposed(t *testing.T) {
 
 // The timeline is often the first writer on a fresh vault, and it made
 // memories/ with 0755 while every other vault directory is 0700 — so the first
-// remember produced a directory `brain doctor` then warned about, a privacy
-// warning caused by brain itself on every new install.
+// remember produced a directory `logos doctor` then warned about, a privacy
+// warning caused by logos itself on every new install.
 func TestTheFirstRememberOnAFreshVaultLeavesTheMemoryDirectoryPrivate(t *testing.T) {
 	db, dir := vaultDB(t)
 

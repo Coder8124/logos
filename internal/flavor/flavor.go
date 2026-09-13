@@ -12,10 +12,10 @@ import (
 	"os"
 	"path/filepath"
 
-	vaultpkg "github.com/Coder8124/brain/internal/vault"
+	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
-// Config is the assistant's slice of the vault's .brain directory. Kept in its
+// Config is the assistant's slice of the vault's .logos directory. Kept in its
 // own file rather than folded into the model router config, so identity settings
 // never risk disturbing model or key settings.
 type Config struct {
@@ -58,7 +58,7 @@ func (p Presence) WithDefaults() Presence {
 	return p
 }
 
-func path(vault string) string { return filepath.Join(vault, ".brain", "flavor.json") }
+func path(vault string) string { return filepath.Join(vault, ".logos", "flavor.json") }
 
 func Load(vault string) (*Config, error) {
 	cfg := &Config{}

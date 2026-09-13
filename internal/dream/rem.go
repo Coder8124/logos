@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // MaxInsights caps how many connections a single night may propose. A review

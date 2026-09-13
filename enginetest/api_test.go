@@ -1,6 +1,6 @@
 // Package enginetest exercises the module's public facade from outside it.
 //
-// It lives in its own directory, and imports github.com/Coder8124/brain like
+// It lives in its own directory, and imports github.com/Coder8124/logos like
 // any other consumer, so it can only reach what an embedder can reach. If
 // something here needs an internal import, the facade is incomplete and that is
 // the bug these files exist to catch.
@@ -12,15 +12,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain"
+	"github.com/Coder8124/logos"
 )
 
 // open makes a scratch vault. No model runtime — an embedder's CI has none, and
 // everything below must work without one.
-func open(t *testing.T) (*brain.Brain, string) {
+func open(t *testing.T) (*logos.Logos, string) {
 	t.Helper()
 	dir := t.TempDir()
-	b, err := brain.Open(dir, brain.WithoutEmbedding(), brain.WithAgent("test-agent"))
+	b, err := logos.Open(dir, logos.WithoutEmbedding(), logos.WithAgent("test-agent"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -29,7 +29,7 @@ func open(t *testing.T) (*brain.Brain, string) {
 }
 
 func TestOpenRefusesAVaultThatIsNotThere(t *testing.T) {
-	if _, err := brain.Open(filepath.Join(t.TempDir(), "nope"), brain.WithoutEmbedding()); err == nil {
+	if _, err := logos.Open(filepath.Join(t.TempDir(), "nope"), logos.WithoutEmbedding()); err == nil {
 		t.Fatal("opening a missing vault should fail, not silently create one")
 	}
 }
@@ -50,7 +50,7 @@ func TestHandoffAcrossAgents(t *testing.T) {
 		t.Fatalf("uncommitted note did not come back: %+v", notes)
 	}
 
-	slug, err := b.Checkpoint(brain.Checkpoint{
+	slug, err := b.Checkpoint(logos.Checkpoint{
 		Project:   "kestrel-one",
 		Task:      "cut the BOM to target",
 		State:     "BOM is $4.20 over",
@@ -106,7 +106,7 @@ func TestResumeNeedsAProject(t *testing.T) {
 func TestTriedFindsARuledOutApproachAcrossProjects(t *testing.T) {
 	b, _ := open(t)
 
-	if _, err := b.Checkpoint(brain.Checkpoint{
+	if _, err := b.Checkpoint(logos.Checkpoint{
 		Project: "kestrel-one",
 		Failed:  []string{"switching to a plastic frame — fails the drop test at 1.2m"},
 	}); err != nil {
@@ -124,13 +124,13 @@ func TestTriedFindsARuledOutApproachAcrossProjects(t *testing.T) {
 		t.Error("a ruling from another project should be marked Elsewhere")
 	}
 
-	prose := brain.Explain("switch to a plastic frame to save weight", rulings)
+	prose := logos.Explain("switch to a plastic frame to save weight", rulings)
 	if !strings.Contains(prose, "drop test") || !strings.Contains(prose, "evidence, not a verdict") {
 		t.Errorf("Explain lost the finding or the caveat:\n%s", prose)
 	}
 
 	// Silence must not read as approval.
-	none := brain.Explain("machine the frame from billet", nil)
+	none := logos.Explain("machine the frame from billet", nil)
 	if !strings.Contains(none, "No record") {
 		t.Errorf("empty rulings should say so explicitly:\n%s", none)
 	}
@@ -139,7 +139,7 @@ func TestTriedFindsARuledOutApproachAcrossProjects(t *testing.T) {
 func TestMemoryRoundTrip(t *testing.T) {
 	b, _ := open(t)
 
-	r, err := b.Remember("I prefer terse replies with no preamble", brain.Preference)
+	r, err := b.Remember("I prefer terse replies with no preamble", logos.Preference)
 	if err != nil {
 		t.Fatalf("Remember: %v", err)
 	}
@@ -171,10 +171,10 @@ func TestMemoryRoundTrip(t *testing.T) {
 func TestTheCacheIsReallyACache(t *testing.T) {
 	b, dir := open(t)
 
-	if _, err := b.Remember("the kestrel BOM target is $38", brain.Fact); err != nil {
+	if _, err := b.Remember("the kestrel BOM target is $38", logos.Fact); err != nil {
 		t.Fatalf("Remember: %v", err)
 	}
-	if _, err := b.Checkpoint(brain.Checkpoint{Project: "kestrel-one", Next: "quote the driver"}); err != nil {
+	if _, err := b.Checkpoint(logos.Checkpoint{Project: "kestrel-one", Next: "quote the driver"}); err != nil {
 		t.Fatalf("Checkpoint: %v", err)
 	}
 	if _, err := b.Index(); err != nil {
@@ -182,11 +182,11 @@ func TestTheCacheIsReallyACache(t *testing.T) {
 	}
 	b.Close()
 
-	if err := os.RemoveAll(filepath.Join(dir, ".brain")); err != nil {
+	if err := os.RemoveAll(filepath.Join(dir, ".logos")); err != nil {
 		t.Fatalf("removing the cache: %v", err)
 	}
 
-	b2, err := brain.Open(dir, brain.WithoutEmbedding())
+	b2, err := logos.Open(dir, logos.WithoutEmbedding())
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestSearchWithoutAModel(t *testing.T) {
 
 func TestContextIsBudgeted(t *testing.T) {
 	b, _ := open(t)
-	if _, err := b.Checkpoint(brain.Checkpoint{
+	if _, err := b.Checkpoint(logos.Checkpoint{
 		Project: "kestrel-one",
 		State:   strings.Repeat("a long standing state description. ", 200),
 		Next:    "quote the display driver alternatives",
@@ -242,7 +242,7 @@ func TestContextIsBudgeted(t *testing.T) {
 		t.Fatalf("Checkpoint: %v", err)
 	}
 
-	c, err := b.Context(brain.Request{Task: "cut the BOM", Project: "kestrel-one", Budget: 200})
+	c, err := b.Context(logos.Request{Task: "cut the BOM", Project: "kestrel-one", Budget: 200})
 	if err != nil {
 		t.Fatalf("Context: %v", err)
 	}

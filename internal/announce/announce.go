@@ -27,7 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	vaultpkg "github.com/Coder8124/brain/internal/vault"
+	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
 // Level is how much to say.
@@ -42,11 +42,11 @@ const (
 // Env is the variable that overrides the stored setting.
 const Env = "LOGOS_ANNOUNCE"
 
-// File is where `brain announce` stores a persistent choice, relative to the
+// File is where `logos announce` stores a persistent choice, relative to the
 // vault. A file rather than a shell export because the people most annoyed by
 // the receipts are running Logos inside an editor, where there is no shell to
 // export from.
-const File = ".brain/announce"
+const File = ".logos/announce"
 
 // Marker leads every receipt. One glyph and one word, chosen so a person
 // scanning a transcript can find our lines without reading them, and so a

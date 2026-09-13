@@ -38,11 +38,11 @@ func TestEveryToolNamedInThePromptIsReal(t *testing.T) {
 // The repository copy is what a human reads and what ships in the archives; the
 // embedded copy is what agents get. They must not drift.
 func TestRepositoryCopyMatchesTheEmbeddedOne(t *testing.T) {
-	repo, err := os.ReadFile(filepath.Join("..", "..", "systemmd", "BRAINPROMPT.md"))
+	repo, err := os.ReadFile(filepath.Join("..", "..", "systemmd", "LOGOSPROMPT.md"))
 	if err != nil {
 		t.Skipf("no repository copy to compare against: %v", err)
 	}
 	if strings.TrimSpace(string(repo)) != strings.TrimSpace(Text()) {
-		t.Error("systemmd/BRAINPROMPT.md and the embedded copy have drifted — regenerate with `make prompt` or copy it across")
+		t.Error("systemmd/LOGOSPROMPT.md and the embedded copy have drifted — regenerate with `make prompt` or copy it across")
 	}
 }

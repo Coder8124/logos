@@ -3,7 +3,7 @@ package main
 import (
 	"embed"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -13,8 +13,8 @@ import (
 var assets embed.FS
 
 // vaultPath is the same answer every other front end gets. It used to be its
-// own copy defaulting to ~/brain-vault, while the CLI and the MCP server used
-// ~/brain — so the app opened an empty vault, created it on first launch, and
+// own copy defaulting to ~/logos-vault, while the CLI and the MCP server used
+// ~/logos — so the app opened an empty vault, created it on first launch, and
 // reported a healthy zero of everything while the user's memory sat in a
 // directory it never looked at.
 func vaultPath() string { return vault.Path() }
@@ -23,7 +23,7 @@ func main() {
 	app := NewApp(vaultPath())
 
 	err := wails.Run(&options.App{
-		Title: "brain",
+		Title: "logos",
 		// Panel-sized, not a window. It is a dropdown, invoked dozens of times
 		// a day; it should feel like part of the menubar, not an application.
 		// Wider than the original chat-first layout: the sessions tab is a
@@ -53,7 +53,7 @@ func main() {
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
-				Title:   "brain",
+				Title:   "logos",
 				Message: "Local-first memory and continuity for AI agents.",
 			},
 		},

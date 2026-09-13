@@ -20,7 +20,7 @@ package mcpserver
 //
 //  1. the tool call's own `project` argument — an explicit request wins on
 //     which project, though not on which worktree inside it; see below
-//  2. BRAIN_PROJECT — for a host that runs the server somewhere unrelated to
+//  2. LOGOS_PROJECT — for a host that runs the server somewhere unrelated to
 //     the work, or a user who wants two folders sharing one project
 //  3. the MCP roots the client advertised at initialize, when it sent any
 //  4. a .logos-project marker at or above the working directory
@@ -57,7 +57,7 @@ package mcpserver
 // sessions/kestrel/feature-x/ inside sessions/kestrel/, not beside it. A repo
 // with no linked worktrees never sees any of this — the name is unchanged and
 // the folder is unchanged — which is the requirement a scoping change of this
-// kind lives or dies by. BRAIN_WORKTREE turns it off, mirroring BRAIN_PROJECT.
+// kind lives or dies by. LOGOS_WORKTREE turns it off, mirroring LOGOS_PROJECT.
 
 import (
 	"encoding/json"
@@ -65,8 +65,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/scope"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/scope"
 )
 
 // resolveProject picks the project for one tool call. arg is the tool's own
@@ -87,7 +87,7 @@ func (s *Session) resolveProject(arg string) string {
 func (s *Session) sessionProject() string {
 	s.projectOnce.Do(func() {
 		s.project = firstNonEmpty(
-			strings.TrimSpace(os.Getenv("BRAIN_PROJECT")),
+			strings.TrimSpace(os.Getenv("LOGOS_PROJECT")),
 			projectFromRoots(s.roots),
 			projectFromCwd(),
 		)
@@ -146,13 +146,13 @@ func scopeName(project, worktree string) string {
 // halfway through. Once is also what keeps this cheap — it shells out to git,
 // and every tool call would otherwise pay for it.
 //
-// BRAIN_WORKTREE overrides the answer, and setting it to nothing is how a user
+// LOGOS_WORKTREE overrides the answer, and setting it to nothing is how a user
 // turns worktree scoping off: two trees they want to treat as one piece of work
 // have no other way to say so, because nothing else here takes the model's word
 // for which tree it is in.
 func (s *Session) sessionWorktree() string {
 	s.worktreeOnce.Do(func() {
-		if name, ok := os.LookupEnv("BRAIN_WORKTREE"); ok {
+		if name, ok := os.LookupEnv("LOGOS_WORKTREE"); ok {
 			s.worktree = strings.TrimSpace(name)
 			return
 		}
@@ -178,7 +178,7 @@ func (s *Session) repoDir(project string) string {
 // sessionProject uses, so the project and the worktree can never be read from
 // two different places.
 //
-// BRAIN_PROJECT has no say here. It renames the work; it does not move the
+// LOGOS_PROJECT has no say here. It renames the work; it does not move the
 // agent, and two worktrees sharing a project name by that route are precisely
 // the collision worth keeping apart.
 func scopeDir(roots []string) string {

@@ -16,15 +16,15 @@ import (
 // "timestamp". The conversation lives in type:"response_item" lines; the
 // type:"event_msg" lines are cosmetic duplicates and are skipped.
 
-// BrainCodexSessionsEnv overrides the Codex sessions directory for tests.
-const BrainCodexSessionsEnv = "BRAIN_CODEX_SESSIONS"
+// LogosCodexSessionsEnv overrides the Codex sessions directory for tests.
+const LogosCodexSessionsEnv = "LOGOS_CODEX_SESSIONS"
 
 type codexReader struct{}
 
 func (codexReader) harness() string { return "codex" }
 
 func (codexReader) root() string {
-	if v := os.Getenv(BrainCodexSessionsEnv); v != "" {
+	if v := os.Getenv(LogosCodexSessionsEnv); v != "" {
 		if dirExists(v) {
 			return v
 		}

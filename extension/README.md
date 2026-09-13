@@ -1,6 +1,6 @@
 # Logos Bridge (browser extension)
 
-Connects brain's local memory to chatgpt.com's compose box. Local only —
+Connects logos's local memory to chatgpt.com's compose box. Local only —
 the extension talks to `127.0.0.1` and nowhere else; see
 `internal/mcpserver/http.go` for the two gates (pairing token + Origin
 allowlist) that keep any other open tab from reaching it.
@@ -13,7 +13,7 @@ response for a hand-rolled "tool call" block — is DOM/prompt-engineering
 against a UI that changes without notice, and was deliberately not the
 starting point.
 
-So v1 is user-triggered: a small panel lists brain's tools (`recall`,
+So v1 is user-triggered: a small panel lists logos's tools (`recall`,
 `remember`, and the rest), the user picks one, fills its arguments, and the
 result is inserted into the compose box as text. Slower than automatic
 tool-calling, but it fails obviously (a selector stops matching, the panel
@@ -32,24 +32,24 @@ covers the loopback origin; the handshake is an HTTP upgrade against it.
 
 ## Setup
 
-1. Build and run brain's web bridge:
+1. Build and run logos's web bridge:
    ```sh
-   export BRAIN_BRIDGE_ORIGIN="chrome-extension://<extension-id>"
-   brain mcp serve --http --port 8137
+   export LOGOS_BRIDGE_ORIGIN="chrome-extension://<extension-id>"
+   logos mcp serve --http --port 8137
    ```
    It prints a pairing token on startup (also visible any time via
-   `.brain/webbridge.json` in the vault, or `brain doctor`'s paired/not-paired
+   `.logos/webbridge.json` in the vault, or `logos doctor`'s paired/not-paired
    line).
 2. Load the extension unpacked: `chrome://extensions` → Developer mode →
    "Load unpacked" → select this `extension/` directory. Chrome shows the
    extension's id there — that's the `<extension-id>` above. (Note the
    ordering: the id is assigned when you load it, but the server needs it at
-   `BRAIN_BRIDGE_ORIGIN` before you connect — load the extension once first
+   `LOGOS_BRIDGE_ORIGIN` before you connect — load the extension once first
    to learn the id, then start the server with it.)
 3. Open the extension's options page (right-click its toolbar icon →
    Options, or `chrome://extensions` → Details → Extension options). Enter
    the port (8137) and the pairing token from step 1. Click "Test connection"
-   — it should report the number of tools brain exposes.
+   — it should report the number of tools logos exposes.
 4. Open chatgpt.com. A small 🧠 button appears bottom-right. Click it to open
    the panel, pick a tool, fill its arguments, and the result lands in the
    compose box.
@@ -64,7 +64,7 @@ place in this repo's CI)
 - With everything correct: "Test connection" reports the tool count; open the
   panel on chatgpt.com, run `recall` with a query that matches something
   stored, confirm the result text appears in the compose box.
-- Run `remember` with a short fact, confirm via `brain memory log` on the
+- Run `remember` with a short fact, confirm via `logos memory log` on the
   vault that it landed, confirm the panel's result text (the confirmation
   message) appears in the compose box.
 - Reload chatgpt.com (SPA navigation) and confirm the panel re-injects rather

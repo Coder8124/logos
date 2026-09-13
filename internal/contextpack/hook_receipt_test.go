@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // receiptCounter lifts the awk program out of the SessionStart hook, so the

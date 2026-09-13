@@ -50,7 +50,7 @@ func TestWorkingNotesSurviveDeletingTheIndex(t *testing.T) {
 		}
 	}
 
-	// Simulate `rm -rf .brain && brain index`: a wholly new database, same vault.
+	// Simulate `rm -rf .logos && logos index`: a wholly new database, same vault.
 	rebuilt := boundDB(t, v)
 	n, err := ImportNotes(rebuilt, v)
 	if err != nil {

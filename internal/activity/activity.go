@@ -39,7 +39,7 @@ import (
 	"strings"
 	"time"
 
-	vaultpkg "github.com/Coder8124/brain/internal/vault"
+	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
 // Dir is the vault subdirectory holding the log.

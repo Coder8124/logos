@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/deadend"
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // As with deadend, the tests that matter are the ones about restraint: a
@@ -18,7 +18,7 @@ func corpus() []memory.Memory {
 			Text: "route: run the chaos tier before calling a durability fix done | " +
 				"trap: go test ./... passes with the bug present because the chaos tier is behind a build tag | " +
 				"verify: go test -count=1 -tags chaos ./chaos/... | layer: implementation | scope: local | evidence: verified",
-			Project: "brain", Agent: "claude", Created: time.Now().Add(-72 * time.Hour).Unix(),
+			Project: "logos", Agent: "claude", Created: time.Now().Add(-72 * time.Hour).Unix(),
 		},
 		{
 			Text: "route: warm the CDN cache before a launch | " +
@@ -31,7 +31,7 @@ func corpus() []memory.Memory {
 // The point of the package: a route worded differently than the original
 // still surfaces, with its trap intact.
 func TestFindsARouteWordedTheSameWay(t *testing.T) {
-	hits, err := Check(corpus(), nil, "", "run the chaos tier before shipping a durability fix", "brain", 5)
+	hits, err := Check(corpus(), nil, "", "run the chaos tier before shipping a durability fix", "logos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestFindsARouteWordedTheSameWay(t *testing.T) {
 
 // Cross-project transfer must be found and flagged, mirroring deadend.
 func TestProceduresFromOtherProjectsAreFlagged(t *testing.T) {
-	hits, err := Check(corpus(), nil, "", "warm the CDN cache before launch", "brain", 5)
+	hits, err := Check(corpus(), nil, "", "warm the CDN cache before launch", "logos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestUnrelatedApproachesDoNotMatch(t *testing.T) {
 		"write the release notes for this build",
 		"upgrade the CI runner image",
 	} {
-		hits, err := Check(corpus(), nil, "", proposal, "brain", 5)
+		hits, err := Check(corpus(), nil, "", proposal, "logos", 5)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,9 +126,9 @@ func TestAnOldVersionBoundProcedureIsMarkedPossiblySuperseded(t *testing.T) {
 	old := []memory.Memory{{
 		Text: "route: call the v1 pagination endpoint | trap: v2 changed the cursor format silently | " +
 			"scope: version-bound",
-		Project: "brain", Agent: "claude", Created: time.Now().Add(-120 * 24 * time.Hour).Unix(),
+		Project: "logos", Agent: "claude", Created: time.Now().Add(-120 * 24 * time.Hour).Unix(),
 	}}
-	hits, err := Check(old, nil, "", "call the v1 pagination endpoint again", "brain", 5)
+	hits, err := Check(old, nil, "", "call the v1 pagination endpoint again", "logos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestAnOldVersionBoundProcedureIsMarkedPossiblySuperseded(t *testing.T) {
 // The typed fields render, including the trap phrased as a warning rather
 // than restated verbatim as an instruction.
 func TestRenderShowsTheTrapAndTheVerifyCommand(t *testing.T) {
-	hits, err := Check(corpus(), nil, "", "run the chaos tier before shipping a durability fix", "brain", 5)
+	hits, err := Check(corpus(), nil, "", "run the chaos tier before shipping a durability fix", "logos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,7 +3,7 @@ package project
 import (
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // AutoScope's write loop ignored db.Exec's error entirely and always returned

@@ -1,9 +1,9 @@
-package brain
+package logos
 
 import "fmt"
 
 // Search retrieves vault notes, fusing lexical and vector rankings.
-func (b *Brain) Search(query string, k int) ([]Hit, error) {
+func (b *Logos) Search(query string, k int) ([]Hit, error) {
 	if k <= 0 {
 		k = 8
 	}
@@ -15,7 +15,7 @@ func (b *Brain) Search(query string, k int) ([]Hit, error) {
 
 // Ask retrieves and then answers in prose, citing what it used. Requires a chat
 // model; without one it returns an error rather than a guess.
-func (b *Brain) Ask(question string, k int) (string, []Hit, error) {
+func (b *Logos) Ask(question string, k int) (string, []Hit, error) {
 	if b.rt == nil || b.chatModel == "" {
 		return "", nil, fmt.Errorf("ask needs a local model runtime; none was found")
 	}
@@ -24,7 +24,7 @@ func (b *Brain) Ask(question string, k int) (string, []Hit, error) {
 
 // Index reconciles the vault into the cache: notes, embeddings and memories.
 // Call it after writing files into the vault by other means, or on a watcher.
-func (b *Brain) Index() (SyncReport, error) {
+func (b *Logos) Index() (SyncReport, error) {
 	rep, err := b.ix.Sync()
 	if err != nil {
 		return rep, err

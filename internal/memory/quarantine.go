@@ -56,7 +56,7 @@ func Pending(db *sql.DB) ([]Memory, error) {
 	return out, rows.Err()
 }
 
-// PendingCount is the number `brain doctor` surfaces (see internal/health).
+// PendingCount is the number `logos doctor` surfaces (see internal/health).
 // The whole point of quarantine is that nothing sits there unseen, and a count
 // nobody ever looks at is exactly that — so this has to be cheap enough to run
 // on every health check, which is why it is a COUNT rather than len(Pending()).
@@ -139,7 +139,7 @@ func Reject(db *sql.DB, id int64) error {
 		}
 		// The rejection has to reach the queue file too. It is the only record of
 		// what is pending that survives deleting the cache, so a proposal left
-		// there would come back on the next `brain index` — a memory the user
+		// there would come back on the next `logos index` — a memory the user
 		// explicitly rejected, reappearing, which is the failure mode Reconcile
 		// exists to prevent for active memories.
 		return flushPendingLocked(db, dir)

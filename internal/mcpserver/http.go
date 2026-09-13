@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/gorilla/websocket"
 )
 
 // http.go: a second transport alongside stdio, for a client that is not the
-// process that started us — a browser extension bridging brain into ChatGPT,
+// process that started us — a browser extension bridging logos into ChatGPT,
 // Claude.ai or Perplexity's web UI (see extension/). Session/Server were
 // already split for exactly this (see the comment on Session in server.go);
 // this file only has to wire a new listener onto sess.handle.
@@ -32,7 +32,7 @@ import (
 // are for.
 
 // AllowedOrigins are exact origins permitted to open a WebSocket connection.
-// Populated by the caller (cmd/brain/mcp.go) with the extension's real id;
+// Populated by the caller (cmd/logos/mcp.go) with the extension's real id;
 // nil or empty means "accept none", not "accept any" — an explicit opt-in only.
 type HTTPConfig struct {
 	Addr    string   // e.g. "127.0.0.1:8137" — never 0.0.0.0
@@ -104,7 +104,7 @@ func ensureLoopback(addr string) error {
 // handshake request.
 func validToken(r *http.Request, want string) bool {
 	if want == "" {
-		return false // never runs unpaired; see cmd/brain/mcp.go
+		return false // never runs unpaired; see cmd/logos/mcp.go
 	}
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		if tok, ok := strings.CutPrefix(auth, "Bearer "); ok && tok == want {

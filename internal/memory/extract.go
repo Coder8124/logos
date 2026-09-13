@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/untrusted"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // Learning from conversations. After an exchange, the model is asked what — if

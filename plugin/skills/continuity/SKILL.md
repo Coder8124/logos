@@ -1,11 +1,11 @@
 ---
 name: continuity
-description: Use when starting work on a project with prior history, before proposing any non-trivial approach, and before ending a work session. Covers checking what was already ruled out, recording progress, and handing work to the next agent via brain.
+description: Use when starting work on a project with prior history, before proposing any non-trivial approach, and before ending a work session. Covers checking what was already ruled out, recording progress, and handing work to the next agent via logos.
 ---
 
-# Working with brain
+# Working with logos
 
-brain is the user's memory across every AI tool they use. What you write here,
+logos is the user's memory across every AI tool they use. What you write here,
 Cursor and Codex read later, and what they wrote, you can read now. It is
 markdown on their disk — not a service, and not yours.
 
@@ -64,7 +64,7 @@ with `to` set, so the record names who it was left for.
 ## What not to do
 
 - Do not call `remember` for things that belong in the code or in
-  `CONTRIBUTING.md`. brain holds *operational* context — what was tried,
+  `CONTRIBUTING.md`. logos holds *operational* context — what was tried,
   decided, and left open — not repository instructions the next agent will
   read anyway.
 - Do not restate the whole checkpoint back to the user. Act on it.

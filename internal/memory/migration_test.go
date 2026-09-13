@@ -11,7 +11,7 @@ import (
 // moment the binary that added it runs against it. This is the same promise
 // every earlier ALTER TABLE in Init already made — for superseded, confidence,
 // project, superseded_by — proven the same way: build the table exactly as an
-// older brain would have left it, run today's Init over it, and check nothing
+// older logos would have left it, run today's Init over it, and check nothing
 // broke and nothing was silently dropped.
 //
 // There are two such columns to prove, added on separate branches and merged
@@ -108,7 +108,7 @@ func TestOldDatabaseOpensAfterAgentMigration(t *testing.T) {
 // held visible, and keep accepting writes. This builds the schema exactly as
 // it stood before that change — no quarantined column at all, and a memory_log
 // with no project column either — seeds a row by hand, then runs today's Init
-// against it, the same way a real user's stale .brain/index.db would be opened
+// against it, the same way a real user's stale .logos/index.db would be opened
 // by a binary built from this tree.
 func TestInitMigratesAPreQuarantineDatabase(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")

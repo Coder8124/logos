@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 	_ "modernc.org/sqlite"
 )
 
@@ -35,9 +35,9 @@ func seed(db *sql.DB, kind, project string, conf float64, uses int) {
 
 func TestComposeComposition(t *testing.T) {
 	db := testDB(t)
-	seed(db, "preference", "brain", 0.9, 4) // sure, most exercised
+	seed(db, "preference", "logos", 0.9, 4) // sure, most exercised
 	seed(db, "preference", "", 0.5, 0)      // hunch
-	seed(db, "person", "brain", 0.7, 1)
+	seed(db, "person", "logos", 0.7, 1)
 
 	r, err := Compose(db, time.Now())
 	if err != nil {
@@ -56,9 +56,9 @@ func TestComposeComposition(t *testing.T) {
 	if len(r.ByKind) == 0 || r.ByKind[0].Label != "preference" || r.ByKind[0].N != 2 {
 		t.Errorf("ByKind[0] = %+v, want preference/2", r.ByKind)
 	}
-	// project 'brain' has 2; the empty-project memory is excluded from ByProject.
-	if len(r.ByProject) != 1 || r.ByProject[0].Label != "brain" || r.ByProject[0].N != 2 {
-		t.Errorf("ByProject = %+v, want [brain 2]", r.ByProject)
+	// project 'logos' has 2; the empty-project memory is excluded from ByProject.
+	if len(r.ByProject) != 1 || r.ByProject[0].Label != "logos" || r.ByProject[0].N != 2 {
+		t.Errorf("ByProject = %+v, want [logos 2]", r.ByProject)
 	}
 	// Most exercised is the 4-use preference; the 0-use one is excluded.
 	if len(r.MostExercised) != 2 || r.MostExercised[0].Uses != 4 {

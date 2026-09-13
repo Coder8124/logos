@@ -14,12 +14,12 @@ bridges to memory systems that are not written in Go.
 ## Running it
 
 ```sh
-go build -o bin/brain ./cmd/brain
-./bin/brain bench continuity list          # what is measured, and what we expect to fail
-./bin/brain bench continuity               # every system installed on this machine
-./bin/brain bench continuity --verbose     # per scenario, with what was missed
-./bin/brain bench continuity --dump        # the raw retrieved context, for auditing labels
-./bin/brain bench continuity --brain-only  # skip the comparison, ~12s
+go build -o bin/logos ./cmd/logos
+./bin/logos bench continuity list          # what is measured, and what we expect to fail
+./bin/logos bench continuity               # every system installed on this machine
+./bin/logos bench continuity --verbose     # per scenario, with what was missed
+./bin/logos bench continuity --dump        # the raw retrieved context, for auditing labels
+./bin/logos bench continuity --logos-only  # skip the comparison, ~12s
 ```
 
 Useful flags: `--only <id|family|skill>` to narrow, `--no-embed` to score
@@ -59,8 +59,8 @@ Two things the matcher does that are worth knowing:
 
 ## The honest half
 
-Roughly a third of the suite is marked `KnownWeakness` — cases brain fails
-today. Several were found by an agent picking apart brain's own handoff output
+Roughly a third of the suite is marked `KnownWeakness` — cases logos fails
+today. Several were found by an agent picking apart logos's own handoff output
 during a live test: stale context presented without its age, circular sourcing
 where prose restates a claim the data contradicts, and abstention, which the
 LongMemEval harness in `internal/memory/bench.go` filters out before scoring.
@@ -110,14 +110,14 @@ can be deleted afterwards.
 ```sh
 brew install pgvector                      # ships for postgresql@17 and @18
 
-PGD=~/.brain-bench-pg
+PGD=~/.logos-bench-pg
 initdb -D "$PGD" -U letta --auth=trust     # use the @17 or @18 initdb
 pg_ctl -D "$PGD" -o "-p 5433 -k $PGD" -l "$PGD/server.log" start
 psql -h "$PGD" -p 5433 -U letta -d postgres -c "CREATE DATABASE letta OWNER letta;"
 psql -h "$PGD" -p 5433 -U letta -d letta    -c "CREATE EXTENSION vector;"
 
 export LETTA_PG_URI="postgresql://letta@127.0.0.1:5433/letta"
-export LETTA_DIR=~/.brain-bench-letta
+export LETTA_DIR=~/.logos-bench-letta
 export OLLAMA_BASE_URL="http://localhost:11434"   # without this the model list is empty
 .venv-letta/bin/letta server --port 8289
 ```
@@ -144,13 +144,13 @@ psql -h "$PGD" -p 5433 -U letta -d letta \
   -c "ALTER TABLE messages ALTER COLUMN sequence_id SET DEFAULT nextval('messages_sequence_id_seq');"
 ```
 
-Tear down with `pg_ctl -D ~/.brain-bench-pg stop && rm -rf ~/.brain-bench-pg
-~/.brain-bench-letta`.
+Tear down with `pg_ctl -D ~/.logos-bench-pg stop && rm -rf ~/.logos-bench-pg
+~/.logos-bench-letta`.
 
 ### Fairness notes
 
 Each adapter is written to make its system look as good as that system can look.
-brain uses checkpoints because it has them; a store with only `add()` and
+logos uses checkpoints because it has them; a store with only `add()` and
 `search()` receives the same information flattened into complete prose rather
 than withheld. Where a system loses, it should lose for what it is, not for how
 it was driven here.
@@ -161,7 +161,7 @@ it was driven here.
   single scenario writes over two hundred. `infer=False` stores text verbatim
   and embeds it, which for a retrieval benchmark is if anything favourable:
   nothing is lost to extraction. `MEM0_INFER=1` runs it the authentic way.
-  `fastembed` is installed so its BM25 arm is available, since brain is scored
+  `fastembed` is installed so its BM25 arm is available, since logos is scored
   with a lexical arm too.
 - **mem0 telemetry is disabled** in the shim. It ships analytics on by default
   and opens a PostHog client at import; a benchmark claiming every system runs
@@ -207,7 +207,7 @@ their context as memory accumulates — Letta's context estimate climbed 2,379 �
 more than 8.7× a 23-event scenario, not the same per write.
 
 ```sh
-MEM0_INFER=1 LETTA_AGENT_LOOP=1 go run ./cmd/brain bench continuity
+MEM0_INFER=1 LETTA_AGENT_LOOP=1 go run ./cmd/logos bench continuity
 ```
 
 What it buys, measured on the scenario the caveat pointed at: Letta goes from

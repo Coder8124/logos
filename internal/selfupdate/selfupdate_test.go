@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-// buildArchive makes a brain_<version>_<goos>_<goarch>.tar.gz containing one
+// buildArchive makes a logos_<version>_<goos>_<goarch>.tar.gz containing one
 // file, nested one directory down the way scripts/release.sh actually lays
 // releases out (brain_v0.3.0_darwin_arm64/brain).
 func buildArchive(t *testing.T, version string, binary []byte) []byte {
@@ -24,7 +24,7 @@ func buildArchive(t *testing.T, version string, binary []byte) []byte {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 	name := binaryName(runtime.GOOS)
-	dir := fmt.Sprintf("brain_%s_%s_%s", version, runtime.GOOS, runtime.GOARCH)
+	dir := fmt.Sprintf("logos_%s_%s_%s", version, runtime.GOOS, runtime.GOARCH)
 	hdr := &tar.Header{Name: dir + "/" + name, Mode: 0o755, Size: int64(len(binary))}
 	if err := tw.WriteHeader(hdr); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func newReleaseServer(t *testing.T, version, assetName string, archive, sums []b
 }
 
 func testClient(rs *releaseServer) *Client {
-	return &Client{HTTP: rs.Client(), APIBase: rs.URL, Repo: "Coder8124/logos", Agent: "brain/test"}
+	return &Client{HTTP: rs.Client(), APIBase: rs.URL, Repo: "Coder8124/logos", Agent: "logos/test"}
 }
 
 func fakeExecutable(t *testing.T, name string) string {
@@ -192,11 +192,11 @@ func TestUpdateRestoresTheOldBinaryWhenTheNewOneWillNotRun(t *testing.T) {
 }
 
 func TestUpdateUnderNpxRefusesAndExplains(t *testing.T) {
-	npxPath := filepath.Join(t.TempDir(), "_npx", "abc123", "node_modules", "@noeton", "logos-darwin-arm64", "bin", "brain")
+	npxPath := filepath.Join(t.TempDir(), "_npx", "abc123", "node_modules", "@noeton", "logos-darwin-arm64", "bin", "logos")
 
 	called := false
 	opts := Options{
-		Client: &Client{HTTP: http.DefaultClient, APIBase: "http://127.0.0.1:0", Repo: "Coder8124/logos", Agent: "brain/test"},
+		Client: &Client{HTTP: http.DefaultClient, APIBase: "http://127.0.0.1:0", Repo: "Coder8124/logos", Agent: "logos/test"},
 		Executable: func() (string, error) {
 			called = true
 			return npxPath, nil
@@ -323,15 +323,15 @@ func TestUpdateWithNoNewReleaseChangesNothing(t *testing.T) {
 // scripts/release.sh runs `shasum -a 256 ./*.tar.gz ./*.zip` inside the dist
 // directory, and shasum echoes back whatever glob it was given — so every
 // SHA256SUMS this project has ever published names its entries
-// "./brain_v0.4.0_darwin_arm64.tar.gz", not the bare name VerifyChecksum's own
+// "./logos_v0.4.0_darwin_arm64.tar.gz", not the bare name VerifyChecksum's own
 // AssetName produces. This is the real file downloaded from the v0.4.0 GitHub
-// release, reproduced here after `brain update` failed against it outside the
+// release, reproduced here after `logos update` failed against it outside the
 // test suite — every prior fixture in this file used a hand-built bare-name
-// SHA256SUMS, so nothing here ever exercised the format `brain update`
+// SHA256SUMS, so nothing here ever exercised the format `logos update`
 // actually has to parse.
 func TestVerifyChecksumAcceptsTheDotSlashPrefixRealReleasesUse(t *testing.T) {
 	data := []byte("archive bytes")
-	name := "brain_v0.4.0_darwin_arm64.tar.gz"
+	name := "logos_v0.4.0_darwin_arm64.tar.gz"
 	sum := sha256.Sum256(data)
 	sums := []byte(hex.EncodeToString(sum[:]) + "  ./" + name + "\n")
 

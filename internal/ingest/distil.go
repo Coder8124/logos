@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/text"
-	"github.com/Coder8124/brain/internal/transcript"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/text"
+	"github.com/Coder8124/logos/internal/transcript"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Distillation is the second tier of the ingest pipeline: the judgement a
@@ -142,10 +142,10 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 // --- serving evidence -------------------------------------------------------
 
 // ConsentPath is the marker recording that the user allowed transcript reads on
-// this machine. It lives in .brain/, not the vault proper: it is machine-local
+// this machine. It lives in .logos/, not the vault proper: it is machine-local
 // state, not something the vault-is-truth rebuild promise covers.
 func ConsentPath(vaultDir string) string {
-	return filepath.Join(vaultDir, ".brain", "ingest-consent.json")
+	return filepath.Join(vaultDir, ".logos", "ingest-consent.json")
 }
 
 // HasConsent reports whether transcript reading was granted here.
@@ -170,7 +170,7 @@ const DefaultMaxTurns = 120
 // point:
 //
 //   - It never discovers transcripts. The only file it opens is the source path
-//     recorded on a pending candidate a `brain ingest` already wrote, so an
+//     recorded on a pending candidate a `logos ingest` already wrote, so an
 //     agent cannot use this to read a session the user never offered. Reading
 //     new transcripts stays CLI-only and consent-gated (Part D).
 //   - It refuses when the source has changed since the harvest. What is on
@@ -178,14 +178,14 @@ const DefaultMaxTurns = 120
 //     now.
 func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 	if !HasConsent(vaultDir) {
-		return Evidence{}, fmt.Errorf("transcript reading was never granted on this machine — run `brain ingest` first; it asks once")
+		return Evidence{}, fmt.Errorf("transcript reading was never granted on this machine — run `logos ingest` first; it asks once")
 	}
 	c, _, ok, err := Find(vaultDir, ref)
 	if err != nil {
 		return Evidence{}, err
 	}
 	if !ok {
-		return Evidence{}, fmt.Errorf("no ingested candidate matches %q — only sessions a `brain ingest` already queued can be distilled", ref)
+		return Evidence{}, fmt.Errorf("no ingested candidate matches %q — only sessions a `logos ingest` already queued can be distilled", ref)
 	}
 	if c.Status != StatusPending {
 		return Evidence{}, fmt.Errorf("candidate %s is %s, not pending", shortRef(c.SessionID), c.Status)
@@ -196,7 +196,7 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 		return Evidence{}, fmt.Errorf("reading the source recorded on the candidate (%s): %w", c.Source, err)
 	}
 	if c.Hash != "" && s.Hash != c.Hash {
-		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `brain ingest` to queue the new version", c.Source)
+		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `logos ingest` to queue the new version", c.Source)
 	}
 
 	if maxTurns <= 0 {

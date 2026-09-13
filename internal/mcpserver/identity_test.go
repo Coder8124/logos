@@ -3,8 +3,8 @@ package mcpserver
 import (
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The premise under test: remember records who is calling by reading the MCP

@@ -7,9 +7,9 @@ network.** Run 2026-08-29 on an M-series Mac, every system embedding with
 Reproduce it:
 
 ```sh
-go run ./cmd/brain bench continuity          # the whole field
-go run ./cmd/brain bench continuity --brain-only
-go run ./cmd/brain bench continuity list     # every scenario and what it asks
+go run ./cmd/logos bench continuity          # the whole field
+go run ./cmd/logos bench continuity --logos-only
+go run ./cmd/logos bench continuity list     # every scenario and what it asks
 ```
 
 ---
@@ -18,7 +18,7 @@ go run ./cmd/brain bench continuity list     # every scenario and what it asks
 
 Existing memory benchmarks — LongMemEval, LoCoMo, and the retrieval suites that
 follow them — measure the same thing in different clothes: *given a long
-history, can the system find the fact that answers a question.* brain scores
+history, can the system find the fact that answers a question.* logos scores
 well on that (96.0% recall@5 on the full 500-question LongMemEval-S, hybrid
 retrieval beating vector-only by 8.9 points) and so does everything else worth
 comparing against. Recall is close to solved at this scale.
@@ -70,7 +70,7 @@ something to mean.
 
 | System | What it is |
 |---|---|
-| **brain** | this project — checkpoints in markdown, hybrid retrieval, budgeted context assembly |
+| **logos** | this project — checkpoints in markdown, hybrid retrieval, budgeted context assembly |
 | **letta** | Letta 0.16.8 (formerly MemGPT), archival memory via a local server |
 | **mem0** | mem0ai, verbatim store + BM25/vector search |
 | **mempalace** | MemPalace, local palace store |
@@ -89,7 +89,7 @@ the machine, so the comparison is like-for-like on the same hardware.
 
 ```
 system                pass  fidelity  carry   leak  signal  tokens  dens/1k
-brain                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
+logos                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%     308      4.0
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%     230     11.0
 full-dump            46.9%    68.8%   84.4%  83.3%   22.2%     264     10.9
@@ -104,7 +104,7 @@ By family:
 
 ```
 system              continuity  durability  memory
-brain                      86%        100%     73%
+logos                      86%        100%     73%
 mempalace                  50%          0%     53%
 recency-window             50%          0%     53%
 full-dump                  50%          0%     53%
@@ -121,13 +121,13 @@ none                        0%          0%      0%
 89.1%. Retrieval works. The spread in *pass* comes almost entirely from leakage
 and signal.
 
-**Leakage is.** brain leaks 33.3%; every embedding-based system except MemPalace
+**Leakage is.** logos leaks 33.3%; every embedding-based system except MemPalace
 leaks 83.3% — they return the superseded price alongside the current one,
 because both are semantically close to the question and nothing in a cosine
 score encodes "this one was replaced."
 
-**Signal is the cliff.** brain 88.9%, everything else 22.2%. No system in the
-field except brain says "this was already tried", "this value changed", or
+**Signal is the cliff.** logos 88.9%, everything else 22.2%. No system in the
+field except logos says "this was already tried", "this value changed", or
 "nothing on record covers that." This is not a tuning gap; it is a category
 these systems do not model.
 
@@ -151,9 +151,9 @@ substrate, not their agent loops.
 ## 4. Where the difference comes from
 
 Eight skills scored 0% across the entire field in the first run of this suite.
-brain now holds seven of them, and no other system moved:
+logos now holds seven of them, and no other system moved:
 
-| Skill | brain | best of the rest |
+| Skill | logos | best of the rest |
 |---|---:|---:|
 | staleness | **100%** | 0% |
 | supersession | **100%** | 0% |
@@ -188,23 +188,23 @@ up on scenarios other than the one that exposed it:
 
 ### Durability: 100% vs 0%
 
-Three scenarios write, delete every rebuildable artifact, and read again. brain
+Three scenarios write, delete every rebuildable artifact, and read again. logos
 scores 100%; every other system scores 0%, including the controls.
 
 This is not a subtle result and it is not really about retrieval quality — it is
-about where the source of truth lives. brain writes checkpoints and memories to
+about where the source of truth lives. logos writes checkpoints and memories to
 markdown in a vault the user owns; the SQLite index is a cache, and deleting it
 costs only the time to re-embed. The other systems keep their knowledge inside
 their own store, so wiping the store wipes what they know.
 
-This family exists because it was **once false for brain too**. Memories lived
-only in the cache, and `rm -rf .brain` — which the README told people to do —
+This family exists because it was **once false for logos too**. Memories lived
+only in the cache, and `rm -rf .logos` — which the README told people to do —
 destroyed every preference and fact with no warning. The benchmark caught it,
 and the family now exists to keep the claim honest.
 
 ---
 
-## 5. Where brain loses, and where nobody wins
+## 5. Where logos loses, and where nobody wins
 
 Reported because a benchmark that only shows wins is marketing.
 
@@ -213,10 +213,10 @@ Reported because a benchmark that only shows wins is marketing.
   retrieved facts. Retrieval is not computation.
 - **recency-conflict — 0%, everyone.** Two sources disagree *and* one is newer,
   requiring the system to prefer recency without being told to.
-- **temporal — brain 0%, MemPalace 50%.** Ordering events in time and answering
-  windowed questions. **MemPalace beats brain outright here** and it is the one
+- **temporal — logos 0%, MemPalace 50%.** Ordering events in time and answering
+  windowed questions. **MemPalace beats logos outright here** and it is the one
   skill where that is true.
-- **multi-hop — brain 0%, recency-window and full-dump 100%.** Chaining two
+- **multi-hop — logos 0%, recency-window and full-dump 100%.** Chaining two
   facts to reach a third. The dumb controls win by carrying everything, which is
   exactly the tradeoff their leak scores pay for — but a loss is a loss.
 - **conflict — 50%.** Half the contradiction cases are still unflagged.
@@ -255,12 +255,12 @@ Measured on `supersession-current-value` — three statements of a retail price
 ($199, then $229, then a final $249) buried in twenty noise facts. The scenario
 requires carrying $249 and suppressing both earlier numbers, so it is the
 single case the caveat most directly predicted. Both modes were run on the same
-machine, back to back. `brain` and MemPalace are unaffected by these flags and
+machine, back to back. `logos` and MemPalace are unaffected by these flags and
 score identically in both runs, which is what makes the two comparable.
 
 | system | default | authentic | |
 |---|---|---|---|
-| brain | 100% | 100% | control |
+| logos | 100% | 100% | control |
 | **letta** | 0% (leaks both) | **50% (leaks one)** | improved |
 | **mem0** | 0% (leaks both) | **0%** | no gain |
 | mempalace | 50% | 50% | control |
@@ -308,14 +308,14 @@ The headline `infer=False` numbers do not touch that path.
 ## 7. Reproducing
 
 ```sh
-# brain alone — needs only Ollama
-go run ./cmd/brain bench continuity --brain-only
+# logos alone — needs only Ollama
+go run ./cmd/logos bench continuity --logos-only
 
 # the whole field — needs the Python adapters installed
 python3 -m venv bench/adapters/.venv-mem0    && bench/adapters/.venv-mem0/bin/pip install 'mem0ai[extras]'
 python3 -m venv bench/adapters/.venv-letta   && bench/adapters/.venv-letta/bin/pip install letta asyncpg pgvector
 letta server --port 8289          # needs PostgreSQL with pgvector
-go run ./cmd/brain bench continuity
+go run ./cmd/logos bench continuity
 ```
 
 An adapter that cannot import its own package is **skipped, not failed** — a
@@ -325,5 +325,5 @@ Python translating the harness's events into that system's own API.
 
 Scenario definitions live in `internal/eval/scenarios.go`, scoring in
 `internal/eval/score.go`. Every scenario carries a `Why` line stating what it is
-really asking, and a `Known` label recording brain's expected outcome so
+really asking, and a `Known` label recording logos's expected outcome so
 regressions are visible rather than quietly absorbed.

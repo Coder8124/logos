@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // countHeading counts lines that are exactly the given markdown heading, which
@@ -24,7 +24,7 @@ func countHeading(out, heading string) int {
 // The attack in full, through the public path: a checkpoint written by whoever
 // can write to the vault, rendered into the next agent's context.
 //
-// Each field carries a payload that tries to close brain's section and open a
+// Each field carries a payload that tries to close logos's section and open a
 // forged one. The pack must come back with exactly one of each of its own
 // headings — a second "## Where we left off" is indistinguishable from the real
 // one to the model reading it.

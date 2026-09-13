@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // Ref is a lightweight pointer to a note.
@@ -108,7 +108,7 @@ func Get(db *sql.DB, slug string) (Project, bool, error) {
 func assemble(db *sql.DB, seed noteRow, notes []noteRow, aliases []string, edges []edge, mems []memRow) Project {
 	p := Project{Slug: seed.slug, Name: displayName(seed), Aliases: aliases}
 	terms := append([]string{p.Name}, aliases...)
-	// The trailing slug segment is also a usable term ("projects/brain" -> "brain").
+	// The trailing slug segment is also a usable term ("projects/logos" -> "logos").
 	terms = append(terms, trailing(seed.slug))
 
 	// --- connected notes & people, via the note graph ---
@@ -453,8 +453,8 @@ func trailing(slug string) string {
 	return slug
 }
 
-// resolvesTo reports whether an edge object (a trailing form like "brain")
-// resolves to the given full slug ("projects/brain").
+// resolvesTo reports whether an edge object (a trailing form like "logos")
+// resolves to the given full slug ("projects/logos").
 func resolvesTo(obj, slug string) bool {
 	return obj == slug || obj == trailing(slug)
 }
@@ -511,7 +511,7 @@ func dedupStrings(in []string) []string {
 // product that granularity is not a detail: the line it produces is "Last
 // checkpoint by claude, just now", and an agent reading that about a handoff
 // fifty minutes and one context-switch old is being told something false about
-// how current the plan is. `brain doctor` said "20 minutes ago" for the same
+// how current the plan is. `logos doctor` said "20 minutes ago" for the same
 // checkpoint at the same moment, so the two disagreed in front of the user.
 func Age(ts int64) string {
 	if ts == 0 {

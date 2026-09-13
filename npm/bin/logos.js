@@ -8,12 +8,6 @@
 // per-platform packages gated by `os`/`cpu`, npm installs only the matching one,
 // and this file resolves it.
 //
-// On the two names: the published product is Logos, and the executable inside
-// the platform packages is still called `brain` — that is the development name,
-// what `scripts/release.sh` builds, and what the binary calls itself in its own
-// help. This file is the seam between the two, which is why the package name and
-// the file on disk differ. Keep it that way rather than renaming the Go tree.
-//
 // The important constraint is that `logos mcp serve` speaks newline-delimited
 // JSON-RPC over stdin/stdout. Anything this wrapper writes to stdout corrupts
 // that stream, and any buffering between the host and the binary risks stalling
@@ -40,12 +34,11 @@ function binaryPath() {
       "",
       "Supported: " + Object.keys(PLATFORMS).join(", ") + ".",
       "Build from source instead:",
-      "  go install github.com/Coder8124/brain/cmd/brain@latest"
+      "  go install github.com/Coder8124/logos/cmd/logos@latest"
     );
   }
 
-  // The executable keeps its development name inside the archive; see above.
-  const exe = process.platform === "win32" ? "brain.exe" : "brain";
+  const exe = process.platform === "win32" ? "logos.exe" : "logos";
   try {
     // Resolve through the package's own entry so npm/pnpm/yarn layouts, symlinks
     // and nested node_modules all work without guessing at directory structure.

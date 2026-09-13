@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/textmatch"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/textmatch"
 )
 
 // Insight is one observation, always traceable to what produced it.

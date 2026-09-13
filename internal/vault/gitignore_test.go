@@ -8,12 +8,12 @@ import (
 )
 
 // A vault that lives inside a git repo — the whole point of "a vault two
-// people can share over git" — must never let .brain/ (the disposable
-// SQLite cache, rebuilt from markdown by `brain index`) go into version
+// people can share over git" — must never let .logos/ (the disposable
+// SQLite cache, rebuilt from markdown by `logos index`) go into version
 // control. Committing it defeats the plan: two clones would fight over a
 // binary file that carries no information the markdown doesn't already
 // have, on every pull.
-func TestEnsureGitignoreAddsBrainDirToAFreshVault(t *testing.T) {
+func TestEnsureGitignoreAddsLogosDirToAFreshVault(t *testing.T) {
 	dir := t.TempDir()
 
 	wrote, err := EnsureGitignore(dir)
@@ -28,12 +28,12 @@ func TestEnsureGitignoreAddsBrainDirToAFreshVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading .gitignore: %v", err)
 	}
-	if !strings.Contains(string(got), ".brain/") {
-		t.Errorf(".gitignore does not exclude .brain/:\n%s", got)
+	if !strings.Contains(string(got), ".logos/") {
+		t.Errorf(".gitignore does not exclude .logos/:\n%s", got)
 	}
 }
 
-// A second call — every `brain index` run, not just the first one ever — must
+// A second call — every `logos index` run, not just the first one ever — must
 // not grow the file. Appending a duplicate line every run would make the
 // .gitignore itself into churn the vault's own git history has to carry.
 func TestEnsureGitignoreIsIdempotent(t *testing.T) {
@@ -52,7 +52,7 @@ func TestEnsureGitignoreIsIdempotent(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 	if wrote {
-		t.Error("a second call reported writing again, but .brain/ was already ignored")
+		t.Error("a second call reported writing again, but .logos/ was already ignored")
 	}
 
 	after, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
@@ -90,19 +90,19 @@ func TestEnsureGitignorePreservesExistingLines(t *testing.T) {
 	if !strings.Contains(s, "*.swp") || !strings.Contains(s, "node_modules/") {
 		t.Errorf("existing lines were lost:\n%s", s)
 	}
-	if !strings.Contains(s, ".brain/") {
-		t.Errorf(".brain/ was not added:\n%s", s)
+	if !strings.Contains(s, ".logos/") {
+		t.Errorf(".logos/ was not added:\n%s", s)
 	}
 }
 
-// A .gitignore that already excludes .brain via some other pattern — the
+// A .gitignore that already excludes .logos via some other pattern — the
 // user wrote it themselves, or a future version of this function used a
 // slightly different line — must not be treated as absent. Matching on
-// substring rather than exact line equality means a line like "/.brain/"
-// or ".brain" (no trailing slash) still counts as already covering it.
-func TestEnsureGitignoreRecognizesAnExistingBrainRuleWrittenByHand(t *testing.T) {
+// substring rather than exact line equality means a line like "/.logos/"
+// or ".logos" (no trailing slash) still counts as already covering it.
+func TestEnsureGitignoreRecognizesAnExistingLogosRuleWrittenByHand(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# my own rules\n.brain\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("# my own rules\n.logos\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,6 +111,6 @@ func TestEnsureGitignoreRecognizesAnExistingBrainRuleWrittenByHand(t *testing.T)
 		t.Fatalf("EnsureGitignore: %v", err)
 	}
 	if wrote {
-		t.Error("a hand-written .brain rule should already satisfy this, without another write")
+		t.Error("a hand-written .logos rule should already satisfy this, without another write")
 	}
 }

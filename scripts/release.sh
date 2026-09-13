@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Cross-compile the brain CLI for the platforms people actually run it on, and
+# Cross-compile the logos CLI for the platforms people actually run it on, and
 # write checksums beside the archives.
 #
 #   ./scripts/release.sh            # builds as "dev"
@@ -26,7 +26,7 @@ mkdir -p "$OUT"
 # binary; -s -w drops the symbol table and DWARF, roughly halving the size of
 # something nobody is going to debug from a tarball.
 export CGO_ENABLED=0
-LDFLAGS="-s -w -X github.com/Coder8124/brain/internal/buildinfo.Version=${VERSION}"
+LDFLAGS="-s -w -X github.com/Coder8124/logos/internal/buildinfo.Version=${VERSION}"
 
 platforms=(
   "darwin arm64"    # Apple silicon
@@ -36,18 +36,18 @@ platforms=(
   "windows amd64"
 )
 
-echo "building brain ${VERSION}"
+echo "building logos ${VERSION}"
 for p in "${platforms[@]}"; do
   read -r goos goarch <<<"$p"
 
-  name="brain"
-  [ "$goos" = "windows" ] && name="brain.exe"
+  name="logos"
+  [ "$goos" = "windows" ] && name="logos.exe"
 
-  dir="${OUT}/brain_${VERSION}_${goos}_${goarch}"
+  dir="${OUT}/logos_${VERSION}_${goos}_${goarch}"
   mkdir -p "$dir"
 
   GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "$LDFLAGS" \
-    -o "${dir}/${name}" ./cmd/brain
+    -o "${dir}/${name}" ./cmd/logos
 
   # The readme and licence travel with the binary; someone who downloads a
   # tarball should not have to go looking for either. Missing files are noted

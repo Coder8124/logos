@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The command bar is a dispatcher, not a second implementation — it must

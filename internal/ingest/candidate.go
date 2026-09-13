@@ -1,6 +1,6 @@
 // Package ingest turns another coding agent's transcript into a Logos
 // checkpoint *candidate* — never a checkpoint, and never by replaying the
-// transcript. It is the back half of `brain ingest`; internal/transcript is the
+// transcript. It is the back half of `logos ingest`; internal/transcript is the
 // front half that reads the raw session.
 //
 // The thesis: a resumed transcript hands the next agent

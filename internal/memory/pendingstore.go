@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // The review queue is durable too.
@@ -16,13 +16,13 @@ import (
 // Quarantine deliberately keeps an agent's proposal out of memories/<kind>.md —
 // that is the consent guarantee, and ExportKind enforces it with
 // `quarantined = 0`. The consequence nobody wrote down is that a pending
-// proposal then lived in exactly one place: .brain/index.db. And every document
+// proposal then lived in exactly one place: .logos/index.db. And every document
 // this project ships says the same thing about that file — it is a cache,
-// delete it, run `brain index`, lose nothing.
+// delete it, run `logos index`, lose nothing.
 //
 // You lost the queue. An agent proposes two facts, the user does not get to
-// `brain review` before their next reindex, and `rm -rf .brain && brain index`
-// takes both away without a word; `brain doctor` then reports "nothing pending",
+// `logos review` before their next reindex, and `rm -rf .logos && logos index`
+// takes both away without a word; `logos doctor` then reports "nothing pending",
 // which is indistinguishable from having reviewed them. This is the third time
 // this shape of bug has appeared (memories, then working notes, now proposals),
 // and it always has the same cause: state that only the database knows.
@@ -80,7 +80,7 @@ func withPending(db *sql.DB, fn func(dir string) error) error {
 // the whole file, and the later write wins with a snapshot taken before the
 // other proposal existed. ImportPending then treats the id it cannot find as a
 // line the user deleted and calls Reject on it — a proposal discarded on the
-// user's behalf, on the next `brain index`, without them ever seeing it.
+// user's behalf, on the next `logos index`, without them ever seeing it.
 //
 // Because the read happens under the lock and every mutation flushes after
 // committing, whoever holds the lock last writes the most recent queue.
@@ -115,10 +115,10 @@ func renderPending(pend []Memory) string {
 	fmt.Fprintf(&b, "---\ntype: memory-review-queue\ncount: %d\n---\n\n", len(pend))
 	b.WriteString("Memories an agent proposed. None of these is active: nothing here\n" +
 		"is recalled, packed into context, or visible to any agent until you accept it.\n\n")
-	b.WriteString("Run `brain review` to accept or reject them. Deleting a line here\n" +
-		"rejects it on the next `brain index`; this file is the record, not the database.\n\n")
+	b.WriteString("Run `logos review` to accept or reject them. Deleting a line here\n" +
+		"rejects it on the next `logos index`; this file is the record, not the database.\n\n")
 	for _, m := range pend {
-		fmt.Fprintf(&b, "- %s <!-- brain id=%d kind=%s conf=%.2f sal=%.2f src=%s created=%s uses=%d",
+		fmt.Fprintf(&b, "- %s <!-- logos id=%d kind=%s conf=%.2f sal=%.2f src=%s created=%s uses=%d",
 			oneLine(m.Text), m.ID, m.Kind, m.Confidence, m.Salience, orDash(m.Source),
 			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
@@ -159,7 +159,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 	// against a file another process is part-way through writing rejects
 	// proposals that are only briefly absent.
 	//
-	// dir is the caller's rather than vaultFor's: `brain index` imports a vault
+	// dir is the caller's rather than vaultFor's: `logos index` imports a vault
 	// it has not bound to a store yet.
 	g, err := vault.Lock(dir, "memory-pending")
 	if err != nil {
@@ -175,7 +175,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 		// not a plan, it was a hope. Nothing mutates a queue nobody is reviewing,
 		// so a vault older than this file kept its proposals in the one place
 		// every document in this project tells the user they may delete, and the
-		// next `rm -rf .brain` took them without a word. This is the only moment
+		// next `rm -rf .logos` took them without a word. This is the only moment
 		// the rescue is still possible: the cache is still the only copy.
 		rescued, err := rescuePendingLocked(db, dir)
 		return 0, rescued, err

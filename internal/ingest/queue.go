@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // The queue is the set of candidate notes on disk under <vault>/ingest/. There
@@ -150,7 +150,7 @@ func sortCandidatesNewestFirst(cs []Candidate) {
 }
 
 // Find returns the pending candidate whose session id (or filename stem) matches
-// ref. Used by `brain ingest review --promote <ref>`.
+// ref. Used by `logos ingest review --promote <ref>`.
 func Find(vaultDir, ref string) (Candidate, string, bool, error) {
 	root := filepath.Join(vaultDir, Dir)
 	var (

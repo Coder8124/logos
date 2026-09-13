@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Dreamed insights, written down.
@@ -18,8 +18,8 @@ import (
 // This is the seventh time this shape of bug has appeared — memories, working
 // notes, checkpoints, proposals, the review queue, open loops, now this — and
 // the cause never changes: state that only the database knows. Every document
-// this project ships says delete .brain/index.db, run `brain index`, lose
-// nothing. For `brain dream review` that was false. A REM pass proposes three
+// this project ships says delete .logos/index.db, run `logos index`, lose
+// nothing. For `logos dream review` that was false. A REM pass proposes three
 // connections, the user rebuilds the index before looking at them, and the
 // queue comes back empty — which reads exactly like having reviewed them.
 //
@@ -148,14 +148,14 @@ func renderInsights(all []Insight) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntype: dream-insights\npending: %d\n---\n\n", pending)
-	b.WriteString("Connections brain proposed while consolidating. None of these is a\n" +
+	b.WriteString("Connections logos proposed while consolidating. None of these is a\n" +
 		"memory yet: nothing here is recalled or packed into context until you\n" +
 		"accept it.\n\n")
-	b.WriteString("Run `brain dream review` to accept or reject them. Deleting a line here\n" +
-		"discards that insight on the next `brain index`; this file is the record,\n" +
+	b.WriteString("Run `logos dream review` to accept or reject them. Deleting a line here\n" +
+		"discards that insight on the next `logos index`; this file is the record,\n" +
 		"not the database.\n\n")
 	for _, in := range all {
-		fmt.Fprintf(&b, "- %s <!-- brain id=%d kind=%s a=%d b=%d conf=%.2f status=%s created=%s",
+		fmt.Fprintf(&b, "- %s <!-- logos id=%d kind=%s a=%d b=%d conf=%.2f status=%s created=%s",
 			field(in.Text), in.ID, in.Kind, in.EndpointA, in.EndpointB,
 			in.Conf, in.Status, stamp(in.Created))
 		if in.Model != "" {
@@ -261,7 +261,7 @@ func parseInsights(raw string) []Insight {
 			continue
 		}
 		// LastIndex, not Index: the text is free-form model output that may
-		// itself contain "<!--", and brain's own comment is always the last
+		// itself contain "<!--", and logos's own comment is always the last
 		// thing on the line. Splitting at the first one truncates the insight
 		// at whatever the model happened to quote. See internal/memory's
 		// parseKind, where doing it the other way lost user text.
@@ -311,7 +311,7 @@ func parseInsights(raw string) []Insight {
 // Import restores dreamed insights from the vault, and is what makes deleting
 // the cache survivable for them.
 //
-// dir is the caller's rather than vaultFor's: `brain index` imports a vault it
+// dir is the caller's rather than vaultFor's: `logos index` imports a vault it
 // has not bound to a store yet.
 //
 // Returns how many insights it had to put back — a row already in the cache was

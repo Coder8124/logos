@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/textmatch"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/textmatch"
 )
 
 // Kind categorises a memory so it can be weighted and surfaced appropriately.
@@ -580,7 +580,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 		// memory so a shaky fact does not outrank a certain one at equal relevance.
 		//
 		// Swept 0.50-1.00 (in steps of 0.05, plus 0.75) against
-		// `brain bench continuity --brain-only`: every value produced the same
+		// `logos bench continuity --logos-only`: every value produced the same
 		// 84.4% pass, 89.1% recall, 16.7% leak. Not because the corpus is
 		// smaller than maxRelated=10 — the memory scenarios seed ~31 candidates
 		// (internal/eval/scenarios.go's noiseFacts(30) plus one target fact),
@@ -848,7 +848,7 @@ func forgetRow(db *sql.DB, id int64) (Kind, error) {
 // many went. It returns the count rather than nothing so a caller can tell "I
 // removed forty" from "there was nothing there".
 //
-// This is what makes a bulk seeding reversible. `brain bootstrap` writes several
+// This is what makes a bulk seeding reversible. `logos bootstrap` writes several
 // memories at once from git history, and a user who dislikes the result should
 // not have to forget them one id at a time — nor should they have to guess which
 // ids were the machine's and which were theirs. Source is the record of how a
@@ -910,7 +910,7 @@ func Exclude(db *sql.DB, id int64) error { return setPin(db, id, PinNever, "excl
 
 // setPin is Forget's pattern without the delete: snapshot for the log, change
 // the row, log the event, flush to the vault so the state survives `rm -rf
-// .brain`. Silently a no-op on an id that does not exist, matching Forget —
+// .logos`. Silently a no-op on an id that does not exist, matching Forget —
 // see there for why that asymmetry (permissive here, not an error) is the
 // existing behaviour rather than a gap introduced by this function.
 func setPin(db *sql.DB, id int64, pin int, verb string) error {

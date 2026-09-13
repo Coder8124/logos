@@ -177,7 +177,7 @@ async function loadSessions() {
     list.innerHTML = "";
     list.append(el(
       "div", "empty",
-      "No checkpoints yet — an agent calling checkpoint (or brain resume from the CLI) writes one to sessions/, and it will show up here, newest first."
+      "No checkpoints yet — an agent calling checkpoint (or logos resume from the CLI) writes one to sessions/, and it will show up here, newest first."
     ));
     $("sessions-detail").innerHTML =
       '<div class="empty"><div class="big">◫</div>Nothing to show until a checkpoint exists.</div>';
@@ -276,7 +276,7 @@ function wireContext() {
 // ---- tree view: steer context from the vault, edit in place ----
 //
 // One tree, backed by the same .context/rules.md contextpack.Build reads and
-// `brain context --pin/--exclude` writes — clicking a node here is not a
+// `logos context --pin/--exclude` writes — clicking a node here is not a
 // second opinion, it is the same durable rule shown a different way.
 
 let treeLoaded = false;
@@ -484,7 +484,7 @@ function renderMemList() {
   if (!allMemories.length) {
     box.append(el(
       "div", "empty",
-      "No memories yet — they accumulate as the assistant learns preferences, people, and standing context from conversations, or from brain remember / the MCP remember tool."
+      "No memories yet — they accumulate as the assistant learns preferences, people, and standing context from conversations, or from logos remember / the MCP remember tool."
     ));
     return;
   }

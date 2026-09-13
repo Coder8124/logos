@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // Benchmarking our memory against LongMemEval (ICLR 2025), the standard

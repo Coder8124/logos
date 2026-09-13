@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // Claude Code left a payments migration half done; a second later Cursor

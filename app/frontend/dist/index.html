@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>brain</title>
+  <title>logos</title>
   <!-- Apply the saved theme before first paint to avoid a flash of the default. -->
   <script>
     (function () {
       try {
-        var saved = localStorage.getItem("brain.theme") || "dark";
+        var saved = localStorage.getItem("logos.theme") || "dark";
         var resolved = saved;
         if (saved === "auto") {
           var h = new Date().getHours();
@@ -29,7 +29,7 @@
        neither patina nor brass carries that meaning on its own.
 
        Fonts are system stacks rather than the docs page's IBM Plex + Google
-       Fonts import: brain is local-first, and the desktop panel should never
+       Fonts import: logos is local-first, and the desktop panel should never
        have a network dependency for its own chrome. */
     :root {
       --stone:   oklch(96.5% 0.006 150);
@@ -574,7 +574,7 @@
   <div id="app">
     <header>
       <div class="orb idle" id="orb" title="idle"></div>
-      <span class="wordmark"><span class="prompt">›</span> brain</span>
+      <span class="wordmark"><span class="prompt">›</span> logos</span>
       <span class="vault-path" id="vault-path"></span>
       <div class="head-actions">
         <button class="icon-btn" id="theme-btn" title="Toggle theme">◐</button>

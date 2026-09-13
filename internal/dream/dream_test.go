@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/router"
 	_ "modernc.org/sqlite"
 )
 
@@ -84,7 +84,7 @@ func TestEnqueueListGet(t *testing.T) {
 // with nil, Store skips embedding but still records the fact.
 func TestAcceptStoresLowConfidenceMemory(t *testing.T) {
 	db := testDB(t)
-	in := Insight{Kind: Connection, Text: "brain's retrieval could help another project", EndpointA: 1, EndpointB: 2, Conf: 0.5}
+	in := Insight{Kind: Connection, Text: "logos's retrieval could help another project", EndpointA: 1, EndpointB: 2, Conf: 0.5}
 	if err := Enqueue(db, &in); err != nil {
 		t.Fatal(err)
 	}

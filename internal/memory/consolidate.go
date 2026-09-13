@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // Making memory smarter: it should behave less like an append-only log and more

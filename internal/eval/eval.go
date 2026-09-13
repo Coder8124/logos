@@ -17,8 +17,8 @@
 // # The honest half
 //
 // A benchmark whose author picks the categories is a benchmark its author wins.
-// The counterweight is deliberate: this suite includes families brain is known
-// to be bad at, several of them found by an agent criticising brain's own
+// The counterweight is deliberate: this suite includes families logos is known
+// to be bad at, several of them found by an agent criticising logos's own
 // output during a live handoff — stale context presented without its age,
 // circular sourcing where prose restates a claim the data contradicts, and
 // abstention, which the LongMemEval harness in memory/bench.go explicitly
@@ -29,7 +29,7 @@
 // # What is compared
 //
 // Every system under test implements Adapter — write events, read back context
-// for a task. That common denominator is the point. brain has checkpoint and
+// for a task. That common denominator is the point. logos has checkpoint and
 // resume as primitives; a store with only add() and search() must flatten a
 // checkpoint into prose. The asymmetry is not a handicap imposed by the
 // harness, it is the finding.

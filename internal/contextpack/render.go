@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/secretary"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // Rendering is where the budget is actually spent, which is why Render takes a

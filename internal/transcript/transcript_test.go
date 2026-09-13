@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/transcript"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // The fixture trees live under testdata/transcripts/<harness>/. Pointing the
-// BRAIN_* overrides at them keeps these tests off the developer's real
+// LOGOS_* overrides at them keeps these tests off the developer's real
 // ~/.claude and ~/.codex directories.
 func claudeRoot(t *testing.T) string {
 	t.Helper()
@@ -30,7 +30,7 @@ func abs(t *testing.T, p string) string {
 }
 
 func TestAClaudeCodeSessionParsesIntoOrderedTurns(t *testing.T) {
-	t.Setenv(transcript.BrainClaudeProjectsEnv, claudeRoot(t))
+	t.Setenv(transcript.LogosClaudeProjectsEnv, claudeRoot(t))
 
 	paths, err := transcript.Sessions("claude-code")
 	if err != nil {
@@ -80,7 +80,7 @@ func TestAClaudeCodeSessionParsesIntoOrderedTurns(t *testing.T) {
 }
 
 func TestACodexSessionParsesIntoOrderedTurns(t *testing.T) {
-	t.Setenv(transcript.BrainCodexSessionsEnv, abs(t, "testdata/transcripts/codex"))
+	t.Setenv(transcript.LogosCodexSessionsEnv, abs(t, "testdata/transcripts/codex"))
 
 	paths, err := transcript.Sessions("codex")
 	if err != nil {
@@ -124,7 +124,7 @@ func TestACodexSessionParsesIntoOrderedTurns(t *testing.T) {
 
 func TestAMalformedLineIsSkippedAndCountedRatherThanFailingTheWholeSession(t *testing.T) {
 	root := abs(t, "testdata/transcripts/claude-code-malformed")
-	t.Setenv(transcript.BrainClaudeProjectsEnv, root)
+	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 
 	paths, err := transcript.Sessions("claude-code")
 	if err != nil {
@@ -251,8 +251,8 @@ func TestIngestNeverWritesToTheSourceTranscript(t *testing.T) {
 
 	before := snapshotMtimes(t, dir)
 
-	t.Setenv(transcript.BrainClaudeProjectsEnv, claudeDst)
-	t.Setenv(transcript.BrainCodexSessionsEnv, codexDst)
+	t.Setenv(transcript.LogosClaudeProjectsEnv, claudeDst)
+	t.Setenv(transcript.LogosCodexSessionsEnv, codexDst)
 
 	for _, h := range []string{"claude-code", "codex"} {
 		paths, err := transcript.Sessions(h)
@@ -339,7 +339,7 @@ func copyTree(t *testing.T, src, dst string) {
 	}
 }
 
-// A file fed via `brain ingest --path` has a filename stem that is not the
+// A file fed via `logos ingest --path` has a filename stem that is not the
 // session id — often something like "export.jsonl". The reader must take the
 // id from the transcript's own sessionId field so harvest and distil are
 // findable by the id agents actually use; the stem is only the fallback for a
@@ -365,10 +365,10 @@ func TestTheSessionIDComesFromTheTranscriptNotTheFilename(t *testing.T) {
 // segment turns eco-game into "game" and eng-lish into "lish". The damage is
 // not cosmetic — Codex records a real cwd and attributes the same repository
 // correctly, so one project split into two vault directories depending on
-// which harness a session came from, and `brain resume eng-lish` saw half its
+// which harness a session came from, and `logos resume eng-lish` saw half its
 // history. The recorded cwd is authoritative; the slug is only the fallback.
 func TestAHyphenatedProjectKeepsItsWholeNameNotTheTailAfterTheLastDash(t *testing.T) {
-	t.Setenv(transcript.BrainClaudeProjectsEnv, claudeRoot(t))
+	t.Setenv(transcript.LogosClaudeProjectsEnv, claudeRoot(t))
 
 	path := filepath.Join(claudeRoot(t), "-Users-alice-code-eco-game",
 		"99999999-8888-7777-6666-555555555555.jsonl")

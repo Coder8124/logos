@@ -1,10 +1,10 @@
-// Package mcpserver exposes brain's memory layer as an MCP server.
+// Package mcpserver exposes logos's memory layer as an MCP server.
 //
 // This is the "memory is the platform" thesis made real: any MCP host — Claude
 // Desktop, Claude Code, Cursor, or someone's own application — connects over
 // stdio and can build on one local, private memory that follows the user across
 // every tool and session. The memory lives in the user's own vault; nothing is
-// uploaded. The same store the brain app reads is the store an external agent
+// uploaded. The same store the logos app reads is the store an external agent
 // reads and writes, so what you tell one, the others know.
 //
 // The surface is deliberately more than remember/recall. Beyond reading and
@@ -36,19 +36,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Coder8124/brain/internal/agentprompt"
-	"github.com/Coder8124/brain/internal/announce"
-	"github.com/Coder8124/brain/internal/buildinfo"
-	"github.com/Coder8124/brain/internal/contextpack"
-	"github.com/Coder8124/brain/internal/deadend"
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/procedure"
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/untrusted"
+	"github.com/Coder8124/logos/internal/agentprompt"
+	"github.com/Coder8124/logos/internal/announce"
+	"github.com/Coder8124/logos/internal/buildinfo"
+	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/procedure"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // protocolVersion is what this server speaks when the host asks for something
@@ -100,9 +100,9 @@ type Server struct {
 	vault      string
 	embed      *provider.Provider
 	embedModel string
-	// Shell is how the user reaches this install from a terminal — `brain`,
+	// Shell is how the user reaches this install from a terminal — `logos`,
 	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
-	// command use it; empty means `brain`.
+	// command use it; empty means `logos`.
 	Shell string
 }
 
@@ -160,7 +160,7 @@ type Session struct {
 
 // New builds a server over an open index. rt may be nil: a machine with no
 // model runtime still gets every continuity tool, and retrieval falls back to
-// lexical. That is the difference between "brain is not much use here" and "the
+// lexical. That is the difference between "logos is not much use here" and "the
 // MCP server would not start", and a host only ever shows the user the second
 // one.
 func New(db *sql.DB, rt *router.Router, vault string) *Server {
@@ -321,9 +321,7 @@ func (s *Session) handle(req request) *response {
 		return reply(req.ID, map[string]any{
 			"protocolVersion": negotiateVersion(req.Params),
 			"capabilities":    map[string]any{"tools": map[string]any{}, "resources": map[string]any{}},
-			// The product name: this is the string a host shows the user in its
-			// server list. The repository, the Go module and the binary keep the
-			// development name.
+			// The string a host shows the user in its server list.
 			"serverInfo": map[string]any{"name": "logos", "version": buildinfo.Version},
 			// The protocol's own channel for "here is how to use this server",
 			// which conforming hosts put in front of the model with no action
@@ -521,7 +519,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	case memory.EvQuarantined:
 		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where)), nil
 	case memory.EvCreated:
-		return s.receipt(fmt.Sprintf("stored in brain — memory #%d (%s, %s)", r.ID, kind, where)), nil
+		return s.receipt(fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where)), nil
 	}
 	return "Nothing stored.", nil
 }
@@ -533,7 +531,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 // remember mutates the user's vault with no review" problem is about — an MCP
 // client is, by construction, a different process than this one, and the user
 // is not necessarily watching when it writes. Defaulting to quarantine here is
-// the same call brain already made for rollup's proposals
+// the same call logos already made for rollup's proposals
 // (internal/rollup): a machine's inference waits for a human before it counts
 // as settled truth.
 //
@@ -548,12 +546,12 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 // Scoping the gate to the one path that is genuinely unattended keeps the fix
 // proportional to the actual problem.
 //
-// BRAIN_TRUST_MCP opts back into the old direct-write behaviour, for someone
+// LOGOS_TRUST_MCP opts back into the old direct-write behaviour, for someone
 // who has decided, deliberately, that their MCP clients do not need a human in
-// the loop. This matches the codebase's existing BRAIN_* environment escape
+// the loop. This matches the codebase's existing LOGOS_* environment escape
 // hatches rather than adding a config file surface for a one-bit decision.
 func quarantineMCP() bool {
-	return os.Getenv("BRAIN_TRUST_MCP") == ""
+	return os.Getenv("LOGOS_TRUST_MCP") == ""
 }
 
 // recall searches this project's memories plus the global ones. allProjects
@@ -593,7 +591,7 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 		switch {
 		// Inline, because each memory is one bullet and a stored fact may contain
 		// anything: a newline plus "## Where we left off" turned a recalled fact
-		// into a section of brain's own frame, with a "Next step" the reading
+		// into a section of logos's own frame, with a "Next step" the reading
 		// agent had no way to tell from the real one.
 		case m.Project == "" || m.Project == project:
 			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, untrusted.Inline(m.Text))
@@ -826,7 +824,7 @@ func writeList(b *strings.Builder, label string, items []string) {
 	for _, it := range kept {
 		// Every item here is a checkpoint field somebody else's agent wrote. One
 		// bullet, one line — a newline in a recorded dead end was enough to end
-		// the list and start a heading of brain's own.
+		// the list and start a heading of logos's own.
 		fmt.Fprintf(b, "- %s\n", untrusted.Inline(it))
 	}
 	b.WriteString("\n")
@@ -877,7 +875,7 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 	if _, err := session.AddNote(s.DB, project, agent, text); err != nil {
 		return "", err
 	}
-	return s.receipt("noted in brain — uncommitted until you checkpoint"), nil
+	return s.receipt("noted in logos — uncommitted until you checkpoint"), nil
 }
 
 // receipt marks a line as ours so the person watching the transcript can find
@@ -952,7 +950,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
-	msg := s.receipt(fmt.Sprintf("checkpoint saved to brain — %s.md", c.Slug))
+	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
 			dropped, map[bool]string{true: "entry", false: "entries"}[dropped == 1])
@@ -960,8 +958,8 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}
-	// No "run `brain index`": resume and before_you_try read the checkpoint off
-	// disk, so it is usable the moment this returns. See cmd/brain/session.go.
+	// No "run `logos index`": resume and before_you_try read the checkpoint off
+	// disk, so it is usable the moment this returns. See cmd/logos/session.go.
 	return msg, nil
 }
 
@@ -983,7 +981,7 @@ func (s *Server) memoryDiff(subject string, days int) (string, error) {
 	}
 	var b strings.Builder
 	// One line per entry, for the same reason recall collapses: the +/-/~ marker
-	// is the only thing distinguishing brain's reading of the window from the
+	// is the only thing distinguishing logos's reading of the window from the
 	// stored text beside it.
 	for _, e := range res.Added {
 		fmt.Fprintf(&b, "+ %s\n", untrusted.Inline(e.Text))
@@ -1034,7 +1032,7 @@ func (s *Server) knownProjects() string {
 	return ". Known projects: " + strings.Join(parts, ", ")
 }
 
-// listProjects enumerates the projects brain detected, most-recently-active
+// listProjects enumerates the projects logos detected, most-recently-active
 // first, so a host can navigate the memory by the work it is organised around.
 func (s *Server) listProjects() (string, error) {
 	ps, err := project.Detect(s.DB)
@@ -1044,7 +1042,7 @@ func (s *Server) listProjects() (string, error) {
 	if len(ps) == 0 {
 		// The activity rollup is not where checkpoints live. A model looking
 		// for a name to resume was told there were none while sessions/ held
-		// them, and reported an empty memory. `brain projects` falls back the
+		// them, and reported an empty memory. `logos projects` falls back the
 		// same way.
 		if names, err := session.Projects(s.vault); err == nil && len(names) > 0 {
 			var b strings.Builder
@@ -1160,12 +1158,12 @@ func argList(args map[string]any, k string) []string {
 }
 
 // quarantineReceipt names the review command this install answers to. Under
-// npx or the plugin alone there is no brain on PATH, and "run `brain review`"
+// npx or the plugin alone there is no logos on PATH, and "run `logos review`"
 // left the memory queued behind a command the user could not run.
 func (s *Server) quarantineReceipt(id int64, kind, where string) string {
 	shell := s.Shell
 	if shell == "" {
-		shell = "brain"
+		shell = "logos"
 	}
 	return fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `%s review` to accept or reject it before it becomes active", id, kind, where, shell)
 }

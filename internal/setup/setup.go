@@ -1,4 +1,4 @@
-// Package setup connects brain to the agents that will use it.
+// Package setup connects logos to the agents that will use it.
 //
 // The engine has never been the hard part of adopting this. The hard part is
 // the nine steps between cloning the repo and an agent actually answering from
@@ -8,7 +8,7 @@
 // worth having.
 //
 // So this package does the wiring. It finds the MCP hosts installed on the
-// machine and registers brain with each one, preferring the host's own
+// machine and registers logos with each one, preferring the host's own
 // registration command where there is one and merging its config file where
 // there is not.
 //
@@ -16,7 +16,7 @@
 //
 // Claude Code and Codex both ship a command for this. Using it means their
 // config format stays their problem: when they change it, their command changes
-// with it and brain keeps working. Hand-writing another application's config is
+// with it and logos keeps working. Hand-writing another application's config is
 // a standing bet that its format will not move, and that bet is only worth
 // taking when there is no alternative — which is the case for Claude Desktop
 // and Cursor — or when the CLI would register at the wrong scope or cannot be
@@ -36,19 +36,19 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
-// Name is what brain calls itself in a host's server list.
-const Name = "brain"
+// Name is what logos calls itself in a host's server list.
+const Name = "logos"
 
-// A Server is the command a host should run to reach this brain.
+// A Server is the command a host should run to reach this logos.
 type Server struct {
-	// Bin is the absolute path to the brain binary. Absolute because a host
+	// Bin is the absolute path to the logos binary. Absolute because a host
 	// launches it from a working directory nobody chose.
 	Bin  string
 	Args []string
-	// Env is what the host must set. BRAIN_VAULT belongs here and must be
+	// Env is what the host must set. LOGOS_VAULT belongs here and must be
 	// absolute for the same reason Bin is.
 	Env map[string]string
 }
@@ -57,11 +57,11 @@ type Server struct {
 type Outcome string
 
 const (
-	// Registered means the host now points at this brain.
+	// Registered means the host now points at this logos.
 	Registered Outcome = "registered"
-	// Updated means it already had a brain entry and it was replaced.
+	// Updated means it already had a logos entry and it was replaced.
 	Updated Outcome = "updated"
-	// Unchanged means the host was already pointed at exactly this brain, so
+	// Unchanged means the host was already pointed at exactly this logos, so
 	// the registration rewrote its config with the bytes already in it. Setup
 	// is run more than once — after moving a vault, after an update, or just to
 	// check — and calling that "updated" reports work that did not happen.
@@ -101,7 +101,7 @@ type Host struct {
 	// Where is the config path or command shown in the report.
 	Where func() string
 	// Config is the file this host's registration rewrites, so it can be
-	// backed up first. Empty means the file does not exist yet or brain does
+	// backed up first. Empty means the file does not exist yet or logos does
 	// not know where it lives — a host registered through its own CLI still
 	// rewrites a file, and knowing which one is the only way back from a wrong
 	// --vault.
@@ -123,7 +123,7 @@ type Registration struct {
 
 // Plan reports what Install would do, without doing any of it.
 //
-// Registering brain with every AI tool on someone's machine is a large action
+// Registering logos with every AI tool on someone's machine is a large action
 // for someone evaluating one integration, and it used to happen with no gate at
 // all — not even --yes. Showing the list first costs one function and turns an
 // imposition into a choice.
@@ -171,7 +171,7 @@ func Only(hosts []Host, names []string) (kept []Host, unmatched []string) {
 	return kept, unmatched
 }
 
-// Names lists every host brain knows how to wire, for error messages.
+// Names lists every host logos knows how to wire, for error messages.
 func Names(hosts []Host) []string {
 	out := make([]string, 0, len(hosts))
 	for _, h := range hosts {
@@ -216,7 +216,7 @@ func Install(s Server, hosts []Host) []Result {
 			if err := os.Remove(backup); err == nil {
 				r.Backup = ""
 			}
-		} else if raw, err := os.ReadFile(backup); err == nil && strings.HasSuffix(backup, ".json.brain-backup") {
+		} else if raw, err := os.ReadFile(backup); err == nil && strings.HasSuffix(backup, ".json.logos-backup") {
 			// JSON hosts only: a TOML or YAML config is rewritten by its own CLI, and
 			// its comments are not ours to report on.
 			_, r.CommentsOnlyInBackup = standardJSON(raw)
@@ -230,7 +230,7 @@ func Install(s Server, hosts []Host) []Result {
 //
 // This used to happen only inside mergeJSON, which meant it happened only for
 // the two hosts with no CLI. The hosts with a CLI rewrite a config file too:
-// `codex mcp add brain` replaces an existing brain entry outright — dropping
+// `codex mcp add logos` replaces an existing logos entry outright — dropping
 // its environment block with it — and reports "Added global MCP server". A
 // user who ran setup with the wrong --vault had no way back.
 //
@@ -251,10 +251,10 @@ func backupConfig(h Host) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
 	}
-	if err := os.WriteFile(path+".brain-backup", raw, 0o600); err != nil {
+	if err := os.WriteFile(path+".logos-backup", raw, 0o600); err != nil {
 		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
 	}
-	return path + ".brain-backup", nil
+	return path + ".logos-backup", nil
 }
 
 // unchanged reports whether the config is byte-for-byte what the backup holds.
@@ -290,7 +290,7 @@ func viaCLI(bin string, args []string) (Outcome, error) {
 	// than replacing it, and said so on stdout. Codex now replaces it silently
 	// instead, which is why Install backs the config up first (backupConfig).
 	// Where the refusal does still happen it is not a failure to report — it is
-	// the idempotent case, and the user asked for brain to be connected, which
+	// the idempotent case, and the user asked for logos to be connected, which
 	// it now is.
 	if s := strings.ToLower(string(outBytes)); strings.Contains(s, "already exists") ||
 		strings.Contains(s, "already configured") {
@@ -313,12 +313,12 @@ type serverEntry struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-// MergeFile is mergeJSON, exported for `brain setup --config <path>` — a host
-// whose location on disk brain has no convention for, but whose file is the
+// MergeFile is mergeJSON, exported for `logos setup --config <path>` — a host
+// whose location on disk logos has no convention for, but whose file is the
 // same mcpServers-keyed JSON that Claude Desktop and Cursor already read. The
 // internal hosts in Hosts() are a closed, curated list on purpose (see the
 // package doc); this is the escape hatch for every MCP client that is not on
-// it, so that "not one of the four we special-case" does not mean "brain
+// it, so that "not one of the four we special-case" does not mean "logos
 // cannot help you connect this".
 func MergeFile(path string, s Server) (Outcome, error) {
 	return mergeJSON(path, s)
@@ -326,7 +326,7 @@ func MergeFile(path string, s Server) (Outcome, error) {
 
 // RenderConfig renders the server block a host's config needs, in the
 // requested format, for printing rather than writing. It exists for the same
-// reason MergeFile does: a host brain does not know how to find can still be
+// reason MergeFile does: a host logos does not know how to find can still be
 // wired, by hand, if the user can see what a working entry looks like. An
 // empty format means json — the shape most MCP hosts actually use, and the
 // one this package already writes for Claude Desktop and Cursor.
@@ -337,7 +337,7 @@ func RenderConfig(s Server, format string) (string, error) {
 	case "toml":
 		return renderConfigTOML(s), nil
 	default:
-		return "", fmt.Errorf("unknown format %q — brain knows: json, toml", format)
+		return "", fmt.Errorf("unknown format %q — logos knows: json, toml", format)
 	}
 }
 
@@ -416,9 +416,9 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 }
 
 // mergeServers is mergeJSON for any host: root is the key its server map sits
-// under, and entry is brain's server in that host's own shape. VS Code keys its
+// under, and entry is logos's server in that host's own shape. VS Code keys its
 // map "servers", and Copilot CLI ignores an entry with no type or tools, so one
-// fixed shape would have written files those hosts read as having no brain.
+// fixed shape would have written files those hosts read as having no logos.
 func mergeServers(path, root string, entry any) (Outcome, error) {
 	cfg := mcpConfig{}
 

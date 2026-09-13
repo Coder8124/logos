@@ -1,6 +1,6 @@
 //go:build chaos
 
-// Package chaos runs the real brain binary against a real vault and then breaks
+// Package chaos runs the real logos binary against a real vault and then breaks
 // the machine underneath it.
 //
 // Everything else in the test suite runs in-process, where a "crash" is a
@@ -41,13 +41,13 @@ var (
 func bin(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "brain-chaos-bin")
+		dir, err := os.MkdirTemp("", "logos-chaos-bin")
 		if err != nil {
 			buildErr = err
 			return
 		}
-		binPath = filepath.Join(dir, "brain")
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/brain")
+		binPath = filepath.Join(dir, "logos")
+		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/logos")
 		cmd.Dir = ".."
 		if out, err := cmd.CombinedOutput(); err != nil {
 			buildErr = fmt.Errorf("building the CLI: %v\n%s", err, out)
@@ -62,7 +62,7 @@ func bin(t *testing.T) string {
 func run(t *testing.T, vault string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(bin(t), args...)
-	cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault, "BRAIN_AGENT=chaos")
+	cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault, "LOGOS_AGENT=chaos")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
@@ -96,7 +96,7 @@ func TestKillDuringCheckpoint(t *testing.T) {
 		cmd := exec.Command(bin(t), "checkpoint", "kestrel",
 			"--next", fmt.Sprintf("attempt %d", i),
 			"--failed", strings.Repeat("a long ruled-out approach that makes the write bigger. ", 200))
-		cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault, "BRAIN_AGENT=chaos")
+		cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault, "LOGOS_AGENT=chaos")
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +149,7 @@ func TestKillDuringIndex(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		cmd := exec.Command(bin(t), "index")
-		cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault)
+		cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault)
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -197,13 +197,13 @@ func TestKillThenDeleteTheCache(t *testing.T) {
 
 	// A killed write while the store is being flushed.
 	cmd := exec.Command(bin(t), "memory", "add", "the fact written while dying")
-	cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault)
+	cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault)
 	cmd.Start()
 	time.Sleep(3 * time.Millisecond)
 	cmd.Process.Kill()
 	cmd.Wait()
 
-	if err := os.RemoveAll(filepath.Join(vault, ".brain")); err != nil {
+	if err := os.RemoveAll(filepath.Join(vault, ".logos")); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := run(t, vault, "index"); err != nil {
@@ -221,7 +221,7 @@ func TestKillThenDeleteTheCache(t *testing.T) {
 		}
 	}
 	if len(missing) > 0 {
-		t.Errorf("%d of %d memories did not survive kill + rm -rf .brain:\n  %s\n%s",
+		t.Errorf("%d of %d memories did not survive kill + rm -rf .logos:\n  %s\n%s",
 			len(missing), len(facts), strings.Join(missing, "\n  "), out)
 	}
 }
@@ -259,7 +259,7 @@ func TestTwoProcessesRacing(t *testing.T) {
 		n++
 	}
 	if n > 0 {
-		t.Errorf("%d of 32 concurrent writes failed; two brain processes on one "+
+		t.Errorf("%d of 32 concurrent writes failed; two logos processes on one "+
 			"vault is the normal case, not an edge case", n)
 	}
 }
@@ -345,7 +345,7 @@ func smallDisk(t *testing.T, megabytes int) (string, func()) {
 	t.Helper()
 	img := filepath.Join(t.TempDir(), "scratch.dmg")
 	out, err := exec.Command("hdiutil", "create", "-size", fmt.Sprintf("%dm", megabytes),
-		"-fs", "HFS+", "-volname", "brainchaos", "-quiet", img).CombinedOutput()
+		"-fs", "HFS+", "-volname", "logoschaos", "-quiet", img).CombinedOutput()
 	if err != nil {
 		t.Skipf("cannot create a disk image here: %v\n%s", err, out)
 	}
@@ -353,7 +353,7 @@ func smallDisk(t *testing.T, megabytes int) (string, func()) {
 	if err != nil {
 		t.Skipf("cannot attach the disk image: %v\n%s", err, attach)
 	}
-	mount := "/Volumes/brainchaos"
+	mount := "/Volumes/logoschaos"
 	sc := bufio.NewScanner(bytes.NewReader(attach))
 	for sc.Scan() {
 		if i := strings.Index(sc.Text(), "/Volumes/"); i >= 0 {

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/deadend"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/textmatch"
+	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/textmatch"
 )
 
 // A Hit is one recorded procedure bearing on a proposed approach.

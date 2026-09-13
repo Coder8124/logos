@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Logos Bridge",
   "version": "0.1.0",
-  "description": "Bridges brain's local memory into chatgpt.com — nothing leaves this machine.",
+  "description": "Bridges logos's local memory into chatgpt.com — nothing leaves this machine.",
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1/*"],
   "background": {

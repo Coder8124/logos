@@ -3,7 +3,7 @@
 # Inject the last handoff at the start of a session, without being asked.
 #
 # This is the difference between continuity that works and continuity that works
-# when the model remembers to ask for it. Every brain tool is available over MCP,
+# when the model remembers to ask for it. Every logos tool is available over MCP,
 # but a tool is only called if the model decides to call it — and the one moment
 # it most needs the previous agent's dead ends is the moment before it has any
 # reason to suspect they exist.

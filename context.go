@@ -1,10 +1,10 @@
-package brain
+package logos
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/logos/internal/contextpack"
 )
 
 // A Request describes what you are about to do. Task is the important field:
@@ -29,7 +29,7 @@ type Request struct {
 // This is the call to make at the start of a task, in preference to Recall.
 // Recall answers "what do you know about X"; this answers "give me what I need
 // to do X", which is not a longer version of the same question.
-func (b *Brain) Context(req Request) (*Context, error) {
+func (b *Logos) Context(req Request) (*Context, error) {
 	pack, err := contextpack.Build(b.ix, b.embed, b.embedModel, contextpack.Request{
 		Task: req.Task, Hint: req.Project, Budget: req.Budget,
 	})
@@ -42,7 +42,7 @@ func (b *Brain) Context(req Request) (*Context, error) {
 // Resume picks up a project where the last agent left off. Equivalent to
 // Context with a continuation task, and named separately because that is how
 // people think about it.
-func (b *Brain) Resume(project string) (*Context, error) {
+func (b *Logos) Resume(project string) (*Context, error) {
 	if strings.TrimSpace(project) == "" {
 		return nil, fmt.Errorf("resume needs a project")
 	}

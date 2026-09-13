@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 
 	_ "modernc.org/sqlite"
 )

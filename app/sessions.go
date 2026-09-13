@@ -7,14 +7,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // Session bindings back the terminal app's inspector: what checkpoints exist,
 // browsable newest first, and the full record behind any one of them. These
 // read the vault directly — checkpoints are markdown files, not a database
-// table, so what the panel shows is exactly what `brain resume` would read,
+// table, so what the panel shows is exactly what `logos resume` would read,
 // and it survives a rebuilt index the same way the CLI does.
 
 // GitView is gitstate.State reshaped with JSON tags. gitstate.State stays

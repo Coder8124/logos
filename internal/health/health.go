@@ -1,7 +1,7 @@
 // Package health answers "is this actually working", and is careful about the
 // difference between a thing that is fine and a thing nobody looked at.
 //
-// The old `brain doctor` listed runtimes, tiers and voice engines. It never
+// The old `logos doctor` listed runtimes, tiers and voice engines. It never
 // looked at the vault, the index, or whether any host was wired — so a user
 // with an empty vault and a stale index got a clean bill of health, and the
 // first sign of trouble was an agent answering as though it knew nothing.
@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/setup"
-	"github.com/Coder8124/brain/internal/transcript"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/setup"
+	"github.com/Coder8124/logos/internal/transcript"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // State is what a check concluded.
@@ -44,7 +44,7 @@ const (
 	// defect. Sessions nobody checkpointed, proposals nobody reviewed: work
 	// waiting on the user, which has to be visible without being graded as
 	// breakage. Without this tier the three chore checks each picked a side and
-	// disagreed: one was Failed, so `brain doctor` exited 1 forever on a
+	// disagreed: one was Failed, so `logos doctor` exited 1 forever on a
 	// perfectly healthy install, and the other two were OK, which hid them.
 	Warn State = "warn"
 	// Unknown means not checked — a precondition was missing, so no claim is
@@ -149,18 +149,18 @@ func checkVault(dir string) Check {
 	c := Check{Name: "vault"}
 	if strings.TrimSpace(dir) == "" {
 		c.State, c.Detail = Failed, "no vault path resolved"
-		c.Fix = "set BRAIN_VAULT, or run `brain setup`"
+		c.Fix = "set LOGOS_VAULT, or run `logos setup`"
 		return c
 	}
 	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
 		c.State, c.Detail = Failed, dir+" does not exist"
-		c.Fix = "run `brain setup --vault " + shellArg(dir) + "`"
+		c.Fix = "run `logos setup --vault " + shellArg(dir) + "`"
 		// This machine's recorded vault being absent is usually an unmounted
 		// drive, and setup at that path makes an empty vault where it mounts.
-		if os.Getenv("BRAIN_VAULT") == "" && dir == vault.Pointer() {
+		if os.Getenv("LOGOS_VAULT") == "" && dir == vault.Pointer() {
 			c.Detail = dir + " does not exist — it is the vault recorded for this machine"
-			c.Fix = "reconnect the drive it is on; to use a different vault, run `brain setup --vault <path>`"
+			c.Fix = "reconnect the drive it is on; to use a different vault, run `logos setup --vault <path>`"
 		}
 		return c
 	}
@@ -172,9 +172,9 @@ func checkVault(dir string) Check {
 		c.State, c.Detail = Failed, dir+" is a file, not a directory"
 		return c
 	}
-	// Readable is not enough: brain writes checkpoints here, and finding that
+	// Readable is not enough: logos writes checkpoints here, and finding that
 	// out at handoff time is finding out too late.
-	probe := filepath.Join(dir, ".brain-write-probe")
+	probe := filepath.Join(dir, ".logos-write-probe")
 	if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
 		c.State, c.Detail = Failed, dir+" is not writable: "+err.Error()
 		c.Fix = "check permissions; checkpoints cannot be saved"
@@ -185,9 +185,9 @@ func checkVault(dir string) Check {
 	// The vault is writable and real. One question left: is it the vault the
 	// user meant, or a scratch directory that outlived the command that made it?
 	//
-	// `brain setup --vault <dir>` records its target in
-	// os.UserConfigDir()/brain/vault-path, and that pointer is what every front
-	// end reads when BRAIN_VAULT is unset — including the desktop app, which
+	// `logos setup --vault <dir>` records its target in
+	// os.UserConfigDir()/logos/vault-path, and that pointer is what every front
+	// end reads when LOGOS_VAULT is unset — including the desktop app, which
 	// inherits no shell and has no other way to find the vault. So running setup
 	// against a scratch vault, which CONTRIBUTING.md tells contributors to do,
 	// silently repoints the real installation at a temporary directory. Nothing
@@ -197,12 +197,12 @@ func checkVault(dir string) Check {
 	// while doctor called it healthy.
 	//
 	// The recorded pointer is what is checked, not the resolved directory. An
-	// explicit BRAIN_VAULT is a deliberate choice scoped to one command and is
+	// explicit LOGOS_VAULT is a deliberate choice scoped to one command and is
 	// nobody's business to complain about; the pointer outlives the session.
 	if rec := vault.Recorded(); rec != "" && UnderTempDir(rec) {
 		c.State = Failed
 		c.Detail = rec + " is a temporary directory, recorded as the vault every front end opens — it will be empty or gone"
-		c.Fix = "run `brain setup --vault <your real vault>` to repoint it, or `brain doctor` with BRAIN_VAULT set to check a scratch vault without recording it"
+		c.Fix = "run `logos setup --vault <your real vault>` to repoint it, or `logos doctor` with LOGOS_VAULT set to check a scratch vault without recording it"
 		return c
 	}
 
@@ -219,14 +219,14 @@ func checkVault(dir string) Check {
 	// they run reads the empty one and truthfully reports nothing.
 	//
 	// Scoped to the recorded pointer for the same reason the check above is: an
-	// explicit BRAIN_VAULT is a scratch vault someone chose for this one
+	// explicit LOGOS_VAULT is a scratch vault someone chose for this one
 	// command, and it is supposed to be empty. Complaining about it would make
 	// the documented workflow print a failure on every run.
-	if os.Getenv("BRAIN_VAULT") == "" {
+	if os.Getenv("LOGOS_VAULT") == "" {
 		if other, n := populatedVaultElsewhere(dir); n > 0 {
 			c.State = Failed
 			c.Detail = fmt.Sprintf("no checkpoints here, but %s holds %d — every front end is reading this empty vault instead", other, n)
-			c.Fix = "run `brain setup --vault " + shellArg(other) + "` to repoint this machine"
+			c.Fix = "run `logos setup --vault " + shellArg(other) + "` to repoint this machine"
 			return c
 		}
 	}
@@ -248,7 +248,7 @@ func populatedVaultElsewhere(dir string) (string, int) {
 	if err != nil {
 		return "", 0
 	}
-	def := filepath.Join(home, "brain")
+	def := filepath.Join(home, "logos")
 	for _, a := range forms(def) {
 		for _, b := range forms(dir) {
 			if a == b {
@@ -256,7 +256,7 @@ func populatedVaultElsewhere(dir string) (string, int) {
 			}
 		}
 	}
-	// The real total here: it is printed, and "28 checkpoints sit in ~/brain" is
+	// The real total here: it is printed, and "28 checkpoints sit in ~/logos" is
 	// the number that tells the user which vault is the one they meant.
 	if n := checkpointCount(def, 0); n > 0 {
 		return def, n
@@ -350,7 +350,7 @@ func checkNotes(db *sql.DB) Check {
 	c := Check{Name: "notes"}
 	if db == nil {
 		c.State, c.Detail = Unknown, "no index open, so the note count could not be read"
-		c.Fix = "run `brain index`"
+		c.Fix = "run `logos index`"
 		return c
 	}
 	var n int
@@ -362,7 +362,7 @@ func checkNotes(db *sql.DB) Check {
 	switch n {
 	case 0:
 		c.Detail = "none indexed yet"
-		c.Fix = "add markdown to the vault, then run `brain index`"
+		c.Fix = "add markdown to the vault, then run `logos index`"
 	default:
 		c.Detail = fmt.Sprintf("%d indexed", n)
 	}
@@ -375,13 +375,13 @@ const staleBy = 2 * time.Minute
 
 // Freshness compares the newest markdown in the vault against the newest thing
 // the index knows about. This is the check that catches "I edited a note and
-// the agent still quotes the old one", which otherwise looks like brain being
-// wrong rather than brain being behind.
+// the agent still quotes the old one", which otherwise looks like logos being
+// wrong rather than logos being behind.
 func checkFreshness(dir string, db *sql.DB) Check {
 	c := Check{Name: "index"}
 	if db == nil {
 		c.State, c.Detail = Unknown, "no index open"
-		c.Fix = "run `brain index`"
+		c.Fix = "run `logos index`"
 		return c
 	}
 	newest, err := newestMarkdown(dir)
@@ -416,14 +416,14 @@ func checkFreshness(dir string, db *sql.DB) Check {
 		} else {
 			c.State, c.Detail = Unknown, "cannot tell when the index was last built"
 		}
-		c.Fix = "run `brain index`"
+		c.Fix = "run `logos index`"
 		return c
 	}
 	lag := newest.Sub(time.Unix(synced.Int64, 0))
 	if lag > staleBy {
 		c.State = Failed
 		c.Detail = fmt.Sprintf("stale — newest note is %s ahead of the index", roughly(lag))
-		c.Fix = "run `brain index`"
+		c.Fix = "run `logos index`"
 		return c
 	}
 	c.State, c.Detail = OK, "current"
@@ -454,11 +454,11 @@ func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 		// something that is behaving as designed.
 		c.State = OK
 		c.Detail = "none — no model runtime, so search is lexical"
-		c.Fix = "start Ollama and run `brain index` for semantic search"
+		c.Fix = "start Ollama and run `logos index` for semantic search"
 	case embedded < notes:
 		c.State = OK
 		c.Detail = fmt.Sprintf("%d of %d notes", embedded, notes)
-		c.Fix = "run `brain index` to embed the rest"
+		c.Fix = "run `logos index` to embed the rest"
 	default:
 		c.State, c.Detail = OK, fmt.Sprintf("all %d notes", notes)
 	}
@@ -469,7 +469,7 @@ func checkRuntime(rt *provider.Provider, model string) Check {
 	c := Check{Name: "model runtime"}
 	if rt == nil {
 		// Optional by design, so this is not Failed. Under the coding-agent
-		// framing the host's own model does the generating and brain only ever
+		// framing the host's own model does the generating and logos only ever
 		// wanted embeddings.
 		c.State = OK
 		c.Detail = "none — continuity is unaffected, search is lexical"
@@ -497,7 +497,7 @@ func checkContinuity(vault string) Check {
 	// from a directory that does not exist, so say that instead.
 	if _, err := os.Stat(vault); err != nil {
 		c.State, c.Detail = Unknown, "the vault is not there, so checkpoints could not be read"
-		c.Fix = "run `brain setup`"
+		c.Fix = "run `logos setup`"
 		return c
 	}
 	latest, project, agent, err := latestCheckpoint(vault)
@@ -508,7 +508,7 @@ func checkContinuity(vault string) Check {
 	if latest.IsZero() {
 		c.State = OK
 		c.Detail = "no checkpoints yet"
-		c.Fix = "ask an agent to checkpoint, or run `brain checkpoint <project>`"
+		c.Fix = "ask an agent to checkpoint, or run `logos checkpoint <project>`"
 		return c
 	}
 	who := agent
@@ -529,7 +529,7 @@ func checkContinuity(vault string) Check {
 // Ingest is optional — a machine with no other coding agents installed will
 // discover nothing, and that is not a fault. So this check never fails: it
 // reports which harnesses' transcripts are readable here and how many candidates
-// are waiting in the queue, so a user who ran `brain ingest` and forgot is
+// are waiting in the queue, so a user who ran `logos ingest` and forgot is
 // reminded (invariant 3) rather than left with silent pending state.
 func checkIngest(vaultDir string) Check {
 	c := Check{Name: "ingest"}
@@ -561,7 +561,7 @@ func checkIngest(vaultDir string) Check {
 		// The same backlog the other two chore checks report, graded the same.
 		c.State = Warn
 		c.Detail += fmt.Sprintf("; %d candidate(s) pending review", pending)
-		c.Fix = "run `brain ingest review`"
+		c.Fix = "run `logos ingest review`"
 	}
 	if needTxcript && c.Fix == "" {
 		c.Fix = "install txcript to read more harness formats"
@@ -617,7 +617,7 @@ func checkAbandonment(db *sql.DB) Check {
 	// Warn, not Failed. Notes held by a session that stopped is exactly what
 	// this check exists to surface, but it is a chore — nothing is broken, and
 	// there is no state the user can reach where it stays empty for long. As
-	// Failed it made `brain doctor` exit 1 on every healthy install that had
+	// Failed it made `logos doctor` exit 1 on every healthy install that had
 	// ever lost a session, which is every install.
 	c.State = Warn
 	lines := make([]string, 0, len(holding))
@@ -631,7 +631,7 @@ func checkAbandonment(db *sql.DB) Check {
 	}
 	c.Detail = fmt.Sprintf("%d session%s never checkpointed — %s",
 		len(holding), pluralS(len(holding)), strings.Join(lines, "; "))
-	c.Fix = "run `brain sessions <project>` to see the notes, then checkpoint them or let the session go"
+	c.Fix = "run `logos sessions <project>` to see the notes, then checkpoint them or let the session go"
 	return c
 }
 
@@ -646,7 +646,7 @@ func pluralS(n int) string {
 // checkMemoryReview is the PRODUCT RULE applied to quarantine: a feature that
 // silently queues machine-proposed memories and never says so is no better
 // than the unreviewed writes it replaced — the queue just fills up somewhere
-// nobody looks. This is what makes the backlog visible on every `brain
+// nobody looks. This is what makes the backlog visible on every `logos
 // doctor`, the same way stale capture or a stale index already are.
 func checkMemoryReview(db *sql.DB) Check {
 	c := Check{Name: "memory review"}
@@ -669,7 +669,7 @@ func checkMemoryReview(db *sql.DB) Check {
 	}
 	c.State = Warn
 	c.Detail = fmt.Sprintf("%d memor%s awaiting review", n, plural(n))
-	c.Fix = "run `brain review` to accept or reject them"
+	c.Fix = "run `logos review` to accept or reject them"
 	return c
 }
 
@@ -687,7 +687,7 @@ func plural(n int) string {
 	return "ies"
 }
 
-// Hosts is the difference between "brain is installed" and "your agents can
+// Hosts is the difference between "logos is installed" and "your agents can
 // reach it", which are not the same thing and were never distinguished.
 func checkHosts() Check {
 	var wired []string
@@ -706,23 +706,23 @@ func checkHosts() Check {
 // setup.Hosts() is a closed, curated list (see internal/setup's
 // package doc) — never the whole set of MCP clients that exist. Every host
 // this check names still leaves an open question about the ones it does not
-// know, so both branches point at `brain setup --print-config`: the one
+// know, so both branches point at `logos setup --print-config`: the one
 // answer that works regardless of which client the user is actually running.
 func hostsCheck(wired []string) Check {
 	c := Check{Name: "agent hosts"}
 	if len(wired) == 0 {
 		c.State = Unknown
 		c.Detail = "no MCP hosts detected on this machine"
-		c.Fix = "install an MCP host such as Claude Code, Cursor, Codex, Cline, Devin or GitHub Copilot, then run `brain mcp install` " +
-			"— or run `brain setup --print-config` to wire any other MCP client by hand"
+		c.Fix = "install an MCP host such as Claude Code, Cursor, Codex, Cline, Devin or GitHub Copilot, then run `logos mcp install` " +
+			"— or run `logos setup --print-config` to wire any other MCP client by hand"
 		return c
 	}
 	// Detected is not the same as wired — Plan reports what is installed, not
-	// what points at brain. Say what was actually established.
+	// what points at logos. Say what was actually established.
 	c.State = OK
 	c.Detail = "detected: " + strings.Join(wired, ", ")
-	c.Fix = "run `brain doctor --integration` to prove they can reach this vault" +
-		"; for any other MCP client, `brain setup --print-config`"
+	c.Fix = "run `logos doctor --integration` to prove they can reach this vault" +
+		"; for any other MCP client, `logos setup --print-config`"
 	return c
 }
 
@@ -731,7 +731,7 @@ func hostsCheck(wired []string) Check {
 // tokens, the one configuration that breached the 10k-token ceiling on
 // unmodified code (see the memory architecture plan's Step 0).
 //
-// Detection leans on brain's own signature rather than a path comparison: every
+// Detection leans on logos's own signature rather than a path comparison: every
 // registration setup writes invokes "mcp serve" (setup.go's Server.Args), so
 // two entries under one host whose command both contain that phrase are the
 // same binary reached two ways. The plugin is the exception that shipped: its
@@ -759,7 +759,7 @@ func checkDuplicateRegistration(hosts []setup.Host) Check {
 		}
 		if len(dupes) > 1 {
 			c.State = Failed
-			c.Detail = fmt.Sprintf("%s has brain registered %d times: %s", h.Name, len(dupes), strings.Join(dupes, ", "))
+			c.Detail = fmt.Sprintf("%s has logos registered %d times: %s", h.Name, len(dupes), strings.Join(dupes, ", "))
 			c.Fix = "remove all but one of these entries — each one pays the fixed per-session cost again"
 			return c
 		}
@@ -773,7 +773,7 @@ func checkDuplicateRegistration(hosts []setup.Host) Check {
 	return c
 }
 
-// checkCachedRegistration finds a host launching brain from inside npm's npx
+// checkCachedRegistration finds a host launching logos from inside npm's npx
 // cache. `npx … setup` on 0.4.2 wired that path, every check passed, and weeks
 // later npm pruned the file and the host could not start the server, with
 // nothing tying it back to setup. ok is false when no such entry exists.
@@ -805,7 +805,7 @@ func checkCachedRegistration(hosts []setup.Host) (Check, bool) {
 
 // checkPlugin compares the Logos plugin installed in Claude Code with this
 // binary. Claude Code does not update a third-party marketplace by default and
-// `brain update` replaces only the binary, so a plugin installed early keeps
+// `logos update` replaces only the binary, so a plugin installed early keeps
 // running its old hooks against a new server indefinitely — a machine sat on
 // 0.1.2 against 0.4.2 with nothing saying so. ok is false when no plugin is
 // installed: most people running doctor never used it.
@@ -819,13 +819,13 @@ func checkPlugin(version string) (c Check, ok bool) {
 	binary, binaryOK := releaseNumber(version)
 	if !pluginOK || !binaryOK {
 		c.State = Unknown
-		c.Detail = fmt.Sprintf("plugin %q installed; this brain (%s) has no release number to compare it with", pluginVersion, version)
+		c.Detail = fmt.Sprintf("plugin %q installed; this logos (%s) has no release number to compare it with", pluginVersion, version)
 		return c, true
 	}
 	for i := range plugin {
 		if plugin[i] < binary[i] {
 			c.State = Warn
-			c.Detail = fmt.Sprintf("the Logos plugin is %s but this brain is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
+			c.Detail = fmt.Sprintf("the Logos plugin is %s but this logos is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
 			c.Fix = "run `claude plugin marketplace update logos && claude plugin update logos@logos`, then restart Claude Code"
 			return c, true
 		}
@@ -971,7 +971,7 @@ func count(n int, unit string) string {
 // personal laptop that is nobody but them; on a shared box, a work machine with
 // a management agent, or anything with another account on it, the mode bits are
 // the only thing standing between a second user and every prompt the first one
-// typed. That is worth one line in `brain doctor` whether or not it is worth
+// typed. That is worth one line in `logos doctor` whether or not it is worth
 // worrying about, because "who can read this" is not a question you can answer
 // by looking at the app.
 //
@@ -1003,7 +1003,7 @@ func checkPrivacy(dir string) Check {
 	// every note, memory and checkpoint in the vault. A private directory is
 	// also one chmod, one sync client or one backup away from not being one.
 	var open []string
-	for _, rel := range []string{"activity", ".brain/index.db", ".brain/index.db-wal", "memories", "sessions"} {
+	for _, rel := range []string{"activity", ".logos/index.db", ".logos/index.db-wal", "memories", "sessions"} {
 		p := filepath.Join(dir, rel)
 		fi, err := os.Stat(p)
 		if err != nil {

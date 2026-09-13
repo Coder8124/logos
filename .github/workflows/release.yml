@@ -26,8 +26,8 @@
 # Until a package exists it cannot be configured, so the very first publish of
 # each is the one manual step — see npm/scripts/publish.js.
 #
-# The repository and the binary keep the development name, brain; only the npm
-# packages carry the product name. npm/bin/logos.js is the seam.
+# The npm packages wrap the same logos binary the GitHub release ships;
+# npm/bin/logos.js is the seam.
 #
 # npm also records a provenance attestation for anything published this way:
 # a public, verifiable statement of which commit and which workflow produced

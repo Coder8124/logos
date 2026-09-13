@@ -30,7 +30,7 @@ func vaultDB(t *testing.T) (*sql.DB, string) {
 // safe() keeps only [a-z0-9], so a project named in any non-Latin script
 // collapses to the empty string and is then rejected as missing. Nothing is
 // corrupted — the separation holds because nothing is written at all — but
-// brain is unusable for a project named in Japanese, Cyrillic, Arabic, Greek or
+// logos is unusable for a project named in Japanese, Cyrillic, Arabic, Greek or
 // Hindi, and the error blames the caller for omitting what they supplied.
 func TestNonLatinProjectNamesAreUsable(t *testing.T) {
 	db, dir := vaultDB(t)
@@ -133,7 +133,7 @@ func TestClockSkew(t *testing.T) {
 	}
 }
 
-// A crash between the temp write and the rename leaves a .brain-*.tmp behind.
+// A crash between the temp write and the rename leaves a .logos-*.tmp behind.
 // It must be invisible to everything that reads the vault.
 func TestCrashLitterIsIgnored(t *testing.T) {
 	db, dir := vaultDB(t)
@@ -141,7 +141,7 @@ func TestCrashLitterIsIgnored(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	litter := filepath.Join(dir, CheckpointDir, "kestrel", ".brain-abc123.tmp")
+	litter := filepath.Join(dir, CheckpointDir, "kestrel", ".logos-abc123.tmp")
 	if err := os.WriteFile(litter, []byte("half-written gar"), 0o644); err != nil {
 		t.Fatal(err)
 	}

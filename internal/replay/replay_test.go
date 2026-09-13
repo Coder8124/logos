@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 	_ "modernc.org/sqlite"
 )
 

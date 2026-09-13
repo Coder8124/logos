@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/text"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // Distillation done by the agent that asked for the ingest.
@@ -19,7 +19,7 @@ import (
 // What they deliberately do not do:
 //
 //   - ingest_harvest never discovers a transcript. It serves only sessions a
-//     `brain ingest` already read and queued, so the CLI stays the only thing
+//     `logos ingest` already read and queued, so the CLI stays the only thing
 //     that can decide to read a new file off disk (Part D), and the consent
 //     grant stays the gate.
 //   - ingest_distil writes a *candidate*. A promotion is still a person
@@ -34,7 +34,7 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		pending, _ := ingest.Pending(s.vault)
 		if len(pending) == 0 {
 			return s.receipt("no ingested sessions are waiting to be distilled") +
-				"\n\nNothing is queued. `brain ingest` reads transcripts; this tool only serves what it already queued.", nil
+				"\n\nNothing is queued. `logos ingest` reads transcripts; this tool only serves what it already queued.", nil
 		}
 		var b strings.Builder
 		b.WriteString(s.receipt(fmt.Sprintf("%d ingested session(s) waiting to be distilled", len(pending))))
@@ -99,7 +99,7 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  brain ingest review --promote %s\n", shortSession(c.SessionID))
+	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  logos ingest review --promote %s\n", shortSession(c.SessionID))
 	return b.String(), nil
 }
 

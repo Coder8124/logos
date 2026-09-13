@@ -160,7 +160,7 @@ class Adapter:
             return self._write_through_loop(ev)
 
         # created_at carries the event's real time, which the suite backdates,
-        # so Letta's temporal filters see the same history brain does.
+        # so Letta's temporal filters see the same history logos does.
         kwargs = {"text": ev["flat"]}
         if ev.get("ts"):
             kwargs["created_at"] = self._iso(ev["ts"])

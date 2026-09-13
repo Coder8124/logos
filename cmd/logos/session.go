@@ -1,0 +1,441 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
+)
+
+// The continuity commands, mirroring the MCP tools of the same names.
+//
+// They exist so the handoff can be driven and inspected without an MCP host in
+// the loop. A tool that can only be exercised through Claude Desktop is a tool
+// whose failures are someone else's bug report.
+
+// runNote appends a working note: cheap, uncommitted, the working tree.
+func runNote(args []string) error {
+	// One argument is the note, and the project is the directory you are
+	// standing in — `logos resume`'s own empty-state message says to run
+	// `logos note <project> "..."`, having worked the project out from the cwd
+	// in order to print that line. Two or more keeps the older reading, where
+	// the first names the project explicitly.
+	//
+	// LOGOS_NOTE_IF_UNCOMMITTED is for the SessionEnd hook, which notes every
+	// session end. Written after a checkpoint, that note reopened a "not yet
+	// checkpointed" section under a good handoff; written by every session that
+	// never checkpointed, it stacked identical lines. So it lands only when work
+	// is already open, and not when the last open note says the same thing.
+	// An environment variable rather than a flag because the hook may resolve
+	// an older logos, which would file a flag it does not know as the project.
+	ifUncommitted := os.Getenv("LOGOS_NOTE_IF_UNCOMMITTED") == "1"
+	var project, text string
+	switch {
+	case len(args) >= 2:
+		project, text = args[0], strings.Join(args[1:], " ")
+	case len(args) == 1:
+		project, text = projectHere(), args[0]
+	}
+	if text == "" || project == "" {
+		return fmt.Errorf("usage: logos note [project] <what you did>")
+	}
+
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+	if ifUncommitted {
+		open, err := session.Uncommitted(ix.DB, project)
+		if err != nil {
+			return err
+		}
+		if len(open) == 0 {
+			fmt.Printf("skipped — nothing on %s is waiting for a checkpoint.\n", project)
+			return nil
+		}
+		if open[len(open)-1].Text == text {
+			fmt.Println("skipped — the last uncommitted note already says this.")
+			return nil
+		}
+	}
+	if _, err := session.AddNote(ix.DB, project, agentName(), text); err != nil {
+		return err
+	}
+	fmt.Println("noted — uncommitted until you checkpoint.")
+	return nil
+}
+
+// runCheckpoint commits the session to the vault. Sections come from flags, or
+// from stdin as a markdown document when piped — an agent writing a checkpoint
+// has prose, not a shell-quoting problem.
+func runCheckpoint(args []string) error {
+	project, rest := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--next ...] " +
+			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
+			"[--question ...] [--file ...] [--handoff <agent>]\n" +
+			"       ...or pipe a markdown checkpoint on stdin")
+	}
+	c := &session.Checkpoint{Project: project, Agent: agentName()}
+
+	for i := 0; i < len(rest); i++ {
+		val := func() string {
+			if i+1 < len(rest) {
+				i++
+				return rest[i]
+			}
+			return ""
+		}
+		switch rest[i] {
+		case "--task":
+			c.Task = val()
+		case "--state":
+			c.State = val()
+		case "--next":
+			c.Next = val()
+		case "--decided":
+			c.Decisions = append(c.Decisions, val())
+		case "--failed":
+			c.Failed = append(c.Failed, val())
+		case "--verified":
+			c.Verified = append(c.Verified, val())
+		case "--blocker":
+			c.Blockers = append(c.Blockers, val())
+		case "--ran":
+			c.Commands = append(c.Commands, val())
+		case "--question":
+			c.Questions = append(c.Questions, val())
+		case "--file":
+			c.Files = append(c.Files, val())
+		case "--handoff", "--to":
+			c.HandoffTo = val()
+		case "--agent":
+			c.Agent = val()
+		default:
+			return fmt.Errorf("unknown flag %q", rest[i])
+		}
+	}
+
+	// Piped input fills whatever the flags left blank, so the two ways of
+	// writing a checkpoint compose instead of competing.
+	if stdinIsPiped() {
+		raw, err := readAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(raw) != "" {
+			merge(c, session.ParseCheckpoint(raw))
+		}
+	}
+
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+	var dropped int
+	c.Failed, dropped = session.DropPlaceholders(c.Failed)
+	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
+		return err
+	}
+	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	if dropped > 0 {
+		// Said out loud so the agent knows its "none" was not kept as a dead end.
+		fmt.Printf("dropped %d placeholder failed entr%s — leave failed empty when nothing was ruled out.\n",
+			dropped, map[bool]string{true: "y", false: "ies"}[dropped == 1])
+	}
+	// Deliberately not "run `logos index` to make it searchable" any more. That
+	// was true about general retrieval and misleading about the thing the user
+	// just did: resume reads this file off disk, so the handoff already works.
+	// Reading it as "your checkpoint is not finished yet" sent people to a
+	// command they did not need.
+	fmt.Println("`logos resume` picks it up now — indexing only affects wider search.")
+	return nil
+}
+
+// runResume prints where the last agent stopped, followed by full context.
+func runResume(args []string) error {
+	project, rest := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: logos resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all]")
+	}
+	budget := 0
+	since := ""
+	for i := 0; i < len(rest)-1; i++ {
+		switch rest[i] {
+		case "--budget", "-b":
+			budget, _ = strconv.Atoi(rest[i+1])
+		case "--since":
+			since = rest[i+1]
+		}
+	}
+
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	for _, init := range []func() error{
+		func() error { return memory.Init(ix.DB) },
+		func() error { return session.Init(ix.DB) },
+		func() error { return secretary.Init(ix.DB) },
+	} {
+		if err := init(); err != nil {
+			return err
+		}
+	}
+
+	// Resume is the one command that must never need a model: the checkpoint it
+	// reads is markdown in the vault, and an agent picking up someone else's work
+	// on a machine with no runtime is exactly the case this exists for.
+	rt, err := openRouterOptional()
+	if err != nil {
+		return err
+	}
+	var embed *provider.Provider
+	var embedModel string
+	if rt != nil {
+		embedModel, _ = rt.Model(router.T0)
+		embed = rt.Local()
+	}
+
+	pack, err := contextpack.Build(ix, embed, embedModel, contextpack.Request{
+		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Budget: budget, Since: contextpack.Since(since),
+	})
+	if err != nil {
+		return err
+	}
+	if pack.Empty() {
+		printNothingToResume(ix.Vault, project)
+		return nil
+	}
+	fmt.Print(pack.Render())
+	if pack.Checkpoint == nil {
+		fmt.Println("\n(no checkpoint yet for this project — this is context, not a handoff)")
+	}
+	if n := ingestPendingCount(ix.Vault); n > 0 {
+		fmt.Printf("\n%d ingested candidate%s pending review — logos ingest review\n", n, pluralS(n))
+	}
+	return nil
+}
+
+// printNothingToResume replaces the empty context pack for the one caller that
+// is often a person rather than an agent.
+//
+// `logos resume <project>` is the first command SETUP.md tells a new user to
+// run, and on a vault with nothing in it the pack renders a heading, a
+// provenance disclaimer, a "Nothing recorded" section and a token budget —
+// every part of which is addressed to a model. A person reads that as the tool
+// failing. The two facts worth having are whether the vault is empty or the
+// name simply did not match, and either way what to type next.
+func printNothingToResume(vaultDir, project string) {
+	// A pending ingest queue is still worth surfacing even when the pack is
+	// empty — otherwise ingesting into a fresh vault and then resuming shows
+	// nothing at all, which reads as the candidates having been lost.
+	defer func() {
+		if n := ingestPendingCount(vaultDir); n > 0 {
+			fmt.Printf("\n%d ingested candidate%s pending review — logos ingest review\n", n, pluralS(n))
+		}
+	}()
+
+	known, _ := session.Projects(vaultDir)
+	if len(known) > 0 {
+		fmt.Printf("nothing recorded for %q.\n\n", project)
+		fmt.Printf("projects with checkpoints: %s\n", strings.Join(known, ", "))
+		fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
+		return
+	}
+	fmt.Println("nothing recorded yet — this vault has no checkpoints.")
+	fmt.Println("\nstart one, and the next agent picks it up from here:")
+	fmt.Printf("  logos note %s \"what you just did\"\n", project)
+	fmt.Printf("  logos checkpoint %s --next \"what comes next\"\n", project)
+	fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
+}
+
+// runSessionLog shows the checkpoint history for a project: the commit log.
+// --close <id> is the other half: resolving one entry the "abandoned" list
+// below names, rather than only being told about it.
+func runSessionLog(args []string) error {
+	project, _ := projectArg(args)
+	if project == "" {
+		return fmt.Errorf("usage: logos sessions [project] [--close <session-id>]")
+	}
+
+	if id := flagStr(args, "--close", ""); id != "" {
+		return runCloseAbandoned(project, id)
+	}
+
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+
+	hist, err := session.History(ix.Vault, project, 20)
+	if err != nil {
+		return err
+	}
+	if len(hist) == 0 {
+		fmt.Printf("no checkpoints for %s yet.\n", project)
+	}
+	for _, c := range hist {
+		who := c.Agent
+		if who == "" {
+			who = "agent"
+		}
+		fmt.Printf("%s  %s\n", c.Session, who)
+		if c.Task != "" {
+			fmt.Printf("    %s\n", oneLineOf(c.Task))
+		}
+		if c.Next != "" {
+			fmt.Printf("    next: %s\n", oneLineOf(c.Next))
+		}
+		if c.HandoffTo != "" {
+			fmt.Printf("    handed off to %s\n", c.HandoffTo)
+		}
+		if c.AutoClosed {
+			fmt.Printf("    (auto-closed — not a real handoff)\n")
+		}
+	}
+
+	if notes, err := session.Uncommitted(ix.DB, project); err == nil && len(notes) > 0 {
+		fmt.Printf("\nuncommitted (%d):\n", len(notes))
+		for _, n := range notes {
+			fmt.Printf("    %s\n", oneLineOf(n.Text))
+		}
+	}
+
+	// Uncommitted notes alone do not say whether the session behind them is
+	// still live or simply dead. This is the difference: a session silent past
+	// AbandonAfter is not "in progress", it is work nobody is coming back to
+	// unless someone is told about it.
+	if abandoned, err := session.FindAbandonedInProject(ix.DB, project, session.AbandonAfter); err == nil && len(abandoned) > 0 {
+		fmt.Printf("\nabandoned (%d) — opened, never checkpointed:\n", len(abandoned))
+		for _, a := range abandoned {
+			who := a.Agent
+			if who == "" {
+				who = "agent"
+			}
+			fmt.Printf("    %s by %s, silent %s, %d note(s)\n",
+				a.Session, who, roughAge(a.LastActivity), a.Notes)
+		}
+	}
+	return nil
+}
+
+// runCloseAbandoned resolves one session the "abandoned" list above named,
+// rather than leaving it as a standing signal nobody acts on. project is
+// currently unused by session.CloseAbandoned itself — the session id alone is
+// enough to find it — but required on this command line anyway, so a person
+// closing one has to have just seen it in the same project's listing rather
+// than pasting an id copied from somewhere else.
+func runCloseAbandoned(project, id string) error {
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := session.Init(ix.DB); err != nil {
+		return err
+	}
+
+	c, err := session.CloseAbandoned(ix.DB, ix.Vault, id)
+	if err != nil {
+		return err
+	}
+	if c.Project != project {
+		fmt.Printf("note: session %s belongs to %s, not %s — closed anyway.\n", id, c.Project, project)
+	}
+	fmt.Printf("closed %s: checkpoint written to %s.md, marked auto_closed.\n", id, c.Slug)
+	return nil
+}
+
+// merge fills empty fields of dst from src. Flags win over piped input because
+// the flag was typed more recently and more deliberately.
+func merge(dst *session.Checkpoint, src session.Checkpoint) {
+	if dst.Task == "" {
+		dst.Task = src.Task
+	}
+	if dst.State == "" {
+		dst.State = src.State
+	}
+	if dst.Next == "" {
+		dst.Next = src.Next
+	}
+	if len(dst.Decisions) == 0 {
+		dst.Decisions = src.Decisions
+	}
+	if len(dst.Failed) == 0 {
+		dst.Failed = src.Failed
+	}
+	if len(dst.Verified) == 0 {
+		dst.Verified = src.Verified
+	}
+	if len(dst.Blockers) == 0 {
+		dst.Blockers = src.Blockers
+	}
+	if len(dst.Commands) == 0 {
+		dst.Commands = src.Commands
+	}
+	if len(dst.Questions) == 0 {
+		dst.Questions = src.Questions
+	}
+	if len(dst.Files) == 0 {
+		dst.Files = src.Files
+	}
+	if dst.HandoffTo == "" {
+		dst.HandoffTo = src.HandoffTo
+	}
+}
+
+// agentName identifies who is checkpointing. LOGOS_AGENT lets a wrapper script
+// or an MCP host say which tool it is, so a handoff names a real counterpart
+// rather than "agent".
+func agentName() string {
+	if a := strings.TrimSpace(os.Getenv("LOGOS_AGENT")); a != "" {
+		return a
+	}
+	return "cli"
+}
+
+func stdinIsPiped() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice == 0
+}
+
+func readAll(f *os.File) (string, error) {
+	var b strings.Builder
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	for sc.Scan() {
+		b.WriteString(sc.Text())
+		b.WriteByte('\n')
+	}
+	return b.String(), sc.Err()
+}
+
+func oneLineOf(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 90 {
+		s = s[:89] + "…"
+	}
+	return s
+}

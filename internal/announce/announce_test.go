@@ -63,13 +63,13 @@ func TestUnparseableSettingFallsBackRatherThanBreaking(t *testing.T) {
 }
 
 func TestLevelsShapeTheLine(t *testing.T) {
-	if got := At(On, "stored in brain — memory #1"); !strings.HasPrefix(got, Marker) {
+	if got := At(On, "stored in logos — memory #1"); !strings.HasPrefix(got, Marker) {
 		t.Errorf("on should carry the marker: %q", got)
 	}
-	if got := At(Quiet, "stored in brain — memory #1"); got != "stored in brain — memory #1" {
+	if got := At(Quiet, "stored in logos — memory #1"); got != "stored in logos — memory #1" {
 		t.Errorf("quiet should be the bare fact: %q", got)
 	}
-	if got := At(Off, "stored in brain — memory #1"); got != "" {
+	if got := At(Off, "stored in logos — memory #1"); got != "" {
 		t.Errorf("off should be empty so the caller can decide: %q", got)
 	}
 }

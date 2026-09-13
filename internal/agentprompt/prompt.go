@@ -13,13 +13,13 @@
 //     conforming host puts in front of its model without the user doing
 //     anything at all. This is the one that matters; the others are for people
 //     who want the text somewhere they can edit it.
-//   - `brain prompt`, to paste into a CLAUDE.md or a system prompt.
-//   - systemmd/BRAINPROMPT.md in the repository, which is the same bytes.
+//   - `logos prompt`, to paste into a CLAUDE.md or a system prompt.
+//   - systemmd/LOGOSPROMPT.md in the repository, which is the same bytes.
 package agentprompt
 
 import _ "embed"
 
-//go:embed BRAINPROMPT.md
+//go:embed LOGOSPROMPT.md
 var text string
 
 // Text is the full instruction document.

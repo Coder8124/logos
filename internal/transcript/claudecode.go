@@ -18,17 +18,17 @@ import (
 // beats shelling out to txcript for the format this repository's own users run
 // most.
 
-// BrainClaudeProjectsEnv overrides the Claude Code projects directory, so a
+// LogosClaudeProjectsEnv overrides the Claude Code projects directory, so a
 // test points at a fixture tree instead of the real one. Same pattern as
-// BRAIN_VAULT.
-const BrainClaudeProjectsEnv = "BRAIN_CLAUDE_PROJECTS"
+// LOGOS_VAULT.
+const LogosClaudeProjectsEnv = "LOGOS_CLAUDE_PROJECTS"
 
 type claudeCodeReader struct{}
 
 func (claudeCodeReader) harness() string { return "claude-code" }
 
 func (claudeCodeReader) root() string {
-	if v := os.Getenv(BrainClaudeProjectsEnv); v != "" {
+	if v := os.Getenv(LogosClaudeProjectsEnv); v != "" {
 		if dirExists(v) {
 			return v
 		}

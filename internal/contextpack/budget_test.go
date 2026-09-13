@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 func TestSpenderStopsAtTheAllowance(t *testing.T) {

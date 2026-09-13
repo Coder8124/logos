@@ -1,6 +1,6 @@
 // Package index is the rebuildable cache.
 //
-// Nothing here is authoritative. Delete .brain/index.db, run `brain index`, and
+// Nothing here is authoritative. Delete .logos/index.db, run `logos index`, and
 // you are back to identical state derived entirely from the markdown.
 package index
 
@@ -16,13 +16,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/dream"
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/secretary"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/dream"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/vault"
 	_ "modernc.org/sqlite"
 )
 
@@ -74,7 +74,7 @@ type SyncReport struct {
 }
 
 func Open(vaultDir string) (*Index, error) {
-	dir := filepath.Join(vaultDir, ".brain")
+	dir := filepath.Join(vaultDir, ".logos")
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return nil, fmt.Errorf("creating %s: %w", dir, err)
 	}
@@ -133,7 +133,7 @@ func Open(vaultDir string) (*Index, error) {
 	//
 	// Advisory: a vault on a filesystem that cannot represent these modes still
 	// works, and refusing to open it would be a worse answer than opening it.
-	// `brain doctor` reports what it finds either way.
+	// `logos doctor` reports what it finds either way.
 	_ = vault.PrivateSiblings(filepath.Join(dir, "index.db"))
 	// Pair the memory store with the vault it belongs to. This is the one place
 	// that holds both, and doing it here means every write path gets a durable
@@ -144,7 +144,7 @@ func Open(vaultDir string) (*Index, error) {
 	// promises a note survives the agent's context running out, and a note held
 	// only here does not survive the user being told to delete this file.
 	session.SetVault(db, vaultDir)
-	// And open loops, for the same reason again: `brain loop` promised a list
+	// And open loops, for the same reason again: `logos loop` promised a list
 	// that survived a rebuild and kept it only here.
 	secretary.SetVault(db, vaultDir)
 	// And dreamed insights: the most expensive row in the database to lose, and
@@ -169,7 +169,7 @@ func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (int, err
 //
 // The third half of the same guarantee. Checkpoints were always safe because
 // they are read from markdown; memories became safe when Import landed; notes
-// were the last thing that existed only in the database, so `rm -rf .brain`
+// were the last thing that existed only in the database, so `rm -rf .logos`
 // silently threw away exactly the in-flight work note_progress exists to keep.
 //
 // Returns how many it restored.
@@ -182,8 +182,8 @@ func (ix *Index) SyncNotes() (int, error) {
 // The fourth thing that only the database knew. A memory an agent proposed sits
 // in quarantine until a person accepts it, and quarantine's whole point is that
 // it is *not* written into memories/<kind>.md — so the queue lived in
-// .brain/index.db alone, and the documented-safe rebuild threw away proposals
-// nobody had reviewed yet, with `brain doctor` afterwards reporting "nothing
+// .logos/index.db alone, and the documented-safe rebuild threw away proposals
+// nobody had reviewed yet, with `logos doctor` afterwards reporting "nothing
 // pending" as though they had been.
 //
 // Must run after SyncMemories: a proposal accepted since the last flush is an
@@ -211,7 +211,7 @@ func (ix *Index) SyncLog() (int, error) {
 // SyncLoops restores open loops from the vault.
 //
 // The fifth thing that only the database knew, and the one with no excuse left:
-// `brain loop add` wrote a commitment into commitments and nowhere else, so the
+// `logos loop add` wrote a commitment into commitments and nowhere else, so the
 // documented-safe rebuild emptied the list, and the list coming back empty is
 // indistinguishable from having finished everything on it.
 //
@@ -223,7 +223,7 @@ func (ix *Index) SyncLoops() (int, error) {
 // SyncInsights restores dreamed insights from the vault.
 //
 // Must run after SyncMemories: an insight cites the two memory ids it bridges,
-// and `brain dream review` renders those endpoints, so the memories have to be
+// and `logos dream review` renders those endpoints, so the memories have to be
 // back before the proposal about them can be read.
 //
 // Returns how many insights it put back.
@@ -235,7 +235,7 @@ func (ix *Index) SyncInsights() (int, error) {
 // the presence daemon's own bookkeeping — cut in 0.3.0 along with the
 // internal/{capture,rollup,presence} packages that wrote them. None of it had
 // a vault representation, so dropping it loses nothing the vault-is-truth
-// promise covers; only .brain/index.db ever held it.
+// promise covers; only .logos/index.db ever held it.
 var deadAmbientTables = []string{"events", "source_state", "proposals", "presence_state", "presence_spoken"}
 
 // migrate adds columns to databases created before they existed. ALTER TABLE
@@ -275,7 +275,7 @@ func migrate(db *sql.DB) {
 			// Not fatal: a vault with a stale search index still opens, still
 			// writes, and still answers semantically. Silence is what made this a
 			// bug, not the failure itself.
-			fmt.Fprintf(os.Stderr, "brain: could not rebuild the search index: %v\n", err)
+			fmt.Fprintf(os.Stderr, "logos: could not rebuild the search index: %v\n", err)
 		}
 	}
 }
@@ -306,11 +306,11 @@ func dropDeadAmbientTables(db *sql.DB) {
 	}
 	for _, t := range existing {
 		if _, err := db.Exec(fmt.Sprintf("DROP TABLE %q", t)); err != nil {
-			fmt.Fprintf(os.Stderr, "brain: could not drop the removed %s table: %v\n", t, err)
+			fmt.Fprintf(os.Stderr, "logos: could not drop the removed %s table: %v\n", t, err)
 			return
 		}
 	}
-	fmt.Printf("brain: dropped %d row(s) from removed ambient-capture tables (%s) — this data had no vault representation\n",
+	fmt.Printf("logos: dropped %d row(s) from removed ambient-capture tables (%s) — this data had no vault representation\n",
 		total, strings.Join(existing, ", "))
 }
 
@@ -505,7 +505,7 @@ func (ix *Index) Sync() (SyncReport, error) {
 
 	// Record when this pass finished, in the same transaction that made it true.
 	//
-	// `brain doctor` used to answer "is the index behind?" by comparing the
+	// `logos doctor` used to answer "is the index behind?" by comparing the
 	// newest file mtime against MAX(first_seen), which is a *date* parsed from
 	// frontmatter — midnight, always. Every vault touched after midnight
 	// therefore read as hours stale the instant after a successful index, and a

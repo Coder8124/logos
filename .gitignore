@@ -21,6 +21,7 @@ app/frontend/wailsjs/
 /vault/
 app/vault/
 testdata/vault/.brain/
+testdata/vault/.logos/
 
 # Regenerable icon review strip (scripts/make-icon.py --preview)
 app/build/appicon-preview.png
@@ -64,6 +65,7 @@ __pycache__/
 # checkout.
 CLAUDE.md
 /brain
+/logos
 
 # Working notes. Same rule as personal/ above.
 plans/

@@ -23,15 +23,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/graph"
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/secretary"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/when"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/graph"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/when"
 )
 
 // A Request is what the caller is trying to do. Task is the important field:
@@ -165,7 +165,7 @@ type Pack struct {
 //
 // The render is written for the agent that consumes it, and for an agent an
 // empty pack is still a useful answer: it says do not infer, nothing is here.
-// For a person running `brain resume` as their first command after setup, the
+// For a person running `logos resume` as their first command after setup, the
 // same output is a page of scaffolding around a void, and it reads like a
 // broken install rather than an empty vault. Callers use this to tell the two
 // audiences apart.
@@ -452,7 +452,7 @@ func inferSince(checkpoint *session.Checkpoint, now time.Time) Since {
 //
 // Memories are excluded for the identical reason, one door over. They are rows,
 // not files, but index.memoryHits injects them into the same hit stream so that
-// `brain search` and `brain ask` can find a remembered fact — and a pack was
+// `logos search` and `logos ask` can find a remembered fact — and a pack was
 // then rendering each matched memory twice: once here as bare prose under "From
 // the vault", and again under "What you've told me" with the kind, date, source
 // and confidence that say how much to trust it. The bare copy is the worse one

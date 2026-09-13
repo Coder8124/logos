@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/setup"
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/setup"
+	"github.com/Coder8124/logos/internal/vault"
 
 	_ "modernc.org/sqlite"
 )
@@ -75,8 +75,8 @@ func TestStaleIndexIsReported(t *testing.T) {
 	defer ix.Close()
 
 	// Markdown in the vault, nothing in the index: the "I edited a note and the
-	// agent still quotes the old one" case, which otherwise looks like brain
-	// being wrong rather than brain being behind.
+	// agent still quotes the old one" case, which otherwise looks like logos
+	// being wrong rather than logos being behind.
 	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# a note\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -208,12 +208,12 @@ func TestCountsAndHealthy(t *testing.T) {
 
 func TestTheIntegrationProbeLeavesNoProjectBehind(t *testing.T) {
 	vault := t.TempDir()
-	project := "brain-selftest-4242"
+	project := "logos-selftest-4242"
 	dir := filepath.Join(vault, session.CheckpointDir, project)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	note := filepath.Join(dir, "20260903-120000-brain-doctor.md")
+	note := filepath.Join(dir, "20260903-120000-logos-doctor.md")
 	if err := os.WriteFile(note, []byte("selftest ruled this out"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestTheIntegrationProbeLeavesNoProjectBehind(t *testing.T) {
 	}
 	for _, p := range got {
 		if p == project {
-			t.Fatalf("%s is still a project after the probe cleaned up; `brain continuity` will list it as never checkpointed forever", project)
+			t.Fatalf("%s is still a project after the probe cleaned up; `logos continuity` will list it as never checkpointed forever", project)
 		}
 	}
 }
@@ -238,12 +238,12 @@ func TestTheIntegrationProbeLeavesNoProjectBehind(t *testing.T) {
 
 func TestTheProbeWillNotDeleteADirectoryItDoesNotOwn(t *testing.T) {
 	vault := t.TempDir()
-	project := "brain-selftest-4243"
+	project := "logos-selftest-4243"
 	dir := filepath.Join(vault, session.CheckpointDir, project)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	note := filepath.Join(dir, "20260903-120000-brain-doctor.md")
+	note := filepath.Join(dir, "20260903-120000-logos-doctor.md")
 	if err := os.WriteFile(note, []byte("selftest"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -272,17 +272,17 @@ func TestAPrivateVaultHoldingAWorldReadableIndexIsNotPrivate(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".brain"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".logos"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	db := filepath.Join(dir, ".brain", "index.db")
+	db := filepath.Join(dir, ".logos", "index.db")
 	if err := os.WriteFile(db, []byte("every note you have"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	c := checkPrivacy(dir)
 	if c.State == OK {
-		t.Fatalf("privacy says %q while .brain/index.db is 0644", c.Detail)
+		t.Fatalf("privacy says %q while .logos/index.db is 0644", c.Detail)
 	}
 	if !strings.Contains(c.Detail, "index.db") {
 		t.Fatalf("privacy failed but did not name the exposed file: %q", c.Detail)
@@ -294,10 +294,10 @@ func TestAVaultPrivateAllTheWayDownPasses(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".brain"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".logos"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".brain", "index.db"), []byte("x"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".logos", "index.db"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "memories"), 0o700); err != nil {
@@ -321,8 +321,8 @@ func TestContinuityDoesNotReportOKForAVaultThatIsNotThere(t *testing.T) {
 	if c.State == OK {
 		t.Fatalf("continuity = ok (%q) over a vault that does not exist", c.Detail)
 	}
-	if !strings.Contains(c.Fix, "brain setup") {
-		t.Errorf("continuity fix is %q, want it to name `brain setup`", c.Fix)
+	if !strings.Contains(c.Fix, "logos setup") {
+		t.Errorf("continuity fix is %q, want it to name `logos setup`", c.Fix)
 	}
 }
 
@@ -337,7 +337,7 @@ func TestContinuityStillReportsOKForANewButRealVault(t *testing.T) {
 // An open session with no notes in it made doctor permanently red, and the
 // remedy it offered — "see the notes, then checkpoint them" — had nothing to
 // operate on. Nothing was recorded in that session, so nothing is at risk: it
-// is a row the vault does not describe and `brain index` would not rebuild.
+// is a row the vault does not describe and `logos index` would not rebuild.
 // Say it happened, do not call the vault broken over it.
 func TestAnEmptySessionLeftOpenDoesNotFailTheHealthCheck(t *testing.T) {
 	dir := t.TempDir()
@@ -409,14 +409,14 @@ func TestAnEmptySessionDoesNotHideOneHoldingWork(t *testing.T) {
 // question it exists for, with its opposite.
 func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
 	dir := t.TempDir()
-	proj := filepath.Join(dir, session.CheckpointDir, "brain")
+	proj := filepath.Join(dir, session.CheckpointDir, "logos")
 	if err := os.MkdirAll(proj, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	// A real checkpoint, written five days ago.
 	real := filepath.Join(proj, "20260101-120000-claude.md")
-	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: brain\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
+	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: logos\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	stale := time.Now().Add(-5 * 24 * time.Hour)
@@ -426,7 +426,7 @@ func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
 
 	// Working notes, touched moments ago. Not a checkpoint.
 	if err := os.WriteFile(filepath.Join(proj, session.NotesFile),
-		[]byte("# uncommitted — brain\n\n- still going <!-- ts=1 agent=cli -->\n"), 0o600); err != nil {
+		[]byte("# uncommitted — logos\n\n- still going <!-- ts=1 agent=cli -->\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -439,7 +439,7 @@ func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
 	}
 	// And it must still name the checkpoint it did find, rather than the empty
 	// frontmatter of the file it used to pick up.
-	if !strings.Contains(c.Detail, "brain") || strings.Contains(c.Detail, "— ,") {
+	if !strings.Contains(c.Detail, "logos") || strings.Contains(c.Detail, "— ,") {
 		t.Errorf("detail %q does not name the checkpoint's project", c.Detail)
 	}
 }
@@ -451,13 +451,13 @@ func TestWorkingNotesAreNotMistakenForACheckpoint(t *testing.T) {
 // it, not just through a direct call to IsCheckpointFile.
 func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
 	dir := t.TempDir()
-	proj := filepath.Join(dir, session.CheckpointDir, "brain")
+	proj := filepath.Join(dir, session.CheckpointDir, "logos")
 	if err := os.MkdirAll(proj, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	real := filepath.Join(proj, "20260101-120000-claude.md")
-	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: brain\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
+	if err := os.WriteFile(real, []byte("---\ntype: checkpoint\nproject: logos\nagent: claude\n---\nstopped here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	stale := time.Now().Add(-5 * 24 * time.Hour)
@@ -465,9 +465,9 @@ func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A plan saved moments ago, nested under sessions/brain/plans/.
+	// A plan saved moments ago, nested under sessions/logos/plans/.
 	if _, err := session.SavePlan(dir, session.Plan{
-		Project: "brain",
+		Project: "logos",
 		Agent:   "claude",
 		Text:    "a freshly approved plan",
 	}); err != nil {
@@ -484,9 +484,9 @@ func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
 }
 
 // A scratch vault is a documented way to exercise the CLI — CONTRIBUTING.md
-// says `BRAIN_VAULT=$(mktemp -d)` in as many words. But `brain setup --vault
-// <scratch>` also RECORDS that path in os.UserConfigDir()/brain/vault-path,
-// which is the durable pointer every front end reads when BRAIN_VAULT is unset.
+// says `LOGOS_VAULT=$(mktemp -d)` in as many words. But `logos setup --vault
+// <scratch>` also RECORDS that path in os.UserConfigDir()/logos/vault-path,
+// which is the durable pointer every front end reads when LOGOS_VAULT is unset.
 // So testing against a scratch vault silently repoints the user's real install
 // at a temporary directory, and index.Open creates whatever it is pointed at —
 // producing a healthy zero of everything.
@@ -496,16 +496,16 @@ func TestASavedPlanIsNotMistakenForACheckpoint(t *testing.T) {
 // failure reported as success is the one outcome this package exists to prevent.
 //
 // The recorded pointer is what gets checked, not the resolved directory: an
-// explicit BRAIN_VAULT is a deliberate choice scoped to one command, while the
+// explicit LOGOS_VAULT is a deliberate choice scoped to one command, while the
 // pointer outlives the session and reaches the desktop app.
 
 func TestARecordedVaultInsideTheTempDirectoryIsReported(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 
-	scratch := filepath.Join(os.TempDir(), "brain-scratch-doctor-test")
+	scratch := filepath.Join(os.TempDir(), "logos-scratch-doctor-test")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -527,15 +527,15 @@ func TestARecordedVaultInsideTheTempDirectoryIsReported(t *testing.T) {
 }
 
 // A real vault must not be dragged into this, and neither must a deliberate
-// one-off BRAIN_VAULT pointed at a scratch directory.
+// one-off LOGOS_VAULT pointed at a scratch directory.
 
 func TestAnOrdinaryVaultWithNoRecordedPointerStillPasses(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 
-	dir := filepath.Join(home, "brain")
+	dir := filepath.Join(home, "logos")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -549,22 +549,22 @@ func TestAScratchVaultChosenForOneCommandIsNotAComplaint(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	scratch := filepath.Join(os.TempDir(), "brain-scratch-env-only")
+	scratch := filepath.Join(os.TempDir(), "logos-scratch-env-only")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(scratch)
 	// Chosen by environment, never recorded — the documented workflow.
-	t.Setenv("BRAIN_VAULT", scratch)
+	t.Setenv("LOGOS_VAULT", scratch)
 
 	if c := checkVault(scratch); c.State != OK {
-		t.Fatalf("vault check = %v (%q), want ok — BRAIN_VAULT is a deliberate one-off", c.State, c.Detail)
+		t.Fatalf("vault check = %v (%q), want ok — LOGOS_VAULT is a deliberate one-off", c.State, c.Detail)
 	}
 }
 
-// A host that lists two servers both invoking "mcp serve" is brain registered
+// A host that lists two servers both invoking "mcp serve" is logos registered
 // twice under one roof — the exact shape a plugin registration and a manual
-// `brain mcp install` produce side by side, and the configuration that
+// `logos mcp install` produce side by side, and the configuration that
 // measurably breached the 10k-token ceiling in the memory architecture plan.
 func TestDuplicateRegistrationIsCaught(t *testing.T) {
 	hosts := []setup.Host{{
@@ -572,7 +572,7 @@ func TestDuplicateRegistrationIsCaught(t *testing.T) {
 		Detect: func() bool { return true },
 		List: func() ([]setup.Registration, error) {
 			return []setup.Registration{
-				{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
+				{Name: "logos", Command: "/usr/local/bin/logos mcp serve"},
 				// The shape `claude mcp list` really prints for the plugin: its
 				// launcher is bare mcp.sh, and "mcp serve" happens inside it.
 				{Name: "plugin:logos:logos", Command: "/Users/someone/.claude/plugins/cache/logos/logos/0.4.2/bin/mcp.sh"},
@@ -583,7 +583,7 @@ func TestDuplicateRegistrationIsCaught(t *testing.T) {
 	if c.State != Failed {
 		t.Fatalf("state = %v, want failed", c.State)
 	}
-	if !strings.Contains(c.Detail, "brain") || !strings.Contains(c.Detail, "plugin:logos:logos") {
+	if !strings.Contains(c.Detail, "logos") || !strings.Contains(c.Detail, "plugin:logos:logos") {
 		t.Errorf("detail does not name both entries: %q", c.Detail)
 	}
 }
@@ -595,7 +595,7 @@ func TestASingleRegistrationPerHostIsFine(t *testing.T) {
 		Name:   "Claude Code",
 		Detect: func() bool { return true },
 		List: func() ([]setup.Registration, error) {
-			return []setup.Registration{{Name: "brain", Command: "/usr/local/bin/brain mcp serve"}}, nil
+			return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve"}}, nil
 		},
 	}}
 	if c := checkDuplicateRegistration(hosts); c.State != OK {
@@ -603,7 +603,7 @@ func TestASingleRegistrationPerHostIsFine(t *testing.T) {
 	}
 }
 
-// Two different hosts each running brain once is two separate applications
+// Two different hosts each running logos once is two separate applications
 // doing the right thing, not one session paying twice.
 func TestOneRegistrationOnEachOfTwoHostsIsNotADuplicate(t *testing.T) {
 	one := func(name string) setup.Host {
@@ -611,7 +611,7 @@ func TestOneRegistrationOnEachOfTwoHostsIsNotADuplicate(t *testing.T) {
 			Name:   name,
 			Detect: func() bool { return true },
 			List: func() ([]setup.Registration, error) {
-				return []setup.Registration{{Name: "brain", Command: "/usr/local/bin/brain mcp serve"}}, nil
+				return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve"}}, nil
 			},
 		}
 	}
@@ -621,7 +621,7 @@ func TestOneRegistrationOnEachOfTwoHostsIsNotADuplicate(t *testing.T) {
 	}
 }
 
-// A host with nothing else registered besides brain, plus an unrelated MCP
+// A host with nothing else registered besides logos, plus an unrelated MCP
 // server, must not be flagged — the signature is "mcp serve" specifically,
 // not "more than one entry".
 func TestAnUnrelatedSecondServerIsNotMistakenForADuplicate(t *testing.T) {
@@ -630,7 +630,7 @@ func TestAnUnrelatedSecondServerIsNotMistakenForADuplicate(t *testing.T) {
 		Detect: func() bool { return true },
 		List: func() ([]setup.Registration, error) {
 			return []setup.Registration{
-				{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
+				{Name: "logos", Command: "/usr/local/bin/logos mcp serve"},
 				{Name: "some-other-server", Command: "npx some-other-mcp"},
 			}, nil
 		},
@@ -661,7 +661,7 @@ func TestNoIntrospectableHostReportsUnknownNotOK(t *testing.T) {
 // the one that actually bit: agent scratchpads and most scripts use /tmp, which
 // is a symlink to /private/tmp and shares no prefix with $TMPDIR at all. So a
 // vault recorded under /tmp passed the check that exists precisely to catch it,
-// and `brain doctor` reported "ok" over a vault that a reboot deletes.
+// and `logos doctor` reported "ok" over a vault that a reboot deletes.
 func TestAVaultRecordedUnderSlashTmpIsCaughtToo(t *testing.T) {
 	for _, dir := range []string{"/tmp/some-vault", "/private/tmp/some-vault", "/var/tmp/some-vault"} {
 		if !UnderTempDir(dir) {
@@ -669,14 +669,14 @@ func TestAVaultRecordedUnderSlashTmpIsCaughtToo(t *testing.T) {
 		}
 	}
 	// The guard must still not fire on a real home.
-	for _, dir := range []string{"/Users/someone/brain", "/home/someone/brain", "/tmpfoo/brain"} {
+	for _, dir := range []string{"/Users/someone/logos", "/home/someone/logos", "/tmpfoo/logos"} {
 		if UnderTempDir(dir) {
 			t.Errorf("%s is a perfectly good vault, and the health check calls it temporary", dir)
 		}
 	}
 }
 
-// `brain setup --print-config` exists precisely for the MCP clients this
+// `logos setup --print-config` exists precisely for the MCP clients this
 // check cannot see — anything that is not one of setup.Hosts()'s four. Both
 // branches of the report must say so: the empty case, where it is the whole
 // answer, and the some-detected case, where an agent on this machine talking
@@ -687,7 +687,7 @@ func TestHostsCheckMentionsPrintConfigWhenNoneAreDetected(t *testing.T) {
 		t.Errorf("state = %v, want %v when no known host is detected", c.State, Unknown)
 	}
 	if !strings.Contains(c.Fix, "--print-config") {
-		t.Errorf("fix = %q, want it to mention `brain setup --print-config` for a host this check cannot see", c.Fix)
+		t.Errorf("fix = %q, want it to mention `logos setup --print-config` for a host this check cannot see", c.Fix)
 	}
 }
 
@@ -700,7 +700,7 @@ func TestHostsCheckNamesWhatItSeesAndStillMentionsPrintConfig(t *testing.T) {
 		t.Errorf("detail = %q, want it to name the detected host", c.Detail)
 	}
 	if !strings.Contains(c.Fix, "--print-config") {
-		t.Errorf("fix = %q, want it to still mention `brain setup --print-config` for any client this check does not know", c.Fix)
+		t.Errorf("fix = %q, want it to still mention `logos setup --print-config` for any client this check does not know", c.Fix)
 	}
 }
 
@@ -708,7 +708,7 @@ func TestHostsCheckNamesWhatItSeesAndStillMentionsPrintConfig(t *testing.T) {
 // that actually broke a real installation named ~/.claude/jobs/<id>/tmp/
 // survey-vault — an agent's scratch directory, under $HOME, matching no system
 // temp root — and every front end read it for a day while twenty-eight
-// checkpoints sat in ~/brain. Nothing failed: the empty vault was present,
+// checkpoints sat in ~/logos. Nothing failed: the empty vault was present,
 // writable and honestly reported zero of everything.
 //
 // So doctor also asks the question that does not depend on knowing where the
@@ -718,9 +718,9 @@ func TestAnEmptyVaultIsReportedWhenTheDefaultVaultHoldsTheHistory(t *testing.T) 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 
-	writeCheckpointFile(t, filepath.Join(home, "brain"), "brain", "20260910-171521-claude.md")
+	writeCheckpointFile(t, filepath.Join(home, "logos"), "logos", "20260910-171521-claude.md")
 
 	// Not under any temp root, so only the emptiness comparison can catch it.
 	scratch := filepath.Join(home, ".agent-jobs", "b204c342", "survey-vault")
@@ -732,7 +732,7 @@ func TestAnEmptyVaultIsReportedWhenTheDefaultVaultHoldsTheHistory(t *testing.T) 
 	if c.State != Failed {
 		t.Fatalf("vault check = %v (%q), want failed — this vault is empty and the real one is not", c.State, c.Detail)
 	}
-	if !strings.Contains(c.Detail, filepath.Join(home, "brain")) {
+	if !strings.Contains(c.Detail, filepath.Join(home, "logos")) {
 		t.Fatalf("failed, but did not name the vault holding the history: %q", c.Detail)
 	}
 	if c.Fix == "" {
@@ -743,20 +743,20 @@ func TestAnEmptyVaultIsReportedWhenTheDefaultVaultHoldsTheHistory(t *testing.T) 
 // The other side of it: a genuinely new install has no checkpoints anywhere,
 // and must not be told its own vault is the wrong one.
 // And the workflow CLAUDE.md tells contributors to use: a scratch vault named
-// by BRAIN_VAULT is meant to be empty, so the comparison above must not turn
-// every `BRAIN_VAULT=/tmp/scratch brain doctor` into a failing report.
+// by LOGOS_VAULT is meant to be empty, so the comparison above must not turn
+// every `LOGOS_VAULT=/tmp/scratch logos doctor` into a failing report.
 func TestAScratchVaultChosenForOneCommandIsNotComparedAgainstTheDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 
-	writeCheckpointFile(t, filepath.Join(home, "brain"), "brain", "20260910-171521-claude.md")
+	writeCheckpointFile(t, filepath.Join(home, "logos"), "logos", "20260910-171521-claude.md")
 
 	scratch := filepath.Join(home, "scratch-vault")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("BRAIN_VAULT", scratch)
+	t.Setenv("LOGOS_VAULT", scratch)
 
 	if c := checkVault(scratch); c.State != OK {
 		t.Fatalf("vault check = %v (%q), want ok — a scratch vault is supposed to be empty", c.State, c.Detail)
@@ -767,9 +767,9 @@ func TestANewVaultWithNoHistoryAnywhereIsNotAComplaint(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 
-	dir := filepath.Join(home, "somewhere", "brain")
+	dir := filepath.Join(home, "somewhere", "logos")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -792,11 +792,11 @@ func writeCheckpointFile(t *testing.T, vaultDir, project, name string) {
 }
 
 // A chore is work waiting for the user; a defect is something broken. Grading
-// the first as the second is how `brain doctor` came to exit 1 forever on a
+// the first as the second is how `logos doctor` came to exit 1 forever on a
 // healthy install, and it did it inconsistently: four sessions never
 // checkpointed was FAILED, two memories awaiting review was ok, and candidates
 // waiting in the ingest queue was ok as well. Same kind of backlog, three
-// different verdicts, one of them blocking `brain doctor && deploy`.
+// different verdicts, one of them blocking `logos doctor && deploy`.
 func TestABacklogOfChoresIsNotGradedAsADefect(t *testing.T) {
 	dir := t.TempDir()
 	ix, err := index.Open(dir)
@@ -844,11 +844,11 @@ func TestABacklogOfChoresIsNotGradedAsADefect(t *testing.T) {
 }
 
 // A fix is a command the user copies. A vault path with a space in it, pasted
-// unquoted, is two arguments — `brain setup --vault /tmp/av fresh` sets up
+// unquoted, is two arguments — `logos setup --vault /tmp/av fresh` sets up
 // /tmp/av and hands setup a stray "fresh" — so the path has to arrive quoted.
 func TestAFixCommandQuotesAVaultPathWithASpace(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "av fresh")
-	if got, want := checkVault(missing).Fix, "run `brain setup --vault '"+missing+"'`"; got != want {
+	if got, want := checkVault(missing).Fix, "run `logos setup --vault '"+missing+"'`"; got != want {
 		t.Errorf("vault fix:\n got %s\nwant %s", got, want)
 	}
 
@@ -862,13 +862,13 @@ func TestAFixCommandQuotesAVaultPathWithASpace(t *testing.T) {
 }
 
 // The recorded vault missing is usually a drive that is not mounted. The fix
-// used to be `brain setup --vault <that path>`, which makes an empty vault where
+// used to be `logos setup --vault <that path>`, which makes an empty vault where
 // the drive mounts — the split doctor is supposed to prevent.
 func TestDoctorSaysReconnectWhenTheRecordedVaultIsMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("BRAIN_VAULT", "")
+	t.Setenv("LOGOS_VAULT", "")
 	ext := filepath.Join(t.TempDir(), "notes")
 	if err := os.Mkdir(ext, 0o700); err != nil {
 		t.Fatal(err)
@@ -896,8 +896,8 @@ func TestDoctorSaysReconnectWhenTheRecordedVaultIsMissing(t *testing.T) {
 // would make the common case read worse to fix a rare one.
 func TestShellArgLeavesAPlainPathAloneAndEscapesAQuote(t *testing.T) {
 	for in, want := range map[string]string{
-		"/Users/me/brain":  "/Users/me/brain",
-		"~/brain":          "~/brain",
+		"/Users/me/logos":  "/Users/me/logos",
+		"~/logos":          "~/logos",
 		"/tmp/av fresh":    "'/tmp/av fresh'",
 		"/tmp/it's mine":   `'/tmp/it'\''s mine'`,
 		"/tmp/$HOME/vault": "'/tmp/$HOME/vault'",
@@ -923,10 +923,10 @@ func installPlugin(t *testing.T, version string) {
 }
 
 // Claude Code does not update a third-party marketplace on its own, and
-// `brain update` replaces only the binary. A machine ran plugin 0.1.2 against a
+// `logos update` replaces only the binary. A machine ran plugin 0.1.2 against a
 // 0.4.2 server for a week — old hooks, ignoring .logos-project — while doctor
 // said nothing about it.
-func TestDoctorWarnsWhenThePluginIsOlderThanThisBrain(t *testing.T) {
+func TestDoctorWarnsWhenThePluginIsOlderThanThisLogos(t *testing.T) {
 	installPlugin(t, "0.1.2")
 	c, ok := checkPlugin("v0.4.3")
 	if !ok {
@@ -940,7 +940,7 @@ func TestDoctorWarnsWhenThePluginIsOlderThanThisBrain(t *testing.T) {
 	}
 }
 
-func TestDoctorIsQuietAboutAPluginThatMatchesThisBrain(t *testing.T) {
+func TestDoctorIsQuietAboutAPluginThatMatchesThisLogos(t *testing.T) {
 	installPlugin(t, "0.4.3")
 	if c, _ := checkPlugin("v0.4.3"); c.State != OK {
 		t.Errorf("state = %q, want ok: %s", c.State, c.Detail)
@@ -973,7 +973,7 @@ func TestARegistrationInsideNpmsCacheIsFlagged(t *testing.T) {
 		Detect: func() bool { return true },
 		List: func() ([]setup.Registration, error) {
 			return []setup.Registration{
-				{Name: "brain", Command: "/Users/someone/.npm/_npx/c2f5b285a40b44b5/node_modules/@noeton/logos-darwin-arm64/bin/brain mcp serve"},
+				{Name: "logos", Command: "/Users/someone/.npm/_npx/c2f5b285a40b44b5/node_modules/@noeton/logos-darwin-arm64/bin/logos mcp serve"},
 			}, nil
 		},
 	}}
@@ -993,7 +993,7 @@ func TestARegistrationThatRunsNpxIsNotFlagged(t *testing.T) {
 		Name:   "Cursor",
 		Detect: func() bool { return true },
 		List: func() ([]setup.Registration, error) {
-			return []setup.Registration{{Name: "brain", Command: "npx -y @noeton/logos mcp serve"}}, nil
+			return []setup.Registration{{Name: "logos", Command: "npx -y @noeton/logos mcp serve"}}, nil
 		},
 	}}
 	if _, ok := checkCachedRegistration(hosts); ok {

@@ -18,7 +18,7 @@ func WriteAtomic(path string, data []byte) error {
 		return err
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".brain-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".logos-*.tmp")
 	if err != nil {
 		return err
 	}

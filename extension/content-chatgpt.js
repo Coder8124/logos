@@ -1,24 +1,24 @@
 // content-chatgpt.js — a panel injected into chatgpt.com that lets the user
-// pull from, or write to, brain's local memory without leaving the chat.
+// pull from, or write to, logos's local memory without leaving the chat.
 //
 // Scope, stated plainly (see extension/README.md): chatgpt.com's web UI does
 // not expose a tool-calling hook to third-party extensions, and the
 // alternative — scraping the model's streamed response for a hand-rolled
 // "tool call" syntax — is exactly the DOM/prompt-engineering fragility the
 // 0.4.5 plan called out as the wrong thing to build first. So v1 is
-// user-triggered: a panel lists brain's tools, the user picks one and fills
+// user-triggered: a panel lists logos's tools, the user picks one and fills
 // its arguments, the result is inserted into the compose box as text. That is
 // slower than a model calling tools on its own, but it is real today and
 // breaks in an obvious way (a selector stops matching) rather than a subtle
 // one (a parser silently misreads a tool call).
 
 (function () {
-  const PANEL_ID = "brain-bridge-panel";
+  const PANEL_ID = "logos-bridge-panel";
   if (document.getElementById(PANEL_ID)) return; // don't double-inject on SPA navigation
 
-  function callBrain(method, params) {
+  function callLogos(method, params) {
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: "brain-call", method, params }, (resp) => {
+      chrome.runtime.sendMessage({ type: "logos-call", method, params }, (resp) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
         } else if (!resp || !resp.ok) {
@@ -44,7 +44,7 @@
   function insertText(text) {
     const box = findComposeBox();
     if (!box) {
-      alert("brain: couldn't find the ChatGPT compose box — paste manually:\n\n" + text);
+      alert("logos: couldn't find the ChatGPT compose box — paste manually:\n\n" + text);
       return;
     }
     box.focus();
@@ -78,7 +78,7 @@
   `;
   const toggle = document.createElement("button");
   toggle.textContent = "🧠";
-  toggle.title = "brain memory bridge";
+  toggle.title = "logos memory bridge";
   toggle.style.cssText = `
     position: fixed; bottom: 16px; right: 16px; z-index: 1000000;
     width: 36px; height: 36px; border-radius: 18px; border: none;
@@ -89,17 +89,17 @@
   }
 
   async function renderTools() {
-    renderStatus("loading brain's tools…");
+    renderStatus("loading logos's tools…");
     let tools;
     try {
-      const result = await callBrain("tools/list", {});
+      const result = await callLogos("tools/list", {});
       tools = result.tools || [];
     } catch (e) {
       renderStatus(
         `<b>not connected</b><br>${e.message}<br><br>` +
-        `<a href="#" id="brain-open-options">open pairing settings</a>`
+        `<a href="#" id="logos-open-options">open pairing settings</a>`
       );
-      panel.querySelector("#brain-open-options")?.addEventListener("click", (ev) => {
+      panel.querySelector("#logos-open-options")?.addEventListener("click", (ev) => {
         ev.preventDefault();
         window.open(chrome.runtime.getURL("options.html"));
       });
@@ -117,13 +117,13 @@
       <div style="border-bottom:1px solid #eee;padding:8px 12px">
         <div style="font-weight:600">${t.name}</div>
         <div style="color:#666;font-size:12px;margin:2px 0 6px">${(t.description || "").split(".")[0]}.</div>
-        <button data-tool="${t.name}" class="brain-run">run</button>
+        <button data-tool="${t.name}" class="logos-run">run</button>
       </div>`
       )
       .join("");
-    panel.innerHTML = `<div style="padding:8px 12px;font-weight:700;border-bottom:1px solid #ddd">brain memory</div>${rows}`;
+    panel.innerHTML = `<div style="padding:8px 12px;font-weight:700;border-bottom:1px solid #ddd">logos memory</div>${rows}`;
 
-    panel.querySelectorAll(".brain-run").forEach((btn) => {
+    panel.querySelectorAll(".logos-run").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const name = btn.dataset.tool;
         const tool = tools.find((t) => t.name === name);
@@ -139,10 +139,10 @@
         btn.textContent = "running…";
         btn.disabled = true;
         try {
-          const result = await callBrain("tools/call", { name, arguments: params });
+          const result = await callLogos("tools/call", { name, arguments: params });
           insertText(toolResultToText(name, result));
         } catch (e) {
-          alert(`brain: ${e.message}`);
+          alert(`logos: ${e.message}`);
         } finally {
           btn.textContent = "run";
           btn.disabled = false;

@@ -11,7 +11,7 @@
 # of that away: a fresh HOME, a fresh XDG_CONFIG_HOME, and PATH cut down to
 # /usr/bin:/bin so no real host CLI is reachable.
 #
-# That last part is a safety rule, not a tidiness one. `brain setup` shells out
+# That last part is a safety rule, not a tidiness one. `logos setup` shells out
 # to `claude mcp add` and `codex mcp add`, and `chooseVault` records a vault
 # pointer that the desktop app reads. A walk that leaks out of the fake home
 # repoints the developer's own machine — which has happened, and had to be
@@ -29,8 +29,8 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
-BIN=$(mktemp -d)/brain
-go build -o "$BIN" ./cmd/brain || exit 1
+BIN=$(mktemp -d)/logos
+go build -o "$BIN" ./cmd/logos || exit 1
 
 HOME_DIR=$(mktemp -d)/fresh
 mkdir -p "$HOME_DIR"
@@ -41,12 +41,12 @@ trap 'rm -rf "$(dirname "$HOME_DIR")"' EXIT
 # on PATH.
 mkdir -p "$HOME_DIR/Library/Application Support/Claude" "$HOME_DIR/.cursor"
 
-# env -i, not just HOME=: an inherited BRAIN_VAULT would silently point the whole
+# env -i, not just HOME=: an inherited LOGOS_VAULT would silently point the whole
 # walk back at the developer's real vault.
 run() {
 	local what=$1
 	shift
-	printf '\n\033[1m$ brain %s\033[0m\n' "$what"
+	printf '\n\033[1m$ logos %s\033[0m\n' "$what"
 	env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" \
 		PATH=/usr/bin:/bin TERM="${TERM:-dumb}" "$BIN" "$@"
 	printf '\033[2m[exit %d]\033[0m\n' $?
@@ -79,4 +79,4 @@ find "$HOME_DIR" -name '*.json' -o -name '*.toml' | sed "s|$HOME_DIR|~|"
 # update, or just to check.
 run "setup --yes (second run)" setup --yes
 printf '\n\033[1mbackups left behind (want: none)\033[0m\n'
-find "$HOME_DIR" -name '*.brain-backup' | sed "s|$HOME_DIR|~|"
+find "$HOME_DIR" -name '*.logos-backup' | sed "s|$HOME_DIR|~|"

@@ -21,7 +21,7 @@ func fakeClaude(t *testing.T) (config string) {
 f="$HOME/.claude.json"
 case "$2" in
 add)
-  if [ -s "$f" ]; then echo "MCP server brain already exists in user config"; exit 1; fi
+  if [ -s "$f" ]; then echo "MCP server logos already exists in user config"; exit 1; fi
   echo "$*" > "$f" ;;
 remove)
   : > "$f" ;;
@@ -35,14 +35,14 @@ esac
 
 // Claude Code refuses to add a name that exists, and that refusal was read as
 // success. Re-running setup with a different vault printed "✓ already
-// connected" while Claude Code went on launching brain against the old one —
+// connected" while Claude Code went on launching logos against the old one —
 // the terminal on one vault, Claude Code on another, reported as healthy.
 func TestRerunningSetupRepointsClaudeCodeAtTheNewVault(t *testing.T) {
 	config := fakeClaude(t)
 	first := server()
-	first.Env = map[string]string{"BRAIN_VAULT": "/vaults/A"}
+	first.Env = map[string]string{"LOGOS_VAULT": "/vaults/A"}
 	second := server()
-	second.Env = map[string]string{"BRAIN_VAULT": "/vaults/B"}
+	second.Env = map[string]string{"LOGOS_VAULT": "/vaults/B"}
 
 	Install(first, []Host{claudeCode()})
 	results := Install(second, []Host{claudeCode()})
@@ -51,7 +51,7 @@ func TestRerunningSetupRepointsClaudeCodeAtTheNewVault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "BRAIN_VAULT=/vaults/B") {
+	if !strings.Contains(string(raw), "LOGOS_VAULT=/vaults/B") {
 		t.Errorf("Claude Code still has the old registration:\n%s", raw)
 	}
 	if results[0].Outcome != Updated {

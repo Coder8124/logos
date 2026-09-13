@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/buildinfo"
+	"github.com/Coder8124/logos/internal/buildinfo"
 )
 
 // The handshake used to announce a string literal: "0.1.0", written once and

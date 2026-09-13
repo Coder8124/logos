@@ -103,7 +103,7 @@ for (const d of dirs) {
   if (pkg.version !== VERSION) {
     die(`platforms/${d} is at ${pkg.version} but the wrapper is at ${VERSION} — re-run build.js`);
   }
-  const exe = d.startsWith("win32") ? "brain.exe" : "brain";
+  const exe = d.startsWith("win32") ? "logos.exe" : "logos";
   if (!fs.existsSync(path.join(platforms, d, "bin", exe))) {
     die(`platforms/${d} has no binary — re-run build.js`);
   }

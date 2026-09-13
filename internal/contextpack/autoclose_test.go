@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // An AutoClosed checkpoint — session.CloseAbandoned's output — must say so in

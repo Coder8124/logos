@@ -37,7 +37,7 @@ npx -y @noeton/logos setup
 That is the whole thing. No Go toolchain, no clone, no build — this package
 carries a prebuilt binary for your platform, about 5 MB.
 
-`setup` picks a vault (`~/brain` unless you say otherwise), runs the first index,
+`setup` picks a vault (`~/logos` unless you say otherwise), runs the first index,
 then **shows you which agents it would wire and asks before touching any of
 them.** Decline everything and you still have a working install.
 
@@ -58,8 +58,8 @@ No install at all — `npx` resolves the binary on demand:
 ```
 
 That config is portable between machines, which an absolute binary path is not.
-Add `"env": { "BRAIN_VAULT": "/path/to/vault" }` to point it somewhere other
-than `~/brain`.
+Add `"env": { "LOGOS_VAULT": "/path/to/vault" }` to point it somewhere other
+than `~/logos`.
 
 </details>
 
@@ -137,7 +137,7 @@ into each other's memory.
 
 Nothing has to be configured, and the agent does not have to remember to say
 which project it is on — a rule a model can forget is not isolation. Override
-with `BRAIN_PROJECT`, mark a fact `global` when it really does apply everywhere
+with `LOGOS_PROJECT`, mark a fact `global` when it really does apply everywhere
 (how you like replies written), and pass `all_projects` to search across all of
 them when you actually want that.
 
@@ -147,7 +147,7 @@ them when you actually want that.
 
 - Your memory is **markdown files in a directory you chose.** Open them, grep
   them, commit them, delete them.
-- `.brain/index.db` is a **cache.** Delete it and it rebuilds.
+- `.logos/index.db` is a **cache.** Delete it and it rebuilds.
 - Nothing is uploaded. There is no account, no server, no telemetry.
 - If this project disappears tomorrow, **you keep a vault** that every text
   editor on earth can read.
@@ -180,16 +180,15 @@ logos tried "<approach>"       # has this already been ruled out?
 logos mcp serve                # the MCP server, over stdio
 ```
 
-`brain` is installed as an alias for `logos` — same command, either spelling.
+`logos` is installed as an alias for `logos` — same command, either spelling.
 
 ---
 
-## Two names
+## Formerly brain
 
-**Logos** is the product — the repository, this package, and the MCP server your
-host talks to. **brain** is the development name and stays one internally: the Go
-module `github.com/Coder8124/brain`, the `brain` command, `BRAIN_VAULT`, and
-`.brain/`. Both spellings work everywhere you meet them.
+Logos was developed as `brain`. Through 0.4.x this package still installs a
+`brain` command, and `BRAIN_*` variables and an existing `~/brain` vault still
+work. Use `logos` for anything new.
 
 ---
 

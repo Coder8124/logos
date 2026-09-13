@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // The timeline is durable too.
 //
-// memory_log is the sixth thing that only .brain/index.db knew, after memories,
-// working notes, proposals, the review queue and open loops. `brain memory log`
-// and `brain memory diff` read it, and the rebuild every document in this
+// memory_log is the sixth thing that only .logos/index.db knew, after memories,
+// working notes, proposals, the review queue and open loops. `logos memory log`
+// and `logos memory diff` read it, and the rebuild every document in this
 // project calls safe deleted it outright — then the memories coming back under
 // their old ids logged a fresh "created" line apiece, stamped with the moment of
 // the rebuild. So the history did not merely vanish, it was replaced by a
@@ -92,14 +92,14 @@ func warnLog(err error) {
 }
 
 const logHeader = "---\ntype: memory-timeline\n---\n\n" +
-	"Every change to what brain knows, oldest first. This file is the record,\n" +
-	"not the database: `brain index` rebuilds the timeline from these lines.\n\n" +
+	"Every change to what logos knows, oldest first. This file is the record,\n" +
+	"not the database: `logos index` rebuilds the timeline from these lines.\n\n" +
 	"Deleting a line here deletes that event from the history. Nothing else reads\n" +
 	"it — no memory is recalled or packed into context from this file.\n\n"
 
 func renderLogLine(e LogEntry) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "- %s <!-- brain ts=%s id=%d ev=%s",
+	fmt.Fprintf(&b, "- %s <!-- logos ts=%s id=%d ev=%s",
 		oneLine(e.Detail), time.Unix(e.TS, 0).UTC().Format(time.RFC3339), e.MemID, e.Event)
 	if e.RefID != 0 {
 		fmt.Fprintf(&b, " ref=%d", e.RefID)
@@ -196,7 +196,7 @@ func backfillCreations(db *sql.DB, dir string) (int, error) {
 		}
 		// A proposal nobody has accepted was never created in the sense the
 		// timeline means; it was queued, and saying otherwise would show an
-		// un-reviewed memory as part of what brain knows.
+		// un-reviewed memory as part of what logos knows.
 		e.Event = EvCreated
 		if quarantined == 1 {
 			e.Event = EvQuarantined
@@ -249,7 +249,7 @@ func parseLog(raw string) []LogEntry {
 			continue
 		}
 		// LastIndex, not Index: the detail is free text an agent wrote and may
-		// itself contain "<!--", and brain's own comment is always the last
+		// itself contain "<!--", and logos's own comment is always the last
 		// thing on the line. Splitting at the first one truncates the event's
 		// text at whatever the memory happened to quote.
 		i := strings.LastIndex(line, "<!--")

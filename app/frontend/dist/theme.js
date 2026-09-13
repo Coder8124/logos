@@ -5,7 +5,7 @@
 // in CSS custom properties, so this only ever swaps one attribute.
 
 (function () {
-  var KEY = "brain.theme";
+  var KEY = "logos.theme";
   var MODES = ["auto", "dark", "light"];
   var ICON = { auto: "◐", dark: "●", light: "○" };
 

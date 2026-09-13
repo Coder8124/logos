@@ -6,14 +6,14 @@ import (
 	"strings"
 )
 
-// brainIgnoreLine is what EnsureGitignore adds. The trailing slash matches
+// logosIgnoreLine is what EnsureGitignore adds. The trailing slash matches
 // only the directory, not some unrelated file that happens to be named
-// .brain — the same shape git itself recommends for a directory rule.
-const brainIgnoreLine = ".brain/"
+// .logos — the same shape git itself recommends for a directory rule.
+const logosIgnoreLine = ".logos/"
 
 // EnsureGitignore makes sure a vault that lives inside a git repository never
-// offers .brain/ — the SQLite cache index.db rebuilds from markdown on every
-// `brain index` — to be committed. It reports whether it wrote anything, so a
+// offers .logos/ — the SQLite cache index.db rebuilds from markdown on every
+// `logos index` — to be committed. It reports whether it wrote anything, so a
 // caller can announce the change rather than let it happen silently.
 //
 // Two clones of the same vault each keep their own cache: it is a local
@@ -24,9 +24,9 @@ const brainIgnoreLine = ".brain/"
 // git" plan: markdown is truth, and the cache never touches git at all.
 //
 // It only ever appends. A .gitignore a user wrote for their own reasons keeps
-// every line they put there, and a second run that finds .brain/ already
+// every line they put there, and a second run that finds .logos/ already
 // covered — by this exact line or one they wrote themselves — changes
-// nothing, so `brain index` calling this every time never turns into a diff
+// nothing, so `logos index` calling this every time never turns into a diff
 // on a file nobody meant to edit.
 func EnsureGitignore(vaultDir string) (wrote bool, err error) {
 	path := filepath.Join(vaultDir, ".gitignore")
@@ -37,11 +37,11 @@ func EnsureGitignore(vaultDir string) (wrote bool, err error) {
 	}
 
 	for _, line := range strings.Split(string(existing), "\n") {
-		// Substring rather than exact-line match: ".brain" (no slash) or
-		// "/.brain/" written by hand already does the job, and re-adding our
+		// Substring rather than exact-line match: ".logos" (no slash) or
+		// "/.logos/" written by hand already does the job, and re-adding our
 		// own line on top of a rule that already covers it is exactly the
 		// needless churn this function exists to avoid.
-		if strings.Contains(strings.TrimSpace(line), ".brain") {
+		if strings.Contains(strings.TrimSpace(line), ".logos") {
 			return false, nil
 		}
 	}
@@ -50,7 +50,7 @@ func EnsureGitignore(vaultDir string) (wrote bool, err error) {
 	if len(next) > 0 && !strings.HasSuffix(next, "\n") {
 		next += "\n"
 	}
-	next += brainIgnoreLine + "\n"
+	next += logosIgnoreLine + "\n"
 
 	// 0644, not FileMode: this file is meant to be read by git and by whoever
 	// else opens the repo, not private vault content like a note or a memory.

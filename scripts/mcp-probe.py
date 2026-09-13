@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Probe `brain mcp serve` over stdio.
+"""Probe `logos mcp serve` over stdio.
 
 A shell pipeline into the server hangs: the server keeps stdin open waiting for
-the next JSON-RPC frame, and `echo ... | brain mcp serve` never closes it in a
+the next JSON-RPC frame, and `echo ... | logos mcp serve` never closes it in a
 way that produces readable output. This script does the newline-framed exchange
 the transport actually wants — one request, one response, in order — so you can
 see the server work without wiring a real host.
 
     scripts/mcp-probe.py                       # initialize + tools/list
-    scripts/mcp-probe.py resume brain          # also call the `resume` tool
-    BRAIN_VAULT=$(mktemp -d) scripts/mcp-probe.py
+    scripts/mcp-probe.py resume logos          # also call the `resume` tool
+    LOGOS_VAULT=$(mktemp -d) scripts/mcp-probe.py
 
 With a tool name and optional JSON args:
 
@@ -30,7 +30,7 @@ def main() -> int:
         try:
             tool_args = json.loads(args[1])
         except json.JSONDecodeError:
-            # A bare word after the tool name is the common case: `resume brain`.
+            # A bare word after the tool name is the common case: `resume logos`.
             tool_args = {"project": args[1]}
     elif len(args) > 2:
         tool_args = {"project": args[1]}
@@ -38,11 +38,11 @@ def main() -> int:
     # Prefer a build next to this checkout over whatever is on PATH, so the
     # probe tests the code you are editing rather than the wired release.
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local_bin = os.path.join(root, "bin", "brain")
-    brain = local_bin if os.path.exists(local_bin) else "brain"
+    local_bin = os.path.join(root, "bin", "logos")
+    logos = local_bin if os.path.exists(local_bin) else "logos"
 
     proc = subprocess.Popen(
-        [brain, "mcp", "serve"],
+        [logos, "mcp", "serve"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=None,  # straight to our stderr — that is where the server talks

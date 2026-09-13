@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/Coder8124/brain/internal/contextpack"
-	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The context view answers the question the whole product is built around:

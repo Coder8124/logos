@@ -32,7 +32,7 @@ var resourceDefs = []map[string]any{
 	{
 		"uri":         "logos://projects",
 		"name":        "projects",
-		"description": "Projects brain has detected from the user's activity, most recently active first. Same content as the list_projects tool.",
+		"description": "Projects logos has detected from the user's activity, most recently active first. Same content as the list_projects tool.",
 		"mimeType":    "text/plain",
 	},
 }

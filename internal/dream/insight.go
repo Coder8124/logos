@@ -1,4 +1,4 @@
-// Package dream is the nightly consolidation pass — brain sleeping on the day.
+// Package dream is the nightly consolidation pass — logos sleeping on the day.
 //
 // It runs in two phases. NREM (cheap, deterministic, first) stabilises the
 // memory store: it replays the day's salient experience, extracts gist from
@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // Kind is what a dreamed insight would become if accepted.

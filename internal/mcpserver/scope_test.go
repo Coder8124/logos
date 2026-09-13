@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // testDB is an open, initialised store on a scratch file. Single connection,
@@ -92,7 +92,7 @@ func TestRootsFromInitializeReadsBothShapes(t *testing.T) {
 
 func TestExplicitArgumentOutranksEverything(t *testing.T) {
 	s := &Session{roots: []string{"/a/from-roots"}}
-	t.Setenv("BRAIN_PROJECT", "from-env")
+	t.Setenv("LOGOS_PROJECT", "from-env")
 	if got := s.resolveProject("explicit"); got != "explicit" {
 		t.Fatalf("explicit argument must win, got %q", got)
 	}
@@ -100,15 +100,15 @@ func TestExplicitArgumentOutranksEverything(t *testing.T) {
 
 func TestEnvOutranksRootsAndCwd(t *testing.T) {
 	s := &Session{roots: []string{"/a/from-roots"}}
-	t.Setenv("BRAIN_PROJECT", "from-env")
+	t.Setenv("LOGOS_PROJECT", "from-env")
 	if got := s.resolveProject(""); got != "from-env" {
-		t.Fatalf("BRAIN_PROJECT must win over roots, got %q", got)
+		t.Fatalf("LOGOS_PROJECT must win over roots, got %q", got)
 	}
 }
 
 func TestRootsOutrankCwd(t *testing.T) {
 	s := &Session{roots: []string{"file:///a/from-roots"}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	if got := s.resolveProject(""); got != "from-roots" {
 		t.Fatalf("roots must win over cwd, got %q", got)
 	}
@@ -122,7 +122,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Session{roots: []string{real}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	first := s.resolveProject("")
 	s.roots = []string{"/somewhere/else"}
 	if second := s.resolveProject(""); second != first {
@@ -132,7 +132,7 @@ func TestSessionProjectIsResolvedOnce(t *testing.T) {
 
 func TestFallsBackToGlobalWhenNothingIdentifiesAProject(t *testing.T) {
 	s := &Session{roots: []string{"/"}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	t.Chdir("/")
 	if got := s.resolveProject(""); got != "" {
 		t.Fatalf("want global (empty), got %q", got)
@@ -162,18 +162,18 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	// Project scoping, not quarantine, is under test here — quarantine already
 	// hides a memory from recall for a different reason, which would make this
 	// test pass for the wrong one.
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	db := testDB(t)
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
-	t.Setenv("BRAIN_PROJECT", "alpha")
+	t.Setenv("LOGOS_PROJECT", "alpha")
 	if _, err := s.remember("the alpha frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// A second session, in a different folder.
 	other := &Session{Server: srv}
-	t.Setenv("BRAIN_PROJECT", "beta")
+	t.Setenv("LOGOS_PROJECT", "beta")
 	out, err := other.recall("frame material", 10, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -193,17 +193,17 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 }
 
 func TestGlobalMemoriesReachEveryProject(t *testing.T) {
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	db := testDB(t)
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
-	t.Setenv("BRAIN_PROJECT", "alpha")
+	t.Setenv("LOGOS_PROJECT", "alpha")
 	if _, err := s.remember("the user prefers short replies", "preference", "", true); err != nil {
 		t.Fatal(err)
 	}
 
 	other := &Session{Server: srv}
-	t.Setenv("BRAIN_PROJECT", "beta")
+	t.Setenv("LOGOS_PROJECT", "beta")
 	out, err := other.recall("how should I reply", 10, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -220,13 +220,13 @@ func TestGlobalMemoriesReachEveryProject(t *testing.T) {
 // things, and an agent that resumes into the other tree's checkpoint is not
 // merely untidy — it continues work it never started.
 
-// detectWorktrees clears any BRAIN_WORKTREE the developer happens to have set,
+// detectWorktrees clears any LOGOS_WORKTREE the developer happens to have set,
 // so these tests exercise detection rather than the override.
 func detectWorktrees(t *testing.T) {
 	t.Helper()
-	if old, ok := os.LookupEnv("BRAIN_WORKTREE"); ok {
-		t.Cleanup(func() { os.Setenv("BRAIN_WORKTREE", old) })
-		os.Unsetenv("BRAIN_WORKTREE")
+	if old, ok := os.LookupEnv("LOGOS_WORKTREE"); ok {
+		t.Cleanup(func() { os.Setenv("LOGOS_WORKTREE", old) })
+		os.Unsetenv("LOGOS_WORKTREE")
 	}
 }
 
@@ -269,19 +269,19 @@ func linkedTree(t *testing.T, repo, name string) string {
 func TestAMainCheckoutIsScopedAsBefore(t *testing.T) {
 	dir := gitRepo(t)
 	s := &Session{roots: []string{dir}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	if got, want := s.resolveScope(""), filepath.Base(dir); got != want {
 		t.Fatalf("scope = %q, want %q — the main checkout must not move", got, want)
 	}
 }
 
 // And a directory that is not a repository at all still gets a scope, because
-// brain is not only used on git projects.
+// logos is not only used on git projects.
 func TestANonGitDirectoryIsStillScoped(t *testing.T) {
 	detectWorktrees(t)
 	dir := t.TempDir()
 	s := &Session{roots: []string{dir}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	if got, want := s.resolveScope(""), filepath.Base(dir); got != want {
 		t.Fatalf("scope = %q, want %q", got, want)
 	}
@@ -292,8 +292,8 @@ func TestTwoWorktreesOfOneRepoGetDistinctContinuity(t *testing.T) {
 	a, b := linkedTree(t, repo, "feature-a"), linkedTree(t, repo, "feature-b")
 
 	// Both told they are the same project. This is the case folder names cannot
-	// save you from: one BRAIN_PROJECT, two trees.
-	t.Setenv("BRAIN_PROJECT", "kestrel")
+	// save you from: one LOGOS_PROJECT, two trees.
+	t.Setenv("LOGOS_PROJECT", "kestrel")
 	sa, sb := &Session{roots: []string{a}}, &Session{roots: []string{b}}
 	got, other := sa.resolveScope(""), sb.resolveScope("")
 	if got == other {
@@ -314,7 +314,7 @@ func TestTwoWorktreesOfOneRepoGetDistinctContinuity(t *testing.T) {
 func TestAnExplicitProjectIsStillNarrowedByTheWorktree(t *testing.T) {
 	wt := linkedTree(t, gitRepo(t), "feature-a")
 	s := &Session{roots: []string{wt}}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 	if got := s.resolveScope("kestrel"); got != "kestrel/feature-a" {
 		t.Fatalf("scope = %q, want kestrel/feature-a", got)
 	}
@@ -329,11 +329,11 @@ func TestAnExplicitProjectIsStillNarrowedByTheWorktree(t *testing.T) {
 // Two trees a user deliberately wants to treat as one piece of work have no
 // other way to say so, because nothing here takes the model's word for which
 // tree it is in.
-func TestBrainWorktreeTurnsTheNarrowingOff(t *testing.T) {
+func TestLogosWorktreeTurnsTheNarrowingOff(t *testing.T) {
 	repo := gitRepo(t)
 	a, b := linkedTree(t, repo, "feature-a"), linkedTree(t, repo, "feature-b")
-	t.Setenv("BRAIN_PROJECT", "kestrel")
-	t.Setenv("BRAIN_WORKTREE", "")
+	t.Setenv("LOGOS_PROJECT", "kestrel")
+	t.Setenv("LOGOS_WORKTREE", "")
 	sa, sb := &Session{roots: []string{a}}, &Session{roots: []string{b}}
 	if got, other := sa.resolveScope(""), sb.resolveScope(""); got != "kestrel" || other != "kestrel" {
 		t.Fatalf("scopes = %q and %q, want both kestrel", got, other)
@@ -344,14 +344,14 @@ func TestBrainWorktreeTurnsTheNarrowingOff(t *testing.T) {
 // one worktree checkpoints, the other does not resume into — while both keep
 // the memory of the repository they are both working on.
 func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	db := testDB(t)
 	if err := session.Init(db); err != nil {
 		t.Fatal(err)
 	}
 	vault := t.TempDir()
 	repo := gitRepo(t)
-	t.Setenv("BRAIN_PROJECT", "kestrel")
+	t.Setenv("LOGOS_PROJECT", "kestrel")
 
 	a := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-a")}}
 	b := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-b")}}
@@ -414,7 +414,7 @@ func TestAFreshWorktreeInheritsTheProjectsCheckpointAndSaysSo(t *testing.T) {
 	}
 	vault := t.TempDir()
 	repo := gitRepo(t)
-	t.Setenv("BRAIN_PROJECT", "kestrel")
+	t.Setenv("LOGOS_PROJECT", "kestrel")
 
 	main := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{repo}}
 	if _, err := main.checkpoint(map[string]any{

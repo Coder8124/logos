@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/provider"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // ErrNoRuntime means nothing answered on any known local port.
@@ -156,7 +156,7 @@ func (r *Router) Model(t Tier) (string, error) {
 		}
 	}
 	if t > T0 {
-		return "", fmt.Errorf("%w: %s needs a generation model and none is installed — run `brain setup` to install one", ErrNoModel, t)
+		return "", fmt.Errorf("%w: %s needs a generation model and none is installed — run `logos setup` to install one", ErrNoModel, t)
 	}
 	return "", fmt.Errorf("%w: %s or any lower tier", ErrNoModel, t)
 }
@@ -188,7 +188,7 @@ func (r *Router) ModelFor(t Tier, needSchema bool) (string, error) {
 	return m, nil
 }
 
-// Available reports every configured tier and what it resolved to, for `brain
+// Available reports every configured tier and what it resolved to, for `logos
 // doctor`. The first-run greeting is built from this.
 func (r *Router) Available() []string {
 	var out []string

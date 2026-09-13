@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/project"
-	"github.com/Coder8124/brain/internal/untrusted"
+	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // Render writes the "known to work" half of before_you_try.

@@ -49,7 +49,7 @@ func TestManyOpensOnAColdVaultAllSucceed(t *testing.T) {
 }
 
 // A vault indexed before 0.3.0 still has the ambient-capture tables on disk —
-// they lived only in .brain/index.db, never the vault, so dropping them loses
+// they lived only in .logos/index.db, never the vault, so dropping them loses
 // nothing the vault-is-truth promise covers. But a silent schema drop is the
 // exact failure this codebase keeps re-fixing (memories, working notes,
 // checkpoints, the review queue), so the drop must say how many rows it threw

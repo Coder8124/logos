@@ -10,7 +10,7 @@ import (
 
 // Pin state is bookkeeping like confidence or salience, so it has to survive
 // the same wipe-and-reimport round trip everything else in the vault does —
-// `rm -rf .brain` must not silently un-pin the things a user was relying on.
+// `rm -rf .logos` must not silently un-pin the things a user was relying on.
 func TestPinStateSurvivesTheVaultRoundTrip(t *testing.T) {
 	db, dir := vaultDB(t)
 
@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS memory_log_ts ON memory_log(ts);
 `
 
 // A vault indexed before this feature existed must keep working: reopening it
-// (via Init, exactly as brain does on every startup) has to succeed, existing
+// (via Init, exactly as logos does on every startup) has to succeed, existing
 // rows must read back with pin defaulting to PinNone, and the new pin
 // operations must work against the now-migrated table.
 func TestOldDatabaseWithoutPinColumnStillOpens(t *testing.T) {
@@ -98,7 +98,7 @@ func TestOldDatabaseWithoutPinColumnStillOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// This is what every `brain` startup does — Init must migrate in place,
+	// This is what every `logos` startup does — Init must migrate in place,
 	// not require a fresh vault.
 	if err := Init(db); err != nil {
 		t.Fatalf("Init must open a pre-pin database without error, got %v", err)

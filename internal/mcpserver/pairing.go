@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	vaultpkg "github.com/Coder8124/brain/internal/vault"
+	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
 // pairing.go: the one secret the local HTTP/WebSocket transport needs before
@@ -22,11 +22,11 @@ import (
 // checked alongside (not instead of) the Origin allowlist in http.go — either
 // one failing is a rejection.
 
-// tokenPath is where the token lives: .brain/, alongside config.json and
+// tokenPath is where the token lives: .logos/, alongside config.json and
 // flavor.json, not the vault proper. It is local machine state, not something
 // a rebuild-from-vault promise covers — deleting it just means re-pairing.
 func tokenPath(vault string) string {
-	return filepath.Join(vault, ".brain", "webbridge.json")
+	return filepath.Join(vault, ".logos", "webbridge.json")
 }
 
 type pairingFile struct {
@@ -34,7 +34,7 @@ type pairingFile struct {
 }
 
 // LoadOrCreateToken returns the vault's pairing token, minting one on first
-// use. Stable across restarts so `brain mcp serve --http` doesn't force the
+// use. Stable across restarts so `logos mcp serve --http` doesn't force the
 // user to re-paste a new token into the extension every time they start it.
 func LoadOrCreateToken(vault string) (string, error) {
 	p := tokenPath(vault)
@@ -54,7 +54,7 @@ func LoadOrCreateToken(vault string) (string, error) {
 	token := hex.EncodeToString(buf)
 
 	if err := vaultpkg.MkdirPrivate(filepath.Dir(p)); err != nil {
-		return "", fmt.Errorf("creating .brain: %w", err)
+		return "", fmt.Errorf("creating .logos: %w", err)
 	}
 	b, err := json.Marshal(pairingFile{Token: token})
 	if err != nil {
@@ -66,7 +66,7 @@ func LoadOrCreateToken(vault string) (string, error) {
 	return token, nil
 }
 
-// HasToken reports whether a vault has ever paired, for `brain doctor` — it
+// HasToken reports whether a vault has ever paired, for `logos doctor` — it
 // must never itself mint one; a health check that has a side effect of
 // creating a secret is a bug waiting to be filed.
 func HasToken(vault string) bool {

@@ -75,7 +75,7 @@ func TestRecallScopedFiltersByProject(t *testing.T) {
 	// A global memory and two project memories along the same axis.
 	insertProjectMem(t, db, "global preference", "", []float32{1, 0, 0})
 	insertProjectMem(t, db, "elysee deploy target is Friday", "elysee", []float32{1, 0.01, 0})
-	insertProjectMem(t, db, "brain uses sqlite", "brain", []float32{1, 0.01, 0})
+	insertProjectMem(t, db, "logos uses sqlite", "logos", []float32{1, 0.01, 0})
 
 	got, err := recallScoped(db, []float32{1, 0, 0}, 10, "", "elysee", Procedure, false)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestRecallScopedFiltersByProject(t *testing.T) {
 	if !hasText(got, "global preference") {
 		t.Error("project scope should still see global memories")
 	}
-	if hasText(got, "brain uses sqlite") {
+	if hasText(got, "logos uses sqlite") {
 		t.Error("project scope must not see another project's memory")
 	}
 }
@@ -132,7 +132,7 @@ func hasText(mems []Memory, text string) bool {
 //
 // Forget the highest-numbered memory and the only place its number survives is
 // the log. A new memory stored at that point took the number again, and once
-// the log was imported `brain memory history` showed one timeline in which a
+// the log was imported `logos memory history` showed one timeline in which a
 // fact was forgotten and then created as something unrelated.
 func TestAForgottenIdIsNotReusedBeforeTheTimelineIsRestored(t *testing.T) {
 	db, dir := vaultDB(t)

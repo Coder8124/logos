@@ -34,7 +34,7 @@ const (
 // os.MkdirAll does not change the mode of a directory that already exists, so
 // this does not silently retighten a vault the user set up deliberately — new
 // directories are private, and existing ones are left as they are and reported
-// by `brain doctor` instead. Tightening someone's filesystem without asking is
+// by `logos doctor` instead. Tightening someone's filesystem without asking is
 // its own kind of surprise.
 func MkdirPrivate(dir string) error {
 	return os.MkdirAll(dir, DirMode)

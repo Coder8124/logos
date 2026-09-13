@@ -1,7 +1,7 @@
 // Package transcript reads other coding agents' on-disk session logs and
 // normalises them into a common shape.
 //
-// It is the front half of `brain ingest`. The thesis is
+// It is the front half of `logos ingest`. The thesis is
 // "read transcripts, never replay them": a raw transcript resumed as context
 // hands the next agent every abandoned approach as a live option, which is the
 // stale-answer failure the continuity benchmark measures. So this package's job
@@ -164,7 +164,7 @@ func reasonNoRoot(r reader) string {
 	if _, ok := r.(txcriptReader); ok {
 		return "no native reader and txcript is not on PATH; install txcript for this format"
 	}
-	return "no session directory found (set the matching BRAIN_* override to point at one)"
+	return "no session directory found (set the matching LOGOS_* override to point at one)"
 }
 
 // hashFile returns the hex SHA-256 of a file's bytes. The whole-file hash is

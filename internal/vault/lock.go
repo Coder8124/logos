@@ -8,7 +8,7 @@ import (
 )
 
 // Two agents against one vault is this product's ordinary case, and they are
-// not two goroutines: Claude Code and Cursor each launch their own `brain mcp
+// not two goroutines: Claude Code and Cursor each launch their own `logos mcp
 // serve`, in their own process, pointed at the same directory. The desktop app
 // and a terminal make a third and fourth.
 //
@@ -27,13 +27,13 @@ import (
 // too long (a vault wedged until it expires). There is no stale flock. A
 // process that dies holding one releases it on the way out.
 //
-// The lock files live in .brain/ because .brain is already the throwaway half
+// The lock files live in .logos/ because .logos is already the throwaway half
 // of the vault: the invariant every document ships is "delete the index, run
-// `brain index`, lose nothing", and a lock is precisely the kind of state that
+// `logos index`, lose nothing", and a lock is precisely the kind of state that
 // must not survive into the durable half.
 
-// lockSubdir keeps the sidecars out of .brain's top level, where index.db and
-// its WAL live and where `brain doctor` enumerates what it expects to find.
+// lockSubdir keeps the sidecars out of .logos's top level, where index.db and
+// its WAL live and where `logos doctor` enumerates what it expects to find.
 const lockSubdir = "locks"
 
 // inProc serialises goroutines within this process.
@@ -68,7 +68,7 @@ type Guard struct {
 // half and says so on stderr rather than failing the write. It is announced
 // because a silently weaker guarantee is how this class of bug got here.
 func Lock(vaultDir, name string) (*Guard, error) {
-	dir := filepath.Join(vaultDir, ".brain", lockSubdir)
+	dir := filepath.Join(vaultDir, ".logos", lockSubdir)
 	if err := MkdirPrivate(dir); err != nil {
 		return nil, fmt.Errorf("creating the lock directory %s: %w", dir, err)
 	}
@@ -130,6 +130,6 @@ func warnOnce(path string, err error) {
 	warned[path] = true
 	// stderr, never stdout: stdout is the MCP JSON-RPC transport.
 	fmt.Fprintf(os.Stderr,
-		"brain: %s cannot be locked (%v) — writes are serialised within this "+
+		"logos: %s cannot be locked (%v) — writes are serialised within this "+
 			"process only; run one agent at a time against this vault\n", path, err)
 }

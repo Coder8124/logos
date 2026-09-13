@@ -8,7 +8,7 @@ import (
 
 // The bug this package was written for: a repository checked out under one
 // name and called another. Without the marker the answer is the folder, which
-// is how activity ended up filed under "brain" while every checkpoint sat
+// is how activity ended up filed under "logos" while every checkpoint sat
 // under "logos".
 func TestMarkerRenamesTheDirectory(t *testing.T) {
 	dir := t.TempDir()
@@ -40,7 +40,7 @@ func TestMarkerIsFoundFromASubdirectory(t *testing.T) {
 // and a blank line must not become the project name.
 func TestMarkerSkipsCommentsAndBlankLines(t *testing.T) {
 	dir := t.TempDir()
-	write(t, filepath.Join(dir, MarkerFile), "\n# checked out as brain/, called logos\n\n  logos  \n# trailing\n")
+	write(t, filepath.Join(dir, MarkerFile), "\n# checked out as logos/, called logos\n\n  logos  \n# trailing\n")
 	if got := Name(dir); got != "logos" {
 		t.Errorf("Name = %q, want %q", got, "logos")
 	}

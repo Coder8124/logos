@@ -1,10 +1,10 @@
-// Package selfupdate implements `brain update`: check GitHub for a newer
+// Package selfupdate implements `logos update`: check GitHub for a newer
 // release, verify it actually runs on this machine, then replace the running
 // binary.
 //
 // This is the one place in the codebase that makes a network call on its own
 // initiative rather than because a user typed a command that needs one — and
-// even here, only when the user typed `brain update` specifically. It never
+// even here, only when the user typed `logos update` specifically. It never
 // runs on a schedule, from doctor, or in the background, and the request it
 // makes carries no vault path, no machine identifier, no telemetry: a bare GET
 // with a User-Agent naming this binary and nothing else. See Update's doc
@@ -33,9 +33,7 @@ import (
 
 const (
 	defaultAPIBase = "https://api.github.com"
-	// The repository is Coder8124/logos — the published product name — even
-	// though the module and binary keep the development name, brain.
-	defaultRepo = "Coder8124/logos"
+	defaultRepo    = "Coder8124/logos"
 )
 
 // Asset is one file attached to a GitHub release.
@@ -64,7 +62,7 @@ type Client struct {
 	Agent string
 }
 
-// NewClient is what `brain update` uses. version is stamped into the
+// NewClient is what `logos update` uses. version is stamped into the
 // User-Agent so a look at GitHub's own request logs identifies which release
 // is asking, nothing more.
 func NewClient(version string) *Client {
@@ -75,7 +73,7 @@ func NewClient(version string) *Client {
 		},
 		APIBase: defaultAPIBase,
 		Repo:    defaultRepo,
-		Agent:   "brain/" + version,
+		Agent:   "logos/" + version,
 	}
 }
 
@@ -166,7 +164,7 @@ func FindAsset(assets []Asset, name string) (Asset, bool) {
 }
 
 // AssetName is what scripts/release.sh names one platform's archive:
-// brain_<version>_<goos>_<goarch>.tar.gz, or .zip on Windows. Go's own
+// logos_<version>_<goos>_<goarch>.tar.gz, or .zip on Windows. Go's own
 // GOOS/GOARCH spellings are what the script uses directly — no npm-style
 // x64 translation is needed here.
 func AssetName(version, goos, goarch string) string {
@@ -174,7 +172,7 @@ func AssetName(version, goos, goarch string) string {
 	if goos == "windows" {
 		ext = "zip"
 	}
-	return fmt.Sprintf("brain_%s_%s_%s.%s", version, goos, goarch, ext)
+	return fmt.Sprintf("logos_%s_%s_%s.%s", version, goos, goarch, ext)
 }
 
 // VerifyChecksum checks data against the sha256 recorded for name in a
@@ -189,7 +187,7 @@ func VerifyChecksum(sums []byte, name string, data []byte) error {
 		// shasum marks binary-mode entries with a leading "*", and echoes back
 		// whatever glob it was given — scripts/release.sh runs it as
 		// `./*.tar.gz`, so every SHA256SUMS this project has ever published
-		// names its entries "./brain_...", not the bare name AssetName builds.
+		// names its entries "./logos_...", not the bare name AssetName builds.
 		entry := strings.TrimPrefix(fields[1], "*")
 		entry = strings.TrimPrefix(entry, "./")
 		if entry == name {
@@ -211,14 +209,14 @@ func VerifyChecksum(sums []byte, name string, data []byte) error {
 // name, kept even inside the npm-distributed archives; see npm/bin/logos.js.
 func binaryName(goos string) string {
 	if goos == "windows" {
-		return "brain.exe"
+		return "logos.exe"
 	}
-	return "brain"
+	return "logos"
 }
 
-// ExtractBinary pulls the brain executable out of a release archive. The
+// ExtractBinary pulls the logos executable out of a release archive. The
 // archive holds it one directory down
-// (brain_<version>_<goos>_<goarch>/brain), so this matches on suffix rather
+// (logos_<version>_<goos>_<goarch>/logos), so this matches on suffix rather
 // than an exact path.
 func ExtractBinary(archive []byte, goos string) ([]byte, error) {
 	name := binaryName(goos)
@@ -269,7 +267,7 @@ func extractZip(data []byte, name string) ([]byte, error) {
 }
 
 // InstallKind is how this binary got onto the machine, which decides whether
-// `brain update` has anything to replace.
+// `logos update` has anything to replace.
 type InstallKind int
 
 const (
@@ -388,7 +386,7 @@ func parseVersion(v string) (nums [3]int, pre, ok bool) {
 // actually run" check, and how the running executable is resolved — so the
 // whole flow is exercisable against an httptest.Server and a fake verify
 // function, never a real GitHub API or a real exec. The zero value is what
-// `brain update` uses.
+// `logos update` uses.
 type Options struct {
 	Client     *Client
 	Verify     func(path, wantVersion string) error
@@ -444,7 +442,7 @@ func execVersionCheck(path, wantVersion string) error {
 }
 
 // CheckOnly resolves the latest release without downloading or installing
-// anything — `brain update --check`.
+// anything — `logos update --check`.
 func CheckOnly(currentVersion string, opts Options) (Release, error) {
 	return opts.client(currentVersion).Latest()
 }
@@ -473,7 +471,7 @@ func CheckOnly(currentVersion string, opts Options) (Release, error) {
 func Update(currentVersion string, opts Options) (Result, error) {
 	if IsDevBuild(currentVersion) {
 		return Result{}, &Error{StepCheck, fmt.Errorf(
-			"this is an unstamped dev build; `brain update` would replace it with a release binary, which is almost never what you want from a build you just made")}
+			"this is an unstamped dev build; `logos update` would replace it with a release binary, which is almost never what you want from a build you just made")}
 	}
 
 	target, err := opts.executable()
@@ -496,7 +494,7 @@ func Update(currentVersion string, opts Options) (Result, error) {
 	}
 
 	dir := filepath.Dir(target)
-	probe := filepath.Join(dir, ".brain-update-probe")
+	probe := filepath.Join(dir, ".logos-update-probe")
 	if err := os.WriteFile(probe, []byte("x"), 0o644); err != nil {
 		return Result{}, &Error{StepCheck, fmt.Errorf(
 			"%s is not writable: %w — fix permissions, or run the command that owns this install (e.g. `sudo`, or `npm i -g @noeton/logos@latest`)", dir, err)}
@@ -534,7 +532,7 @@ func Update(currentVersion string, opts Options) (Result, error) {
 		return Result{}, &Error{StepDownload, err}
 	}
 
-	tmp := filepath.Join(dir, ".brain-update-"+strings.TrimPrefix(rel.Version, "v"))
+	tmp := filepath.Join(dir, ".logos-update-"+strings.TrimPrefix(rel.Version, "v"))
 	if err := os.WriteFile(tmp, bin, 0o755); err != nil {
 		return Result{}, &Error{StepVerify, fmt.Errorf("writing the downloaded binary: %w", err)}
 	}

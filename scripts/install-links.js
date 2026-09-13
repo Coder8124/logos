@@ -18,11 +18,9 @@ const path = require("path");
 const PKG = "@noeton/logos";
 
 // The server name the host will show, and the prefix every tool appears under.
-// It is the product name, not the development one: this is a surface the user
-// reads. BRAIN_VAULT and the binary keep the development name; see npm/bin.
 const NAME = "logos";
 
-// No BRAIN_VAULT here on purpose. The binary defaults to ~/brain (an absolute
+// No LOGOS_VAULT here on purpose. The binary defaults to ~/logos (an absolute
 // path), so omitting it keeps the link portable between machines — and a link
 // carrying one person's home directory is worse than no link at all.
 const config = {

@@ -6,8 +6,8 @@ A tiny fixture vault: four notes and the directory layout a real vault uses.
 Tests and manual walkthroughs point at it when they need *a* vault that exists
 and has some texture, without depending on anything on the machine.
 
-It is **not** a live vault, and nothing writes to it. Yours is `$BRAIN_VAULT`
-(default `~/brain`); a throwaway one is `BRAIN_VAULT=$(mktemp -d)`. A live vault
+It is **not** a live vault, and nothing writes to it. Yours is `$LOGOS_VAULT`
+(default `~/logos`); a throwaway one is `LOGOS_VAULT=$(mktemp -d)`. A live vault
 that happens to sit at `./vault` is gitignored precisely so it can never be
 confused with this one.
 

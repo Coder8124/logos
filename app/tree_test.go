@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/contextpack"
+	"github.com/Coder8124/logos/internal/contextpack"
 )
 
 func seedTreeVault(t *testing.T) string {
@@ -51,7 +51,7 @@ func TestVaultTreeListsRealFilesFromEveryVaultDirectory(t *testing.T) {
 	}
 }
 
-// The dot-directories that back this very feature (.brain, .context) must
+// The dot-directories that back this very feature (.logos, .context) must
 // never show up as nodes — a rules file editable through the tree it drives
 // would be a promise this code cannot keep (editing it could desync the tree
 // from the rule the tree itself just wrote).

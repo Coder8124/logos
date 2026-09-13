@@ -14,9 +14,9 @@ import (
 // sessions/<project>/: worktree scoping (internal/mcpserver/scope.go's
 // scopeName) files it one level deeper, at
 // sessions/<project>/<worktree>/<id>.md, whenever the process running the
-// probe — brain doctor --integration itself — has its working directory
+// probe — logos doctor --integration itself — has its working directory
 // inside a linked git worktree. That is not a hypothetical: an agent working
-// on brain in an isolated worktree is exactly this case.
+// on logos in an isolated worktree is exactly this case.
 //
 // cleanUp only ever tried to remove the project directory, so it found the
 // now-empty worktree subdirectory sitting inside it, called the project
@@ -24,17 +24,17 @@ import (
 // cleanup failure.
 func TestCleanUpRemovesAWorktreeScopedCheckpointsDirectory(t *testing.T) {
 	vault := t.TempDir()
-	root := filepath.Join(vault, "sessions", "brain-selftest-1234")
+	root := filepath.Join(vault, "sessions", "logos-selftest-1234")
 	nested := filepath.Join(root, "some-worktree")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	checkpoint := filepath.Join(nested, "20260101-000000-probe.md")
-	if err := os.WriteFile(checkpoint, []byte("project: brain-selftest-1234\n"), 0o644); err != nil {
+	if err := os.WriteFile(checkpoint, []byte("project: logos-selftest-1234\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := cleanUp(vault, "brain-selftest-1234", checkpoint); err != nil {
+	if err := cleanUp(vault, "logos-selftest-1234", checkpoint); err != nil {
 		t.Fatalf("cleanUp on a worktree-scoped checkpoint returned an error instead of removing it: %v", err)
 	}
 	if _, err := os.Stat(nested); !os.IsNotExist(err) {
@@ -51,13 +51,13 @@ func TestCleanUpRemovesAWorktreeScopedCheckpointsDirectory(t *testing.T) {
 // hold somebody's real notes.
 func TestCleanUpLeavesAForeignFileInTheWorktreeDirectoryAlone(t *testing.T) {
 	vault := t.TempDir()
-	root := filepath.Join(vault, "sessions", "brain-selftest-5678")
+	root := filepath.Join(vault, "sessions", "logos-selftest-5678")
 	nested := filepath.Join(root, "some-worktree")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	checkpoint := filepath.Join(nested, "20260101-000000-probe.md")
-	if err := os.WriteFile(checkpoint, []byte("project: brain-selftest-5678\n"), 0o644); err != nil {
+	if err := os.WriteFile(checkpoint, []byte("project: logos-selftest-5678\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	foreign := filepath.Join(nested, "someones-real-note.md")
@@ -65,7 +65,7 @@ func TestCleanUpLeavesAForeignFileInTheWorktreeDirectoryAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := cleanUp(vault, "brain-selftest-5678", checkpoint); err == nil {
+	if err := cleanUp(vault, "logos-selftest-5678", checkpoint); err == nil {
 		t.Fatal("cleanUp reported success while a foreign file was still in the directory")
 	}
 	if _, err := os.Stat(foreign); err != nil {
@@ -78,7 +78,7 @@ func TestCleanUpLeavesAForeignFileInTheWorktreeDirectoryAlone(t *testing.T) {
 // stops writing — the exact shape of a probe that got the answer it needed
 // from an early message and never called await again — the 65th line blocks
 // the send forever. Nothing before this test gave that goroutine a way out,
-// so it outlives Integration itself for as long as the process runs `brain
+// so it outlives Integration itself for as long as the process runs `logos
 // doctor`.
 func TestScanStdoutStopsWhenNobodyIsReadingTheChannel(t *testing.T) {
 	r, w := io.Pipe()

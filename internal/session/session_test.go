@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 
 	_ "modernc.org/sqlite"
 )
@@ -262,7 +262,7 @@ quote the single-mic line
 
 func TestRoundTripSurvivesAColonInTheTask(t *testing.T) {
 	// Unquoted YAML would swallow this into a mapping and lose the title.
-	c := Checkpoint{Project: "brain", Agent: "claude", Task: "fix: the panel: broken", Next: "ship"}
+	c := Checkpoint{Project: "logos", Agent: "claude", Task: "fix: the panel: broken", Next: "ship"}
 	got := ParseCheckpoint(c.Markdown(""))
 	if got.Task != c.Task {
 		t.Errorf("task = %q, want %q", got.Task, c.Task)
@@ -347,12 +347,12 @@ func TestRapidCheckpointsByOneAgentDoNotOverwriteEachOther(t *testing.T) {
 	// Same agent, same second: the ids must still differ, or the second
 	// checkpoint silently replaces the first one's file.
 	for i := range 3 {
-		c := &Checkpoint{Project: "brain", Agent: "claude", Task: "step", Next: string(rune('a' + i))}
+		c := &Checkpoint{Project: "logos", Agent: "claude", Task: "step", Next: string(rune('a' + i))}
 		if err := Commit(db, dir, c); err != nil {
 			t.Fatal(err)
 		}
 	}
-	hist, err := History(dir, "brain", 0)
+	hist, err := History(dir, "logos", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,18 +444,18 @@ func TestCheckpointAfterAnotherAgentDiedIsAttributedCorrectly(t *testing.T) {
 func TestSessionsAreScopedToTheAgent(t *testing.T) {
 	db := testDB(t)
 
-	a, err := Current(db, "brain", "claude")
+	a, err := Current(db, "logos", "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Current(db, "brain", "cursor")
+	b, err := Current(db, "logos", "cursor")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.ID == b.ID {
 		t.Fatal("two agents must not share one session")
 	}
-	again, _ := Current(db, "brain", "claude")
+	again, _ := Current(db, "logos", "claude")
 	if again.ID != a.ID {
 		t.Error("the same agent should stay in its own open session")
 	}

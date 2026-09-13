@@ -21,7 +21,7 @@
 //	                            sessions.project
 //
 // The vault is rewritten first and the index second, in that order and never
-// the reverse: the vault is the truth and the index is a cache that `brain
+// the reverse: the vault is the truth and the index is a cache that `logos
 // index` can rebuild from it. A crash between the two leaves a stale cache,
 // which is recoverable; a crash the other way would leave an index pointing at
 // a name the vault no longer uses, which is not.
@@ -36,7 +36,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Result counts what a rename touched, so the caller can report it rather than
@@ -134,7 +134,7 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun, merge bool) (Result, err
 	// a checkpoint yet — working notes live there too, and so does anything a
 	// user filed beside their history — and gating the move on the rewrite
 	// count left all of it behind under a name that no longer exists, while the
-	// index had already moved on. The two then disagreed, and `brain index`
+	// index had already moved on. The two then disagreed, and `logos index`
 	// resolved the disagreement in favour of the stale copy.
 	if merge {
 		// os.Rename onto an existing, non-empty directory fails on every
@@ -296,7 +296,7 @@ func checkName(name string) error {
 //
 // The directory move itself is the caller's, and happens after: rewriting in
 // place and then moving means a failure partway leaves files under the old
-// name with the new name inside them, which `brain index` reconciles. Moving
+// name with the new name inside them, which `logos index` reconciles. Moving
 // first would leave the reverse.
 func rewriteCheckpoints(dir, from, to string, dryRun bool) (int, error) {
 	entries, err := os.ReadDir(dir)
@@ -347,7 +347,7 @@ func rewriteCheckpoints(dir, from, to string, dryRun bool) (int, error) {
 //
 // Deliberately not a blind string replacement over the whole file. A
 // checkpoint's body is prose written by an agent, and it may well contain the
-// old name in a sentence — "renamed brain to logos" is exactly the sentence a
+// old name in a sentence — "renamed logos to logos" is exactly the sentence a
 // checkpoint about this operation would contain. Rewriting that would falsify
 // the record while claiming to move it.
 func retitle(raw, from, to string) (string, bool) {
@@ -508,7 +508,7 @@ func rewriteActivity(dir, from, to string, dryRun bool) (int, error) {
 }
 
 // rewriteIndex updates the cache. Runs last, and its failure is recoverable by
-// `brain index`, which is why the vault goes first.
+// `logos index`, which is why the vault goes first.
 //
 // The sessions table is scoped by a name that may carry a worktree
 // sub-scope — "logos/feature-x" — so it matches the name and anything beneath

@@ -94,7 +94,7 @@ func Continuity(db *sql.DB, vaultDir, project string) (ProjectContinuity, error)
 // a project an agent is actively working that has not committed yet — which is
 // exactly the project this report most needs to surface. The sessions table
 // lists whoever has a session, open or closed, and misses a project someone
-// imported checkpoints for without ever running brain through it locally.
+// imported checkpoints for without ever running logos through it locally.
 func AllContinuity(db *sql.DB, vaultDir string) ([]ProjectContinuity, error) {
 	names := map[string]bool{}
 

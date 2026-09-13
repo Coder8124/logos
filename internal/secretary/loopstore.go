@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Coder8124/brain/internal/vault"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Open loops, written down.
@@ -18,8 +18,8 @@ import (
 // This is the fifth time this shape of bug has appeared — memories, working
 // notes, checkpoints, the review queue, now commitments — and the cause never
 // changes: state that only the database knows. Every document this project
-// ships says delete .brain/index.db, run `brain index`, lose nothing. For
-// `brain loop` that was false. Track a commitment, rebuild the index, and the
+// ships says delete .logos/index.db, run `logos index`, lose nothing. For
+// `logos loop` that was false. Track a commitment, rebuild the index, and the
 // list came back empty, which reads exactly like having finished everything.
 // Nothing was said, because nothing knew anything had been lost.
 //
@@ -150,11 +150,11 @@ func render(all []Commitment) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntype: open-loops\nopen: %d\n---\n\n", open)
-	b.WriteString("Things you said you would do. `brain loop` lists what is still open;\n" +
-		"`brain loop done <id>` or `brain loop drop <id>` closes one.\n\n")
+	b.WriteString("Things you said you would do. `logos loop` lists what is still open;\n" +
+		"`logos loop done <id>` or `logos loop drop <id>` closes one.\n\n")
 	b.WriteString("Ticking a box here does nothing on its own — the status in each line's\n" +
 		"comment is what counts. Deleting a line forgets that loop entirely on the\n" +
-		"next `brain index`; this file is the record, not the database.\n\n")
+		"next `logos index`; this file is the record, not the database.\n\n")
 	for _, c := range all {
 		box := " "
 		switch c.Status {
@@ -163,7 +163,7 @@ func render(all []Commitment) string {
 		case Dropped:
 			box = "-"
 		}
-		fmt.Fprintf(&b, "- [%s] %s <!-- brain id=%d status=%s created=%s",
+		fmt.Fprintf(&b, "- [%s] %s <!-- logos id=%d status=%s created=%s",
 			box, oneLine(c.Text), c.ID, c.Status, stamp(c.Created))
 		if c.Who != "" {
 			fmt.Fprintf(&b, " who=%s", field(c.Who))
@@ -250,7 +250,7 @@ func unfield(s string) string {
 // Import restores loops from the vault, and is what makes deleting the cache
 // survivable for commitments.
 //
-// dir is the caller's rather than vaultFor's: `brain index` imports a vault it
+// dir is the caller's rather than vaultFor's: `logos index` imports a vault it
 // has not bound to a store yet.
 //
 // Returns how many loops it had to put back — a row already in the cache was
@@ -294,7 +294,7 @@ func Import(db *sql.DB, dir string) (int, error) {
 	// The file tells the user a line is theirs to delete, which makes a
 	// copy-pasted line an expected edit rather than an exotic one. Two lines
 	// with the same text collide on the fingerprint UNIQUE index, which
-	// ON CONFLICT(id) does not cover — and the error came back from `brain
+	// ON CONFLICT(id) does not cover — and the error came back from `logos
 	// index` after some rows had been upserted and before the reconciling
 	// delete pass below, leaving the cache half-imported. A repeated commitment
 	// is one commitment. The next flush rewrites the file without the duplicate,
@@ -345,7 +345,7 @@ func Import(db *sql.DB, dir string) (int, error) {
 }
 
 // upsert restores one loop at the id the file gives it, so every reference to
-// that id — a checkpoint saying "closed loop 4", a person typing `brain loop
+// that id — a checkpoint saying "closed loop 4", a person typing `logos loop
 // done 4` — still means the same thing after a rebuild. Reports whether the row
 // had to be created.
 func upsert(db *sql.DB, c Commitment) (bool, error) {
@@ -379,7 +379,7 @@ func parse(raw string) []Commitment {
 		if !strings.HasPrefix(line, "- [") {
 			continue
 		}
-		// Last, not first. brain's bookkeeping is always the final comment on the
+		// Last, not first. logos's bookkeeping is always the final comment on the
 		// line, and a loop whose own text mentions "<!--" — "strip the <!-- hack
 		// --> from the page" — was otherwise cut off at the word before it, on
 		// every import, with no error.
@@ -442,7 +442,7 @@ func parseStamp(field string) int64 {
 // looksTruncated reports a file that ends mid-record — the shape a write
 // interrupted part-way through leaves, and one a hand edit never produces. See
 // internal/memory's copy for the full argument; the narrow gap it admits (a
-// tear landing exactly on a line boundary) is the same here, and brain's own
+// tear landing exactly on a line boundary) is the same here, and logos's own
 // writes go through vault.WriteAtomic, which replaces by rename and cannot
 // tear.
 func looksTruncated(raw string) bool {

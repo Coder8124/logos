@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/Coder8124/brain/internal/eval"
+	"github.com/Coder8124/logos/internal/eval"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,7 +202,7 @@ func (b *Bridge) Reset() error {
 
 // Write hands the event over in both forms: the structured fields, for a system
 // that can use them, and Flatten's prose, for one that cannot. Nothing is
-// withheld from a system because its API is simpler than brain's.
+// withheld from a system because its API is simpler than logos's.
 func (b *Bridge) Write(ev eval.Event) error {
 	_, err := b.call(map[string]any{"op": "write", "event": map[string]any{
 		"ts": ev.TS, "actor": ev.Actor, "kind": string(ev.Kind), "project": ev.Project,

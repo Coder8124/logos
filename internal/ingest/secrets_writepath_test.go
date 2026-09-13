@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/ingest"
-	"github.com/Coder8124/brain/internal/transcript"
+	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // Nothing stopped a transcript ingest from writing a live API key straight

@@ -24,7 +24,7 @@ if (!KEY || !ARCH) {
   process.exit(1);
 }
 const plat = `${KEY}-${ARCH}`;
-const exe = process.platform === "win32" ? "brain.exe" : "brain";
+const exe = process.platform === "win32" ? "logos.exe" : "logos";
 const platDir = path.join(root, "platforms", plat);
 
 if (!fs.existsSync(path.join(platDir, "bin", exe))) {
@@ -49,10 +49,10 @@ function check(name, ok, detail) {
 }
 
 // 1. The launcher resolves and runs the binary, and the exit code survives.
-//    The binary answers with its own name, `brain`, not the package's — that is
+//    The binary answers with its own name, `logos`, not the package's — that is
 //    the seam this wrapper exists to bridge, so asserting on it is deliberate.
 const v = spawnSync(process.execPath, [launcher, "version"], { encoding: "utf8" });
-check("logos version runs through the wrapper", v.status === 0 && /^brain /.test(v.stdout || ""), v.stderr || v.stdout);
+check("logos version runs through the wrapper", v.status === 0 && /^logos /.test(v.stdout || ""), v.stderr || v.stdout);
 
 // 2. A non-zero exit from the binary reaches the caller, rather than being
 //    swallowed into a success the host would misread as a clean shutdown.
@@ -62,7 +62,7 @@ check("a failing command exits non-zero", bad.status !== 0, `status=${bad.status
 // 3. The MCP handshake, end to end through the wrapper. This is the one that
 //    matters: it is how every host will actually invoke this package.
 const mcp = spawn(process.execPath, [launcher, "mcp", "serve"], {
-  env: { ...process.env, BRAIN_VAULT: fs.mkdtempSync(path.join(require("os").tmpdir(), "brain-npm-vault-")) },
+  env: { ...process.env, LOGOS_VAULT: fs.mkdtempSync(path.join(require("os").tmpdir(), "logos-npm-vault-")) },
 });
 let stdout = "";
 mcp.stdout.on("data", (d) => (stdout += d));

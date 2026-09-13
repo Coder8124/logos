@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	vaultpkg "github.com/Coder8124/brain/internal/vault"
+	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
 // Tier orders jobs by how much capability they need. Small local models are
@@ -108,14 +108,14 @@ func Defaults() *Config {
 			"T0": {Model: "nomic-embed-text"},
 			"T1": {Model: "gemma3:4b"},
 			"T2": {Model: "qwen3.6"},
-			"T3": {Model: "claude-opus-4-8", BaseURL: "https://api.anthropic.com/v1", KeyRef: "brain-anthropic"},
+			"T3": {Model: "claude-opus-4-8", BaseURL: "https://api.anthropic.com/v1", KeyRef: "logos-anthropic"},
 		},
 		Think: "low",
 	}
 }
 
 func ConfigPath(vault string) string {
-	return filepath.Join(vault, ".brain", "config.json")
+	return filepath.Join(vault, ".logos", "config.json")
 }
 
 func Load(vault string) (*Config, error) {

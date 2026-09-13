@@ -73,7 +73,7 @@ func TestAMemoryRestoredIntoAFileWeOnceDeletedIsNotSilentlyDropped(t *testing.T)
 // Two proposals arriving at once used to race on memories/pending.md: both read
 // the queue, both rewrite the whole file, and the later write won with a
 // snapshot taken before the other proposal existed. Nothing reported a problem
-// — the loss only surfaced on the next `brain index`, where ImportPending reads
+// — the loss only surfaced on the next `logos index`, where ImportPending reads
 // a queued id missing from the file as a line the user deleted and rejects it.
 //
 // A proposal the user never saw, discarded on their behalf.
@@ -129,7 +129,7 @@ func TestConcurrentProposalsAllReachTheQueueFile(t *testing.T) {
 		}
 	}
 	if missing > 0 {
-		t.Fatalf("%d of %d proposals would be rejected by the next `brain index` without the user ever seeing them", missing, n)
+		t.Fatalf("%d of %d proposals would be rejected by the next `logos index` without the user ever seeing them", missing, n)
 	}
 }
 

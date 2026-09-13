@@ -12,10 +12,10 @@ import (
 
 // childVaultEnv marks the subprocess run below. Its presence is what tells the
 // helper it is the child rather than an ordinary `go test` invocation.
-const childVaultEnv = "BRAIN_LOCK_TEST_VAULT"
+const childVaultEnv = "LOGOS_LOCK_TEST_VAULT"
 
 // The whole reason this lock exists is the case a mutex cannot reach: Claude
-// Code and Cursor each run their own `brain mcp serve`, in their own process,
+// Code and Cursor each run their own `logos mcp serve`, in their own process,
 // against one vault. Asserting that from inside a single process would prove
 // nothing — a sync.Mutex passes that test — so this spawns a real second
 // process and measures whether it had to wait.
@@ -140,9 +140,9 @@ func TestALockIsHeldAgainstAnotherGoroutine(t *testing.T) {
 	}
 }
 
-// The lock lives in .brain, which is the half of the vault the product tells
+// The lock lives in .logos, which is the half of the vault the product tells
 // people they can delete. A lock file written anywhere else would be durable
-// state that survives `rm -rf .brain` and means nothing after a reboot.
+// state that survives `rm -rf .logos` and means nothing after a reboot.
 func TestLockFilesLiveInTheDisposableHalfOfTheVault(t *testing.T) {
 	dir := t.TempDir()
 
@@ -157,11 +157,11 @@ func TestLockFilesLiveInTheDisposableHalfOfTheVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() != ".brain" {
-			t.Errorf("locking put %q in the vault; only .brain should have been touched", e.Name())
+		if e.Name() != ".logos" {
+			t.Errorf("locking put %q in the vault; only .logos should have been touched", e.Name())
 		}
 	}
-	if _, err := os.Stat(dir + "/.brain/locks/probe.lock"); err != nil {
-		t.Errorf("expected the lock file under .brain/locks: %v", err)
+	if _, err := os.Stat(dir + "/.logos/locks/probe.lock"); err != nil {
+		t.Errorf("expected the lock file under .logos/locks: %v", err)
 	}
 }

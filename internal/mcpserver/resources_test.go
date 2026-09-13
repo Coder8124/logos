@@ -95,7 +95,7 @@ func TestResourceTemplatesListNamesMemoryDiff(t *testing.T) {
 // tool call returns — a host choosing the cheaper resource path must not see
 // a different answer than one that kept calling the tool.
 func TestReadResourceMemoriesMatchesListMemoriesTool(t *testing.T) {
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 
@@ -140,7 +140,7 @@ func TestReadResourceProjectsMatchesListProjectsTool(t *testing.T) {
 // from {?subject,days} itself — there is no separate params object the way a
 // tool call gets one.
 func TestReadResourceMemoryDiffParsesSubjectAndDays(t *testing.T) {
-	t.Setenv("BRAIN_TRUST_MCP", "1")
+	t.Setenv("LOGOS_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 

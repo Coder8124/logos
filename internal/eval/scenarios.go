@@ -19,8 +19,8 @@ import (
 // depend on facts established elsewhere in the same fiction.
 //
 // Roughly a third of the suite is marked KnownWeakness. Those are not
-// aspirational; they are cases brain fails today, several found by an agent
-// picking apart brain's own handoff output during a live test. A benchmark
+// aspirational; they are cases logos fails today, several found by an agent
+// picking apart logos's own handoff output during a live test. A benchmark
 // whose author chooses the categories is a benchmark its author wins, and the
 // only defence is to write the losses down first.
 

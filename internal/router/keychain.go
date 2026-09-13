@@ -10,13 +10,13 @@ import (
 // vault. The vault is designed to be synced and shared; a key in it would
 // eventually end up somewhere it should not be.
 
-const keychainService = "brain"
+const keychainService = "logos"
 
 func GetKey(ref string) (string, error) {
 	out, err := exec.Command("security", "find-generic-password",
 		"-s", keychainService, "-a", ref, "-w").Output()
 	if err != nil {
-		return "", fmt.Errorf("no key %q in keychain (add with: brain key set %s)", ref, ref)
+		return "", fmt.Errorf("no key %q in keychain (add with: logos key set %s)", ref, ref)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

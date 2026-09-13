@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/text"
-	"github.com/Coder8124/brain/internal/transcript"
+	"github.com/Coder8124/logos/internal/text"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // Harvest derives a candidate from a session using only mechanically-checkable

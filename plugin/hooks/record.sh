@@ -19,7 +19,7 @@
 #   - say nothing. This one is the exception to Logos's "announce yourself"
 #     rule, and deliberately: a line of output per tool call is not visibility,
 #     it is noise, and it would bury the receipts that *do* matter. The
-#     announcement for this feature is `brain activity`, which is where a person
+#     announcement for this feature is `logos activity`, which is where a person
 #     goes to look, and the session-start receipt that says the log is running.
 set -uo pipefail
 

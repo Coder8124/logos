@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/Coder8124/brain/internal/agent"
-	"github.com/Coder8124/brain/internal/consent"
+	"github.com/Coder8124/logos/internal/agent"
+	"github.com/Coder8124/logos/internal/consent"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )

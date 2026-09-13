@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // Integration proves the wiring end to end, by being the host.
@@ -24,7 +24,7 @@ import (
 // The obvious probe — initialize, then tools/list — is not enough. A server
 // pointed at the *wrong vault* passes both perfectly while knowing nothing
 // about the user's work, and that is the failure most worth catching, because
-// it looks exactly like brain being useless rather than brain being
+// it looks exactly like logos being useless rather than logos being
 // misconfigured. So this writes a disposable checkpoint, reads it back through
 // resume, and confirms the file landed in the vault that was configured — then
 // removes it.
@@ -43,10 +43,10 @@ func Integration(bin string, args []string, vault string) []Check {
 
 	// A name no real project would collide with, carrying the pid so two probes
 	// at once cannot tread on each other.
-	project := fmt.Sprintf("brain-selftest-%d", os.Getpid())
+	project := fmt.Sprintf("logos-selftest-%d", os.Getpid())
 
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "BRAIN_VAULT="+vault)
+	cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fail("launch", err.Error(), "")
@@ -138,7 +138,7 @@ func Integration(bin string, args []string, vault string) []Check {
 		"params": map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{},
-			"clientInfo":      map[string]any{"name": "brain-doctor", "version": "1"},
+			"clientInfo":      map[string]any{"name": "logos-doctor", "version": "1"},
 		},
 	}); err != nil {
 		return fail("handshake", err.Error(), "")
@@ -175,11 +175,11 @@ func Integration(bin string, args []string, vault string) []Check {
 	marker := "selftest ruled this out at " + time.Now().Format(time.RFC3339)
 	if _, ok := call(3, "checkpoint", map[string]any{
 		"project": project,
-		"task":    "verifying the brain integration",
+		"task":    "verifying the logos integration",
 		"state":   "probe in progress",
 		"failed":  []string{marker},
 		"next":    "delete this checkpoint",
-		"agent":   "brain-doctor",
+		"agent":   "logos-doctor",
 	}); !ok {
 		return fail("write", "checkpoint did not complete",
 			"the vault may not be writable by the host's user")
@@ -201,7 +201,7 @@ func Integration(bin string, args []string, vault string) []Check {
 	found := findCheckpoint(vault, project)
 	if found == "" {
 		return fail("vault", "the checkpoint is not in "+vault,
-			"the host is pointed at a different BRAIN_VAULT than you think")
+			"the host is pointed at a different LOGOS_VAULT than you think")
 	}
 	if err := cleanUp(vault, project, found); err != nil {
 		return fail("vault", "written to "+vault+", but the probe could not clean up after itself: "+err.Error(),
@@ -217,10 +217,10 @@ func Integration(bin string, args []string, vault string) []Check {
 // filed under.
 //
 // Removing only the file is not enough, and the difference is not cosmetic. A
-// project is a directory under sessions/, so an empty brain-selftest-<pid>
-// directory is a project as far as `brain continuity` and `brain projects` are
+// project is a directory under sessions/, so an empty logos-selftest-<pid>
+// directory is a project as far as `logos continuity` and `logos projects` are
 // concerned — one that has never checkpointed and never will. Every run of
-// `brain doctor --integration` added another, permanently, to the one report
+// `logos doctor --integration` added another, permanently, to the one report
 // whose job is to say which projects have gone quiet. Three of them were in the
 // author's own vault before anyone noticed, under a check that said "cleaned
 // up".
@@ -232,7 +232,7 @@ func cleanUp(vault, project, checkpoint string) error {
 	// The checkpoint does not always land directly in root: worktree scoping
 	// (scopeName in internal/mcpserver/scope.go) files it one level deeper, at
 	// sessions/<project>/<worktree>/<id>.md, whenever this probe's own process
-	// — brain doctor --integration — happens to be running with its working
+	// — logos doctor --integration — happens to be running with its working
 	// directory inside a linked git worktree. Removing only root then found
 	// that now-empty worktree directory still sitting in it, called root "not
 	// empty", and reported a probe that fully succeeded as a cleanup failure.
@@ -256,7 +256,7 @@ func cleanUp(vault, project, checkpoint string) error {
 // the probe gets the answer it needs it stops calling await, and a plain
 // `out <- sc.Text()` blocks this goroutine forever the moment the 65th line
 // arrives with the buffer already full — a leak for the life of the process
-// running `brain doctor`.
+// running `logos doctor`.
 func scanStdout(sc *bufio.Scanner, out chan<- string, stop <-chan struct{}) {
 	defer close(out)
 	for sc.Scan() {

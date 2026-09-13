@@ -6,7 +6,7 @@
 // agent that has to rediscover the three approaches that failed yesterday is not
 // resuming, it is starting over with a warmer greeting.
 //
-// The split mirrors git, which is the shape brain is aiming at:
+// The split mirrors git, which is the shape logos is aiming at:
 //
 //	working notes  →  SQLite   →  the working tree. Cheap, frequent, disposable.
 //	checkpoints    →  the vault →  commits. Durable, readable, diffable.
@@ -211,7 +211,7 @@ func AddNoteAt(db *sql.DB, project, agent, text string, ts int64) (Note, error) 
 		return Note{}, err
 	}
 	// And then to the vault, because a note that lives only in the index is a
-	// note that `brain index` is entitled to throw away. The note is returned
+	// note that `logos index` is entitled to throw away. The note is returned
 	// alongside the error: it is in the cache and usable, it is just not yet
 	// durable, and the caller deserves to be told which of those is true.
 	if err := flushNotes(db, project); err != nil {
@@ -300,10 +300,10 @@ func closeProject(db *sql.DB, project, slug string) error {
 // as a filename.
 //
 // Letters and digits in any script are kept. The rule used to be ASCII-only,
-// which quietly made brain unusable for anyone naming a project in Japanese,
+// which quietly made logos unusable for anyone naming a project in Japanese,
 // Cyrillic, Arabic, Greek or Hindi: the name reduced to the empty string and
 // the caller was then told a project was required, having supplied one.
-// Filesystems on every platform brain targets take UTF-8 filenames, so the
+// Filesystems on every platform logos targets take UTF-8 filenames, so the
 // restriction bought nothing.
 //
 // What is still stripped is what makes a path dangerous or ambiguous:

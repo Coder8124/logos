@@ -18,7 +18,7 @@ func hostNamed(t *testing.T, name string) Host {
 			return h
 		}
 	}
-	t.Fatalf("no shipped host is called %q; brain knows: %s", name, strings.Join(Names(Hosts()), ", "))
+	t.Fatalf("no shipped host is called %q; logos knows: %s", name, strings.Join(Names(Hosts()), ", "))
 	return Host{}
 }
 
@@ -47,7 +47,7 @@ func vscodeUserRel() string {
 	return filepath.Join(".config", "Code", "User")
 }
 
-// installAndRead registers brain with h beside an existing server of the
+// installAndRead registers logos with h beside an existing server of the
 // user's, and returns the file's top-level object.
 func installAndRead(t *testing.T, h Host, root string) map[string]json.RawMessage {
 	t.Helper()
@@ -84,8 +84,8 @@ func installAndRead(t *testing.T, h Host, root string) map[string]json.RawMessag
 	if _, ok := servers["theirs"]; !ok {
 		t.Errorf("%s lost the user's other server:\n%s", h.Name, raw)
 	}
-	if servers[Name]["command"] != "/usr/local/bin/brain" {
-		t.Errorf("%s: brain entry is %v", h.Name, servers[Name])
+	if servers[Name]["command"] != "/usr/local/bin/logos" {
+		t.Errorf("%s: logos entry is %v", h.Name, servers[Name])
 	}
 	regs, err := h.List()
 	if err != nil || len(regs) != 2 {
@@ -94,7 +94,7 @@ func installAndRead(t *testing.T, h Host, root string) map[string]json.RawMessag
 	return cfg
 }
 
-func brainEntry(t *testing.T, cfg map[string]json.RawMessage, root string) map[string]any {
+func logosEntry(t *testing.T, cfg map[string]json.RawMessage, root string) map[string]any {
 	t.Helper()
 	servers := map[string]map[string]any{}
 	if err := json.Unmarshal(cfg[root], &servers); err != nil {
@@ -144,7 +144,7 @@ func TestSetupWiresCopilotCLIWithTheFieldsItRequires(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := installAndRead(t, hostNamed(t, "Copilot CLI"), "mcpServers")
-	e := brainEntry(t, cfg, "mcpServers")
+	e := logosEntry(t, cfg, "mcpServers")
 	if e["type"] != "local" {
 		t.Errorf("type = %v, want local", e["type"])
 	}
@@ -152,7 +152,7 @@ func TestSetupWiresCopilotCLIWithTheFieldsItRequires(t *testing.T) {
 		t.Errorf("tools = %v, want [*]", e["tools"])
 	}
 	env, _ := e["env"].(map[string]any)
-	if env["BRAIN_VAULT"] != "/Users/someone/brain" {
+	if env["LOGOS_VAULT"] != "/Users/someone/logos" {
 		t.Errorf("env = %v", e["env"])
 	}
 }
@@ -175,7 +175,7 @@ func TestSetupWiresGitHubCopilotInVSCodeUnderServers(t *testing.T) {
 	if _, ok := cfg["mcpServers"]; ok {
 		t.Error("wrote an mcpServers block VS Code does not read")
 	}
-	if e := brainEntry(t, cfg, "servers"); e["type"] != "stdio" {
+	if e := logosEntry(t, cfg, "servers"); e["type"] != "stdio" {
 		t.Errorf("type = %v, want stdio", e["type"])
 	}
 }

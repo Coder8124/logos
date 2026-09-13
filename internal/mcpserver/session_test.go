@@ -18,7 +18,7 @@ import (
 // not from what the process happens to be sitting in.
 func TestTwoSessionsOnOneServerScopeIndependently(t *testing.T) {
 	srv := &Server{DB: testDB(t), vault: t.TempDir()}
-	t.Setenv("BRAIN_PROJECT", "")
+	t.Setenv("LOGOS_PROJECT", "")
 
 	alpha := &Session{Server: srv, roots: []string{"/work/alpha"}}
 	beta := &Session{Server: srv, roots: []string{"/work/beta"}}

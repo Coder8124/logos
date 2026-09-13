@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/Coder8124/brain/internal/insight"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/insight"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // The insights view is a second lens on the tree pane's vault, not a second

@@ -16,7 +16,7 @@ import (
 )
 
 // The web bridge is the one transport reachable by something other than the
-// process that started brain — any tab a user has open can address
+// process that started logos — any tab a user has open can address
 // localhost. These tests exercise the two independent gates that stand in for
 // the process boundary stdio gets for free: the pairing token and the Origin
 // allowlist. Either failing alone must refuse the connection; only both

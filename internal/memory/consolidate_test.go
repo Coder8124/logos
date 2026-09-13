@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // A nil router is exactly the "no local model runtime" case dream.nrem is

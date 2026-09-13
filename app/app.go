@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/index"
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/router"
-	"github.com/Coder8124/brain/internal/secretary"
-	"github.com/Coder8124/brain/internal/session"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/session"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -58,12 +58,12 @@ func (a *App) open() (*index.Index, error) {
 	// index but wrong as a way to acquire a vault: pointed somewhere the user
 	// never chose, it makes an empty one and every view then truthfully reports
 	// zero of everything. That is indistinguishable from a working install with
-	// nothing in it, and it is how the app spent its life reading ~/brain-vault
-	// while the real memory was in ~/brain. Say the path instead of inventing
-	// a store — the same refusal `brain doctor` and the MCP server already make.
+	// nothing in it, and it is how the app spent its life reading ~/logos-vault
+	// while the real memory was in ~/logos. Say the path instead of inventing
+	// a store — the same refusal `logos doctor` and the MCP server already make.
 	if _, err := os.Stat(a.vault); err != nil {
 		return nil, fmt.Errorf(
-			"no vault at %s — run `brain setup --vault <path>`, which records the "+
+			"no vault at %s — run `logos setup --vault <path>`, which records the "+
 				"location for this app, then relaunch", a.vault)
 	}
 	ix, err := index.Open(a.vault)
@@ -254,7 +254,7 @@ func vaultStats(vault string) (checkpoints int, written int64) {
 func indexBuiltAt(vault string) int64 {
 	var latest time.Time
 	for _, name := range []string{"index.db", "index.db-wal"} {
-		if fi, err := os.Stat(filepath.Join(vault, ".brain", name)); err == nil {
+		if fi, err := os.Stat(filepath.Join(vault, ".logos", name)); err == nil {
 			if fi.ModTime().After(latest) {
 				latest = fi.ModTime()
 			}

@@ -1,4 +1,4 @@
-module github.com/Coder8124/brain
+module github.com/Coder8124/logos
 
 go 1.26.5
 

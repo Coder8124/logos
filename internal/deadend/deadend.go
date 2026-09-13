@@ -36,9 +36,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Coder8124/brain/internal/provider"
-	"github.com/Coder8124/brain/internal/session"
-	"github.com/Coder8124/brain/internal/textmatch"
+	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/textmatch"
 )
 
 // Source says where a ruling came from, which is also how much to trust it.

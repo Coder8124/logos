@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Coder8124/brain/internal/memory"
-	"github.com/Coder8124/brain/internal/router"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/router"
 )
 
 // Phase selects which half of the night to run. NREM stabilises; REM recombines.

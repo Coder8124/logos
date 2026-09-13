@@ -24,7 +24,7 @@ func TestTierRoundTrip(t *testing.T) {
 
 func TestConfigMergePreservesUnspecifiedTiers(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".brain"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".logos"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// A config naming only T2 must not wipe T0 and T1.

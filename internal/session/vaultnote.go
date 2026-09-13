@@ -7,15 +7,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Coder8124/brain/internal/gitstate"
-	"github.com/Coder8124/brain/internal/untrusted"
+	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // The checkpoint's on-disk form.
 //
 // It is a plain vault note — the same frontmatter dialect internal/vault
 // already parses — which is the whole reason for choosing markdown over a
-// table. Because it is a note, `brain index` embeds it, the graph links it to
+// table. Because it is a note, `logos index` embeds it, the graph links it to
 // its project through the checkpoint_of relation, and "where did we leave off?"
 // becomes an ordinary retrieval question that needed no retrieval code. A row
 // in SQLite would have bought none of that.
@@ -67,7 +67,7 @@ func (c Checkpoint) Markdown(follows string) string {
 			fmt.Fprintf(&b, "repo_root: %s\n", yamlStr(c.Git.Root))
 		}
 		// The paths git observed as changed. Collected since gitstate existed and
-		// then dropped on the floor here, which quietly cost `brain why` its best
+		// then dropped on the floor here, which quietly cost `logos why` its best
 		// input: that command joins a path against what a checkpoint touched, and
 		// the only list it could see was the agent's own `files` — optional over
 		// MCP and not settable from the CLI at all. So the feature reported "no

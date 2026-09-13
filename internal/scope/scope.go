@@ -5,8 +5,8 @@
 // They did disagree, and it is the failure this package exists for. The name
 // was the basename of the working directory, which is right for most repos and
 // wrong for every repo whose folder is not what the work is called. This one is
-// checked out as brain/ and is called logos; so activity was filed under
-// "brain", checkpoints under "logos", and the SessionStart hook — which looks
+// checked out as logos/ and is called logos; so activity was filed under
+// "logos", checkpoints under "logos", and the SessionStart hook — which looks
 // for a handoff under the folder name — found nothing and printed nothing,
 // session after session, with no error anywhere. Two names for one project does
 // not fail loudly. It just quietly stops being continuity.
@@ -46,7 +46,7 @@ const maxWalk = 24
 // Name is the project for dir: the nearest .logos-project at or above it, then
 // the git repository dir is inside, and otherwise dir's own basename.
 //
-// Callers that also honour an explicit argument or BRAIN_PROJECT check those
+// Callers that also honour an explicit argument or LOGOS_PROJECT check those
 // first — this is deliberately only the part that reads the disk, so the
 // precedence order stays written down in one place
 // (internal/mcpserver/scope.go) rather than half here and half there.

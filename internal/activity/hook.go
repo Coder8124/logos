@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Coder8124/brain/internal/text"
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // Turning a host's hook payload into an Event.
