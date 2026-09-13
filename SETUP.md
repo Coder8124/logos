@@ -448,17 +448,18 @@ MCP is for hosts you don't control. If you're writing the agent yourself, import
 the engine directly — same vault, same files, no subprocess and no protocol.
 
 ```sh
-go get github.com/Coder8124/logos@latest
+go get github.com/Coder8124/brain@latest
 ```
 
-The module path and the repository agree, so the proxy can resolve it. Working
-against a local checkout instead:
+The module keeps the development name, `github.com/Coder8124/brain`, although
+the repository is `Coder8124/logos`; asking for `github.com/Coder8124/logos`
+fails with a module path mismatch. Working against a local checkout instead:
 
 ```sh
 git clone https://github.com/Coder8124/logos
 # then, in your go.mod:
-#   require github.com/Coder8124/logos v0.0.0
-#   replace github.com/Coder8124/logos => ../brain
+#   require github.com/Coder8124/brain v0.0.0
+#   replace github.com/Coder8124/brain => ../logos
 ```
 
 ```go
