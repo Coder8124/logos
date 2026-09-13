@@ -573,7 +573,9 @@ func TestDuplicateRegistrationIsCaught(t *testing.T) {
 		List: func() ([]setup.Registration, error) {
 			return []setup.Registration{
 				{Name: "brain", Command: "/usr/local/bin/brain mcp serve"},
-				{Name: "plugin:logos:logos", Command: "/opt/plugins/logos/bin/mcp.sh mcp serve"},
+				// The shape `claude mcp list` really prints for the plugin: its
+				// launcher is bare mcp.sh, and "mcp serve" happens inside it.
+				{Name: "plugin:logos:logos", Command: "/Users/someone/.claude/plugins/cache/logos/logos/0.4.2/bin/mcp.sh"},
 			}, nil
 		},
 	}}

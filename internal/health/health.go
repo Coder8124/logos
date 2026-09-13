@@ -722,13 +722,13 @@ func hostsCheck(wired []string) Check {
 // unmodified code (see the memory architecture plan's Step 0).
 //
 // Detection leans on brain's own signature rather than a path comparison: every
-// registration this project ever writes invokes "mcp serve" (setup.go's
-// Server.Args), so two entries under one host whose command both contain that
-// phrase are the same binary reached two ways, wrapper scripts included. What
-// it cannot see is a registration that never types "mcp serve" on its own
-// command line — a plugin whose launcher shells out to it internally — so a
-// clean report here does not rule that case out; only reading each host's
-// actual config by hand does.
+// registration setup writes invokes "mcp serve" (setup.go's Server.Args), so
+// two entries under one host whose command both contain that phrase are the
+// same binary reached two ways. The plugin is the exception that shipped: its
+// launcher is bare `bin/mcp.sh` and types "mcp serve" inside the script, so a
+// plugin next to a setup registration — the most common duplicate, since the
+// README offers both routes — passed as healthy. The plugin is recognised by
+// the name Claude Code gives it instead.
 func checkDuplicateRegistration(hosts []setup.Host) Check {
 	c := Check{Name: "duplicate registration"}
 	checked := false
@@ -743,7 +743,7 @@ func checkDuplicateRegistration(hosts []setup.Host) Check {
 		checked = true
 		var dupes []string
 		for _, r := range regs {
-			if strings.Contains(r.Command, "mcp serve") {
+			if strings.Contains(r.Command, "mcp serve") || strings.HasPrefix(r.Name, "plugin:logos:") {
 				dupes = append(dupes, r.Name)
 			}
 		}
