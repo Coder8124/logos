@@ -75,7 +75,7 @@ THE INTERCEPT — the dead end nobody remembers recording
                                       has this already been ruled out? ask before proposing
 
 GETTING THERE
-    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes] [--downgrade]
                                       connect brain to the AI agents on this machine
     brain mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     brain doctor [--probe] [--integration]
@@ -156,7 +156,7 @@ RETRIEVAL
     brain think [off|low|medium|high]  how much the model reasons before answering
 
 SETUP AND DIAGNOSTICS
-    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes] [--downgrade]
                                       connect brain to the AI agents on this machine
     brain setup --print-config [--vault DIR] [--format json|toml]
                                       print the server block by hand, for any MCP client not listed above

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,6 +109,8 @@ func wireOptsFrom(args []string) wireOpts {
 		none:   hasFlag(args, "--no-hosts"),
 		dryRun: hasFlag(args, "--dry-run"),
 		yes:    hasFlag(args, "--yes") || hasFlag(args, "-y"),
+
+		downgrade: hasFlag(args, "--downgrade"),
 	}
 }
 
@@ -419,6 +422,8 @@ type wireOpts struct {
 	none   bool     // --no-hosts: set up the vault and wire nothing
 	dryRun bool     // --dry-run: show the plan and change nothing
 	yes    bool     // --yes: do not prompt
+
+	downgrade bool // --downgrade: replace a newer pinned copy with this older binary
 }
 
 // detectHosts and integrationChecks are seams, and they exist for one reason:
@@ -721,7 +726,15 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 	if pin != "" {
 		self, _ := selfPath()
-		if err := pinBinary(self, pin); err != nil {
+		// An older `npx @noeton/logos@x setup` used to overwrite a newer copy,
+		// quietly downgrading every host that launches it. Replacing newer with
+		// older is a choice: asked with no as the default, and under --yes only
+		// with --downgrade. The kept copy is still the one registered.
+		theirs, _ := brainVersion(pin)
+		if newerRelease(theirs, version) && !opts.downgrade &&
+			(opts.yes || !confirmNo(fmt.Sprintf("    %s is brain %s, newer than this %s; replace it with the older one?", pin, theirs, version))) {
+			fmt.Printf("    %-16s —  kept brain %s at %s, newer than this %s (--downgrade replaces it)\n", "binary", theirs, pin, version)
+		} else if err := pinBinary(self, pin); err != nil {
 			// Registering a path that was never written would be a host that
 			// cannot start. npx still works while online, so fall back to it
 			// and say what that costs.
@@ -863,7 +876,21 @@ func mcpInstallCmd(args []string) error {
 // consent. `--yes` remains the way to say yes without a terminal, and it is
 // explicit.
 func confirm(prompt string) bool {
-	fmt.Printf("%s [Y/n] ", prompt)
+	answer, ok := readAnswer(prompt + " [Y/n] ")
+	return ok && (answer == "" || answer == "y" || answer == "yes")
+}
+
+// confirmNo asks a question whose safe answer is no: return declines, and so
+// does nobody being there.
+func confirmNo(prompt string) bool {
+	answer, ok := readAnswer(prompt + " [y/N] ")
+	return ok && (answer == "y" || answer == "yes")
+}
+
+// readAnswer prints prompt and reads one answer, lowercased. ok is false when there
+// is no answer to read.
+func readAnswer(prompt string) (answer string, ok bool) {
+	fmt.Print(prompt)
 	// One scanner for every prompt: a scanner reads ahead, so a fresh one per
 	// prompt swallowed the rest of a piped script into the first and left the
 	// next prompt at EOF. Rebuilt only if stdin itself was swapped.
@@ -873,10 +900,9 @@ func confirm(prompt string) bool {
 	sc := answers
 	if !sc.Scan() {
 		fmt.Println("\n             no answer (not a terminal) — skipping; pass --yes to accept")
-		return false
+		return "", false
 	}
-	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
-	return answer == "" || answer == "y" || answer == "yes"
+	return strings.ToLower(strings.TrimSpace(sc.Text())), true
 }
 
 var (
@@ -962,8 +988,59 @@ func pinBinary(self, dst string) error {
 // answers --version with "brain …". Bounded, because the file being asked
 // may be any program at all.
 func runsAsBrain(path string) bool {
+	_, ok := brainVersion(path)
+	return ok
+}
+
+// brainVersion is the version a brain at path reports, from the same
+// `--version` answer runsAsBrain trusts.
+func brainVersion(path string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "--version").Output()
-	return err == nil && strings.HasPrefix(string(out), "brain ")
+	if err != nil || !strings.HasPrefix(string(out), "brain ") {
+		return "", false
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) < 2 {
+		return "", true
+	}
+	return fields[1], true
+}
+
+// newerRelease reports whether a is a later release than b. Anything that is
+// not a plain major.minor.patch — a dev build, an empty answer — compares as
+// not newer, so an unreadable version never blocks a copy.
+func newerRelease(a, b string) bool {
+	pa, okA := releaseParts(a)
+	pb, okB := releaseParts(b)
+	if !okA || !okB {
+		return false
+	}
+	for i := range pa {
+		if pa[i] != pb[i] {
+			return pa[i] > pb[i]
+		}
+	}
+	return false
+}
+
+func releaseParts(v string) ([3]int, bool) {
+	var parts [3]int
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	fields := strings.Split(v, ".")
+	if len(fields) != 3 {
+		return parts, false
+	}
+	for i, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil || n < 0 {
+			return parts, false
+		}
+		parts[i] = n
+	}
+	return parts, true
 }

@@ -14,7 +14,7 @@ import (
 // npxSetup runs setup as a brain executing from npm's npx cache, after
 // prepare has had the fake home, and returns what setup printed and the server
 // it registered.
-func npxSetup(t *testing.T, prepare func(home string)) (home, out string, got setup.Server) {
+func npxSetup(t *testing.T, prepare func(home string), args ...string) (home, out string, got setup.Server) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake binary is a shell script")
@@ -44,7 +44,7 @@ func npxSetup(t *testing.T, prepare func(home string)) (home, out string, got se
 	t.Cleanup(func() { executable, detectHosts, integrationChecks = oldExe, oldHosts, oldCheck })
 
 	out = captureStdout(t, func() {
-		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+		if err := setupCmd(append([]string{"--vault", dir}, args...)); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 	})
@@ -55,7 +55,7 @@ func npxSetup(t *testing.T, prepare func(home string)) (home, out string, got se
 // npm's registry on every launch — offline it waited 70 seconds and failed, so
 // the host had no Logos at all.
 func TestAnNpxSetupRegistersACopyOfBrainInsteadOfNpx(t *testing.T) {
-	home, out, got := npxSetup(t, func(string) {})
+	home, out, got := npxSetup(t, func(string) {}, "--yes")
 
 	pin := filepath.Join(home, ".local", "bin", "brain")
 	if got.Bin != pin {
@@ -94,11 +94,99 @@ func TestAnNpxSetupDoesNotOverwriteAnotherProgramCalledBrain(t *testing.T) {
 func TestAnNpxSetupThatCannotCopyFallsBackToNpxAndSaysSo(t *testing.T) {
 	_, out, got := npxSetup(t, func(home string) {
 		fakeProgram(t, filepath.Join(home, ".local", "bin"), "brain", `echo "brain-games 2.1"`)
-	})
+	}, "--yes")
 	if got.Bin != "npx" {
 		t.Errorf("registered %q after the copy failed, want npx", got.Bin)
 	}
 	if !strings.Contains(out, "could not copy") || !strings.Contains(out, "npx -y @noeton/logos mcp serve") {
 		t.Errorf("setup did not say the copy failed and what it registered instead:\n%s", out)
+	}
+}
+
+// withVersion makes this binary report v for the length of the test.
+func withVersion(t *testing.T, v string) {
+	old := version
+	version = v
+	t.Cleanup(func() { version = old })
+}
+
+// withAnswers feeds the prompts setup asks.
+func withAnswers(t *testing.T, answers string) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString(answers); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = old; r.Close() })
+}
+
+// newerCopy puts a brain that reports 0.4.9 where setup pins its copy.
+func newerCopy(t *testing.T) func(home string) {
+	return func(home string) {
+		fakeProgram(t, filepath.Join(home, ".local", "bin"), "brain", `echo "brain 0.4.9 darwin/arm64 go1.26"`)
+	}
+}
+
+func pinnedReports(t *testing.T, home string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, ".local", "bin", "brain"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// An older `npx @noeton/logos@0.4.3 setup` replaced a 0.4.9 copy without
+// asking, silently downgrading every host that launches it. Under --yes there
+// is nobody to ask, so the newer copy stays and setup says how to replace it.
+func TestAnOlderNpxSetupKeepsANewerPinnedCopyUnderYes(t *testing.T) {
+	withVersion(t, "0.4.3")
+	home, out, got := npxSetup(t, newerCopy(t), "--yes")
+
+	if !strings.Contains(pinnedReports(t, home), "brain 0.4.9") {
+		t.Fatalf("the newer copy was replaced:\n%s", out)
+	}
+	if got.Bin != filepath.Join(home, ".local", "bin", "brain") {
+		t.Errorf("registered %q, want the kept copy", got.Bin)
+	}
+	if !strings.Contains(out, "0.4.9") || !strings.Contains(out, "--downgrade") {
+		t.Errorf("setup did not say it kept 0.4.9 and how to replace it:\n%s", out)
+	}
+}
+
+// Asked interactively, pressing return must not be the downgrade.
+func TestPressingReturnDoesNotDowngradeThePinnedCopy(t *testing.T) {
+	withVersion(t, "0.4.3")
+	withAnswers(t, "y\n\n")
+	home, out, _ := npxSetup(t, newerCopy(t))
+
+	if !strings.Contains(pinnedReports(t, home), "brain 0.4.9") {
+		t.Errorf("return at the downgrade prompt replaced the newer copy:\n%s", out)
+	}
+}
+
+// Downgrading is a choice, so both ways of making it have to work.
+func TestAChosenDowngradeReplacesThePinnedCopy(t *testing.T) {
+	withVersion(t, "0.4.3")
+	for name, run := range map[string]func() (string, string){
+		"--downgrade": func() (string, string) {
+			home, out, _ := npxSetup(t, newerCopy(t), "--yes", "--downgrade")
+			return home, out
+		},
+		"answering y": func() (string, string) {
+			withAnswers(t, "y\ny\n")
+			home, out, _ := npxSetup(t, newerCopy(t))
+			return home, out
+		},
+	} {
+		home, out := run()
+		if !strings.Contains(pinnedReports(t, home), "brain 0.4.3") {
+			t.Errorf("%s did not replace the newer copy:\n%s", name, out)
+		}
 	}
 }
