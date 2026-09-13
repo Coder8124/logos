@@ -5,6 +5,14 @@ import "database/sql"
 // The last-seen marker: a single row remembering when you last caught up, so the
 // next replay knows exactly how far back "since you've been away" reaches. Kept
 // in its own tiny table rather than a shared settings blob — one fact, one place.
+//
+// Deliberately cache-only, and the one table that may be: it is a read cursor,
+// not something the user knows or decided. Losing it on a rebuild loses no
+// content — the next replay reports itself as a first run and reaches back
+// defaultLookbackDays, which shows more than it needs to and never less. A vault
+// file for it would also be wrong in the other direction: a vault is plain
+// markdown and can sit in a folder that syncs between machines, and "when you
+// last caught up" on a laptop is not when you last caught up on the desktop.
 
 const stateSchema = `
 CREATE TABLE IF NOT EXISTS replay_state (
