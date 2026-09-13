@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Coder8124/brain/internal/memory"
+	"github.com/Coder8124/brain/internal/session"
 )
 
 // The premise under test: remember records who is calling by reading the MCP
@@ -84,5 +85,69 @@ func TestClientInfoParsingIsIsolatedPerSession(t *testing.T) {
 	}
 	if got := clientInfoFromInitialize([]byte(`{"clientInfo":{"name":"  claude-code  "}}`)); got != "claude-code" {
 		t.Errorf("clientInfo.name should be trimmed, got %q", got)
+	}
+}
+
+// A checkpoint is the handoff: "who stopped here" is the first thing read on
+// the other side, so it takes the same handshake name remember does instead of
+// depending on the model remembering to pass an agent argument.
+func TestCheckpointAndNotesWithoutAnAgentArgumentAreCreditedToTheHost(t *testing.T) {
+	c, db, vaultDir := startServer(t)
+	c.req("initialize", map[string]any{
+		"protocolVersion": protocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "cursor", "version": "1.2.3"},
+	})
+	c.notify("notifications/initialized", nil)
+
+	if out, isErr := c.callText(t, "note_progress", map[string]any{
+		"project": "my-app", "text": "the flaky test is a timezone bug",
+	}); isErr {
+		t.Fatalf("note_progress reported error: %s", out)
+	}
+	notes, err := session.Uncommitted(db, "my-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Agent != "cursor" {
+		t.Errorf("notes = %+v, want one note by %q", notes, "cursor")
+	}
+
+	if out, isErr := c.callText(t, "checkpoint", map[string]any{
+		"project": "my-app", "task": "fix the flaky test", "next": "pin TZ in CI",
+	}); isErr {
+		t.Fatalf("checkpoint reported error: %s", out)
+	}
+	cp, err := session.Latest(vaultDir, "my-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp == nil || cp.Agent != "cursor" {
+		t.Errorf("checkpoint = %+v, want Agent %q from clientInfo.name", cp, "cursor")
+	}
+}
+
+// A name the model does pass still wins: it is how a host that sends no
+// clientInfo, or a subagent inside one, says who it is.
+func TestAnExplicitAgentArgumentStillNamesTheCheckpoint(t *testing.T) {
+	c, _, vaultDir := startServer(t)
+	c.req("initialize", map[string]any{
+		"protocolVersion": protocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "cursor", "version": "1.2.3"},
+	})
+	c.notify("notifications/initialized", nil)
+
+	if out, isErr := c.callText(t, "checkpoint", map[string]any{
+		"project": "my-app", "agent": "reviewer", "task": "review", "next": "merge",
+	}); isErr {
+		t.Fatalf("checkpoint reported error: %s", out)
+	}
+	cp, err := session.Latest(vaultDir, "my-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp == nil || cp.Agent != "reviewer" {
+		t.Errorf("checkpoint = %+v, want Agent %q", cp, "reviewer")
 	}
 }

@@ -445,7 +445,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
-		return s.noteProgress(s.resolveScope(argStr(args, "project")), argStr(args, "agent"), argStr(args, "text"))
+		return s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
 	case "checkpoint":
 		return s.checkpoint(args, "")
 	case "handoff":
@@ -901,6 +901,17 @@ func upperFirst(s string) string {
 	return strings.ToUpper(string(r[0])) + string(r[1:])
 }
 
+// agentFor names who wrote a checkpoint or note: the model's own agent
+// argument when it gave one, otherwise the host's handshake name. Without the
+// fallback an agent that skipped the optional argument was filed as "agent",
+// and a handoff could not say which host stopped there.
+func (s *Session) agentFor(args map[string]any) string {
+	if a := argStr(args, "agent"); a != "" {
+		return a
+	}
+	return s.clientAgent
+}
+
 // checkpoint commits the session to the vault. handoffTo is set when the caller
 // came in through the handoff tool — same mechanism, stated intent.
 func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, error) {
@@ -913,7 +924,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	c := &session.Checkpoint{
 		Project:   proj,
-		Agent:     argStr(args, "agent"),
+		Agent:     s.agentFor(args),
 		Task:      argStr(args, "task"),
 		State:     argStr(args, "state"),
 		Decisions: argList(args, "decisions"),
