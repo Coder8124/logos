@@ -754,7 +754,13 @@ func mcpInstallCmd(args []string) error {
 // explicit.
 func confirm(prompt string) bool {
 	fmt.Printf("%s [Y/n] ", prompt)
-	sc := bufio.NewScanner(os.Stdin)
+	// One scanner for every prompt: a scanner reads ahead, so a fresh one per
+	// prompt swallowed the rest of a piped script into the first and left the
+	// next prompt at EOF. Rebuilt only if stdin itself was swapped.
+	if answers == nil || answersFrom != os.Stdin {
+		answers, answersFrom = bufio.NewScanner(os.Stdin), os.Stdin
+	}
+	sc := answers
 	if !sc.Scan() {
 		fmt.Println("\n             no answer (not a terminal) — skipping; pass --yes to accept")
 		return false
@@ -762,6 +768,11 @@ func confirm(prompt string) bool {
 	answer := strings.ToLower(strings.TrimSpace(sc.Text()))
 	return answer == "" || answer == "y" || answer == "yes"
 }
+
+var (
+	answers     *bufio.Scanner
+	answersFrom *os.File
+)
 
 // expandHome resolves a leading ~ so --vault ~/brain works from any shell.
 func expandHome(path string) string {
