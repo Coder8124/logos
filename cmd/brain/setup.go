@@ -818,6 +818,9 @@ func wireHosts(vault string, opts wireOpts) error {
 			// what makes a wrong --vault recoverable.
 			if r.Backup != "" {
 				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
+				if r.CommentsOnlyInBackup {
+					fmt.Printf("    %-16s    its comments were not carried over; they are kept in that copy\n", "")
+				}
 			}
 			// The README's Cursor button writes a `logos` entry, and a
 			// hand-written config may use any name. Setup adding `brain` beside

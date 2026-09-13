@@ -84,7 +84,11 @@ type Result struct {
 	// empty when there was nothing to copy. Reported, because a backup nobody
 	// is told about is a backup nobody uses.
 	Backup string
-	Err    error
+	// CommentsOnlyInBackup is set when the original config had comments.
+	// Writing it back as JSON drops them, and the backup is the one place
+	// they still exist.
+	CommentsOnlyInBackup bool
+	Err                  error
 }
 
 // A Host is one application that can talk to an MCP server.
@@ -212,6 +216,10 @@ func Install(s Server, hosts []Host) []Result {
 			if err := os.Remove(backup); err == nil {
 				r.Backup = ""
 			}
+		} else if raw, err := os.ReadFile(backup); err == nil && strings.HasSuffix(backup, ".json.brain-backup") {
+			// JSON hosts only: a TOML or YAML config is rewritten by its own CLI, and
+			// its comments are not ours to report on.
+			_, r.CommentsOnlyInBackup = standardJSON(raw)
 		}
 		out = append(out, r)
 	}
@@ -418,7 +426,8 @@ func mergeServers(path, root string, entry any) (Outcome, error) {
 	switch {
 	case err == nil:
 		if len(strings.TrimSpace(string(raw))) > 0 {
-			if err := json.Unmarshal(raw, &cfg); err != nil {
+			std, _ := standardJSON(raw)
+			if err := json.Unmarshal(std, &cfg); err != nil {
 				return Failed, fmt.Errorf(
 					"%s is not valid JSON, so it was left alone; fix or move it and re-run: %w",
 					path, err)
@@ -487,7 +496,8 @@ func readServerBlock(path, root string) ([]Registration, error) {
 		return nil, nil
 	}
 	cfg := mcpConfig{}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	std, _ := standardJSON(raw)
+	if err := json.Unmarshal(std, &cfg); err != nil {
 		return nil, err
 	}
 	rawServers, ok := cfg[root]
