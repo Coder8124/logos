@@ -61,6 +61,7 @@ var (
 // cache want, and what index.Close does so a closed handle leaves nothing
 // behind.
 func SetVault(db *sql.DB, dir string) {
+	forgetLoggedHigh(db)
 	vaultMu.Lock()
 	defer vaultMu.Unlock()
 	if dir == "" {

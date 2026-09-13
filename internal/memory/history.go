@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -60,18 +61,57 @@ type LogEntry struct {
 // water mark is derivable rather than stored. It needs no migration and repairs
 // itself on an existing vault at the next write.
 //
-// A vault whose index is deleted and rebuilt loses the log along with the rows
-// and starts from 1 again — correct, because the history that could have been
-// misread went with it.
+// The log is durable in memories/log.md, so a rebuilt index does not start
+// from 1 — but the table only learns the log's ids when ImportLog runs, and a
+// store can happen before that: earlier in the same rebuild, or from any
+// command run on a cache nobody has reindexed. So the file's high water mark
+// counts too. It is read once per database: every id issued after that goes
+// through the table, which the max already covers.
 func nextID(db *sql.DB) int64 {
 	var live, ever sql.NullInt64
 	db.QueryRow("SELECT MAX(id) FROM memories").Scan(&live)
 	db.QueryRow("SELECT MAX(mem_id) FROM memory_log").Scan(&ever)
-	high := live.Int64
-	if ever.Int64 > high {
-		high = ever.Int64
-	}
+	high := max(live.Int64, ever.Int64, loggedHigh(db))
 	return high + 1
+}
+
+var (
+	loggedMu    sync.Mutex
+	loggedMarks = map[*sql.DB]int64{}
+)
+
+// loggedHigh is the highest memory id memories/log.md has ever recorded, or 0
+// for an unbound store or a vault with no log yet.
+func loggedHigh(db *sql.DB) int64 {
+	dir := vaultFor(db)
+	if dir == "" {
+		return 0
+	}
+	loggedMu.Lock()
+	defer loggedMu.Unlock()
+	if h, ok := loggedMarks[db]; ok {
+		return h
+	}
+	raw, err := os.ReadFile(logPath(dir))
+	if err != nil && !os.IsNotExist(err) {
+		// Not cached: an unreadable log is a reason to fall back to the table
+		// for this write, not to stop consulting the file for the whole run.
+		return 0
+	}
+	var h int64
+	for _, e := range parseLog(string(raw)) {
+		h = max(h, e.MemID)
+	}
+	loggedMarks[db] = h
+	return h
+}
+
+// forgetLoggedHigh drops the cached mark, so a store rebound to another vault
+// reads that vault's log rather than the last one's.
+func forgetLoggedHigh(db *sql.DB) {
+	loggedMu.Lock()
+	defer loggedMu.Unlock()
+	delete(loggedMarks, db)
 }
 
 // logEvent appends one line. It is a bare INSERT with no open cursor, safe to

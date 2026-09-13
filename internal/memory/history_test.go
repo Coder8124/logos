@@ -125,3 +125,40 @@ func hasText(mems []Memory, text string) bool {
 	}
 	return false
 }
+
+// The timeline is durable, so an id it records as used stays used across a
+// rebuild — including the stretch of the rebuild, or any command run on a fresh
+// cache, before memories/log.md has been read back into the table.
+//
+// Forget the highest-numbered memory and the only place its number survives is
+// the log. A new memory stored at that point took the number again, and once
+// the log was imported `brain memory history` showed one timeline in which a
+// fact was forgotten and then created as something unrelated.
+func TestAForgottenIdIsNotReusedBeforeTheTimelineIsRestored(t *testing.T) {
+	db, dir := vaultDB(t)
+	keep := Memory{Text: "a memory that stays", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &keep); err != nil {
+		t.Fatal(err)
+	}
+	gone := Memory{Text: "a memory that is forgotten", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := Forget(db, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	next := Memory{Text: "an unrelated memory stored after the rebuild", Kind: Fact, Source: "manual"}
+	if _, err := Store(wiped, nil, "", &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.ID <= gone.ID {
+		t.Fatalf("the new memory took #%d; the timeline already records #%d as a forgotten memory", next.ID, gone.ID)
+	}
+}
