@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +39,10 @@ func setupCmd(args []string) error {
 	if hasFlag(args, "--help") || hasFlag(args, "-h") {
 		fmt.Print(setupUsage)
 		return nil
+	}
+	args, err := normalizeSetupFlags(args)
+	if err != nil {
+		return err
 	}
 	// --print-config and --config are the escape hatch for every MCP client
 	// that is not one of setup.Hosts()'s curated four. Both short-circuit
@@ -858,17 +863,16 @@ func wireHosts(vault string, opts wireOpts) error {
 	return nil
 }
 
-// mcpInstallCmd is the wiring on its own, for someone who already has a vault.
 // setupUsage is what `brain setup --help` and `brain mcp install --help`
 // print instead of running.
 const setupUsage = `usage:
-    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes]
+    brain setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes] [--downgrade]
                                       connect brain to the AI agents on this machine
     brain setup --print-config [--vault DIR] [--format json|toml]
                                       print the server block by hand, for any MCP client brain does not wire
     brain setup --config <path> [--vault DIR]
                                       merge brain into a config file at a location brain does not know by convention
-    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
+    brain mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes] [--downgrade]
                                       register an existing vault with the MCP hosts found
 
   --vault DIR     the vault to use (default: $BRAIN_VAULT, else the recorded vault, else ~/brain)
@@ -876,13 +880,63 @@ const setupUsage = `usage:
   --no-hosts      create the vault but wire nothing
   --dry-run       describe what would happen and change nothing
   --yes           accept every prompt, for scripts
+  --downgrade     under npx, replace a newer pinned brain with this older one
   --all-models    list every local model, not just the recommended ones
 `
 
+// Setup's flags, checked before it does anything. Both commands write host
+// configs, and a flag they ignored used to mean a default: `--vault=~/notes`,
+// `--vualt ~/notes` and a bare `--vault` each wired ~/brain into every host,
+// and `--host=cursor` wired all of them.
+var (
+	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade"}
+	setupValueFlags = []string{"--vault", "--host", "--config", "--format"}
+)
+
+// normalizeSetupFlags splits --name=value into --name value, and refuses an
+// unknown flag or a value flag with no value. A value that starts with - is
+// treated as missing, because `--vault --yes` otherwise made a vault named
+// --yes in the current directory.
+func normalizeSetupFlags(args []string) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			out = append(out, a)
+			continue
+		}
+		name, value, hasValue := strings.Cut(a, "=")
+		switch {
+		case slices.Contains(setupValueFlags, name):
+			if !hasValue {
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+					value, hasValue = args[i], true
+				}
+			}
+			if !hasValue || value == "" {
+				return nil, fmt.Errorf("%s needs a value, e.g. %s <value>; nothing was changed", name, name)
+			}
+			out = append(out, name, value)
+		case slices.Contains(setupBoolFlags, name) && !hasValue:
+			out = append(out, a)
+		default:
+			return nil, fmt.Errorf("unknown flag %s; nothing was changed. The flags are %s and %s",
+				a, strings.Join(setupValueFlags, " "), strings.Join(setupBoolFlags, " "))
+		}
+	}
+	return out, nil
+}
+
+// mcpInstallCmd is the wiring on its own, for someone who already has a vault.
 func mcpInstallCmd(args []string) error {
 	if hasFlag(args, "--help") || hasFlag(args, "-h") {
 		fmt.Print(setupUsage)
 		return nil
+	}
+	args, err := normalizeSetupFlags(args)
+	if err != nil {
+		return err
 	}
 	vault := flagStr(args, "--vault", "")
 	if vault == "" {
