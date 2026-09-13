@@ -912,6 +912,11 @@ func upperFirst(s string) string {
 // and a handoff could not say which host stopped there.
 func (s *Session) agentFor(args map[string]any) string {
 	if a := argStr(args, "agent"); a != "" {
+		// "claude" under claude-code is the host's name cut short, not another
+		// agent; recording it as typed split one session's trail in two.
+		if s.clientAgent != "" && strings.HasPrefix(s.clientAgent, strings.ToLower(a)+"-") {
+			return s.clientAgent
+		}
 		return a
 	}
 	return s.clientAgent

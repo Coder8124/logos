@@ -40,5 +40,25 @@ func clientInfoFromInitialize(params json.RawMessage) string {
 	if err := json.Unmarshal(params, &p); err != nil {
 		return ""
 	}
-	return strings.TrimSpace(p.ClientInfo.Name)
+	return hostName(p.ClientInfo.Name)
+}
+
+// hostNames maps what a host's SDK calls itself to the name the tool goes by.
+// Without it one tool showed up as "cursor-vscode" on a memory and "cursor"
+// everywhere else, and a trail of who did what read as more agents than there
+// were. Keys are lower case; a host not listed keeps the name it sent.
+var hostNames = map[string]string{
+	"cursor-vscode":      "cursor",
+	"codex-mcp-client":   "codex",
+	"visual studio code": "copilot",
+	"cline":              "cline",
+	"claude-ai":          "desktop",
+}
+
+func hostName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if short, ok := hostNames[strings.ToLower(raw)]; ok {
+		return short
+	}
+	return raw
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,4 +76,22 @@ func TestRepeatedSessionEndNotesCollapseIntoOne(t *testing.T) {
 	if ended != 1 {
 		t.Errorf("want 1 session-ended note after four sessions, got %d", ended)
 	}
+}
+
+// The hook calls the CLI, which signs as "cli" unless told otherwise, so the
+// same Claude Code session was credited to "cli" in the handoff it left.
+func TestTheSessionEndHookSignsItsNoteAsClaudeCode(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "plugin", "hooks", "session-end.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, `note "$project"`) {
+			if !strings.Contains(line, "BRAIN_AGENT=claude-code") {
+				t.Errorf("the note call does not set BRAIN_AGENT=claude-code: %s", strings.TrimSpace(line))
+			}
+			return
+		}
+	}
+	t.Fatal("could not find the note call in session-end.sh")
 }

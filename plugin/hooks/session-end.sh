@@ -39,7 +39,10 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # line made a good handoff look stale, and sessions that never checkpointed
 # stacked identical copies of it. brain decides both (see runNote); an older
 # brain ignores the variable and notes as it always did.
-if out=$(BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
+#
+# BRAIN_AGENT because the CLI otherwise signs as "cli", and this note is the
+# Claude Code session's, under the name its MCP calls already carry.
+if out=$(BRAIN_AGENT=claude-code BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
   case "$out" in
     skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
     *)        echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2 ;;

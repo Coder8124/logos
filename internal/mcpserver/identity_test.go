@@ -151,3 +151,48 @@ func TestAnExplicitAgentArgumentStillNamesTheCheckpoint(t *testing.T) {
 		t.Errorf("checkpoint = %+v, want Agent %q", cp, "reviewer")
 	}
 }
+
+// Hosts send whatever their SDK calls itself, so one tool used to appear as
+// "cursor-vscode" on a memory and "cursor" in the docs, and a cross-agent trail
+// read as more agents than there were.
+func TestEachHostIsRecordedUnderOneShortName(t *testing.T) {
+	for raw, want := range map[string]string{
+		"claude-code":        "claude-code",
+		"cursor-vscode":      "cursor",
+		"codex-mcp-client":   "codex",
+		"Visual Studio Code": "copilot",
+		"Cline":              "cline",
+		"claude-ai":          "desktop",
+		"some-new-host":      "some-new-host",
+	} {
+		params := []byte(`{"clientInfo":{"name":"` + raw + `"}}`)
+		if got := clientInfoFromInitialize(params); got != want {
+			t.Errorf("clientInfo %q recorded as %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// A model under Claude Code types "claude" as its agent; that is the host's
+// own name cut short, not a different agent, and must not split the trail.
+func TestAnAgentArgumentThatAbbreviatesTheHostIsRecordedAsTheHost(t *testing.T) {
+	c, _, vaultDir := startServer(t)
+	c.req("initialize", map[string]any{
+		"protocolVersion": protocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "claude-code", "version": "2.0.0"},
+	})
+	c.notify("notifications/initialized", nil)
+
+	if out, isErr := c.callText(t, "checkpoint", map[string]any{
+		"project": "my-app", "agent": "claude", "task": "review", "next": "merge",
+	}); isErr {
+		t.Fatalf("checkpoint reported error: %s", out)
+	}
+	cp, err := session.Latest(vaultDir, "my-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cp == nil || cp.Agent != "claude-code" {
+		t.Errorf("checkpoint = %+v, want Agent %q", cp, "claude-code")
+	}
+}
