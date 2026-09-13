@@ -386,3 +386,27 @@ func TestListProjectsNamesProjectsThatOnlyHaveCheckpoints(t *testing.T) {
 		t.Errorf("list_projects did not name the project with a checkpoint:\n%s", truncateForLog(line))
 	}
 }
+
+// A host that launches the server in / gives no project to default to, and a
+// model that does not know the name was told only "resume needs a project".
+// It had no way to find one, so the handoff Claude Code left was never read.
+func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T) {
+	t.Setenv("BRAIN_PROJECT", "")
+	t.Chdir("/")
+	c, _ := startNoModel(t)
+
+	if _, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel", "agent": "claude-code", "next": "quote the extruded option",
+	}); !ok {
+		t.Fatal("checkpoint failed")
+	}
+	for i, tool := range []string{"resume", "checkpoint", "note_progress"} {
+		line, ok := call(t, c, 4+i, tool, map[string]any{"text": "halfway"})
+		if !ok {
+			t.Fatalf("%s did not answer", tool)
+		}
+		if !strings.Contains(line, "needs a project") || !strings.Contains(line, "kestrel (") {
+			t.Errorf("%s did not name the project that has a checkpoint:\n%s", tool, truncateForLog(line))
+		}
+	}
+}

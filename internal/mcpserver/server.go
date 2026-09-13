@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -836,7 +837,7 @@ func writeList(b *strings.Builder, label string, items []string) {
 func (s *Session) resume(projectArg, agent string, budget int, since contextpack.Since) (string, error) {
 	project, worktree := s.resolveContinuity(projectArg)
 	if strings.TrimSpace(project) == "" {
-		return "", fmt.Errorf("resume needs a project")
+		return "", fmt.Errorf("resume needs a project%s", s.knownProjects())
 	}
 	if err := session.Init(s.DB); err != nil {
 		return "", err
@@ -864,7 +865,10 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 }
 
 func (s *Server) noteProgress(project, agent, text string) (string, error) {
-	if strings.TrimSpace(project) == "" || strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(project) == "" {
+		return "", fmt.Errorf("note_progress needs a project and some text%s", s.knownProjects())
+	}
+	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("note_progress needs a project and some text")
 	}
 	if err := session.Init(s.DB); err != nil {
@@ -918,7 +922,7 @@ func (s *Session) agentFor(args map[string]any) string {
 func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, error) {
 	proj := s.resolveScope(argStr(args, "project"))
 	if strings.TrimSpace(proj) == "" {
-		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory")
+		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory%s", s.knownProjects())
 	}
 	if err := session.Init(s.DB); err != nil {
 		return "", err
@@ -980,6 +984,43 @@ func (s *Server) memoryDiff(subject string, days int) (string, error) {
 		fmt.Fprintf(&b, "~ %s\n", untrusted.Inline(e.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// knownProjects ends a refusal for a missing project with the projects that
+// have checkpoints, newest first. A model that does not know the name has no
+// other way to learn it from the refusal, and a host that launches the server
+// in / never supplies one.
+func (s *Server) knownProjects() string {
+	names, err := session.Projects(s.vault)
+	if err != nil {
+		return ""
+	}
+	type known struct {
+		name, agent string
+		ts          int64
+	}
+	var ps []known
+	for _, n := range names {
+		if h, err := session.History(s.vault, n, 1); err == nil && len(h) > 0 {
+			ps = append(ps, known{n, h[0].Agent, h[0].TS})
+		}
+	}
+	if len(ps) == 0 {
+		return ""
+	}
+	sort.Slice(ps, func(i, j int) bool { return ps[i].ts > ps[j].ts })
+	const maxKnown = 5
+	if len(ps) > maxKnown {
+		ps = ps[:maxKnown]
+	}
+	parts := make([]string, len(ps))
+	for i, p := range ps {
+		parts[i] = fmt.Sprintf("%s (%s)", untrusted.Inline(p.name), project.Age(p.ts))
+		if p.agent != "" {
+			parts[i] = fmt.Sprintf("%s (%s, %s)", untrusted.Inline(p.name), project.Age(p.ts), untrusted.Inline(p.agent))
+		}
+	}
+	return ". Known projects: " + strings.Join(parts, ", ")
 }
 
 // listProjects enumerates the projects brain detected, most-recently-active
