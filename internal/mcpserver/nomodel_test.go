@@ -364,3 +364,25 @@ func TestTheCheckpointReceiptDoesNotSendTheAgentToBrainIndex(t *testing.T) {
 		t.Errorf("the checkpoint receipt still says to run brain index:\n%s", truncateForLog(line))
 	}
 }
+
+// A host with no working directory, or a model asked "what was I working on?",
+// calls list_projects to find a name for resume. It answered "No projects
+// detected yet." with a checkpoint in the vault, because it only read the
+// activity rollup, and the model reported an empty memory.
+func TestListProjectsNamesProjectsThatOnlyHaveCheckpoints(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	if _, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"next":    "quote the extruded option",
+	}); !ok {
+		t.Fatal("checkpoint failed")
+	}
+	line, ok := call(t, c, 4, "list_projects", map[string]any{})
+	if !ok {
+		t.Fatal("list_projects failed")
+	}
+	if !strings.Contains(line, "kestrel") {
+		t.Errorf("list_projects did not name the project with a checkpoint:\n%s", truncateForLog(line))
+	}
+}

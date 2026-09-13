@@ -978,6 +978,23 @@ func (s *Server) listProjects() (string, error) {
 		return "", err
 	}
 	if len(ps) == 0 {
+		// The activity rollup is not where checkpoints live. A model looking
+		// for a name to resume was told there were none while sessions/ held
+		// them, and reported an empty memory. `brain projects` falls back the
+		// same way.
+		if names, err := session.Projects(s.vault); err == nil && len(names) > 0 {
+			var b strings.Builder
+			b.WriteString("No activity rollup yet, but these projects have checkpoints — call resume with one:\n")
+			for _, n := range names {
+				word := "checkpoints"
+				h, _ := session.History(s.vault, n, 0)
+				if len(h) == 1 {
+					word = "checkpoint"
+				}
+				fmt.Fprintf(&b, "- %s (%d %s)\n", n, len(h), word)
+			}
+			return strings.TrimRight(b.String(), "\n"), nil
+		}
 		return "No projects detected yet.", nil
 	}
 	var b strings.Builder
