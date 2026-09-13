@@ -18,7 +18,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-dev}"
-OUT="dist"
+# RELEASE_OUT and RELEASE_PLATFORMS exist for the test that runs this script
+# (internal/selfupdate), so it can build one platform without clearing dist/.
+OUT="${RELEASE_OUT:-dist}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -35,6 +37,20 @@ platforms=(
   "linux arm64"     # servers, Raspberry Pi, WSL2 on ARM
   "windows amd64"
 )
+if [ -n "${RELEASE_PLATFORMS:-}" ]; then
+  IFS=, read -r -a platforms <<<"$RELEASE_PLATFORMS"
+fi
+
+# Put a staged directory into its archive and remove the directory.
+archive() {
+  local dir="$1" goos="$2"
+  if [ "$goos" = "windows" ]; then
+    (cd "$OUT" && zip -qr "$(basename "$dir").zip" "$(basename "$dir")")
+  else
+    tar -czf "${dir}.tar.gz" -C "$OUT" "$(basename "$dir")"
+  fi
+  rm -rf "$dir"
+}
 
 echo "building logos ${VERSION}"
 for p in "${platforms[@]}"; do
@@ -63,12 +79,19 @@ for p in "${platforms[@]}"; do
     fi
   done
 
-  if [ "$goos" = "windows" ]; then
-    (cd "$OUT" && zip -qr "$(basename "$dir").zip" "$(basename "$dir")")
-  else
-    tar -czf "${dir}.tar.gz" -C "$OUT" "$(basename "$dir")"
-  fi
-  rm -rf "$dir"
+  # The same binary again under the 0.4 name. A 0.4 `brain update` asks the
+  # release for brain_<version>_<os>_<arch> holding a file called brain, and
+  # without it every 0.4 install is stranded on 0.4 with "no asset" — the
+  # rename would be the last update it ever saw. Through 0.4.x only; remove
+  # before 0.5.0.
+  old="brain"
+  [ "$goos" = "windows" ] && old="brain.exe"
+  olddir="${OUT}/brain_${VERSION}_${goos}_${goarch}"
+  cp -R "$dir" "$olddir"
+  mv "${olddir}/${name}" "${olddir}/${old}"
+
+  archive "$dir" "$goos"
+  archive "$olddir" "$goos"
 
   echo "  ${goos}/${goarch}"
 done
