@@ -385,7 +385,17 @@ func indexVault(vault string) {
 	// its own, which would interrupt this report mid-table.
 	embedModel := env("BRAIN_EMBED", defaultEmbedModel)
 	if found := provider.Discover(); len(found) > 0 {
-		ix.EmbedPending(found[0].Provider, embedModel, 32)
+		// Said before it starts: a large vault takes minutes to embed, and
+		// silence for that long reads as a hang with the hosts prompt stuck
+		// behind it.
+		var pending int
+		ix.DB.QueryRow(`SELECT COUNT(*) FROM notes n LEFT JOIN embeddings e ON e.slug = n.slug WHERE e.slug IS NULL`).Scan(&pending)
+		if pending > 0 {
+			fmt.Printf("  index      embedding %d %s with %s — search already works without it…\n", pending, plural(pending, "note"), embedModel)
+		}
+		if _, err := ix.EmbedPending(found[0].Provider, embedModel, 32); err != nil {
+			fmt.Printf("  index      embedding failed: %v — search is lexical until `brain index` succeeds\n", err)
+		}
 		ix.SyncMemories(found[0].Provider, embedModel)
 	}
 	notes, _ := ix.NoteCount()
