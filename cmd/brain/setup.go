@@ -568,6 +568,24 @@ func wireHosts(vault string, opts wireOpts) error {
 		return fmt.Errorf("unknown host %s — brain knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
 	}
+	// The README offers the plugin and this command side by side, and someone
+	// who ran both had brain registered twice in Claude Code. The plugin
+	// already connects it, so Claude Code is left out and the reason printed.
+	pluginNote := ""
+	if version, ok := setup.LogosPlugin(); ok {
+		kept := hosts[:0:0]
+		for _, h := range hosts {
+			if h.Name == "Claude Code" {
+				if version != "" {
+					version = " " + version
+				}
+				pluginNote = fmt.Sprintf("    %-16s —  already connected by the Logos plugin%s; not registered again\n", h.Name, version)
+				continue
+			}
+			kept = append(kept, h)
+		}
+		hosts = kept
+	}
 
 	// Show the plan before touching anything. Registering brain with every AI
 	// tool on the machine is a big commitment for someone trying one of them,
@@ -586,6 +604,9 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Printf("      %s %s\n", bin, strings.Join(srv.Args, " "))
 		fmt.Printf("      BRAIN_VAULT=%s\n\n", vault)
 	}
+	// Printed with or without the roster: under --yes it is the only place a
+	// person learns why Claude Code was not touched.
+	fmt.Print(pluginNote)
 	// The roster is what a person says yes or no to, so it is printed when
 	// there is a decision to make — a prompt coming, or a --dry-run that is
 	// nothing but the roster. Under --yes there is no decision, and printing it
@@ -604,6 +625,12 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 
 	if present == 0 {
+		if pluginNote != "" {
+			if opts.dryRun {
+				fmt.Println("\n  --dry-run: nothing was written.")
+			}
+			return nil
+		}
 		fmt.Println("\n  No MCP hosts found. Install Claude Code, Claude Desktop, Cursor or")
 		fmt.Println("  Codex and re-run `brain mcp install`.")
 		if opts.dryRun {

@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -144,4 +146,34 @@ func claudeDesktopConfig() string {
 func onPath(bin string) bool {
 	_, err := exec.LookPath(bin)
 	return err == nil
+}
+
+// LogosPlugin reports whether the Logos plugin is installed in Claude Code, and
+// at which version. The plugin carries its own MCP server, so registering brain
+// with `claude mcp add` on top of it lists every tool twice and pays the
+// per-session cost twice. Claude Code records installed plugins in this file,
+// keyed "<plugin>@<marketplace>".
+func LogosPlugin() (version string, installed bool) {
+	path := inHome(".claude", "plugins", "installed_plugins.json")
+	if path == "" {
+		return "", false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var reg struct {
+		Plugins map[string][]struct {
+			Version string `json:"version"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(raw, &reg) != nil {
+		return "", false
+	}
+	for key, installs := range reg.Plugins {
+		if strings.HasPrefix(key, "logos@") && len(installs) > 0 {
+			return installs[0].Version, true
+		}
+	}
+	return "", false
 }
