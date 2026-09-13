@@ -208,7 +208,7 @@ func runResume(args []string) error {
 	}
 
 	pack, err := contextpack.Build(ix, embed, embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Budget: budget, Since: contextpack.Since(since),
+		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Budget: budget, Since: contextpack.Since(since),
 	})
 	if err != nil {
 		return err

@@ -161,6 +161,18 @@ func (s *Session) sessionWorktree() string {
 	return s.worktree
 }
 
+// repoDir is the directory this session stands in when project is the one it
+// is named, and "" otherwise, so a pack only checks which repository a
+// checkpoint came from when the caller means the one it is in. See
+// contextpack.Request.Dir.
+func (s *Session) repoDir(project string) string {
+	dir := scopeDir(s.roots)
+	if dir == "" || projectFromPath(dir) != project {
+		return ""
+	}
+	return dir
+}
+
 // scopeDir is the directory the scope is read from: the first root the client
 // advertised, and otherwise the working directory. The same order
 // sessionProject uses, so the project and the worktree can never be read from

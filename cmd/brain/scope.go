@@ -67,6 +67,18 @@ func projectHere() string {
 	return projectFor(dir)
 }
 
+// dirFor is the working directory when project is the one it is named, and ""
+// otherwise. It is what lets a pack check that a checkpoint came from this
+// repository: standing in one "api" and asking for "api" means this one, while
+// asking for a project by name from somewhere else means whichever wrote it.
+func dirFor(project string) string {
+	dir, err := os.Getwd()
+	if err != nil || projectFor(dir) != project {
+		return ""
+	}
+	return dir
+}
+
 // projectArg reads the optional leading <project> positional shared by the
 // continuity verbs, falling back to the directory the user is standing in. A
 // leading flag is never the project: `brain checkpoint --task ...` used to file

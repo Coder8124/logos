@@ -23,6 +23,7 @@
 package gitstate
 
 import (
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -54,6 +55,11 @@ type State struct {
 	// because "same project, divergent parallel state" is exactly where
 	// continuity breaks and the checkpoint should say which one it meant.
 	Worktree string
+	// Remote and Root say which repository this was, because a project is only
+	// a name and "api" is two unrelated repositories on most machines. Remote
+	// is origin's URL; Root is the main checkout, shared by its worktrees.
+	Remote string
+	Root   string
 }
 
 // Empty reports whether anything was learned. Callers use it to decide whether
@@ -92,9 +98,38 @@ func Read(dir string) State {
 		s.Worktree = git(dir, "rev-parse", "--show-toplevel")
 	}
 
+	s.Remote, s.Root = Identity(dir)
 	s.Files, s.Dirty = dirtyFiles(dir)
 	s.Insertions, s.Deletions = diffStat(dir)
 	return s
+}
+
+// Identity is origin's URL and the main checkout's path for the repository at
+// dir, each "" when git will not say.
+//
+// Both, because either alone misjudges an ordinary case: a clone on another
+// machine has a different path and the same remote, and a repository that got
+// its remote after its first checkpoint has the same path and a new remote.
+func Identity(dir string) (remote, root string) {
+	if dir == "" || !isRepo(dir) {
+		return "", ""
+	}
+	remote = git(dir, "config", "--get", "remote.origin.url")
+	// A token in an https remote is a credential, and this is written to the
+	// vault.
+	if u, err := url.Parse(remote); err == nil && u.User != nil {
+		u.User = nil
+		remote = u.String()
+	}
+	if common := git(dir, "rev-parse", "--git-common-dir"); common != "" {
+		if !filepath.IsAbs(common) {
+			common = filepath.Join(dir, common)
+		}
+		if resolved, err := filepath.EvalSymlinks(common); err == nil {
+			root = filepath.Dir(resolved)
+		}
+	}
+	return remote, root
 }
 
 // WorktreeName is git's own name for the linked worktree at dir, and "" when

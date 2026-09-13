@@ -122,7 +122,7 @@ func runContext(args []string) error {
 	}
 
 	pack, err := contextpack.Build(ix, embed, embedModel,
-		contextpack.Request{Task: task, Hint: hint, Budget: budget, Since: contextpack.Since(since)})
+		contextpack.Request{Task: task, Hint: hint, Dir: dirFor(hint), Budget: budget, Since: contextpack.Since(since)})
 	if err != nil {
 		return err
 	}

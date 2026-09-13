@@ -50,6 +50,7 @@ func (p *Pack) Render() string {
 	var b strings.Builder
 	p.renderHeader(&b)
 	p.renderWindow(&b)
+	p.renderOtherRepo(&b)
 	p.renderCheckpoint(&b, checkpoint)
 	p.renderWorking(&b, keptWorking)
 	section(&b, "The project", keptProj, "\n")
@@ -147,6 +148,18 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 	default:
 		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
+}
+
+// renderOtherRepo says why a checkpoint under this name was not handed over.
+// Without it the pack reads as a project nobody has worked on, and the user
+// never learns that two repositories are sharing one name.
+func (p *Pack) renderOtherRepo(b *strings.Builder) {
+	if p.OtherRepo == "" {
+		return
+	}
+	fmt.Fprintf(b, "\n_The latest checkpoint on **%s** came from another repository (%s), so it is not handed over here. "+
+		"Put a `.logos-project` file with a different name in one of them to keep their work apart._\n",
+		inline(p.scope()), inline(p.OtherRepo))
 }
 
 // spendCheckpoint charges the checkpoint against its share and returns the body

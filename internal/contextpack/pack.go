@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/brain/internal/gitstate"
 	"github.com/Coder8124/brain/internal/graph"
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/memory"
@@ -46,6 +47,11 @@ type Request struct {
 	// same repository and so has the same memory, but its own uncommitted work
 	// and its own place to have stopped.
 	Worktree string
+	// Dir is the directory the agent is standing in, when the project was named
+	// after it. Empty turns off the check that a checkpoint came from the same
+	// repository, which is right for a caller asking about a project by name
+	// from somewhere else.
+	Dir string
 	// Budget is the approximate token ceiling for the rendered pack. 0 means
 	// DefaultBudget.
 	Budget int
@@ -95,6 +101,9 @@ type Pack struct {
 	// from this worktree — a distinction the render has to make out loud.
 	Worktree  string `json:"worktree,omitempty"`
 	Inherited bool   `json:"inherited,omitempty"`
+	// OtherRepo names the repository the project's latest checkpoint came from
+	// when it is not the one the agent is in, and so was not handed over.
+	OtherRepo string `json:"other_repo,omitempty"`
 
 	// Checkpoint is where the last agent stopped on this project, and Working is
 	// what has been recorded since without being committed. Together they are the
@@ -164,7 +173,11 @@ func (p *Pack) Empty() bool {
 	return p.Checkpoint == nil && p.Project == nil &&
 		len(p.Working) == 0 && len(p.History) == 0 && len(p.Notes) == 0 &&
 		len(p.Preferences) == 0 && len(p.Related) == 0 && len(p.Pinned) == 0 &&
-		len(p.OpenLoops) == 0 && len(p.Superseded) == 0
+		len(p.OpenLoops) == 0 && len(p.Superseded) == 0 &&
+		// Not empty: a checkpoint was set aside, and a caller that prints
+		// "nothing recorded" instead would hide that two repositories share
+		// this name.
+		p.OtherRepo == ""
 }
 
 const (
@@ -234,6 +247,9 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 			if all, err = session.History(ix.Vault, p.scope(), checkpointDepth); err == nil && len(all) > 0 {
 				p.Inherited = true
 			}
+		}
+		if err == nil && len(all) > 0 && req.Dir != "" {
+			all, p.OtherRepo = sameRepository(all, req.Dir)
 		}
 		if err == nil && len(all) > 0 {
 			p.Checkpoint = &all[0]
@@ -691,3 +707,37 @@ func (p Pack) Carried() string {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// sameRepository keeps the checkpoints written in the repository at dir, and
+// names the repository the newest one came from when that one is dropped.
+//
+// A project is a folder name, and two unrelated repositories called "api"
+// share it. Handing one's stopping place to the other tells an agent to carry
+// on work that belongs to someone else. Remotes are compared when both sides
+// have one and paths otherwise; with neither, or a checkpoint from before this
+// was recorded, there is nothing to tell them apart and it is kept.
+func sameRepository(all []session.Checkpoint, dir string) ([]session.Checkpoint, string) {
+	remote, root := gitstate.Identity(dir)
+	var kept []session.Checkpoint
+	other := ""
+	for i, c := range all {
+		differs := false
+		switch {
+		case remote != "" && c.Git.Remote != "":
+			differs = remote != c.Git.Remote
+		case root != "" && c.Git.Root != "":
+			differs = root != c.Git.Root
+		}
+		if !differs {
+			kept = append(kept, c)
+			continue
+		}
+		if i == 0 {
+			other = c.Git.Remote
+			if other == "" {
+				other = c.Git.Root
+			}
+		}
+	}
+	return kept, other
+}

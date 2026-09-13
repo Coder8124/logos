@@ -60,6 +60,12 @@ func (c Checkpoint) Markdown(follows string) string {
 		if c.Git.Worktree != "" {
 			fmt.Fprintf(&b, "worktree: %s\n", yamlStr(c.Git.Worktree))
 		}
+		if c.Git.Remote != "" {
+			fmt.Fprintf(&b, "remote: %s\n", yamlStr(c.Git.Remote))
+		}
+		if c.Git.Root != "" {
+			fmt.Fprintf(&b, "repo_root: %s\n", yamlStr(c.Git.Root))
+		}
 		// The paths git observed as changed. Collected since gitstate existed and
 		// then dropped on the floor here, which quietly cost `brain why` its best
 		// input: that command joins a path against what a checkpoint touched, and
@@ -208,6 +214,8 @@ type checkpointFM struct {
 	CommitSubject string   `yaml:"commit_subject"`
 	Uncommitted   int      `yaml:"uncommitted"`
 	Worktree      string   `yaml:"worktree"`
+	Remote        string   `yaml:"remote"`
+	RepoRoot      string   `yaml:"repo_root"`
 	Touched       []string `yaml:"touched"`
 }
 
@@ -234,6 +242,8 @@ func ParseCheckpoint(raw string) Checkpoint {
 			Subject:  fm.CommitSubject,
 			Dirty:    fm.Uncommitted,
 			Worktree: fm.Worktree,
+			Remote:   fm.Remote,
+			Root:     fm.RepoRoot,
 			Files:    fm.Touched,
 		},
 	}

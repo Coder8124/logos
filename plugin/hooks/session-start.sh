@@ -39,7 +39,9 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # Bounded, and quiet on failure. A vault that does not exist yet, a project with
 # no checkpoints, or a Logos that is not installed all land here and print
 # nothing.
-handoff=$("${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
+# From inside the project, so resume can tell this repository's checkpoints
+# from those of another repository with the same folder name.
+handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && "${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
 [ -z "$handoff" ] && exit 0
 
 # resume on a project with no checkpoint still returns context — standing

@@ -431,6 +431,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 			Task:     argStr(args, "task"),
 			Hint:     hint,
 			Worktree: worktree,
+			Dir:      s.repoDir(hint),
 			Budget:   argInt(args, "budget", 0),
 			Since:    contextpack.Since(argStr(args, "since")),
 		})
@@ -841,7 +842,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		return "", err
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Worktree: worktree, Budget: budget, Since: since,
+		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project), Budget: budget, Since: since,
 	})
 	if err != nil {
 		return "", err
