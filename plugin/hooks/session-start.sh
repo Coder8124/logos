@@ -75,6 +75,9 @@ carried=$(printf '%s\n' "$handoff" | awk '
 /^## Not settled/                             { k = "3open question";        next }
 /^## Recorded since, not yet checkpointed/    { k = "4uncheckpointed note";  next }
 /^(## |\*\*)/                                 { k = "";                      next }
+# The marker the SessionEnd hook writes is not work anyone recorded; counting it
+# as a note would inflate the receipt with the hook talking about itself.
+k ~ /uncheckpointed/ && /session ended$/      { next }
 k != "" && /^- /                              { n[k]++ }
 END {
     m = 0

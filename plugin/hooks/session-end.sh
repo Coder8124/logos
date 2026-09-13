@@ -34,8 +34,16 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # with nothing behind it. The absence of a checkpoint after this note is itself
 # the signal, and it is one `logos doctor` can read off the vault without
 # anybody having to guess.
-if "${LOGOS[@]}" note "$project" "claude-code session ended" >/dev/null 2>&1; then
-  echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2
+#
+# Only when work is still open, and not twice in a row: after a checkpoint this
+# line made a good handoff look stale, and sessions that never checkpointed
+# stacked identical copies of it. brain decides both (see runNote); an older
+# brain ignores the variable and notes as it always did.
+if out=$(BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
+  case "$out" in
+    skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
+    *)        echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2 ;;
+  esac
 else
   # Named, not swallowed. A vault that cannot be written to is a continuity
   # layer that has stopped working, and the user finding that out tomorrow —

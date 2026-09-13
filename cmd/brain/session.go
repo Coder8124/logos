@@ -28,6 +28,15 @@ func runNote(args []string) error {
 	// `brain note <project> "..."`, having worked the project out from the cwd
 	// in order to print that line. Two or more keeps the older reading, where
 	// the first names the project explicitly.
+	//
+	// BRAIN_NOTE_IF_UNCOMMITTED is for the SessionEnd hook, which notes every
+	// session end. Written after a checkpoint, that note reopened a "not yet
+	// checkpointed" section under a good handoff; written by every session that
+	// never checkpointed, it stacked identical lines. So it lands only when work
+	// is already open, and not when the last open note says the same thing.
+	// An environment variable rather than a flag because the hook may resolve
+	// an older brain, which would file a flag it does not know as the project.
+	ifUncommitted := os.Getenv("BRAIN_NOTE_IF_UNCOMMITTED") == "1"
 	var project, text string
 	switch {
 	case len(args) >= 2:
@@ -46,6 +55,20 @@ func runNote(args []string) error {
 	defer ix.Close()
 	if err := session.Init(ix.DB); err != nil {
 		return err
+	}
+	if ifUncommitted {
+		open, err := session.Uncommitted(ix.DB, project)
+		if err != nil {
+			return err
+		}
+		if len(open) == 0 {
+			fmt.Printf("skipped — nothing on %s is waiting for a checkpoint.\n", project)
+			return nil
+		}
+		if open[len(open)-1].Text == text {
+			fmt.Println("skipped — the last uncommitted note already says this.")
+			return nil
+		}
 	}
 	if _, err := session.AddNote(ix.DB, project, agentName(), text); err != nil {
 		return err
