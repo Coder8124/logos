@@ -88,6 +88,9 @@ func runMCPServe() error {
 	defer ix.Close()
 
 	srv := mcpserver.New(ix.DB, rt, vault)
+	if self, err := selfPath(); err == nil {
+		srv.Shell, _ = terminalCommand(self)
+	}
 	return srv.Serve(os.Stdin, os.Stdout)
 }
 
@@ -141,6 +144,9 @@ func runMCPServeHTTP(port int) error {
 	fmt.Printf("brain: pairing token: %s\n", token)
 
 	srv := mcpserver.New(ix.DB, rt, vault)
+	if self, err := selfPath(); err == nil {
+		srv.Shell, _ = terminalCommand(self)
+	}
 	return srv.ServeHTTP(mcpserver.HTTPConfig{Addr: addr, Token: token, Origins: origins})
 }
 

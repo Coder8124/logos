@@ -99,6 +99,10 @@ type Server struct {
 	vault      string
 	embed      *provider.Provider
 	embedModel string
+	// Shell is how the user reaches this install from a terminal — `brain`,
+	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
+	// command use it; empty means `brain`.
+	Shell string
 }
 
 // Session is one client's connection to the Server: the state that belongs to
@@ -513,7 +517,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	case memory.EvReinforced:
 		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
 	case memory.EvQuarantined:
-		return s.receipt(fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `brain review` to accept or reject it before it becomes active", r.ID, kind, where)), nil
+		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where)), nil
 	case memory.EvCreated:
 		return s.receipt(fmt.Sprintf("stored in brain — memory #%d (%s, %s)", r.ID, kind, where)), nil
 	}
@@ -1070,4 +1074,15 @@ func argList(args map[string]any, k string) []string {
 		}
 	}
 	return out
+}
+
+// quarantineReceipt names the review command this install answers to. Under
+// npx or the plugin alone there is no brain on PATH, and "run `brain review`"
+// left the memory queued behind a command the user could not run.
+func (s *Server) quarantineReceipt(id int64, kind, where string) string {
+	shell := s.Shell
+	if shell == "" {
+		shell = "brain"
+	}
+	return fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `%s review` to accept or reject it before it becomes active", id, kind, where, shell)
 }

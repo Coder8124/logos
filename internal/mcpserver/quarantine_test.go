@@ -114,3 +114,17 @@ func TestRememberRejectedNeverSurfaces(t *testing.T) {
 		t.Error("rejecting an already-rejected id should error")
 	}
 }
+
+// Plugin-only and npx-only installs have no brain on PATH, so a receipt
+// telling the user to run `brain review` sent them to a command that does not
+// exist, and the memory sat in quarantine for good.
+func TestTheReviewReceiptNamesTheCommandThisInstallAnswersTo(t *testing.T) {
+	s := &Server{Shell: "npx @noeton/logos"}
+	if got := s.quarantineReceipt(7, "fact", "everywhere"); !strings.Contains(got, "`npx @noeton/logos review`") {
+		t.Errorf("an npx install's receipt must name npx, got %q", got)
+	}
+	s = &Server{}
+	if got := s.quarantineReceipt(7, "fact", "everywhere"); !strings.Contains(got, "`brain review`") {
+		t.Errorf("with nothing known about the install the receipt stays `brain review`, got %q", got)
+	}
+}
