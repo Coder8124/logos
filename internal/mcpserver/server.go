@@ -933,7 +933,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}
-	return msg + " Run `brain index` to make it searchable.", nil
+	// No "run `brain index`": resume and before_you_try read the checkpoint off
+	// disk, so it is usable the moment this returns. See cmd/brain/session.go.
+	return msg, nil
 }
 
 // memoryDiff reports what the memory learned, dropped, or corroborated over the

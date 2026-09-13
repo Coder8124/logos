@@ -60,10 +60,9 @@ func runReview(args []string) error {
 	in := bufio.NewReader(os.Stdin)
 	accepted, rejected, skipped, _ := reviewMemories(ix, in, memories, all)
 
+	// No "run `brain index`" after an accept: Accept writes the database and the
+	// vault together, so the memory is recallable already.
 	fmt.Printf("%d accepted, %d rejected, %d skipped\n", accepted, rejected, skipped)
-	if accepted > 0 {
-		fmt.Println("run `brain index` to pick up the new notes")
-	}
 	return nil
 }
 

@@ -345,3 +345,22 @@ func truncateForLog(s string) string {
 	}
 	return s
 }
+
+// resume and before_you_try read a checkpoint off disk the moment it is
+// written, so the receipt's "Run `brain index` to make it searchable" told
+// the agent to do something that changed nothing. The CLI dropped the same
+// line for the same reason.
+func TestTheCheckpointReceiptDoesNotSendTheAgentToBrainIndex(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"next":    "quote the extruded option",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "brain index") {
+		t.Errorf("the checkpoint receipt still says to run brain index:\n%s", truncateForLog(line))
+	}
+}
