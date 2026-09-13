@@ -366,3 +366,31 @@ func workingDir() string {
 	}
 	return dir
 }
+
+// IsPlaceholder reports a Failed bullet that says nothing was ruled out.
+// Agents fill the field with "none this session" rather than leave it empty,
+// and stored as a bullet it read as a dead end: resume listed it as ruled out
+// and before_you_try matched it to unrelated proposals.
+func IsPlaceholder(s string) bool {
+	s = strings.ToLower(strings.Trim(strings.TrimSpace(s), ".!-–— "))
+	for _, suffix := range []string{" this session", " so far", " yet", " today"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	switch s {
+	case "", "none", "nothing", "n/a", "na", "nil", "no", "nothing ruled out", "no failures", "no dead ends":
+		return true
+	}
+	return false
+}
+
+// DropPlaceholders returns failed without its placeholder bullets, and how
+// many it dropped so the caller can say so.
+func DropPlaceholders(failed []string) ([]string, int) {
+	var kept []string
+	for _, f := range failed {
+		if !IsPlaceholder(f) {
+			kept = append(kept, f)
+		}
+	}
+	return kept, len(failed) - len(kept)
+}

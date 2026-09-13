@@ -148,10 +148,17 @@ func runCheckpoint(args []string) error {
 	if err := session.Init(ix.DB); err != nil {
 		return err
 	}
+	var dropped int
+	c.Failed, dropped = session.DropPlaceholders(c.Failed)
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
 	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	if dropped > 0 {
+		// Said out loud so the agent knows its "none" was not kept as a dead end.
+		fmt.Printf("dropped %d placeholder failed entr%s — leave failed empty when nothing was ruled out.\n",
+			dropped, map[bool]string{true: "y", false: "ies"}[dropped == 1])
+	}
 	// Deliberately not "run `brain index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user
 	// just did: resume reads this file off disk, so the handoff already works.

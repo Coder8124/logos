@@ -410,3 +410,29 @@ func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T)
 		}
 	}
 }
+
+// A placeholder in failed was stored as a ruled-out approach, then shown in
+// resume and matched by before_you_try. The receipt says it was dropped, so
+// the agent knows its "none" did not land as a dead end.
+func TestACheckpointDropsPlaceholderFailuresAndSaysSo(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"failed":  []string{"none this session", "extruded frame cracks at 1.2m"},
+		"next":    "quote the extruded option",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "placeholder") {
+		t.Errorf("the receipt does not say the placeholder was dropped:\n%s", truncateForLog(line))
+	}
+	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
+	if strings.Contains(line, "none this session") {
+		t.Errorf("the placeholder was stored as a dead end:\n%s", truncateForLog(line))
+	}
+	if !strings.Contains(line, "cracks at 1.2m") {
+		t.Errorf("the real failure was dropped too:\n%s", truncateForLog(line))
+	}
+}

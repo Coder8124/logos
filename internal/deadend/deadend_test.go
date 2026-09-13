@@ -321,3 +321,48 @@ func TestCollectSpansEveryProject(t *testing.T) {
 		t.Errorf("want dead ends from every project, got %v", seen)
 	}
 }
+
+// "none this session" in Failed is an agent saying nothing was ruled out. It
+// was collected as a dead end, and before_you_try told an agent that automatic
+// session capture "has been tried" on the strength of it.
+func TestAPlaceholderInFailedIsNotADeadEnd(t *testing.T) {
+	dir, db := seed(t)
+	for _, f := range []string{"none this session", "None.", "n/a", "nothing"} {
+		if err := session.Commit(db, dir, &session.Checkpoint{
+			Project: "brain", Agent: "claude", Task: "work", Failed: []string{f},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := Collect(dir, db, "brain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range all {
+		t.Errorf("a placeholder was collected as a dead end: %q", r.Text)
+	}
+}
+
+// Half of a two-word ruling is one word. "session" alone matched "Redis
+// session cookies" to a proposal about capturing session activity.
+func TestOneSharedWordDoesNotMakeARepeat(t *testing.T) {
+	dir, db := seed(t)
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "brain", Agent: "claude", Task: "work", Failed: []string{"session cookies"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := Check(dir, db, nil, "",
+		"Automatically capture session activity and derive checkpoints", "brain", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hits {
+		t.Errorf("matched on one shared word: %q", h.Text)
+	}
+	// A ruling that shares both of its words still matches.
+	hits, _ = Check(dir, db, nil, "", "store session cookies in redis", "brain", 5)
+	if len(hits) == 0 {
+		t.Error("a proposal naming the whole ruling was not matched")
+	}
+}

@@ -942,10 +942,16 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		Next:      argStr(args, "next"),
 		HandoffTo: handoffTo,
 	}
+	var dropped int
+	c.Failed, dropped = session.DropPlaceholders(c.Failed)
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to brain — %s.md", c.Slug))
+	if dropped > 0 {
+		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
+			dropped, map[bool]string{true: "entry", false: "entries"}[dropped == 1])
+	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}

@@ -134,7 +134,9 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 		}
 		for _, c := range history {
 			for _, f := range c.Failed {
-				if strings.TrimSpace(f) == "" {
+				// Checkpoints written before checkpoint dropped placeholders
+				// still carry "none this session" on disk.
+				if session.IsPlaceholder(f) {
 					continue
 				}
 				rec := ParseRecord(textmatch.Flatten(f))
@@ -200,7 +202,14 @@ func Check(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, propos
 	asked := textmatch.Subject(proposed)
 	lexical := make([]float64, len(corpus))
 	for i, r := range corpus {
-		lexical[i] = textmatch.Overlap(asked, textmatch.Subject(r.Text))
+		subject := textmatch.Subject(r.Text)
+		lexical[i] = textmatch.Overlap(asked, subject)
+		// Half of a two-word ruling is a single word, and one shared word is
+		// not the same approach: "session cookies" matched a proposal about
+		// capturing session activity.
+		if len(subject) >= 2 && sharedWords(asked, subject) < 2 {
+			lexical[i] = 0
+		}
 	}
 
 	semantic := make([]float64, len(corpus))
@@ -239,6 +248,19 @@ func Check(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, propos
 		hits = hits[:k]
 	}
 	return hits, nil
+}
+
+func sharedWords(a, b map[string]bool) int {
+	n := 0
+	for w := range b {
+		for v := range a {
+			if textmatch.Akin(w, v) {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }
 
 func cosine(a, b []float32) float64 {
