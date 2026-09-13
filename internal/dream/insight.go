@@ -118,6 +118,12 @@ func Enqueue(db *sql.DB, in *Insight) error {
 		return err
 	}
 	in.ID, _ = res.LastInsertId()
+	// The vault, second and reported. A row that reached the cache and not the
+	// file is the exact state that made this queue losable, so the caller hears
+	// about it rather than getting a success-shaped result (invariant 4).
+	if err := flush(db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -168,8 +174,13 @@ func Get(db *sql.DB, id int64) (Insight, error) {
 // SetStatus records the decision. Rejections are kept, not deleted: "you dreamed
 // this and I said no" is the signal for tuning what the pass proposes later.
 func SetStatus(db *sql.DB, id int64, s Status) error {
-	_, err := db.Exec("UPDATE dream_insights SET status = ? WHERE id = ?", string(s), id)
-	return err
+	if _, err := db.Exec("UPDATE dream_insights SET status = ? WHERE id = ?", string(s), id); err != nil {
+		return err
+	}
+	// A verdict that only the cache knows is the same bug as a proposal that
+	// only the cache knows: the next rebuild hands the user back an insight
+	// they already refused.
+	return flush(db)
 }
 
 func PendingCount(db *sql.DB) (int, error) {

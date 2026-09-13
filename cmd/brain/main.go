@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/brain/internal/buildinfo"
+	"github.com/Coder8124/brain/internal/dream"
 	"github.com/Coder8124/brain/internal/health"
 	"github.com/Coder8124/brain/internal/index"
 	"github.com/Coder8124/brain/internal/mcpserver"
@@ -906,6 +907,25 @@ func runIndex(watch bool) error {
 			fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
 		} else if loops > 0 {
 			fmt.Printf("restored %d tracked %s — run `brain loop`\n", loops, plural(loops, "loop"))
+		}
+
+		// Dreamed insights, after the memories they cite. Announced for the
+		// reason the rest are: an empty `brain dream review` after a rebuild
+		// reads as a queue the user has already been through, not one the
+		// rebuild threw away. The count is every insight put back, reviewed
+		// ones included — they are what stops a rejected connection being
+		// proposed all over again.
+		if seen, err := ix.SyncInsights(); err != nil {
+			fmt.Fprintln(os.Stderr, "· could not restore dreamed insights:", err)
+		} else if seen > 0 {
+			// Rejections are restored too — they are the record of what the user
+			// already refused. Only point at the review command when there is
+			// actually something waiting behind it.
+			line := fmt.Sprintf("restored %d dreamed %s", seen, plural(seen, "insight"))
+			if n, err := dream.PendingCount(ix.DB); err == nil && n > 0 {
+				line += " — run `brain dream review`"
+			}
+			fmt.Println(line)
 		}
 
 		if p == nil {

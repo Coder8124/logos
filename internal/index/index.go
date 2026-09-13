@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/brain/internal/dream"
 	"github.com/Coder8124/brain/internal/ingest"
 	"github.com/Coder8124/brain/internal/memory"
 	"github.com/Coder8124/brain/internal/provider"
@@ -146,6 +147,9 @@ func Open(vaultDir string) (*Index, error) {
 	// And open loops, for the same reason again: `brain loop` promised a list
 	// that survived a rebuild and kept it only here.
 	secretary.SetVault(db, vaultDir)
+	// And dreamed insights: the most expensive row in the database to lose, and
+	// until now the one with no copy outside it.
+	dream.SetVault(db, vaultDir)
 	return &Index{Vault: vaultDir, DB: db}, nil
 }
 
@@ -214,6 +218,17 @@ func (ix *Index) SyncLog() (int, error) {
 // Returns how many loops it put back.
 func (ix *Index) SyncLoops() (int, error) {
 	return secretary.Import(ix.DB, ix.Vault)
+}
+
+// SyncInsights restores dreamed insights from the vault.
+//
+// Must run after SyncMemories: an insight cites the two memory ids it bridges,
+// and `brain dream review` renders those endpoints, so the memories have to be
+// back before the proposal about them can be read.
+//
+// Returns how many insights it put back.
+func (ix *Index) SyncInsights() (int, error) {
+	return dream.Import(ix.DB, ix.Vault)
 }
 
 // deadAmbientTables held ambient-capture state — events, rollup proposals,
@@ -305,6 +320,7 @@ func (ix *Index) Close() error {
 	memory.SetVault(ix.DB, "")
 	session.SetVault(ix.DB, "")
 	secretary.SetVault(ix.DB, "")
+	dream.SetVault(ix.DB, "")
 	return ix.DB.Close()
 }
 
@@ -348,6 +364,12 @@ func (ix *Index) Sync() (SyncReport, error) {
 		// one changes a note the user never wrote. secretary.Import reconciles
 		// it instead.
 		if path == secretary.LoopsPath(ix.Vault) {
+			return nil
+		}
+		// dream-insights.md is the same case: a queue of proposals waiting on
+		// the user, not a document to search. Indexing it would make accepting
+		// an insight edit a note nobody wrote. dream.Import reconciles it.
+		if path == dream.InsightsPath(ix.Vault) {
 			return nil
 		}
 		// Symlinks are skipped rather than followed. A link in the vault
