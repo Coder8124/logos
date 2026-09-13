@@ -42,6 +42,15 @@ import (
 // Name is what logos calls itself in a host's server list.
 const Name = "logos"
 
+// OldName is what 0.4 setup registered the server as. Setup replaces such an
+// entry through 0.4.x; this goes before 0.5.0.
+const OldName = "brain"
+
+// isLogosServer reports whether a registration's command line starts logos's
+// MCP server, whatever the binary is called — the same test doctor uses for a
+// duplicate, so an entry named brain that belongs to something else is kept.
+func isLogosServer(command string) bool { return strings.Contains(command, "mcp serve") }
+
 // A Server is the command a host should run to reach this logos.
 type Server struct {
 	// Bin is the absolute path to the logos binary. Absolute because a host
@@ -89,6 +98,11 @@ type Result struct {
 	// they still exist.
 	CommentsOnlyInBackup bool
 	Err                  error
+	// Replaced is set when the entry 0.4 setup wrote under OldName was
+	// removed, and ReplaceErr when that was tried and failed. Neither fails the
+	// host: logos is registered either way, and the leftover is reported.
+	Replaced   bool
+	ReplaceErr error
 }
 
 // A Host is one application that can talk to an MCP server.
@@ -112,6 +126,9 @@ type Host struct {
 	// back rather than assumed. Nil means this host exposes no way to read
 	// that back — not an error, just a question this host cannot answer.
 	List func() ([]Registration, error)
+	// RemoveOld removes the entry 0.4 setup registered under OldName, and
+	// reports whether there was one. Nil for a host 0.4 never wired.
+	RemoveOld func() (bool, error)
 }
 
 // Registration is one server as a host currently reports it — the name it was
@@ -206,6 +223,11 @@ func Install(s Server, hosts []Host) []Result {
 			r.Outcome = Failed
 			out = append(out, r)
 			continue
+		}
+		// After registering, so a failed registration never leaves a host with
+		// neither entry; and before the comparison below, which must see it.
+		if h.RemoveOld != nil {
+			r.Replaced, r.ReplaceErr = h.RemoveOld()
 		}
 		// Compared afterwards rather than predicted beforehand: whether a
 		// registration changes anything is only knowable once the host's own
@@ -420,30 +442,9 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 // map "servers", and Copilot CLI ignores an entry with no type or tools, so one
 // fixed shape would have written files those hosts read as having no logos.
 func mergeServers(path, root string, entry any) (Outcome, error) {
-	cfg := mcpConfig{}
-
-	raw, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if len(strings.TrimSpace(string(raw))) > 0 {
-			std, _ := standardJSON(raw)
-			if err := json.Unmarshal(std, &cfg); err != nil {
-				return Failed, fmt.Errorf(
-					"%s is not valid JSON, so it was left alone; fix or move it and re-run: %w",
-					path, err)
-			}
-		}
-	case os.IsNotExist(err):
-		// First MCP server on this host. Creating the file is correct.
-	default:
+	cfg, servers, err := loadServers(path, root)
+	if err != nil {
 		return Failed, err
-	}
-
-	servers := map[string]json.RawMessage{}
-	if rawServers, ok := cfg[root]; ok && len(rawServers) > 0 {
-		if err := json.Unmarshal(rawServers, &servers); err != nil {
-			return Failed, fmt.Errorf("%s has a %s block that is not an object: %w", path, root, err)
-		}
 	}
 
 	_, had := servers[Name]
@@ -453,25 +454,58 @@ func mergeServers(path, root string, entry any) (Outcome, error) {
 	}
 	servers[Name] = encodedEntry
 
-	encoded, err := json.Marshal(servers)
-	if err != nil {
-		return Failed, err
-	}
-	cfg[root] = encoded
-
-	// Indented, because a person opens these files.
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return Failed, err
-	}
-
-	if err := vault.WriteAtomic(path, append(out, '\n')); err != nil {
+	if err := saveServers(path, root, cfg, servers); err != nil {
 		return Failed, err
 	}
 	if had {
 		return Updated, nil
 	}
 	return Registered, nil
+}
+
+// loadServers reads a host config and the server map under root. A file that
+// does not exist yet is an empty config: the first MCP server on this host.
+func loadServers(path, root string) (mcpConfig, map[string]json.RawMessage, error) {
+	cfg := mcpConfig{}
+
+	raw, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if len(strings.TrimSpace(string(raw))) > 0 {
+			std, _ := standardJSON(raw)
+			if err := json.Unmarshal(std, &cfg); err != nil {
+				return nil, nil, fmt.Errorf(
+					"%s is not valid JSON, so it was left alone; fix or move it and re-run: %w",
+					path, err)
+			}
+		}
+	case os.IsNotExist(err):
+	default:
+		return nil, nil, err
+	}
+
+	servers := map[string]json.RawMessage{}
+	if rawServers, ok := cfg[root]; ok && len(rawServers) > 0 {
+		if err := json.Unmarshal(rawServers, &servers); err != nil {
+			return nil, nil, fmt.Errorf("%s has a %s block that is not an object: %w", path, root, err)
+		}
+	}
+	return cfg, servers, nil
+}
+
+func saveServers(path, root string, cfg mcpConfig, servers map[string]json.RawMessage) error {
+	encoded, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	cfg[root] = encoded
+
+	// Indented, because a person opens these files.
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return vault.WriteAtomic(path, append(out, '\n'))
 }
 
 // readMCPServers reads back what a JSON-config host (Claude Desktop, Cursor)

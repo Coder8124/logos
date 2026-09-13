@@ -835,6 +835,12 @@ func wireHosts(vault string, opts wireOpts) error {
 					fmt.Printf("    %-*s    its comments were not carried over; they are kept in that copy\n", hostColumn, "")
 				}
 			}
+			// Through 0.4.x only: the entry 0.4 setup wrote under the old name.
+			if r.Replaced {
+				fmt.Printf("    %-*s    replaced the brain entry an earlier setup wrote\n", hostColumn, "")
+			} else if r.ReplaceErr != nil {
+				fmt.Printf("    %-*s    could not remove the brain entry an earlier setup wrote: %v\n", hostColumn, "", r.ReplaceErr)
+			}
 			// The README's Cursor button writes a `logos` entry, and a
 			// hand-written config may use any name. Setup adding `logos` beside
 			// it loads the server twice, each copy possibly on a different

@@ -70,6 +70,21 @@ func claudeCode() Host {
 			}
 			return parseClaudeMCPList(out), nil
 		},
+		RemoveOld: func() (bool, error) {
+			out, err := exec.Command("claude", "mcp", "list").CombinedOutput()
+			if err != nil {
+				return false, err
+			}
+			for _, r := range parseClaudeMCPList(out) {
+				if r.Name == OldName && isLogosServer(r.Command) {
+					if _, err := viaCLI("claude", []string{"mcp", "remove", "--scope", "user", OldName}); err != nil {
+						return false, err
+					}
+					return true, nil
+				}
+			}
+			return false, nil
+		},
 	}
 }
 
@@ -112,7 +127,35 @@ func codex() Host {
 			args = append(args, s.Args...)
 			return viaCLI("codex", args)
 		},
+		RemoveOld: func() (bool, error) {
+			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
+			if err != nil || !codexHasOldEntry(string(raw)) {
+				return false, nil
+			}
+			if _, err := viaCLI("codex", []string{"mcp", "remove", OldName}); err != nil {
+				return false, err
+			}
+			return true, nil
+		},
 	}
+}
+
+// codexHasOldEntry looks for the [mcp_servers.brain] table 0.4 setup wrote,
+// and checks it runs mcp serve. Read as lines rather than parsed: this is the
+// only TOML logos reads, and only until 0.5.0.
+func codexHasOldEntry(toml string) bool {
+	in, body := false, ""
+	for _, line := range strings.Split(toml, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") {
+			in = t == "[mcp_servers."+OldName+"]"
+			continue
+		}
+		if in {
+			body += t + " "
+		}
+	}
+	return strings.Contains(body, `"mcp"`) && strings.Contains(body, `"serve"`)
 }
 
 // claudeDesktop has no CLI, so its config file is merged.
@@ -129,7 +172,8 @@ func claudeDesktop() Host {
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
-		List: func() ([]Registration, error) { return readMCPServers(path) },
+		List:      func() ([]Registration, error) { return readMCPServers(path) },
+		RemoveOld: func() (bool, error) { return removeOldJSON(path, "mcpServers") },
 	}
 }
 
@@ -146,7 +190,8 @@ func cursor() Host {
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
-		List: func() ([]Registration, error) { return readMCPServers(path) },
+		List:      func() ([]Registration, error) { return readMCPServers(path) },
+		RemoveOld: func() (bool, error) { return removeOldJSON(path, "mcpServers") },
 	}
 }
 
@@ -161,8 +206,32 @@ func jsonHost(name, path, root string, detect func() bool, entry func(Server) an
 		Register: func(s Server) (Outcome, error) {
 			return mergeServers(path, root, entry(s))
 		},
-		List: func() ([]Registration, error) { return readServerBlock(path, root) },
+		List:      func() ([]Registration, error) { return readServerBlock(path, root) },
+		RemoveOld: func() (bool, error) { return removeOldJSON(path, root) },
 	}
+}
+
+// removeOldJSON deletes the OldName entry under root when it runs logos.
+func removeOldJSON(path, root string) (bool, error) {
+	regs, err := readServerBlock(path, root)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range regs {
+		if r.Name != OldName || !isLogosServer(r.Command) {
+			continue
+		}
+		cfg, servers, err := loadServers(path, root)
+		if err != nil {
+			return false, err
+		}
+		delete(servers, OldName)
+		if err := saveServers(path, root, cfg, servers); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func plainEntry(s Server) any { return serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env} }

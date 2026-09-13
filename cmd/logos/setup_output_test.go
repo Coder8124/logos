@@ -185,7 +185,8 @@ func TestSetupDoesNotMentionThePluginWhenClaudeCodeIsNotWired(t *testing.T) {
 	}
 }
 
-// A 0.4 install left a `brain` entry. Setup then added `logos`
+// A second entry — a 0.4 `brain` one setup could not remove, or one written by
+// hand. Setup added `logos`
 // beside it and printed only `✓ registered`, so the moment the duplicate was
 // created was also the moment nothing mentioned it.
 func TestSetupNamesAnotherLogosEntryAlreadyInTheHost(t *testing.T) {
@@ -212,5 +213,30 @@ func TestSetupNamesAnotherLogosEntryAlreadyInTheHost(t *testing.T) {
 	}
 	if strings.Contains(out, "github") {
 		t.Errorf("setup named an unrelated server as a duplicate:\n%s", out)
+	}
+}
+
+// Removing the entry 0.4 setup wrote changes someone's host config, so it is
+// said; a removal that failed is said too, with the error, since that host now
+// loads logos twice.
+func TestSetupSaysItReplacedTheOldBrainEntryOrCouldNot(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Cursor", "Fakey Codex")
+	hosts := detectHosts()
+	hosts[0].RemoveOld = func() (bool, error) { return true, nil }
+	hosts[1].RemoveOld = func() (bool, error) { return false, fmt.Errorf("codex: permission denied") }
+	detectHosts = func() []setup.Host { return hosts }
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "replaced the brain entry") {
+		t.Errorf("setup did not say it replaced the brain entry:\n%s", out)
+	}
+	if !strings.Contains(out, "permission denied") {
+		t.Errorf("setup did not report the removal that failed:\n%s", out)
 	}
 }
