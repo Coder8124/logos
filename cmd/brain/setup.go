@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/brain/internal/health"
 	"github.com/Coder8124/brain/internal/index"
@@ -441,8 +444,12 @@ func brainServer(vault string) (setup.Server, error) {
 	return serverFor(bin, vault), nil
 }
 
+// executable is os.Executable, replaceable so a test can be a binary running
+// from npm's npx cache.
+var executable = os.Executable
+
 func selfPath() (string, error) {
-	bin, err := os.Executable()
+	bin, err := executable()
 	if err != nil {
 		return "", fmt.Errorf("could not find my own path, which the host config needs: %w", err)
 	}
@@ -597,6 +604,19 @@ func wireHosts(vault string, opts wireOpts) error {
 	if err != nil {
 		return err
 	}
+	// Under npx the server would be registered as `npx -y @noeton/logos`, and
+	// npx asks npm's registry on every launch: offline that waited 70 seconds
+	// and then failed, so there was no Logos at all without a network. The
+	// binary npx is running is the whole server, so keep a copy of it outside
+	// npm's cache and register that. ~/.local/bin is also a directory the
+	// plugin's resolver searches, so its hooks find the copy instead of npx.
+	pin := ""
+	if self, err := selfPath(); err == nil && selfupdate.DetectInstall(self) == selfupdate.NPX {
+		if p, err := pinnedBinary(); err == nil {
+			pin = p
+			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
+		}
+	}
 	bin := srv.Bin
 
 	known := detectHosts()
@@ -642,7 +662,11 @@ func wireHosts(vault string, opts wireOpts) error {
 	if present > 0 {
 		fmt.Printf("    each of these will be pointed at:\n")
 		fmt.Printf("      %s %s\n", bin, strings.Join(srv.Args, " "))
-		fmt.Printf("      BRAIN_VAULT=%s\n\n", vault)
+		fmt.Printf("      BRAIN_VAULT=%s\n", vault)
+		if pin != "" {
+			fmt.Printf("      (a copy of this binary, made there so hosts do not depend on npm's cache or the network)\n")
+		}
+		fmt.Println()
 	}
 	// Printed with or without the roster: under --yes it is the only place a
 	// person learns why Claude Code was not touched.
@@ -694,6 +718,20 @@ func wireHosts(vault string, opts wireOpts) error {
 
 	if showPlan {
 		fmt.Println() // separate the roster above from the outcomes below
+	}
+	if pin != "" {
+		self, _ := selfPath()
+		if err := pinBinary(self, pin); err != nil {
+			// Registering a path that was never written would be a host that
+			// cannot start. npx still works while online, so fall back to it
+			// and say what that costs.
+			srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
+			bin = srv.Bin
+			fmt.Printf("    %-16s ✗  could not copy brain to %s: %v\n", "binary", pin, err)
+			fmt.Printf("    %-16s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", "")
+		} else {
+			fmt.Printf("    %-16s ✓  copied to %s\n", "binary", pin)
+		}
 	}
 	byName := map[string]setup.Host{}
 	for _, h := range hosts {
@@ -878,4 +916,54 @@ func otherBrainEntries(h setup.Host) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// pinnedBinary is where an npx setup keeps its copy of brain.
+func pinnedBinary() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	name := "brain"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(home, ".local", "bin", name), nil
+}
+
+// pinBinary copies self to dst. Re-running setup through npx refreshes the
+// copy, but a file there that is not brain belongs to someone else and is left
+// alone. The copy is written beside dst and renamed over it, so a host
+// starting mid-copy never launches half a binary.
+func pinBinary(self, dst string) error {
+	if _, err := os.Stat(dst); err == nil && !runsAsBrain(dst) {
+		return fmt.Errorf("%s already exists and is not brain", dst)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(self)
+	if err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.tmp-%d", dst, os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o755); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// runsAsBrain is the resolver's test in plugin/bin/resolve.sh: every brain
+// answers --version with "brain …". Bounded, because the file being asked
+// may be any program at all.
+func runsAsBrain(path string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	return err == nil && strings.HasPrefix(string(out), "brain ")
 }
