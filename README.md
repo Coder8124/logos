@@ -26,7 +26,10 @@ history, your files or your calendar. The only things in your vault are things
 an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
 remember and you approved. The one network call Logos ever makes on its own is
 `brain update` checking for a new release, and only when you type it; nothing
-else leaves the machine, ever.
+else leaves the machine, ever. Launched through `npx`, npm itself asks the
+registry for the package on every start — the package name, none of your
+data — and without a connection it waits and then fails. An installed binary
+(`npm i -g @noeton/logos`, or a release) makes no such call.
 
 **Logos is built for continuity:**
 
