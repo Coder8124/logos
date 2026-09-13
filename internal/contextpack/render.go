@@ -201,6 +201,18 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 			fmt.Fprintf(&tail, "**Next step:** %s\n", inline(c.Next))
 		}
 	}
+	// After the next step, so it is plain which work that step belongs to.
+	if other := p.otherOpenWork(); len(other) > 0 {
+		if c.Next != "" {
+			tail.WriteString("\n")
+		}
+		// Not list: it would leave a blank line after the last section of the
+		// checkpoint, where the next step has none.
+		tail.WriteString("**Other open work on this project:**\n")
+		for _, it := range other {
+			fmt.Fprintf(&tail, "- %s\n", inline(it))
+		}
+	}
 
 	allowance := sp.allowance(secCheckpoint)
 	fixed := head.String() + tail.String()
@@ -415,6 +427,36 @@ func (p *Pack) priorFailures() []string {
 			}
 			out = append(out, fmt.Sprintf("(%s) %s", who, flatten(f)))
 		}
+	}
+	return out
+}
+
+// otherOpenWork is the earlier checkpoints that stopped on a different task with
+// a next step still written down, newest first, one per task. Latest-wins alone
+// hid them: a CSS fix checkpointed a second after a half-done payments
+// migration restored every later session to the CSS, and the migration was not
+// mentioned again. An earlier checkpoint of a task a newer one carries on is
+// that task's past, not other work, so only each task's newest counts.
+func (p *Pack) otherOpenWork() []string {
+	if p.Checkpoint == nil {
+		return nil
+	}
+	seen := map[string]bool{normalizeKey(p.Checkpoint.Task): true}
+	var out []string
+	for _, c := range p.History {
+		k := normalizeKey(c.Task)
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		if strings.TrimSpace(c.Next) == "" {
+			continue
+		}
+		who := c.Agent
+		if who == "" {
+			who = "an earlier agent"
+		}
+		out = append(out, fmt.Sprintf("(%s, %s) %s — next: %s", who, project.Age(c.TS), flatten(c.Task), flatten(c.Next)))
 	}
 	return out
 }
