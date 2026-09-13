@@ -24,6 +24,7 @@ func main() {
 	// Launched from Finder the app inherits no BRAIN_ variables, but one run
 	// from a shell with a 0.4 profile does; see internal/legacy.
 	legacy.Env()
+	legacy.Vault()
 	app := NewApp(vaultPath())
 
 	err := wails.Run(&options.App{

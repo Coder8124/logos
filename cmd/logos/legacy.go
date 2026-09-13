@@ -16,4 +16,8 @@ func carryOldNames(stderr io.Writer) {
 		fmt.Fprintf(stderr, "logos: reading %s as LOGOS_%s — rename it; the old name stops working in 0.5.0\n",
 			old, strings.TrimPrefix(old, "BRAIN_"))
 	}
+	// After Env, so a BRAIN_VAULT already counts as a choice for this process.
+	if notice := legacy.Vault(); notice != "" {
+		fmt.Fprintf(stderr, "logos: %s\n", notice)
+	}
 }

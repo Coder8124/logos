@@ -47,3 +47,23 @@ func TestTheSessionEndHookSetsBothNamesForAnOlderBinary(t *testing.T) {
 	}
 	t.Fatal("no note line found in session-end.sh")
 }
+
+// Recording the old vault is only half of it; a CLI that did so silently would
+// leave someone wondering why logos is reading ~/brain.
+func TestTheCLIAnnouncesCarryingTheOldVault(t *testing.T) {
+	h := t.TempDir()
+	t.Setenv("HOME", h)
+	t.Setenv("XDG_CONFIG_HOME", h+"/.config")
+	t.Setenv("LOGOS_VAULT", "")
+	os.Unsetenv("LOGOS_VAULT")
+	if err := os.Mkdir(h+"/brain", 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	carryOldNames(&stderr)
+
+	if !strings.Contains(stderr.String(), h+"/brain") {
+		t.Errorf("start did not name the old vault it is using:\n%s", stderr.String())
+	}
+}
