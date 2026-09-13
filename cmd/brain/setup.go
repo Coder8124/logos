@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -439,6 +440,33 @@ func selfPath() (string, error) {
 	return bin, nil
 }
 
+// terminalCommand is how this install is reached from a shell, for the
+// commands setup suggests, with a hint when that is not simply `brain`. Setup
+// used to say "brain resume <project>" regardless, and under npx, a source
+// build or a release binary run from Downloads there is no brain on PATH.
+func terminalCommand(self string) (cmd, hint string) {
+	switch selfupdate.DetectInstall(self) {
+	case selfupdate.NPX:
+		return "npx @noeton/logos", "for a `brain` command, run `npm i -g @noeton/logos`"
+	case selfupdate.NPMManaged:
+		// npm's brain is a node shim, not this file, so it cannot be compared
+		// by path; being on PATH is the whole question.
+		if _, err := exec.LookPath("brain"); err == nil {
+			return "brain", ""
+		}
+	default:
+		if found, err := exec.LookPath("brain"); err == nil {
+			if resolved, err := filepath.EvalSymlinks(found); err == nil && resolved == self {
+				return "brain", ""
+			}
+		}
+	}
+	if strings.ContainsAny(self, " '\"$\\") {
+		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
+	}
+	return self, "brain is not on your PATH — move it into a directory that is (for example ~/.local/bin) to type `brain`"
+}
+
 // probeTarget is what the integration check launches, which is deliberately not
 // always what the hosts launch.
 //
@@ -733,7 +761,14 @@ func wireHosts(vault string, opts wireOpts) error {
 	fmt.Println("    2. In another:    \"resume <project>\"")
 	fmt.Println()
 	fmt.Println("  The second agent should recite what the first ruled out, without")
-	fmt.Println("  you re-explaining. From the terminal: brain resume <project>")
+	cmd, hint := "brain", ""
+	if self, err := selfPath(); err == nil {
+		cmd, hint = terminalCommand(self)
+	}
+	fmt.Printf("  you re-explaining. From the terminal: %s resume <project>\n", cmd)
+	if hint != "" {
+		fmt.Printf("  (%s)\n", hint)
+	}
 	return nil
 }
 
