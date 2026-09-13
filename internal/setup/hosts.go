@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -234,7 +235,16 @@ func copilotVSCode() Host {
 	if user != "" {
 		path = joinPath(user, "mcp.json")
 	}
-	return jsonHost("Copilot in VS Code", path, "servers", func() bool { return exists(user) },
+	// VS Code alone is not Copilot. The Copilot Chat extension is what reads
+	// this file, and an mcp.json already there means VS Code's MCP is in use.
+	detect := func() bool {
+		if exists(path) {
+			return true
+		}
+		found, _ := filepath.Glob(inHome(".vscode", "extensions", "github.copilot-chat-*"))
+		return len(found) > 0
+	}
+	return jsonHost("Copilot in VS Code", path, "servers", detect,
 		func(s Server) any {
 			return struct {
 				Type string `json:"type"`

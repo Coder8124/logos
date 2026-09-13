@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,13 +109,13 @@ func TestSetupDoesNotRegisterClaudeCodeAgainWhenThePluginIsInstalled(t *testing.
 		}
 	})
 
-	if strings.Contains(out, "Claude Code      ✓") {
+	if strings.Contains(out, fmt.Sprintf("%-*s ✓", hostColumn, "Claude Code")) {
 		t.Errorf("Claude Code was registered on top of the plugin:\n%s", out)
 	}
 	if !strings.Contains(out, "Logos plugin") {
 		t.Errorf("setup skipped Claude Code without saying why:\n%s", out)
 	}
-	if !strings.Contains(out, "Fakey Desktop    ✓") {
+	if !strings.Contains(out, fmt.Sprintf("%-*s ✓", hostColumn, "Fakey Desktop")) {
 		t.Errorf("the other hosts must still be wired:\n%s", out)
 	}
 }

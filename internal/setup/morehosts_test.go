@@ -188,3 +188,32 @@ func TestHostCopilotSelectsACopilotHost(t *testing.T) {
 		t.Errorf("kept %v, unmatched %v", Names(kept), unmatched)
 	}
 }
+
+// VS Code alone is not Copilot: someone who edits in VS Code and runs their
+// agents elsewhere was offered, and with --yes given, an MCP entry for an
+// assistant they do not have.
+func TestVSCodeWithoutCopilotIsNotTakenAsCopilotInVSCode(t *testing.T) {
+	home := fakeHome(t, vscodeUserRel())
+	if hostNamed(t, "Copilot in VS Code").Detect() {
+		t.Error("a VS Code settings directory alone was taken as Copilot in VS Code")
+	}
+
+	if err := os.MkdirAll(filepath.Join(home, ".vscode", "extensions", "github.copilot-chat-0.31.2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !hostNamed(t, "Copilot in VS Code").Detect() {
+		t.Error("the Copilot Chat extension is installed and was not detected")
+	}
+}
+
+// A user mcp.json is VS Code's MCP already in use — the README's own button
+// writes one — so it counts even where the extension lives somewhere else.
+func TestAnExistingVSCodeMCPConfigCountsAsCopilotInVSCode(t *testing.T) {
+	home := fakeHome(t, vscodeUserRel())
+	if err := os.WriteFile(filepath.Join(home, vscodeUserRel(), "mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hostNamed(t, "Copilot in VS Code").Detect() {
+		t.Error("a VS Code mcp.json was not taken as VS Code's MCP being in use")
+	}
+}

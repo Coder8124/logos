@@ -155,6 +155,11 @@ func wireOptsFrom(args []string) wireOpts {
 // which is exactly what they had just done.
 type recordOutcome int
 
+// hostColumn is the width of the name column in setup's host report. It was
+// 16 until "Copilot in VS Code" (18) pushed its arrow out of line with every
+// other row's.
+const hostColumn = 18
+
 const (
 	recordedHere   recordOutcome = iota // written down
 	recordSkipEnv                       // BRAIN_VAULT chose it, so it is this process only
@@ -675,7 +680,7 @@ func wireHosts(vault string, opts wireOpts) error {
 				if version != "" {
 					version = " " + version
 				}
-				pluginNote = fmt.Sprintf("    %-16s —  already connected by the Logos plugin%s; not registered again\n", h.Name, version)
+				pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, version)
 				continue
 			}
 			kept = append(kept, h)
@@ -717,10 +722,10 @@ func wireHosts(vault string, opts wireOpts) error {
 	if showPlan {
 		for _, r := range plan {
 			if r.Outcome == setup.Skipped {
-				fmt.Printf("    %-16s —  not installed\n", r.Host)
+				fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
 				continue
 			}
-			fmt.Printf("    %-16s →  %s\n", r.Host, r.Where)
+			fmt.Printf("    %-*s →  %s\n", hostColumn, r.Host, r.Where)
 		}
 	}
 
@@ -785,17 +790,17 @@ func wireHosts(vault string, opts wireOpts) error {
 		theirs, _ := brainVersion(pin)
 		if newerRelease(theirs, version) && !opts.downgrade &&
 			(opts.yes || !confirmNo(fmt.Sprintf("    %s is brain %s, newer than this %s; replace it with the older one?", pin, theirs, version))) {
-			fmt.Printf("    %-16s —  kept brain %s at %s, newer than this %s (--downgrade replaces it)\n", "binary", theirs, pin, version)
+			fmt.Printf("    %-*s —  kept brain %s at %s, newer than this %s (--downgrade replaces it)\n", hostColumn, "binary", theirs, pin, version)
 		} else if err := pinBinary(self, pin); err != nil {
 			// Registering a path that was never written would be a host that
 			// cannot start. npx still works while online, so fall back to it
 			// and say what that costs.
 			srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
 			bin = srv.Bin
-			fmt.Printf("    %-16s ✗  could not copy brain to %s: %v\n", "binary", pin, err)
-			fmt.Printf("    %-16s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", "")
+			fmt.Printf("    %-*s ✗  could not copy brain to %s: %v\n", hostColumn, "binary", pin, err)
+			fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
 		} else {
-			fmt.Printf("    %-16s ✓  copied to %s\n", "binary", pin)
+			fmt.Printf("    %-*s ✓  copied to %s\n", hostColumn, "binary", pin)
 		}
 	}
 	byName := map[string]setup.Host{}
@@ -806,20 +811,20 @@ func wireHosts(vault string, opts wireOpts) error {
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
 		case setup.Skipped:
-			fmt.Printf("    %-16s —  not installed\n", r.Host)
+			fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
 		case setup.Failed:
 			failed++
-			fmt.Printf("    %-16s ✗  %v\n", r.Host, r.Err)
+			fmt.Printf("    %-*s ✗  %v\n", hostColumn, r.Host, r.Err)
 		default:
 			wired++
-			fmt.Printf("    %-16s ✓  %s (%s)\n", r.Host, r.Outcome, r.Where)
+			fmt.Printf("    %-*s ✓  %s (%s)\n", hostColumn, r.Host, r.Outcome, r.Where)
 			// A registration replaces what was there — `codex mcp add` drops
 			// the whole previous entry, environment and all. Naming the copy is
 			// what makes a wrong --vault recoverable.
 			if r.Backup != "" {
-				fmt.Printf("    %-16s    previous config saved as %s\n", "", r.Backup)
+				fmt.Printf("    %-*s    previous config saved as %s\n", hostColumn, "", r.Backup)
 				if r.CommentsOnlyInBackup {
-					fmt.Printf("    %-16s    its comments were not carried over; they are kept in that copy\n", "")
+					fmt.Printf("    %-*s    its comments were not carried over; they are kept in that copy\n", hostColumn, "")
 				}
 			}
 			// The README's Cursor button writes a `logos` entry, and a
@@ -831,17 +836,17 @@ func wireHosts(vault string, opts wireOpts) error {
 				if len(others) > 1 {
 					verb, which = "run", "those entries"
 				}
-				fmt.Printf("    %-16s    %s also %s brain here, so it now loads twice — remove %s\n",
-					"", strings.Join(others, ", "), verb, which)
+				fmt.Printf("    %-*s    %s also %s brain here, so it now loads twice — remove %s\n",
+					hostColumn, "", strings.Join(others, ", "), verb, which)
 			}
 			// `claude mcp add` gives Claude Code the tools but not the
 			// plugin's hooks, so nothing restores the last checkpoint when a
 			// session starts. A user who never hears of the plugin never gets
 			// the part of the product that works without being asked.
 			if r.Host == "Claude Code" {
-				fmt.Printf("    %-16s    for resume at every session start, install the Logos plugin in Claude Code:\n", "")
-				fmt.Printf("    %-16s    /plugin marketplace add Coder8124/logos, then /plugin install logos@logos,\n", "")
-				fmt.Printf("    %-16s    then `claude mcp remove --scope user brain` so it is not registered twice\n", "")
+				fmt.Printf("    %-*s    for resume at every session start, install the Logos plugin in Claude Code:\n", hostColumn, "")
+				fmt.Printf("    %-*s    /plugin marketplace add Coder8124/logos, then /plugin install logos@logos,\n", hostColumn, "")
+				fmt.Printf("    %-*s    then `claude mcp remove --scope user brain` so it is not registered twice\n", hostColumn, "")
 			}
 		}
 	}
@@ -856,18 +861,18 @@ func wireHosts(vault string, opts wireOpts) error {
 		ok := true
 		probeBin, probeArgs, note := probeTarget(bin, srv)
 		if note != "" {
-			fmt.Printf("    %-16s    %s\n", "", note)
+			fmt.Printf("    %-*s    %s\n", hostColumn, "", note)
 		}
 		for _, c := range integrationChecks(probeBin, probeArgs, vault) {
 			if c.State == health.Failed {
 				ok = false
-				fmt.Printf("    %-16s ✗  %s\n", c.Name, c.Detail)
+				fmt.Printf("    %-*s ✗  %s\n", hostColumn, c.Name, c.Detail)
 				if c.Fix != "" {
-					fmt.Printf("    %-16s    → %s\n", "", c.Fix)
+					fmt.Printf("    %-*s    → %s\n", hostColumn, "", c.Fix)
 				}
 				continue
 			}
-			fmt.Printf("    %-16s ✓  %s\n", c.Name, c.Detail)
+			fmt.Printf("    %-*s ✓  %s\n", hostColumn, c.Name, c.Detail)
 		}
 		if !ok {
 			fmt.Println("\n  The hosts are configured but the server did not pass its own check.")
