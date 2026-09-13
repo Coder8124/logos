@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,9 @@ type Input struct {
 	// application's CLI, which a caller should opt into rather than pay for on
 	// every unrelated health check.
 	Hosts []setup.Host
+	// Version is this binary's release, for comparing against the Claude Code
+	// plugin's. "dev" or empty means there is nothing to compare.
+	Version string
 }
 
 // Run performs every check.
@@ -130,6 +134,9 @@ func Run(in Input) Report {
 	r.Add(checkMemoryReview(in.DB))
 	r.Add(checkHosts())
 	r.Add(checkDuplicateRegistration(in.Hosts))
+	if c, ok := checkPlugin(in.Version); ok {
+		r.Add(c)
+	}
 	return r
 }
 
@@ -761,6 +768,59 @@ func checkDuplicateRegistration(hosts []setup.Host) Check {
 	}
 	c.State = OK
 	return c
+}
+
+// checkPlugin compares the Logos plugin installed in Claude Code with this
+// binary. Claude Code does not update a third-party marketplace by default and
+// `brain update` replaces only the binary, so a plugin installed early keeps
+// running its old hooks against a new server indefinitely — a machine sat on
+// 0.1.2 against 0.4.2 with nothing saying so. ok is false when no plugin is
+// installed: most people running doctor never used it.
+func checkPlugin(version string) (c Check, ok bool) {
+	pluginVersion, installed := setup.LogosPlugin()
+	if !installed {
+		return Check{}, false
+	}
+	c = Check{Name: "Claude Code plugin"}
+	plugin, pluginOK := releaseNumber(pluginVersion)
+	binary, binaryOK := releaseNumber(version)
+	if !pluginOK || !binaryOK {
+		c.State = Unknown
+		c.Detail = fmt.Sprintf("plugin %q installed; this brain (%s) has no release number to compare it with", pluginVersion, version)
+		return c, true
+	}
+	for i := range plugin {
+		if plugin[i] < binary[i] {
+			c.State = Warn
+			c.Detail = fmt.Sprintf("the Logos plugin is %s but this brain is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
+			c.Fix = "run `claude plugin marketplace update logos && claude plugin update logos@logos`, then restart Claude Code"
+			return c, true
+		}
+		if plugin[i] > binary[i] {
+			break
+		}
+	}
+	c.State = OK
+	c.Detail = "plugin " + pluginVersion
+	return c, true
+}
+
+// releaseNumber reads "0.4.3" or "v0.4.3". Anything else — dev, a pseudo
+// version, a pre-release — is not a number doctor will rank.
+func releaseNumber(v string) ([3]int, bool) {
+	var n [3]int
+	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+	if len(parts) != 3 {
+		return n, false
+	}
+	for i, p := range parts {
+		x, err := strconv.Atoi(p)
+		if err != nil || x < 0 {
+			return n, false
+		}
+		n[i] = x
+	}
+	return n, true
 }
 
 // --- helpers -----------------------------------------------------------------

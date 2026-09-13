@@ -733,7 +733,7 @@ func doctorIntegration() error {
 // the point of the report is to work when things are broken.
 func gatherHealth() health.Report {
 	vault := vaultPath()
-	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel), Hosts: setup.Hosts()}
+	in := health.Input{Vault: vault, EmbedModel: env("BRAIN_EMBED", defaultEmbedModel), Hosts: setup.Hosts(), Version: buildinfo.Version}
 
 	// Stat before opening, because index.Open creates <vault>/.brain and that
 	// brings the vault itself into existence. Opening it here meant doctor made

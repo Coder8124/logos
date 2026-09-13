@@ -907,3 +907,59 @@ func TestShellArgLeavesAPlainPathAloneAndEscapesAQuote(t *testing.T) {
 		}
 	}
 }
+
+func installPlugin(t *testing.T, version string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"` + version + `"}]}}`
+	if err := os.WriteFile(filepath.Join(dir, "installed_plugins.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Claude Code does not update a third-party marketplace on its own, and
+// `brain update` replaces only the binary. A machine ran plugin 0.1.2 against a
+// 0.4.2 server for a week — old hooks, ignoring .logos-project — while doctor
+// said nothing about it.
+func TestDoctorWarnsWhenThePluginIsOlderThanThisBrain(t *testing.T) {
+	installPlugin(t, "0.1.2")
+	c, ok := checkPlugin("v0.4.3")
+	if !ok {
+		t.Fatal("an installed plugin must be reported")
+	}
+	if c.State != Warn {
+		t.Errorf("state = %q, want warn: %s", c.State, c.Detail)
+	}
+	if !strings.Contains(c.Detail, "0.1.2") || !strings.Contains(c.Fix, "claude plugin update logos@logos") {
+		t.Errorf("the warning must name the version and the update command: %+v", c)
+	}
+}
+
+func TestDoctorIsQuietAboutAPluginThatMatchesThisBrain(t *testing.T) {
+	installPlugin(t, "0.4.3")
+	if c, _ := checkPlugin("v0.4.3"); c.State != OK {
+		t.Errorf("state = %q, want ok: %s", c.State, c.Detail)
+	}
+}
+
+// A dev build has no release number to compare, so doctor makes no claim.
+func TestDoctorMakesNoClaimAboutThePluginFromADevBuild(t *testing.T) {
+	installPlugin(t, "0.1.2")
+	if c, _ := checkPlugin("dev"); c.State != Unknown {
+		t.Errorf("state = %q, want unknown: %s", c.State, c.Detail)
+	}
+}
+
+// Most people using doctor never installed the plugin; a row about it would
+// be noise.
+func TestDoctorSaysNothingAboutAPluginThatIsNotInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if _, ok := checkPlugin("v0.4.3"); ok {
+		t.Error("no plugin is installed, so there is nothing to report")
+	}
+}
