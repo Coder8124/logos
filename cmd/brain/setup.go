@@ -89,6 +89,9 @@ func setupCmd(args []string) error {
 		fmt.Println("             would be recorded — the desktop app opens this vault too")
 	case rec == recordedHere && vault.Recorded() == dir:
 		fmt.Println("             recorded — the desktop app opens this vault too")
+	case rec == recordSkipTemp:
+		fmt.Println("             not recorded — a temporary directory is used for this run only")
+		fmt.Println("             → pass --yes to record it anyway, or --vault somewhere that lasts")
 	case rec == recordFailed:
 		// The error itself is already on screen. What must not follow it is the
 		// environment's explanation, which would be a second, false reason.
@@ -153,9 +156,10 @@ func wireOptsFrom(args []string) wireOpts {
 type recordOutcome int
 
 const (
-	recordedHere  recordOutcome = iota // written down
-	recordSkipEnv                      // BRAIN_VAULT chose it, so it is this process only
-	recordFailed                       // the write was attempted and failed; the error is already printed
+	recordedHere   recordOutcome = iota // written down
+	recordSkipEnv                       // BRAIN_VAULT chose it, so it is this process only
+	recordFailed                        // the write was attempted and failed; the error is already printed
+	recordSkipTemp                      // a temporary directory, and nobody said to record it anyway
 )
 
 func chooseVault(args []string, dryRun bool) (dir string, created bool, rec recordOutcome, err error) {
@@ -192,14 +196,29 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	// A dry run reports the outcome the real run would reach, which under
 	// BRAIN_VAULT is "not recorded" — the one command whose whole job is
 	// previewing was promising the opposite of what followed.
+	// doctor fails a recorded vault that lives under a temp root, because it
+	// will be empty or gone. By then the pointer has already moved; setup is
+	// the one place the check can stop it, so a temporary directory is used
+	// for this run and recorded only when someone says so.
+	temp := !fromEnv && health.UnderTempDir(abs)
+	yes := hasFlag(args, "--yes") || hasFlag(args, "-y")
 	if dryRun {
 		if fromEnv {
 			return abs, created, recordSkipEnv, nil
+		}
+		if temp && !yes {
+			return abs, created, recordSkipTemp, nil
 		}
 		return abs, created, recordedHere, nil
 	}
 	if fromEnv {
 		return abs, created, recordSkipEnv, nil
+	}
+	if temp && !yes {
+		fmt.Printf("             %s is a temporary directory — it will be empty or gone\n", abs)
+		if !confirmNo("             record it as this machine's vault anyway?") {
+			return abs, created, recordSkipTemp, nil
+		}
 	}
 	// Write the choice down where a front end with no shell can read it. The
 	// desktop app is launched from Finder and inherits no BRAIN_VAULT, so

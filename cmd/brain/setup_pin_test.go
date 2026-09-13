@@ -162,7 +162,7 @@ func TestAnOlderNpxSetupKeepsANewerPinnedCopyUnderYes(t *testing.T) {
 // Asked interactively, pressing return must not be the downgrade.
 func TestPressingReturnDoesNotDowngradeThePinnedCopy(t *testing.T) {
 	withVersion(t, "0.4.3")
-	withAnswers(t, "y\n\n")
+	withAnswers(t, "n\ny\n\n") // n: leave the temporary test vault unrecorded
 	home, out, _ := npxSetup(t, newerCopy(t))
 
 	if !strings.Contains(pinnedReports(t, home), "brain 0.4.9") {
@@ -179,7 +179,7 @@ func TestAChosenDowngradeReplacesThePinnedCopy(t *testing.T) {
 			return home, out
 		},
 		"answering y": func() (string, string) {
-			withAnswers(t, "y\ny\n")
+			withAnswers(t, "n\ny\ny\n")
 			home, out, _ := npxSetup(t, newerCopy(t))
 			return home, out
 		},

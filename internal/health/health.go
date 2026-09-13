@@ -199,7 +199,7 @@ func checkVault(dir string) Check {
 	// The recorded pointer is what is checked, not the resolved directory. An
 	// explicit BRAIN_VAULT is a deliberate choice scoped to one command and is
 	// nobody's business to complain about; the pointer outlives the session.
-	if rec := vault.Recorded(); rec != "" && underTempDir(rec) {
+	if rec := vault.Recorded(); rec != "" && UnderTempDir(rec) {
 		c.State = Failed
 		c.Detail = rec + " is a temporary directory, recorded as the vault every front end opens — it will be empty or gone"
 		c.Fix = "run `brain setup --vault <your real vault>` to repoint it, or `brain doctor` with BRAIN_VAULT set to check a scratch vault without recording it"
@@ -208,7 +208,7 @@ func checkVault(dir string) Check {
 
 	// A blocklist of temporary roots is always one directory short: the pointer
 	// that actually did the damage named ~/.claude/jobs/<id>/tmp/survey-vault,
-	// which is not a system temp root at all, and underTempDir walked straight
+	// which is not a system temp root at all, and UnderTempDir walked straight
 	// past it. So ask the question that does not depend on knowing where the
 	// next harness will put its scratch directories.
 	//
@@ -296,7 +296,7 @@ func checkpointCount(dir string, stopAt int) int {
 	return total
 }
 
-// underTempDir reports whether path sits inside a system temporary directory.
+// UnderTempDir reports whether path sits inside a system temporary directory.
 //
 // Every well-known temp root is checked, not just os.TempDir(). os.TempDir()
 // answers $TMPDIR, which on macOS is a per-user directory under /var/folders —
@@ -308,7 +308,7 @@ func checkpointCount(dir string, stopAt int) int {
 // Both sides are resolved through symlinks first: /tmp answers to /private/tmp
 // and /var/folders/... to /private/var/folders/..., and a string compare of the
 // two forms says they are unrelated.
-func underTempDir(path string) bool {
+func UnderTempDir(path string) bool {
 	// An agent's per-job scratch directory is a temporary root that lives under
 	// $HOME, so none of the system roots below match it. ~/.claude/jobs/<id>/tmp
 	// is where the pointer that broke a real installation was made.

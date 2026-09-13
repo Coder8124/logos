@@ -664,13 +664,13 @@ func TestNoIntrospectableHostReportsUnknownNotOK(t *testing.T) {
 // and `brain doctor` reported "ok" over a vault that a reboot deletes.
 func TestAVaultRecordedUnderSlashTmpIsCaughtToo(t *testing.T) {
 	for _, dir := range []string{"/tmp/some-vault", "/private/tmp/some-vault", "/var/tmp/some-vault"} {
-		if !underTempDir(dir) {
+		if !UnderTempDir(dir) {
 			t.Errorf("%s is a temporary directory, and the health check does not think so", dir)
 		}
 	}
 	// The guard must still not fire on a real home.
 	for _, dir := range []string{"/Users/someone/brain", "/home/someone/brain", "/tmpfoo/brain"} {
-		if underTempDir(dir) {
+		if UnderTempDir(dir) {
 			t.Errorf("%s is a perfectly good vault, and the health check calls it temporary", dir)
 		}
 	}
@@ -704,7 +704,7 @@ func TestHostsCheckNamesWhatItSeesAndStillMentionsPrintConfig(t *testing.T) {
 	}
 }
 
-// The blocklist in underTempDir will always be one directory short. The pointer
+// The blocklist in UnderTempDir will always be one directory short. The pointer
 // that actually broke a real installation named ~/.claude/jobs/<id>/tmp/
 // survey-vault — an agent's scratch directory, under $HOME, matching no system
 // temp root — and every front end read it for a day while twenty-eight
