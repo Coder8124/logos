@@ -72,6 +72,9 @@ go build -o bin/brain ./cmd/brain && ./bin/brain setup
 
 # Or a release binary — no runtime at all
 # github.com/Coder8124/logos/releases
+# On macOS, a binary downloaded in a browser is quarantined and Gatekeeper
+# refuses to run it. Clear the flag once before the first run:
+xattr -d com.apple.quarantine ./brain
 ```
 
 Wiring a host by hand needs no install whatsoever, because `npx` resolves the
