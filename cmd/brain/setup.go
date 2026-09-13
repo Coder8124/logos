@@ -712,6 +712,27 @@ func wireHosts(vault string, opts wireOpts) error {
 			}
 			return nil
 		}
+		// A named host that is missing is not "no hosts found": with Cursor
+		// installed, `--host codex` told the user to install Cursor and exited
+		// 0, so a script took a run that wired nothing as a success.
+		if len(opts.only) > 0 {
+			var found []string
+			for _, r := range setup.Plan(known) {
+				if r.Outcome == setup.Pending {
+					found = append(found, r.Host)
+				}
+			}
+			here := "no MCP host is installed here"
+			if len(found) > 0 {
+				here = "found: " + strings.Join(found, ", ")
+			}
+			verb := "is"
+			if len(hosts) > 1 {
+				verb = "are"
+			}
+			return fmt.Errorf("%s %s not installed here (%s); nothing was wired",
+				strings.Join(setup.Names(hosts), ", "), verb, here)
+		}
 		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
 		fmt.Println("  and re-run `brain mcp install`.")
 		if opts.dryRun {
@@ -762,12 +783,13 @@ func wireHosts(vault string, opts wireOpts) error {
 	for _, h := range hosts {
 		byName[h.Name] = h
 	}
-	var wired int
+	var wired, failed int
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
 		case setup.Skipped:
 			fmt.Printf("    %-16s —  not installed\n", r.Host)
 		case setup.Failed:
+			failed++
 			fmt.Printf("    %-16s ✗  %v\n", r.Host, r.Err)
 		default:
 			wired++
@@ -833,6 +855,13 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 
 	if wired == 0 {
+		// Hosts that were found and failed are not missing. Saying "No MCP
+		// hosts found. Install … Cursor" under Cursor's own error contradicted
+		// the line above it, and exiting 0 hid that nothing was wired.
+		if failed > 0 {
+			return fmt.Errorf("%d %s found, none wired — fix the error above and re-run `brain mcp install`",
+				failed, plural(failed, "host"))
+		}
 		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
 		fmt.Println("  and re-run `brain mcp install`.")
 		return nil
