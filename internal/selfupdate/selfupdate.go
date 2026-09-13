@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -332,12 +333,55 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Result is what a successful Update did, printed verbatim by the CLI. To ==
 // From (both set, Asset empty) means the check ran and nothing needed doing.
+// Ahead (Asset empty) means the running binary is newer than the latest
+// release, so there was nothing to update to.
 type Result struct {
 	From, To string
 	Asset    string
 	Size     int64
 	Checksum string
 	Replaced string
+	Ahead    bool
+}
+
+// Newer reports whether latest is a later release than current. Before this,
+// update treated any difference as an update, so a build stamped with a tag
+// GitHub had not published yet was "updated" back to the previous release.
+// A pre-release or Go pseudo-version sorts below the release it names, and
+// build metadata after + is ignored, as in semver. A version this cannot read
+// counts as newer only if it differs, which is what update did before.
+func Newer(latest, current string) bool {
+	l, lpre, lok := parseVersion(latest)
+	c, cpre, cok := parseVersion(current)
+	if !lok || !cok {
+		return latest != current
+	}
+	for i := range l {
+		if l[i] != c[i] {
+			return l[i] > c[i]
+		}
+	}
+	return cpre && !lpre
+}
+
+// parseVersion reads vMAJOR.MINOR.PATCH with an optional pre-release and
+// build suffix, and reports whether a pre-release part was present.
+func parseVersion(v string) (nums [3]int, pre, ok bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v, _, _ = strings.Cut(v, "+")
+	v, suffix, pre := strings.Cut(v, "-")
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 || (pre && suffix == "") {
+		return nums, false, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return nums, false, false
+		}
+		nums[i] = n
+	}
+	return nums, pre, true
 }
 
 // Options lets tests substitute the network client, the "does this binary
@@ -410,8 +454,8 @@ func CheckOnly(currentVersion string, opts Options) (Release, error) {
 //  1. Refuse outright on an unstamped dev build.
 //  2. Resolve the running executable. If it resolves to an npx cache, refuse
 //     with no network call at all — there is nothing to check.
-//  3. Ask GitHub what the latest release is. If it is what we already are,
-//     stop here; nothing downloaded, nothing written.
+//  3. Ask GitHub what the latest release is. If it is not newer than what we
+//     already are, stop here; nothing downloaded, nothing written.
 //  4. Confirm the executable's directory is writable, so a permission
 //     failure is reported before a byte is downloaded.
 //  5. Download the archive and SHA256SUMS, and verify the archive's checksum
@@ -447,8 +491,8 @@ func Update(currentVersion string, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, &Error{StepCheck, err}
 	}
-	if rel.Version == currentVersion {
-		return Result{From: currentVersion, To: rel.Version}, nil
+	if !Newer(rel.Version, currentVersion) {
+		return Result{From: currentVersion, To: rel.Version, Ahead: rel.Version != currentVersion}, nil
 	}
 
 	dir := filepath.Dir(target)

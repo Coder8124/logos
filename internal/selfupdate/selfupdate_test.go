@@ -347,3 +347,60 @@ func asSelfupdateError(err error, target **Error) bool {
 	}
 	return ok
 }
+
+// A tag pushed before its release is published is already visible to `go
+// install …@latest`, which stamps that build with the new version while
+// GitHub's releases/latest still names the previous one. Treating "different"
+// as "newer" swapped the newer binary for the older release and reported it
+// as an update.
+func TestUpdateNeverReplacesANewerBinaryWithAnOlderRelease(t *testing.T) {
+	assetName := AssetName("v0.4.2", runtime.GOOS, runtime.GOARCH)
+	archive := buildArchive(t, "v0.4.2", []byte("older release"))
+	rs := newReleaseServer(t, "v0.4.2", assetName, archive, sha256sums(assetName, archive))
+	defer rs.Close()
+
+	target := fakeExecutable(t, binaryName(runtime.GOOS))
+	before, _ := os.ReadFile(target)
+
+	res, err := Update("v0.4.3", Options{
+		Client:     testClient(rs),
+		Executable: func() (string, error) { return target, nil },
+		Verify:     func(string, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if res.Asset != "" || !res.Ahead {
+		t.Errorf("expected a no-op result marked ahead of the release, got %+v", res)
+	}
+	after, _ := os.ReadFile(target)
+	if !bytes.Equal(before, after) {
+		t.Error("the newer binary was replaced with the older release")
+	}
+}
+
+func TestNewerOrdersReleasesByNumberNotByText(t *testing.T) {
+	cases := []struct {
+		latest, current string
+		want            bool
+	}{
+		{"v0.4.3", "v0.4.2", true},
+		{"v0.4.2", "v0.4.3", false},
+		{"v0.4.3", "v0.4.3", false},
+		{"v0.4.10", "v0.4.9", true},
+		{"v0.5.0", "v0.4.15", true},
+		// go install of an untagged commit after v0.4.3 stamps a pseudo-version
+		// that sorts below v0.4.4 and above v0.4.3.
+		{"v0.4.4", "v0.4.4-0.20260913010203-abcdefabcdef", true},
+		{"v0.4.3", "v0.4.4-0.20260913010203-abcdefabcdef", false},
+		// Something this cannot read is offered as an update only if it differs,
+		// which is what update did before it compared versions at all.
+		{"nightly", "v0.4.3", true},
+		{"v0.4.3", "v0.4.3+dirty", false},
+	}
+	for _, c := range cases {
+		if got := Newer(c.latest, c.current); got != c.want {
+			t.Errorf("Newer(%q, %q) = %v, want %v", c.latest, c.current, got, c.want)
+		}
+	}
+}

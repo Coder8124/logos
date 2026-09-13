@@ -25,6 +25,10 @@ func updateCmd(args []string) error {
 			fmt.Printf("brain %s is current\n", version)
 			return nil
 		}
+		if !selfupdate.Newer(rel.Version, version) {
+			fmt.Printf("brain %s is newer than the latest release, %s; nothing to update\n", version, rel.Version)
+			return nil
+		}
 		fmt.Printf("brain %s → %s available\n", version, rel.Version)
 		return nil
 	}
@@ -38,6 +42,10 @@ func updateCmd(args []string) error {
 		return err
 	}
 
+	if res.Ahead {
+		fmt.Printf("brain %s is newer than the latest release, %s; nothing to update\n", res.From, res.To)
+		return nil
+	}
 	if res.Asset == "" {
 		fmt.Printf("brain %s is current\n", res.From)
 		return nil
