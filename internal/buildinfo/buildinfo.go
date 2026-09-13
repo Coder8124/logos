@@ -14,9 +14,39 @@
 // it from here.
 package buildinfo
 
+import (
+	"regexp"
+	"runtime/debug"
+)
+
 // Version is the release this binary was built from, stamped at link time:
 //
 //	-ldflags "-X github.com/Coder8124/brain/internal/buildinfo.Version=v0.1.2"
 //
 // An unstamped build says "dev", which is the honest answer for one.
 var Version = "dev"
+
+// `go install github.com/Coder8124/brain/cmd/brain@v0.4.2` is the route the
+// plugin and the npm wrapper tell people to take, and it never passes ldflags,
+// so that binary said "dev" and `brain update` refused to check it. The Go
+// toolchain does record the module version it fetched, so an unstamped build
+// takes that instead — but only a plain release tag. A local `go build` records
+// a pseudo-version or "+dirty", and announcing that as a release would send
+// the updater comparing against something that was never published.
+func init() {
+	if Version != "dev" {
+		return
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		Version = fromModule(Version, bi.Main.Version)
+	}
+}
+
+var releaseTag = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+func fromModule(stamped, module string) string {
+	if releaseTag.MatchString(module) {
+		return module
+	}
+	return stamped
+}
