@@ -859,6 +859,37 @@ func TestAFixCommandQuotesAVaultPathWithASpace(t *testing.T) {
 	}
 }
 
+// The recorded vault missing is usually a drive that is not mounted. The fix
+// used to be `brain setup --vault <that path>`, which makes an empty vault where
+// the drive mounts — the split doctor is supposed to prevent.
+func TestDoctorSaysReconnectWhenTheRecordedVaultIsMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+	ext := filepath.Join(t.TempDir(), "notes")
+	if err := os.Mkdir(ext, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Record(ext); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ext); err != nil {
+		t.Fatal(err)
+	}
+
+	c := checkVault(ext)
+	if c.State != Failed {
+		t.Fatalf("state = %v", c.State)
+	}
+	if strings.Contains(c.Fix, "--vault "+ext) {
+		t.Errorf("the fix creates an empty vault at the missing recorded path: %s", c.Fix)
+	}
+	if !strings.Contains(c.Fix, "reconnect") {
+		t.Errorf("the fix should say to reconnect the vault first: %s", c.Fix)
+	}
+}
+
 // Quoting is for the paths that need it. Wrapping every ordinary path in quotes
 // would make the common case read worse to fix a rare one.
 func TestShellArgLeavesAPlainPathAloneAndEscapesAQuote(t *testing.T) {

@@ -528,6 +528,13 @@ func requireVault() (string, error) {
 }
 
 func missingVaultError(v string) error {
+	// The recorded vault being absent is not a first run. "Create one" there
+	// makes an empty vault in the wrong place while the real one sits on a drive
+	// that is not mounted.
+	if os.Getenv("BRAIN_VAULT") == "" && v == vault.Pointer() {
+		return fmt.Errorf("the vault recorded for this machine is not at %s — if it is on a drive, "+
+			"reconnect it; to use a different vault, run `brain setup --vault <path>`", v)
+	}
 	return fmt.Errorf("vault not found at %s — run `brain setup` to create one, "+
 		"or point BRAIN_VAULT at an existing vault", v)
 }

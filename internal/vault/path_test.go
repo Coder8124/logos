@@ -100,12 +100,16 @@ func TestRecordingAgainMovesThePointer(t *testing.T) {
 	}
 }
 
-// If the recorded vault is gone, honouring it would point every front end at a
-// directory that does not exist — and index.Open would helpfully create it,
-// which is how the empty-vault bug happened the first time.
-func TestAVaultThatHasBeenDeletedIsNotHonoured(t *testing.T) {
-	home := isolate(t)
-	dir := filepath.Join(t.TempDir(), "moved-away")
+// A recorded vault that is not there is usually on a drive that is not
+// mounted, not gone. Falling back to ~/brain used to be the answer, and it split
+// one project across two vaults: the MCP server quietly created ~/brain, said
+// "checkpoint saved" into it, and after the drive came back `resume` found
+// nothing. The recorded path is still the answer; every caller checks that it
+// exists and refuses by name, which is the index.Open problem solved where it
+// actually lives.
+func TestAVaultThatIsMissingIsStillTheRecordedOne(t *testing.T) {
+	isolate(t)
+	dir := filepath.Join(t.TempDir(), "unmounted")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -116,9 +120,14 @@ func TestAVaultThatHasBeenDeletedIsNotHonoured(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := filepath.Join(home, "brain")
-	if got := Path(); got != want {
-		t.Errorf("Path() = %q, want the default %q once the recorded vault is gone", got, want)
+	if got := Path(); got != dir {
+		t.Errorf("Path() = %q, want the recorded %q even while it is missing", got, dir)
+	}
+	if got, explicit := Chosen(); got != dir || !explicit {
+		t.Errorf("Chosen() = %q, %v — a recorded vault is a choice someone made, missing or not", got, explicit)
+	}
+	if got := Pointer(); got != dir {
+		t.Errorf("Pointer() = %q, want %q", got, dir)
 	}
 }
 

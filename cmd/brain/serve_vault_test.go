@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	vaultmod "github.com/Coder8124/brain/internal/vault"
 )
 
 // `/plugin install logos@logos` is the first route the README offers, and it
@@ -54,5 +56,40 @@ func TestAVaultSomeoneNamedIsNeverCreatedBehindTheirBack(t *testing.T) {
 	}
 	if _, err := os.Stat(typo); err == nil {
 		t.Error("the mistyped directory was created anyway")
+	}
+}
+
+// An external drive that is not mounted looks exactly like a deleted vault. The
+// server used to treat it as "nobody chose a vault", create ~/brain, and accept
+// checkpoints into it — a split the user only finds when `resume` comes back
+// empty after the drive returns. It refuses, and names the recorded path.
+func TestTheServerRefusesWhenTheRecordedVaultIsNotMounted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("BRAIN_VAULT", "")
+	ext := filepath.Join(t.TempDir(), "notes")
+	if err := os.Mkdir(ext, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := vaultmod.Record(ext); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ext); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := serveVault()
+	if err == nil {
+		t.Fatal("the server started with the recorded vault missing")
+	}
+	if !strings.Contains(err.Error(), ext) {
+		t.Errorf("the error does not name the recorded vault: %v", err)
+	}
+	if strings.Contains(err.Error(), "run `brain setup` to create one") {
+		t.Errorf("the error tells the user to create a new vault instead of reconnecting theirs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "brain")); err == nil {
+		t.Error("~/brain was created while the real vault was unmounted")
 	}
 }

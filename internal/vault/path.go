@@ -46,7 +46,7 @@ func Path() string {
 	if v := os.Getenv("BRAIN_VAULT"); v != "" {
 		return v
 	}
-	if v := Recorded(); v != "" {
+	if v := Pointer(); v != "" {
 		return v
 	}
 	if h, err := os.UserHomeDir(); err == nil {
@@ -64,20 +64,23 @@ func Chosen() (dir string, explicit bool) {
 	if v := os.Getenv("BRAIN_VAULT"); v != "" {
 		return v, true
 	}
-	if v := Recorded(); v != "" {
+	if v := Pointer(); v != "" {
 		return v, true
 	}
 	return Path(), false
 }
 
-// Recorded returns the vault path written by Record, or "" if there is none.
+// Pointer returns the vault path written by Record, or "" if there is none —
+// whether or not that directory is there right now.
 //
-// A recorded path that no longer exists is ignored rather than returned. The
-// pointer is a convenience, not a second source of truth: if someone moved or
-// deleted their vault, falling back to the default and creating a fresh one is
-// wrong, but so is insisting on a directory that is not there — the caller gets
-// the default and the "no vault at …" message that names it.
-func Recorded() string {
+// It used to be ignored when the directory was missing, falling back to
+// ~/brain. A missing recorded vault is most often on a drive that is not
+// mounted, and the fallback split one project across two vaults: the MCP server
+// created ~/brain and accepted checkpoints into it, and after the drive came
+// back `resume` found none of them. So the recorded path stays the answer, and
+// every caller that opens a vault checks it exists first and refuses by name.
+// Someone who really did delete it moves the pointer with `brain setup --vault`.
+func Pointer() string {
 	p, err := pointerPath()
 	if err != nil {
 		return ""
@@ -86,7 +89,13 @@ func Recorded() string {
 	if err != nil {
 		return ""
 	}
-	dir := strings.TrimSpace(string(raw))
+	return strings.TrimSpace(string(raw))
+}
+
+// Recorded is Pointer, but only when the directory exists. For callers that are
+// describing the recorded vault rather than opening it.
+func Recorded() string {
+	dir := Pointer()
 	if dir == "" {
 		return ""
 	}

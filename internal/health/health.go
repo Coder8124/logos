@@ -146,6 +146,12 @@ func checkVault(dir string) Check {
 	if os.IsNotExist(err) {
 		c.State, c.Detail = Failed, dir+" does not exist"
 		c.Fix = "run `brain setup --vault " + shellArg(dir) + "`"
+		// This machine's recorded vault being absent is usually an unmounted
+		// drive, and setup at that path makes an empty vault where it mounts.
+		if os.Getenv("BRAIN_VAULT") == "" && dir == vault.Pointer() {
+			c.Detail = dir + " does not exist — it is the vault recorded for this machine"
+			c.Fix = "reconnect the drive it is on; to use a different vault, run `brain setup --vault <path>`"
+		}
 		return c
 	}
 	if err != nil {

@@ -74,6 +74,42 @@ func TestARealSetupCreatesTheVaultAndRecordsIt(t *testing.T) {
 	}
 }
 
+// A bare `brain setup` resolves to the recorded vault. With that vault on a
+// drive that is not mounted, it made an empty directory at the mount path and
+// indexed it — a local folder the drive then mounts over, or a second vault
+// the next command reads instead of the real one.
+func TestSetupDoesNotCreateARecordedVaultThatIsNotMounted(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("BRAIN_VAULT", "")
+
+	ext := filepath.Join(t.TempDir(), "notes")
+	if err := os.Mkdir(ext, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Record(ext); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ext); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err := chooseVault(nil, false)
+	if err == nil || !strings.Contains(err.Error(), ext) {
+		t.Fatalf("setup should refuse and name the recorded vault, got: %v", err)
+	}
+	if _, err := os.Stat(ext); err == nil {
+		t.Error("the unmounted vault's path was created as an empty directory")
+	}
+
+	// Choosing somewhere else is still the way out.
+	elsewhere := filepath.Join(t.TempDir(), "new")
+	if _, _, _, err := chooseVault([]string{"--vault", elsewhere}, false); err != nil {
+		t.Fatalf("--vault must still move the pointer: %v", err)
+	}
+}
+
 // "last checkpoint 1 minutes ago" is the kind of line a reviewer notices before
 // anything else. This copy of internal/health's formatter dropped the plural
 // when it was made.

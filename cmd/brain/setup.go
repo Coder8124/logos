@@ -152,6 +152,12 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	if err != nil {
 		return "", false, recordFailed, err
 	}
+	if _, err := os.Stat(abs); os.IsNotExist(err) && flagStr(args, "--vault", "") == "" && !fromEnv && abs == vault.Pointer() {
+		// Nobody asked for this directory in this run; it is the recorded vault,
+		// and it is missing — usually an unmounted drive. Creating it makes an
+		// empty vault at the mount path.
+		return "", false, recordFailed, missingVaultError(abs)
+	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
 		created = true
 		if !dryRun {
