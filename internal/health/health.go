@@ -703,7 +703,7 @@ func checkHosts() Check {
 // so the wording can be tested against a chosen list of detected hosts rather
 // than whatever happens to be on the machine running the test.
 //
-// setup.Hosts() is a closed, curated list of four (see internal/setup's
+// setup.Hosts() is a closed, curated list (see internal/setup's
 // package doc) — never the whole set of MCP clients that exist. Every host
 // this check names still leaves an open question about the ones it does not
 // know, so both branches point at `brain setup --print-config`: the one
@@ -713,7 +713,7 @@ func hostsCheck(wired []string) Check {
 	if len(wired) == 0 {
 		c.State = Unknown
 		c.Detail = "no MCP hosts detected on this machine"
-		c.Fix = "install Claude Code, Cursor or Codex, then run `brain mcp install` " +
+		c.Fix = "install an MCP host such as Claude Code, Cursor, Codex, Cline, Devin or GitHub Copilot, then run `brain mcp install` " +
 			"— or run `brain setup --print-config` to wire any other MCP client by hand"
 		return c
 	}

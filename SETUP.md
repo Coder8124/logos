@@ -149,8 +149,8 @@ duplicated, other MCP servers in those files are left alone, and anything edited
 gets a `.brain-backup` beside it.
 
 Where a host ships its own registration command (Claude Code, Codex) brain uses
-it, so their config format stays their problem. Only Claude Desktop and Cursor
-get hand-written JSON.
+it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
+Devin and GitHub Copilot get their JSON merged instead.
 
 **No model runtime is required.** Every continuity tool — `checkpoint`,
 `resume`, `note_progress`, `before_you_try` — is markdown and SQL, and works
@@ -235,7 +235,8 @@ application can build on. Newline-delimited JSON-RPC 2.0 over stdio.
 
 ### Which agents work today
 
-`brain setup` detects and wires the first group automatically. Everything in the
+`brain setup` detects and wires every row marked yes. The "wired" rows get a
+config their host documents, but nobody has yet run the round trip inside them. Everything in the
 second group speaks MCP, so brain should work once pointed at it — but nobody
 has confirmed it, and "should work" is not a claim this project makes about
 itself.
@@ -246,10 +247,15 @@ itself.
 | **Codex** | supported | yes | `codex mcp add` | ✅ handshake + round trip |
 | **Cursor** | supported | yes | merges `~/.cursor/mcp.json` | ✅ handshake + round trip |
 | **Claude Desktop** | supported | yes | merges `claude_desktop_config.json` | ✅ handshake + round trip |
+| Cline (VS Code) | wired | yes | merges the extension's `cline_mcp_settings.json` | ❓ **help wanted** |
+| Cline CLI | wired | yes | merges `~/.cline/data/settings/cline_mcp_settings.json` | ❓ **help wanted** |
+| Devin for Terminal | wired | yes | merges `~/.config/devin/mcp_config.json` (user scope) | ❓ **help wanted** |
+| GitHub Copilot CLI | wired | yes | merges `~/.copilot/mcp-config.json` | ❓ **help wanted** |
+| GitHub Copilot in VS Code | wired | yes | merges VS Code's user `mcp.json` (`servers`) | ❓ **help wanted** |
+| Aider | not possible | no | Aider has no MCP client | — |
 | Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |
-| Cline / Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
+| Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Zed | planned | not yet | manual JSON below | ❓ **help wanted** |
-| VS Code Copilot | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Gemini CLI | planned | not yet | manual JSON below | ❓ **help wanted** |
 | OpenCode | planned | not yet | manual JSON below | ❓ **help wanted** |
 | JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |

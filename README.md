@@ -52,7 +52,7 @@ data — and without a connection it waits and then fails. An installed binary
 
 **Logos works where you already work:**
 
-- MCP server for Claude Code, Claude Desktop, Cursor, Codex and anything else that speaks the protocol
+- MCP server for Claude Code, Claude Desktop, Cursor, Codex, Cline, Devin, GitHub Copilot and anything else that speaks the protocol
 - Read-only tools annotated as such, so they stay available in read-only chat modes
 - A CLI equivalent for every tool, for agents that only have a shell
 - A Go package to embed the engine directly — `import "github.com/Coder8124/brain"`

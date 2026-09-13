@@ -700,8 +700,8 @@ func wireHosts(vault string, opts wireOpts) error {
 			}
 			return nil
 		}
-		fmt.Println("\n  No MCP hosts found. Install Claude Code, Claude Desktop, Cursor or")
-		fmt.Println("  Codex and re-run `brain mcp install`.")
+		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
+		fmt.Println("  and re-run `brain mcp install`.")
 		if opts.dryRun {
 			// Said even here. A dry run that ends without its disclaimer, because
 			// it happened to find nothing to wire, is a dry run the reader has to
@@ -821,8 +821,8 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 
 	if wired == 0 {
-		fmt.Println("\n  No MCP hosts found. Install Claude Code, Claude Desktop, Cursor or")
-		fmt.Println("  Codex and re-run `brain mcp install`.")
+		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
+		fmt.Println("  and re-run `brain mcp install`.")
 		return nil
 	}
 	// The first thing a new user sees brain do decides what they think it is.

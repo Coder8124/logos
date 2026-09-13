@@ -19,7 +19,8 @@
 // with it and brain keeps working. Hand-writing another application's config is
 // a standing bet that its format will not move, and that bet is only worth
 // taking when there is no alternative — which is the case for Claude Desktop
-// and Cursor.
+// and Cursor — or when the CLI would register at the wrong scope or cannot be
+// exercised by a test, which is why Cline, Devin and GitHub Copilot are merged.
 //
 // Where a file does have to be written, it is read, merged, backed up and then
 // replaced atomically. Someone's other MCP servers are not ours to lose.
@@ -403,6 +404,14 @@ func sortedKeys(m map[string]string) []string {
 // backup is written before the new content goes down (by Install, which does
 // that for every host now — see backupConfig).
 func mergeJSON(path string, s Server) (Outcome, error) {
+	return mergeServers(path, "mcpServers", serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env})
+}
+
+// mergeServers is mergeJSON for any host: root is the key its server map sits
+// under, and entry is brain's server in that host's own shape. VS Code keys its
+// map "servers", and Copilot CLI ignores an entry with no type or tools, so one
+// fixed shape would have written files those hosts read as having no brain.
+func mergeServers(path, root string, entry any) (Outcome, error) {
 	cfg := mcpConfig{}
 
 	raw, err := os.ReadFile(path)
@@ -422,24 +431,24 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 	}
 
 	servers := map[string]json.RawMessage{}
-	if rawServers, ok := cfg["mcpServers"]; ok && len(rawServers) > 0 {
+	if rawServers, ok := cfg[root]; ok && len(rawServers) > 0 {
 		if err := json.Unmarshal(rawServers, &servers); err != nil {
-			return Failed, fmt.Errorf("%s has an mcpServers block that is not an object: %w", path, err)
+			return Failed, fmt.Errorf("%s has a %s block that is not an object: %w", path, root, err)
 		}
 	}
 
 	_, had := servers[Name]
-	entry, err := json.Marshal(serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env})
+	encodedEntry, err := json.Marshal(entry)
 	if err != nil {
 		return Failed, err
 	}
-	servers[Name] = entry
+	servers[Name] = encodedEntry
 
 	encoded, err := json.Marshal(servers)
 	if err != nil {
 		return Failed, err
 	}
-	cfg["mcpServers"] = encoded
+	cfg[root] = encoded
 
 	// Indented, because a person opens these files.
 	out, err := json.MarshalIndent(cfg, "", "  ")
@@ -462,6 +471,11 @@ func mergeJSON(path string, s Server) (Outcome, error) {
 // answer — but malformed JSON is, since a caller asking "what's here" should
 // not be told "nothing" about a file that actually holds something unreadable.
 func readMCPServers(path string) ([]Registration, error) {
+	return readServerBlock(path, "mcpServers")
+}
+
+// readServerBlock is readMCPServers for a host whose server map sits under root.
+func readServerBlock(path, root string) ([]Registration, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -476,7 +490,7 @@ func readMCPServers(path string) ([]Registration, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
-	rawServers, ok := cfg["mcpServers"]
+	rawServers, ok := cfg[root]
 	if !ok || len(rawServers) == 0 {
 		return nil, nil
 	}

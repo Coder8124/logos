@@ -12,11 +12,15 @@ import (
 // Hosts returns every MCP host brain knows how to connect to, in the order
 // they are reported.
 //
-// The list is deliberately short. Each entry is a promise to keep working as
-// somebody else's application changes, and a host added speculatively is a
-// promise nobody asked for.
+// Each entry is a promise to keep working as somebody else's application
+// changes, so a host is added when people ask for it, not speculatively. Aider
+// is not here because it has no MCP client to register with; `brain setup
+// --print-config` is the answer for a client that is not on the list.
 func Hosts() []Host {
-	return []Host{claudeCode(), claudeDesktop(), cursor(), codex()}
+	return []Host{
+		claudeCode(), claudeDesktop(), cursor(), codex(),
+		cline(), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
+	}
 }
 
 // claudeCode registers through `claude mcp add`.
@@ -142,6 +146,115 @@ func cursor() Host {
 			return mergeJSON(path, s)
 		},
 		List: func() ([]Registration, error) { return readMCPServers(path) },
+	}
+}
+
+// jsonHost is a host whose registration is a merge into one JSON file:
+// entry shapes brain's server the way that host reads it, under root.
+func jsonHost(name, path, root string, detect func() bool, entry func(Server) any) Host {
+	return Host{
+		Name:   name,
+		Detect: func() bool { return path != "" && detect() },
+		Where:  func() string { return path },
+		Config: func() string { return path },
+		Register: func(s Server) (Outcome, error) {
+			return mergeServers(path, root, entry(s))
+		},
+		List: func() ([]Registration, error) { return readServerBlock(path, root) },
+	}
+}
+
+func plainEntry(s Server) any { return serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env} }
+
+// cline is the Cline VS Code extension. It keeps its servers in the
+// extension's global storage, not in VS Code's own settings, and the storage
+// directory appears once the extension has run.
+func cline() Host {
+	ext := ""
+	if dir := vscodeUserDir(); dir != "" {
+		ext = joinPath(dir, "globalStorage", "saoudrizwan.claude-dev")
+	}
+	path := ""
+	if ext != "" {
+		path = joinPath(ext, "settings", "cline_mcp_settings.json")
+	}
+	return jsonHost("Cline", path, "mcpServers", func() bool { return exists(ext) }, plainEntry)
+}
+
+// clineCLI is Cline's terminal client. Its docs name ~/.cline/mcp.json, but
+// the CLI never reads that file; this is the one its code loads.
+func clineCLI() Host {
+	path := inHome(".cline", "data", "settings", "cline_mcp_settings.json")
+	return jsonHost("Cline CLI", path, "mcpServers", func() bool {
+		return onPath("cline") || exists(inHome(".cline"))
+	}, plainEntry)
+}
+
+// devin is Devin for Terminal. `devin mcp add` defaults to a scope bound to
+// the directory it ran in, so the user-scope file is written directly: a
+// memory that exists in one folder is not a connected brain.
+func devin() Host {
+	path := inHome(".config", "devin", "mcp_config.json")
+	if runtime.GOOS == "windows" {
+		path = ""
+		if dir := appData(); dir != "" {
+			path = joinPath(dir, "devin", "mcp_config.json")
+		}
+	}
+	return jsonHost("Devin", path, "mcpServers", func() bool {
+		return onPath("devin") || exists(parent(path))
+	}, plainEntry)
+}
+
+// copilotCLI is GitHub Copilot's terminal client. Written as a file rather
+// than through `copilot mcp add`, like the other hosts added with it: the file
+// is the documented contract, and a CLI invocation no test may run is a
+// registration nobody has verified. It skips a server with no
+// type and exposes none of its tools without a tools list. ~/.copilot alone
+// is not evidence of it: the VS Code extension leaves ~/.copilot/ide behind.
+func copilotCLI() Host {
+	path := inHome(".copilot", "mcp-config.json")
+	return jsonHost("Copilot CLI", path, "mcpServers", func() bool {
+		return onPath("copilot") || exists(path)
+	}, func(s Server) any {
+		return struct {
+			Type string `json:"type"`
+			serverEntry
+			Tools []string `json:"tools"`
+		}{"local", serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env}, []string{"*"}}
+	})
+}
+
+// copilotVSCode is GitHub Copilot's agent mode in VS Code, which reads the
+// user-level mcp.json. VS Code names the map "servers", not mcpServers, and
+// types each entry.
+func copilotVSCode() Host {
+	user := vscodeUserDir()
+	path := ""
+	if user != "" {
+		path = joinPath(user, "mcp.json")
+	}
+	return jsonHost("Copilot in VS Code", path, "servers", func() bool { return exists(user) },
+		func(s Server) any {
+			return struct {
+				Type string `json:"type"`
+				serverEntry
+			}{"stdio", serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env}}
+		})
+}
+
+// vscodeUserDir is VS Code's per-user settings directory, per platform.
+func vscodeUserDir() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return inHome("Library", "Application Support", "Code", "User")
+	case "windows":
+		if dir := appData(); dir != "" {
+			return joinPath(dir, "Code", "User")
+		}
+		return ""
+	default:
+		return inHome(".config", "Code", "User")
 	}
 }
 
