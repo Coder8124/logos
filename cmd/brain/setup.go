@@ -774,7 +774,15 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 	if !opts.yes && !confirm(fmt.Sprintf("\n  wire %d host(s)?", present)) {
 		fmt.Println("  skipped; re-run `brain mcp install` when you are ready")
-		fmt.Println("  (--host <name> wires just one)")
+		// The prompt cannot pick a subset, so the way to wire some of these is
+		// printed with each found host's spelling, ready to trim and paste.
+		var pick []string
+		for _, r := range plan {
+			if r.Outcome != setup.Skipped {
+				pick = append(pick, "--host "+strings.ReplaceAll(strings.ToLower(r.Host), " ", "-"))
+			}
+		}
+		fmt.Printf("  to wire only some, keep the ones you want: brain mcp install %s\n", strings.Join(pick, " "))
 		return nil
 	}
 

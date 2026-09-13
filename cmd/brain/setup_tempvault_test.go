@@ -1,28 +1,11 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Coder8124/brain/internal/vault"
 )
-
-// answering feeds stdin the given text for the rest of the test.
-func answering(t *testing.T, text string) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.WriteString(text); err != nil {
-		t.Fatal(err)
-	}
-	w.Close()
-	old := os.Stdin
-	os.Stdin = r
-	t.Cleanup(func() { os.Stdin = old; r.Close() })
-}
 
 // `setup --vault /tmp/try-logos` recorded the directory as this machine's vault
 // and said so cheerfully; the next `brain doctor` failed it as a temporary
@@ -32,7 +15,7 @@ func TestSetupDoesNotRecordATemporaryVaultWithoutBeingTold(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("HOME", cfg)
 	t.Setenv("BRAIN_VAULT", "")
-	answering(t, "")
+	withAnswers(t, "")
 
 	scratch := filepath.Join(t.TempDir(), "try-logos")
 	var rec recordOutcome
