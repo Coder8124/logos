@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 )
 
@@ -83,12 +85,21 @@ func memoryCmd(args []string) error {
 		if text == "" {
 			return fmt.Errorf("usage: logos memory add <fact> [--project <name>]")
 		}
-		rt, err := openRouter()
+		// A fact needs no model to be stored. Without a runtime it dedups by exact
+		// text rather than by meaning, as the MCP remember tool does.
+		rt, err := openRouterOptional()
 		if err != nil {
 			return err
 		}
-		embed, _ := rt.Model(router.T0)
-		r, err := memory.Store(ix.DB, rt.Local(), embed, &memory.Memory{
+		var local *provider.Provider
+		var embed string
+		if rt == nil {
+			fmt.Fprintln(os.Stderr, "· no model runtime — storing without embedding; duplicates match by exact text")
+		} else {
+			local = rt.Local()
+			embed, _ = rt.Model(router.T0)
+		}
+		r, err := memory.Store(ix.DB, local, embed, &memory.Memory{
 			Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual",
 			Project: project, Created: time.Now().Unix(),
 		})
