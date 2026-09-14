@@ -37,17 +37,18 @@
   --brass:   oklch(51.5% 0.098 75);
   --wash:    oklch(47.5% 0.095 180 / .07);
   --wash-2:  oklch(51.5% 0.098 75 / .09);
+  --on-ink:  oklch(99%   0.004 150);
 
   --lift-1: 0 1px 0 var(--rule-2);
-  --lift-2: 0 1px 0 var(--rule-2), 0 14px 32px -26px oklch(21% .015 175 / .55);
+  --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px oklch(21% .015 175 / .5);
 
   --f-display: "IBM Plex Sans Condensed", "Helvetica Neue Condensed", Impact, sans-serif;
   --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --f-voice: "Newsreader", "Iowan Old Style", Georgia, serif;
 
-  --margin-w: 9rem;
-  --measure: 64ch;
+  --radius: 8px;
+  --measure: 60ch;
   --ease: cubic-bezier(.2, .8, .2, 1);
   color-scheme: light;
 }
@@ -65,8 +66,9 @@
     --brass:   oklch(80%   0.100 80);
     --wash:    oklch(79% 0.12 180 / .10);
     --wash-2:  oklch(80% 0.10 80 / .12);
+    --on-ink:  oklch(17.5% 0.011 175);
     --lift-1: 0 1px 0 var(--rule-2);
-    --lift-2: 0 1px 0 var(--rule-2), 0 16px 34px -26px #000;
+    --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px #000;
     color-scheme: dark;
   }
 }
@@ -83,20 +85,21 @@
   --brass:   oklch(80%   0.100 80);
   --wash:    oklch(79% 0.12 180 / .10);
   --wash-2:  oklch(80% 0.10 80 / .12);
+  --on-ink:  oklch(17.5% 0.011 175);
   --lift-1: 0 1px 0 var(--rule-2);
-  --lift-2: 0 1px 0 var(--rule-2), 0 16px 34px -26px #000;
+  --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px #000;
   color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
 body {
   margin: 0;
   background: var(--stone);
   color: var(--ink);
   font-family: var(--f-body);
-  font-size: 16px;
-  line-height: 1.62;
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; }
@@ -104,137 +107,124 @@ a { color: var(--patina); text-decoration-thickness: 1px; text-underline-offset:
 a:focus-visible, button:focus-visible {
   outline: 2px solid var(--patina);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 ::selection { background: var(--wash); }
 
-/* ── The spine ─────────────────────────────────────────────────────────────
-   A record has a margin. Every section hangs its label in it, and one hairline
-   runs the full height of the page: the line that does not break between
-   sessions is the whole product, so it is also the whole layout.
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0 0 .9rem; color: var(--ink-2); }
+p:last-child { margin-bottom: 0; }
+strong { color: var(--ink); font-weight: 600; }
+code { font-family: var(--f-mono); font-size: .86em; }
+p code, li code, td code {
+  white-space: nowrap;
+  background: var(--wash);
+  color: var(--ink);
+  padding: .1em .36em;
+  border-radius: 3px;
+}
 
-   The labels are names, not numbers. These sections are alternatives — five
-   ways to install one thing — and numbering them 01/02/03 would assert a
-   sequence that does not exist. */
-.page {
-  max-width: 64rem;
-  margin: 0 auto;
-  padding: 0 1.5rem 6rem;
-}
-.row {
-  display: grid;
-  grid-template-columns: var(--margin-w) minmax(0, 1fr);
-  gap: 0 2.5rem;
-  border-top: 1px solid var(--rule);
-  padding-top: 2rem;
-  margin-top: 3.25rem;
-}
-.row > .label {
+/* ── Frame ─────────────────────────────────────────────────────────────────
+   Sections are short and centred on their heading, and each says one thing.
+   The long-form argument lives in the docs the page links to; a landing page
+   that tries to be the whole manual gets skimmed as neither. */
+.wrap { max-width: 68rem; margin: 0 auto; padding-inline: 1.5rem; }
+section { padding-block: 4.5rem 0; }
+.head { text-align: center; max-width: 40rem; margin: 0 auto 2.25rem; }
+.eyebrow {
+  display: inline-block;
   font-family: var(--f-mono);
   font-size: .6875rem;
   font-weight: 500;
   letter-spacing: .14em;
   text-transform: uppercase;
   color: var(--ink-3);
-  padding-top: .3rem;
-  border-right: 1px solid var(--rule-2);
-  margin-right: -1.25rem;
-  min-height: 2.5rem;
+  margin-bottom: .7rem;
 }
-/* The measure belongs to prose, not to the column. A line of English wants ~64
-   characters; a shell command wants as much room as it takes, and capping the
-   two together is what makes a code block clip mid-word while the paragraph
-   above it sits comfortably. So the column is full width and the running text
-   is what gets narrowed. */
-.row > .body { min-width: 0; }
-.row > .body > h2,
-.row > .body > p,
-.row > .body > ul,
-.row > .body > ol:not(.steps) { max-width: var(--measure); }
-
-h1, h2, h3 { text-wrap: balance; margin: 0; }
 h2 {
   font-family: var(--f-display);
   font-weight: 600;
-  font-size: clamp(1.5rem, 2.6vw, 1.95rem);
-  line-height: 1.14;
-  letter-spacing: -.005em;
+  font-size: clamp(1.7rem, 3.4vw, 2.35rem);
+  line-height: 1.1;
+  letter-spacing: -.01em;
   margin-bottom: .7rem;
 }
-h3 {
-  font-family: var(--f-body);
-  font-weight: 600;
-  font-size: .9375rem;
-  margin-bottom: .35rem;
-}
-p { margin: 0 0 .95rem; color: var(--ink-2); }
-p:last-child { margin-bottom: 0; }
-strong { color: var(--ink); font-weight: 600; }
-em { font-style: italic; }
-code { font-family: var(--f-mono); font-size: .875em; }
-p code, li code, td code {
-  background: var(--wash);
-  color: var(--ink);
-  padding: .1em .36em;
-  border-radius: 2px;
-}
+h3 { font-size: .9375rem; font-weight: 600; margin-bottom: .3rem; }
+.head p { font-size: 1rem; }
 
 /* ── Masthead ──────────────────────────────────────────────────────────── */
 .masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in oklch, var(--stone) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--rule-2);
+}
+.masthead .wrap {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .85rem 1.35rem;
-  padding: 2.75rem 0 0;
+  align-items: center;
+  gap: 1.5rem;
+  height: 3.5rem;
 }
 .wordmark {
   font-family: var(--f-display);
   font-weight: 700;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   letter-spacing: .01em;
   line-height: 1;
   color: var(--ink);
+  text-decoration: none;
+  margin-right: auto;
 }
 .wordmark::after {
   content: "";
   display: inline-block;
-  width: .32rem; height: .32rem;
-  margin-left: .4rem;
+  width: .3rem; height: .3rem;
+  margin-left: .35rem;
   border-radius: 50%;
   background: var(--brass);
   vertical-align: .1em;
 }
-.masthead .tag { font-size: .875rem; color: var(--ink-2); margin-right: auto; }
-.masthead nav {
-  display: flex;
-  gap: 1.25rem;
-  font-family: var(--f-mono);
-  font-size: .75rem;
-  letter-spacing: .03em;
-}
-.masthead nav a {
-  color: var(--ink-2);
+.masthead nav { display: flex; align-items: center; gap: 1.4rem; font-size: .875rem; }
+.masthead nav a { color: var(--ink-2); text-decoration: none; transition: color .16s var(--ease); }
+.masthead nav a:hover { color: var(--ink); }
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.btns { display: flex; flex-wrap: wrap; gap: .6rem; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .55rem 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: .875rem;
+  font-weight: 500;
   text-decoration: none;
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: 2px;
-  transition: color .16s var(--ease), border-color .16s var(--ease);
+  white-space: nowrap;
+  transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease);
 }
-.masthead nav a:hover { color: var(--patina); border-bottom-color: currentColor; }
+.btn:hover { border-color: var(--ink-3); transform: translateY(-1px); }
+.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.btn.solid:hover { background: var(--patina); border-color: var(--patina); }
+.masthead .btn { padding: .38rem .85rem; font-size: .8125rem; }
 
 /* ── Hero ──────────────────────────────────────────────────────────────────
-   Two words at the largest size the page ever uses. The condensed cut is what
-   makes that possible without the line wrapping to mush, and the one italic
-   serif word is the only warm voice on the page — a human note inside a
-   technical document, spent once. */
-.hero { padding: 4rem 0 .5rem; }
+   Two words at the largest size the page ever uses, and the one italic serif
+   word is the only warm voice on the page — spent once. */
+.hero { text-align: center; padding-block: 5rem 0; }
+.hero .eyebrow a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--rule); }
 .hero h1 {
   font-family: var(--f-display);
   font-weight: 700;
-  font-size: clamp(3.4rem, 12vw, 7.5rem);
-  line-height: .9;
+  font-size: clamp(2.9rem, 8.5vw, 5.4rem);
+  line-height: .95;
   letter-spacing: -.025em;
-  max-width: 12ch;
-  margin-bottom: 1.6rem;
+  margin: 0 auto 1.25rem;
 }
 .hero h1 em {
   font-family: var(--f-voice);
@@ -243,12 +233,10 @@ p code, li code, td code {
   letter-spacing: -.01em;
   color: var(--patina);
 }
-.hero .sub {
-  max-width: 56ch;
-  font-size: 1.0625rem;
-  color: var(--ink-2);
-  margin-bottom: 2.4rem;
-}
+.hero .sub { max-width: 46ch; margin: 0 auto 2rem; font-size: 1.0625rem; }
+.hero .cmd { max-width: 32rem; margin: 0 auto; text-align: left; }
+.hero .btns { justify-content: center; margin-top: 1rem; }
+.hero .note { margin: .9rem auto 0; text-align: center; }
 
 /* ── Command blocks ────────────────────────────────────────────────────── */
 .cmd {
@@ -256,29 +244,27 @@ p code, li code, td code {
   align-items: stretch;
   background: var(--paper);
   border: 1px solid var(--rule);
-  border-radius: 3px;
-  box-shadow: var(--lift-2);
+  border-radius: var(--radius);
+  box-shadow: var(--lift-1);
   overflow: hidden;
 }
 .cmd pre {
   margin: 0;
-  padding: 1rem 1.15rem;
+  padding: .8rem 1rem;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
   font-family: var(--f-mono);
-  font-size: .875rem;
+  font-size: .8125rem;
   line-height: 1.7;
   color: var(--ink);
-  tab-size: 2;
 }
-.cmd.primary pre { font-size: 1.0625rem; padding: 1.3rem 1.4rem; }
+.cmd.primary pre { font-size: .9375rem; padding: .95rem 1.15rem; }
 .cmd .prompt { color: var(--ink-3); user-select: none; }
 .cmd .flag { color: var(--ink-2); }
 .cmd .pkg { color: var(--patina); font-weight: 500; }
 .copy {
   flex: none;
-  align-self: stretch;
   border: 0;
   border-left: 1px solid var(--rule);
   background: transparent;
@@ -288,130 +274,129 @@ p code, li code, td code {
   font-weight: 500;
   letter-spacing: .1em;
   text-transform: uppercase;
-  padding: 0 1.1rem;
+  padding: 0 1rem;
   cursor: pointer;
   transition: background .16s var(--ease), color .16s var(--ease);
 }
 .copy:hover { background: var(--wash); color: var(--patina); }
 .copy[data-state="done"] { color: var(--patina); }
-.note {
-  font-size: .8125rem;
-  color: var(--ink-3);
-  margin-top: .85rem;
-  max-width: 62ch;
-}
+.note { font-size: .8125rem; color: var(--ink-3); margin-top: .8rem; max-width: 62ch; }
 .note strong { color: var(--ink-2); }
 
-/* ── Proof strip ───────────────────────────────────────────────────────── */
-.proof {
-  list-style: none;
-  margin: 1.9rem 0 0;
-  padding: 1rem 0 0;
-  border-top: 1px solid var(--rule-2);
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem 2rem;
-  font-family: var(--f-mono);
-  font-size: .75rem;
-  color: var(--ink-3);
-}
-.proof b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-.proof a { color: var(--ink-3); text-decoration-color: var(--rule); }
-.proof a:hover { color: var(--patina); }
-
-/* ── The record ────────────────────────────────────────────────────────────
-   The one diagram on the page, and the product's whole claim in one object:
-   two agents, two days, one file between them. Brass marks it because this is
-   the thing that survives. */
-.record {
-  margin-top: 3rem;
+/* ── Window ────────────────────────────────────────────────────────────────
+   Terminal output copied from a real run, not retyped: a page that mocks up its
+   own product's output is advertising, and this project's argument is the
+   difference between measured and claimed. */
+.window {
   border: 1px solid var(--rule);
-  border-radius: 3px;
+  border-radius: var(--radius);
   background: var(--paper);
   box-shadow: var(--lift-2);
   overflow: hidden;
+  min-width: 0;
+  text-align: left;
 }
-.record .strip {
+.window .bar {
   display: flex;
   flex-wrap: wrap;
-  gap: .4rem 1rem;
   align-items: baseline;
-  padding: .8rem 1.2rem;
-  background: var(--wash-2);
+  gap: .3rem 1rem;
+  padding: .55rem .95rem;
+  background: var(--sunk);
   border-bottom: 1px solid var(--rule);
   font-family: var(--f-mono);
-  font-size: .75rem;
-  letter-spacing: .02em;
+  font-size: .6875rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.window .bar b { color: var(--ink-2); font-weight: 500; }
+.window .bar .side { margin-left: auto; letter-spacing: .03em; text-transform: none; }
+.window.record .bar { background: var(--wash-2); }
+.window pre {
+  margin: 0;
+  padding: .95rem 1.1rem 1.05rem;
+  overflow-x: auto;
+  font-family: var(--f-mono);
+  font-size: .78rem;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.window .g   { color: var(--ink-3); }
+.window .ok  { color: var(--patina); font-weight: 500; }
+.window .br  { color: var(--brass); }
+.window .say { color: var(--ink-2); }
+.window .del { color: var(--ink-3); text-decoration: line-through; }
+.hero .window { max-width: 52rem; margin: 3.5rem auto 0; }
+
+/* ── Hosts ─────────────────────────────────────────────────────────────── */
+.hosts { text-align: center; padding-block: 3rem 0; }
+.hosts ul {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .5rem 2.2rem;
+  font-family: var(--f-display);
+  font-weight: 600;
+  font-size: 1.15rem;
   color: var(--ink-2);
 }
-.record .strip b { color: var(--brass); font-weight: 500; margin-left: auto; }
-.record .strip code { color: var(--ink); }
-.leg { padding: 1.2rem 1.2rem 1.35rem; }
-.leg .who {
-  display: block;
+.hosts li.open { color: var(--ink-3); font-weight: 500; font-style: italic; }
+.hosts .note { margin-inline: auto; }
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.card {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  padding: 1.3rem 1.3rem 1.2rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.card .k {
   font-family: var(--f-mono);
   font-size: .6875rem;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: var(--ink-3);
-  margin-bottom: .8rem;
+  color: var(--patina);
+  margin-bottom: .55rem;
 }
-.leg dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr);
-  gap: .4rem 1.2rem;
-  font-size: .9375rem;
-}
-.leg dt {
-  font-family: var(--f-mono);
-  font-size: .75rem;
-  letter-spacing: .04em;
-  color: var(--ink-3);
-  padding-top: .18rem;
-}
-.leg dd { margin: 0; color: var(--ink); }
-.leg dd.ruled { color: var(--ink-2); }
-.record .between {
-  padding: .85rem 1.2rem;
-  border-top: 1px solid var(--rule-2);
-  border-bottom: 1px solid var(--rule-2);
+.card.record .k { color: var(--brass); }
+.card p { font-size: .875rem; margin-bottom: .8rem; }
+.card code.line {
+  display: block;
+  margin-top: auto;
+  padding: .5rem .7rem;
   background: var(--sunk);
-  font-family: var(--f-mono);
+  border-radius: 5px;
   font-size: .75rem;
-  color: var(--ink-3);
+  color: var(--ink-2);
+  overflow-x: auto;
+  white-space: nowrap;
 }
-.record .between span { color: var(--brass); }
 
-/* ── Lists, buttons, tables ────────────────────────────────────────────── */
-/* min-width:0 because a grid item defaults to min-content, which for a command
-   block means "as wide as the longest line" — and the pre inside is the thing
-   that is supposed to scroll, not the page. */
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
-.steps > li { min-width: 0; }
-.btns { display: flex; flex-wrap: wrap; gap: .7rem; }
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: .5rem;
-  padding: .6rem 1.05rem;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  box-shadow: var(--lift-1);
+/* ── Split ─────────────────────────────────────────────────────────────── */
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.pull {
+  font-family: var(--f-voice);
+  font-style: italic;
+  font-size: 1.2rem;
+  line-height: 1.45;
   color: var(--ink);
-  font-size: .875rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease);
+  max-width: 48ch;
+  margin: 1.8rem auto 0;
+  text-align: center;
 }
-.btn:hover { border-color: var(--patina); background: var(--wash); transform: translateY(-1px); }
-.btn .mk { color: var(--patina); }
-.facts { margin: 0; padding-left: 1.1rem; display: grid; gap: .65rem; }
-.facts li { color: var(--ink-2); }
-.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); }
-table { border-collapse: collapse; width: 100%; font-size: .875rem; }
-th, td { text-align: left; padding: .65rem .9rem; border-bottom: 1px solid var(--rule-2); }
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: .8125rem; }
+th, td { text-align: left; padding: .5rem .85rem; border-bottom: 1px solid var(--rule-2); }
 thead th {
   font-family: var(--f-mono);
   font-size: .6875rem;
@@ -427,211 +412,90 @@ td { color: var(--ink-2); }
 td:first-child { color: var(--ink); }
 .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-
-/* ── The fan ───────────────────────────────────────────────────────────────
-   The thesis diagram. Six named hosts on the left, one vault on the right, and
-   the seam between them named for what it actually is — three interfaces, not
-   a brand. Drawn rather than photographed because a screenshot of an
-   architecture is a screenshot of a slide; this is the claim itself, and the
-   claim is that the left column is replaceable and the right one is not. */
-.fan {
-  margin-top: 3rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0 1.5rem;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  box-shadow: var(--lift-2);
-  padding: 1.6rem 1.5rem;
-}
-.fan .clients { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
-.fan .clients li {
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  color: var(--ink);
-  padding: .28rem .6rem;
-  border: 1px solid var(--rule-2);
-  border-radius: 2px;
-  background: var(--stone);
-}
-.fan .clients li.open { color: var(--ink-3); border-style: dashed; }
-/* Horizontal, because the flow is horizontal: six clients on the left, one
-   vault on the right, and the seam is what they meet at. A vertical thread
-   here read as a stack and fought the layout it was drawn inside. */
-.fan .seam { display: flex; align-items: center; gap: .55rem; }
-.fan .seam .thread {
-  width: 1.6rem;
-  height: 1px;
-  background: linear-gradient(90deg, var(--rule), var(--patina));
-}
-.fan .seam .thread.down { background: linear-gradient(90deg, var(--patina), var(--rule)); }
-.fan .seam .node {
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  letter-spacing: .09em;
-  text-transform: uppercase;
-  color: var(--patina);
-  border: 1px solid var(--patina);
-  border-radius: 2px;
-  padding: .3rem .6rem;
-  background: var(--wash);
-  text-align: center;
-  line-height: 1.5;
-}
-.fan .vaultbox {
-  border: 1px solid var(--brass);
-  border-radius: 2px;
-  background: var(--wash-2);
-  padding: .85rem 1rem;
-}
-.fan .vaultbox b {
-  display: block;
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  color: var(--brass);
-  font-weight: 600;
-  margin-bottom: .35rem;
-}
-.fan .vaultbox span {
-  display: block;
-  font-size: .8125rem;
-  color: var(--ink-2);
-  line-height: 1.55;
-}
-
-/* ── Shots ─────────────────────────────────────────────────────────────────
-   Terminal panes carrying output copied verbatim from a real run, not
-   retyped. That is the point of showing them at all: a page that mocks up its
-   own product's output is advertising, and this project's whole argument is
-   the difference between measured and claimed. The chrome is deliberately
-   plain — no fake traffic lights, no window shadow pretending to be a photo. */
-.shot {
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--paper);
-  box-shadow: var(--lift-2);
-  overflow: hidden;
-}
-.shot .bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .35rem 1rem;
-  padding: .6rem 1rem;
-  background: var(--sunk);
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  letter-spacing: .09em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.shot .bar b { color: var(--ink-2); font-weight: 500; }
-.shot .bar .side { margin-left: auto; letter-spacing: .04em; text-transform: none; }
-.shot pre {
-  margin: 0;
-  padding: 1rem 1.2rem 1.1rem;
-  overflow-x: auto;
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  line-height: 1.68;
-  color: var(--ink);
-  tab-size: 2;
-}
-.shot.record-tint .bar { background: var(--wash-2); }
-.shot .g   { color: var(--ink-3); }
-.shot .ok  { color: var(--patina); font-weight: 500; }
-.shot .br  { color: var(--brass); }
-.shot .say { color: var(--ink-2); }
-.shot .del { color: var(--ink-3); text-decoration: line-through; }
-
-/* ── Sequence ──────────────────────────────────────────────────────────────
-   Numbered because this one actually is a sequence: Monday, then Thursday,
-   then Friday, and step 4 only means anything after steps 1 and 2 have both
-   happened. Elsewhere on this page the sections are alternatives and carry
-   names instead. */
-/* min-width:0 all the way down, for the same reason .steps needs it above: a
-   grid item defaults to min-content, and the min-content of a shot is its
-   longest line of terminal output. Without this the pre stops scrolling and
-   the page scrolls sideways instead, which is the one thing it must never do. */
-.seq { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2.4rem; margin-top: 1.9rem; }
-.step { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0 1rem; min-width: 0; }
-.step > * { min-width: 0; }
-.shot { min-width: 0; }
-.step .n {
-  font-family: var(--f-mono);
-  font-size: .75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-  padding-top: .1rem;
-}
-.step .cap { max-width: var(--measure); margin-bottom: .9rem; }
-.step .cap h3 { margin-bottom: .3rem; }
-.step .cap p { margin-bottom: 0; font-size: .9375rem; }
-.step .after { margin-top: .85rem; max-width: var(--measure); font-size: .875rem; color: var(--ink-3); }
-
-/* Two panes that are the same fact seen from two machines. */
-.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; margin-top: 1.7rem; }
-.pair > * { min-width: 0; }
-
-/* ── Benchmark ─────────────────────────────────────────────────────────────
-   A bar per row, because the interesting number here is a gap and a gap is
-   easier to see than to read. Semantic colour, not the accent: patina is the
-   live thing everywhere else on this page and would be lying if it also meant
-   "wins". */
-.bench td.bar { width: 40%; padding-right: 1.2rem; }
-.bench .track { display: block; height: .5rem; background: var(--sunk); border-radius: 1px; overflow: hidden; }
-.bench .fill { display: block; height: 100%; background: var(--ink-3); }
+/* A bar per row, because the interesting number is a gap and a gap is easier to
+   see than to read. Patina marks the live thing everywhere else on this page,
+   so here it marks this project's row, not "wins". */
+.bench { max-width: 50rem; margin: 0 auto; }
+.bench td.bar { width: 42%; padding-right: 1.2rem; }
+.bench .track { display: block; height: .45rem; background: var(--sunk); border-radius: 99px; overflow: hidden; }
+.bench .fill { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; }
 .bench tr.us td { color: var(--ink); }
 .bench tr.us td:first-child { font-weight: 600; }
 .bench tr.us .fill { background: var(--patina); }
 .bench tr.us .track { background: var(--wash); }
-
-/* ── Layer ledger ──────────────────────────────────────────────────────── */
-.layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
-.layers li {
+.bench-notes { max-width: 50rem; margin: .9rem auto 0; }
+.stats {
   display: grid;
-  grid-template-columns: 11rem minmax(0, 1fr);
-  gap: .2rem 1.4rem;
-  padding: .85rem 0;
-  border-top: 1px solid var(--rule-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  max-width: 50rem;
+  margin: 0 auto 1.25rem;
+  text-align: center;
 }
-.layers li:first-child { border-top: 0; padding-top: 0; }
-.layers b {
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  font-weight: 500;
-  color: var(--ink);
+.stats div { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); padding: 1rem .75rem; }
+.stats b {
+  display: block;
+  font-family: var(--f-display);
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
-.layers span { color: var(--ink-2); font-size: .9375rem; }
+.stats span { font-size: .8125rem; color: var(--ink-3); }
 
-/* A pull line: the one sentence a section is really about. */
-.pull {
-  font-family: var(--f-voice);
-  font-style: italic;
-  font-size: 1.25rem;
-  line-height: 1.45;
-  color: var(--ink);
-  max-width: 46ch;
-  margin: 1.9rem 0 0;
-  padding-left: 1.1rem;
-  border-left: 2px solid var(--brass);
-}
-
-/* ── Footer ────────────────────────────────────────────────────────────── */
-footer {
+/* ── Install tabs ──────────────────────────────────────────────────────────
+   Six ways to install one thing are alternatives, not steps, so they share one
+   box and a person sees only the one they picked. Without script every panel
+   stays visible, stacked, which is still a complete install page. */
+.install { max-width: 50rem; margin: 0 auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); box-shadow: var(--lift-2); overflow: hidden; }
+.tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: .5rem 1.4rem;
+  overflow-x: auto;
+  background: var(--sunk);
+  border-bottom: 1px solid var(--rule);
+  scrollbar-width: none;
+}
+.tabs button {
+  flex: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: .7rem 1rem .6rem;
+  font: 500 .8125rem var(--f-body);
+  color: var(--ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--patina); background: var(--paper); }
+.no-js .tabs { display: none; }
+.panel { padding: 1.3rem 1.3rem 1.4rem; }
+.no-js .panel + .panel { border-top: 1px solid var(--rule); }
+.panel > p { font-size: .875rem; max-width: var(--measure); }
+.panel .steps { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .55rem; }
+.panel .steps > li { min-width: 0; }
+.panel .tablewrap { margin-top: .9rem; }
+.panel .cmd { margin-top: .9rem; }
+.panel .steps .cmd { margin-top: 0; }
+
+/* ── Facts ─────────────────────────────────────────────────────────────── */
+.facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.4rem 2rem; }
+.facts li { font-size: .875rem; color: var(--ink-2); padding-top: .9rem; border-top: 1px solid var(--rule); }
+.facts strong { display: block; margin-bottom: .2rem; font-size: .9375rem; }
+
+/* ── Closing ───────────────────────────────────────────────────────────── */
+.closing { text-align: center; padding-block: 5.5rem 1rem; }
+.closing .cmd { max-width: 32rem; margin: 1.4rem auto 0; text-align: left; }
+
+footer {
   margin-top: 4rem;
-  padding-top: 1.4rem;
   border-top: 1px solid var(--rule);
+  padding-block: 1.4rem 2.5rem;
   font-family: var(--f-mono);
   font-size: .75rem;
   color: var(--ink-3);
 }
+footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; }
 footer a { color: var(--ink-3); text-decoration-color: var(--rule); }
 footer a:hover { color: var(--patina); }
 footer .sp { margin-left: auto; }
@@ -640,232 +504,171 @@ footer .sp { margin-left: auto; }
    One entrance, staggered, and nothing that repeats. Anything that pulses or
    loops is asking for attention it has not earned. */
 .fade { animation: rise .6s var(--ease) both; }
-.hero h1.fade  { animation-delay: .02s; }
-.hero .sub     { animation-delay: .10s; }
-.hero .cmd     { animation-delay: .18s; }
-.hero .proof   { animation-delay: .26s; }
+.hero .eyebrow { animation-delay: 0s; }
+.hero h1       { animation-delay: .05s; }
+.hero .sub     { animation-delay: .12s; }
+.hero .cmd     { animation-delay: .19s; }
+.hero .window  { animation-delay: .28s; }
 @keyframes rise {
   from { opacity: 0; transform: translateY(9px); }
   to   { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
   .fade { animation: none; }
   * { transition-duration: .01ms !important; }
 }
 
 /* ── Narrow ────────────────────────────────────────────────────────────── */
-@media (max-width: 46rem) {
-  .row { grid-template-columns: 1fr; gap: .75rem; }
-  .row > .label { border-right: 0; margin-right: 0; min-height: 0; padding-top: 0; }
-  .leg dl { grid-template-columns: 1fr; gap: .15rem; }
-  .leg dt { padding-top: .5rem; }
-  .record .strip b { margin-left: 0; }
-  footer .sp { margin-left: 0; }
+@media (max-width: 56rem) {
+  .grid, .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pair { grid-template-columns: minmax(0, 1fr); }
 }
-
-@media (max-width: 46rem) {
-  .fan { grid-template-columns: 1fr; gap: 1.1rem; }
-  .fan .seam { justify-content: center; }
-  .pair { grid-template-columns: 1fr; }
-  .layers li { grid-template-columns: 1fr; }
-  .step { grid-template-columns: minmax(0, 1fr); gap: .4rem; }
-  .bench td.bar { display: none; }
+@media (max-width: 40rem) {
+  .wrap { padding-inline: 1rem; }
+  .masthead nav a:not(.btn) { display: none; }
+  .grid, .facts, .stats { grid-template-columns: minmax(0, 1fr); }
+  .bench td.bar, .bench th.bar { display: none; }
+  footer .sp { margin-left: 0; }
+  section { padding-block: 3.5rem 0; }
+  .hero { padding-block: 3.5rem 0; }
+  /* The brew command is the longest line a phone has to show without scrolling. */
+  .cmd.primary pre { font-size: .75rem; padding: .8rem .75rem; }
+  .copy { padding: 0 .7rem; }
 }
 </style>
 </head>
-<body>
+<body class="no-js">
+<script>document.body.classList.remove("no-js");</script>
 
-<div class="page">
-
-  <header class="masthead">
-    <span class="wordmark">Logos</span>
-    <span class="tag">Continuity for AI coding agents</span>
+<header class="masthead">
+  <div class="wrap">
+    <a class="wordmark" href="#">Logos</a>
     <nav>
-      <a href="#watch">Watch</a>
-      <a href="#portable">Portability</a>
-      <a href="#proof">Proof</a>
-      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="#proof">Benchmark</a>
       <a href="https://github.com/Coder8124/logos">GitHub</a>
+      <a class="btn solid" href="#install">Install</a>
     </nav>
-  </header>
+  </div>
+</header>
 
-  <section class="hero">
+<main>
+  <div class="wrap hero">
+    <span class="eyebrow fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.3">v0.4.3</a> &middot; Apache 2.0 &middot; local-first</span>
     <h1 class="fade">Your memory. <em>Any</em> agent.</h1>
     <p class="sub fade">
       One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
-      from it, Codex picks up where both stopped. Every tool is a client of the same
-      record &mdash; and none of them owns it, including this one.
+      from it, Codex picks up where both stopped &mdash; and none of them owns it.
     </p>
 
     <div class="cmd primary fade">
-      <pre><span class="prompt">$ </span>npx <span class="flag">-y</span> <span class="pkg">@noeton/logos</span> setup</pre>
-      <button class="copy" type="button" data-copy="npx -y @noeton/logos setup">Copy</button>
+      <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
+<span class="prompt">$ </span>logos setup</pre>
+      <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
     </div>
-    <p class="note">
-      Finds the agents already installed, shows you what it would write to each, and
-      writes nothing until you say yes. <code>--dry-run</code> prints the plan and exits.
-    </p>
+    <p class="note">macOS and Linux. Setup finds your agents, shows what it would write to each, and writes nothing until you say yes.<br>On Windows: <code>npx -y @noeton/logos setup</code></p>
+    <div class="btns">
+      <a class="btn" href="#install">Other ways to install</a>
+      <a class="btn" href="https://github.com/Coder8124/logos">View on GitHub &rarr;</a>
+    </div>
 
-    <ul class="proof fade">
-      <li><b>84.4%</b> handoff pass rate &middot; next best <b>46.9%</b></li>
-      <li><b>0 MB</b> of model required</li>
-      <li><b>~5 MB</b> single binary</li>
-      <li><a href="https://github.com/Coder8124/logos">Apache 2.0, all of it</a></li>
+    <div class="window fade">
+      <div class="bar"><b>logos demo</b> <span class="side">three agents, one vault &mdash; lines from a real run</span></div>
+<pre><span class="g">claude code</span>
+  <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
+  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #1</span>
+
+<span class="g">cursor</span>
+  <span class="g">&gt;</span> <span class="say">"we moved staging to port 9090"</span>
+  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #2</span>
+  <span class="ok">&#10003; Logos &middot; 1 memory superseded &mdash; the old value is now history</span>
+
+<span class="g">codex</span>
+  <span class="g">&gt;</span> <span class="say">context("deploy to staging")</span>
+  <span class="g">-</span> fact: Staging runs on port <span class="ok">9090</span>.  <span class="g">(demo, 2 Sep 2026, confidence 0.90)</span>
+
+<span class="g">logos memory log</span>
+  <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
+    </div>
+    <p class="note">Run it yourself against a scratch vault &mdash; nothing of yours is touched: <code>npx -y @noeton/logos demo</code></p>
+  </div>
+
+  <div class="wrap hosts">
+    <span class="eyebrow">Works with the agents you already use</span>
+    <ul>
+      <li>Claude Code</li>
+      <li>Cursor</li>
+      <li>Codex</li>
+      <li>Claude Desktop</li>
+      <li>VS&nbsp;Code</li>
+      <li>Zed</li>
+      <li>Cline</li>
+      <li class="open">your own agent</li>
     </ul>
+    <p class="note">
+      Setup wires Claude Code, Codex, Cursor and Claude Desktop and verifies each with a real
+      store-then-recall. The rest take one block of JSON.
+    </p>
+  </div>
 
-    <div class="fan fade">
-      <ul class="clients">
-        <li>Claude Code</li>
-        <li>Cursor</li>
-        <li>Codex</li>
-        <li>Claude Desktop</li>
-        <li>VS&nbsp;Code &middot; Zed &middot; Cline</li>
-        <li class="open">your own agent</li>
-      </ul>
-      <div class="seam">
-        <span class="thread"></span>
-        <span class="node">MCP server<br>Go package<br>CLI</span>
-        <span class="thread down"></span>
+  <section id="features">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Features</span>
+        <h2>Continuity, not just retrieval</h2>
+        <p>Every memory tool can find a fact. Logos makes sure the next agent gets the right one.</p>
       </div>
-      <div class="vaultbox">
-        <b>~/logos</b>
-        <span>
-          Markdown files, one directory, on your machine. Open them in any editor.
-          <code>grep</code> them. Commit them. Delete the index and it rebuilds from
-          the files &mdash; delete the files and there was nothing else.
-        </span>
+      <div class="grid">
+        <div class="card">
+          <span class="k">Consolidation</span>
+          <h3>Old values are withheld, not ranked lower</h3>
+          <p>When a fact changes, the stale one stops coming back &mdash; and why it was superseded goes on the record.</p>
+          <code class="line">logos memory log</code>
+        </div>
+        <div class="card record">
+          <span class="k">Handoff</span>
+          <h3>Dead ends travel between agents</h3>
+          <p>A checkpoint carries what was verified, what failed and what is next, so the next agent does not pay for it again.</p>
+          <code class="line">/handoff &middot; resume</code>
+        </div>
+        <div class="card">
+          <span class="k">Cold start</span>
+          <h3>Useful before you teach it anything</h3>
+          <p>Reads your git history and proposes what it can defend, each with the command behind it. Writes nothing on a dry run.</p>
+          <code class="line">logos bootstrap --dry-run</code>
+        </div>
+        <div class="card record">
+          <span class="k">Ownership</span>
+          <h3>Markdown you can grep and commit</h3>
+          <p>The vault is truth; the SQLite index is a cache. Delete it and it rebuilds from the files.</p>
+          <code class="line">~/logos/**/*.md</code>
+        </div>
+        <div class="card">
+          <span class="k">Receipts</span>
+          <h3>You can see it working</h3>
+          <p>Every change to what the agent knows says so in one line, in the host you are already looking at.</p>
+          <code class="line">LOGOS_ANNOUNCE=quiet</code>
+        </div>
+        <div class="card">
+          <span class="k">Scope</span>
+          <h3>One vault, one project per folder</h3>
+          <p>The project comes from the directory the agent works in, so two repositories never write into each other&rsquo;s memory.</p>
+          <code class="line">~/code/kestrel &rarr; project "kestrel"</code>
+        </div>
       </div>
     </div>
   </section>
 
-  <div class="row" id="watch">
-    <div class="label">Watch</div>
-    <div class="body">
-      <h2>Two values for one thing</h2>
-      <p>
-        Everything below is output from <code>logos demo</code>, copied out of a real
-        run against a scratch vault. Nothing here is a mockup, and you can produce the
-        same six panes on your own machine in about four seconds.
-      </p>
-
-      <div class="seq">
-
-        <div class="step">
-          <div class="n">01</div>
-          <div>
-            <div class="cap">
-              <h3>Monday. An agent learns how staging is configured.</h3>
-              <p>A fact arrives, and the tool says so out loud. Silent background work reads to a user as a product that is not running.</p>
-            </div>
-            <div class="shot">
-              <div class="bar"><b>claude code</b> <span class="side">tool: remember</span></div>
-<pre>  <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
-  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #1</span></pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="n">02</div>
-          <div>
-            <div class="cap">
-              <h3>Thursday. It changes &mdash; in a different session, on a different agent.</h3>
-              <p>No shared process, no shared context window. Only the vault is in common.</p>
-            </div>
-            <div class="shot">
-              <div class="bar"><b>cursor</b> <span class="side">tool: remember</span></div>
-<pre>  <span class="g">&gt;</span> <span class="say">"we moved staging to port 9090"</span>
-  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #2</span></pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="n">03</div>
-          <div>
-            <div class="cap">
-              <h3>This is where every other memory system stops.</h3>
-              <p>
-                Two values for one thing, both retrievable, nothing saying which is
-                true. Whichever embeds closer to the question wins &mdash; and that is
-                not the same as being right.
-              </p>
-            </div>
-            <div class="shot">
-              <div class="bar"><b>the vault</b> <span class="side">both facts, written weeks apart</span></div>
-<pre>  <span class="g">#1</span>  Staging runs on port 8080.   <span class="g">&larr; still returned</span>
-  <span class="g">#2</span>  Staging runs on port 9090.   <span class="g">&larr; also returned</span></pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="n">04</div>
-          <div>
-            <div class="cap">
-              <h3>Logos consolidates. This is the part nobody else does.</h3>
-              <p>Not a re-rank. The old value is withheld, and the reason it was withheld goes on the record.</p>
-            </div>
-            <div class="shot">
-              <div class="bar"><b>logos</b> <span class="side">consolidation pass</span></div>
-<pre>  <span class="ok">&#10003; Logos &middot; 1 memory superseded &mdash; the old value is now history</span></pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="n">05</div>
-          <div>
-            <div class="cap">
-              <h3>Friday. A third agent asks what it needs in order to deploy.</h3>
-              <p>One answer comes back. The superseded one is not ranked lower; it is not there.</p>
-            </div>
-            <div class="shot">
-              <div class="bar"><b>codex</b> <span class="side">tool: context</span></div>
-<pre>  <span class="g">&gt;</span> <span class="say">context("deploy to staging")</span>
-
-  <span class="g">-</span> fact: Staging runs on port <span class="ok">9090</span>.  <span class="g">(demo, 2 Sep 2026, confidence 0.90)</span></pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="n">06</div>
-          <div>
-            <div class="cap">
-              <h3>And the receipt &mdash; not a claim, the history of the fact itself.</h3>
-              <p>Append-only. You can ask any memory when it was learned, what corroborated it, and what replaced it.</p>
-            </div>
-            <div class="shot record-tint">
-              <div class="bar"><b>logos memory log</b> <span class="side">append-only timeline</span></div>
-<pre>  <span class="g">created    </span> <span class="br">#1</span>  Staging runs on port 8080.
-  <span class="g">created    </span> <span class="br">#2</span>  Staging runs on port 9090.
-  <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
-            </div>
-            <p class="after">
-              Run it yourself against a scratch vault &mdash; nothing of yours is touched:
-              <code>npx -y @noeton/logos demo</code>
-            </p>
-          </div>
-        </div>
-
+  <section id="handoff">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Handoff</span>
+        <h2>What one agent wrote, and what the next one got</h2>
+        <p>Both panes are real files from this project&rsquo;s own vault.</p>
       </div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">Handoff</div>
-    <div class="body">
-      <h2>What one agent wrote, and what the next one got</h2>
-      <p>
-        A checkpoint is a markdown file with front matter, written by whichever agent
-        was working. A resume is what a different agent, on a different day, in a
-        different product, reads back. Both panes below are real files from this
-        project&rsquo;s own vault.
-      </p>
-
       <div class="pair">
-        <div class="shot record-tint">
+        <div class="window record">
           <div class="bar"><b>written by claude code</b> <span class="side">sessions/logos/&hellip;-claude.md</span></div>
 <pre><span class="g">---</span>
 <span class="g">type:</span> checkpoint
@@ -884,8 +687,7 @@ footer .sp { margin-left: auto; }
 <span class="g">-</span> claiming the @logos scope &mdash; the org
   already exists, not ours to take</pre>
         </div>
-
-        <div class="shot">
+        <div class="window">
           <div class="bar"><b>read back by cursor</b> <span class="side">1 day later</span></div>
 <pre><span class="g">#</span> Context for: resume work on logos
 
@@ -903,113 +705,27 @@ a5e72a2 &middot; 2 files uncommitted
 <span class="g">_Context budget: ~284 of 4000 tokens._</span></pre>
         </div>
       </div>
-
-      <p class="pull">
-        The dead ends travel. An agent that has never seen your project does not get to
-        spend an hour rediscovering what last week&rsquo;s agent already paid for.
-      </p>
+      <p class="pull">An agent that has never seen your project does not spend an hour rediscovering what last week&rsquo;s agent already paid for.</p>
     </div>
-  </div>
+  </section>
 
-  <div class="row">
-    <div class="label">Cold start</div>
-    <div class="body">
-      <h2>It knows something before you teach it anything</h2>
-      <p>
-        Point it at a repository you have never used it on. It reads the git history and
-        proposes what it can defend, each with the command that produced it &mdash; then
-        writes nothing until you drop <code>--dry-run</code>.
-      </p>
-      <div class="shot">
-        <div class="bar"><b>logos bootstrap --dry-run</b> <span class="side">nothing written</span></div>
-<pre><span class="say">From the git history of ~/code/logos, scoped to project "logos":</span>
-
-  <span class="g">1.</span> Coder8124 writes most of this codebase &mdash; 145 of the last 145 commits.
-     <span class="g">git shortlog -sn: Coder8124 145/145 &middot; confidence 0.80</span>
-
-  <span class="g">2.</span> Change concentrates in cmd/logos/ (145), (root) (93) and
-     internal/memory/ (72) &mdash; file-touch counts over the last 145 commits.
-     <span class="g">git log --name-only: 977 paths across 69 areas &middot; confidence 0.80</span>
-
-  <span class="g">3.</span> Commit subjects here are capitalised sentences with no trailing
-     period &mdash; 124 of the last 145.
-     <span class="g">git log --format=%s: 124/145 &middot; confidence 0.65</span>
-
-  <span class="g">4.</span> This project runs at roughly 12 commits a month; the most recent
-     is dated 2026-09-02.
-     <span class="g">145 commits over 12 months &middot; confidence 0.80</span>
-
-<span class="ok">4 memories would be written. Nothing was.</span></pre>
+  <section id="proof">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Benchmark</span>
+        <h2>Measured, on one machine, against eight others</h2>
+        <p>
+          32 hand-authored handoff scenarios, the same embedding model throughout. A scenario
+          passes only if the next agent gets the current fact, without the stale one beside it, inside a token budget it did not choose.
+        </p>
       </div>
-      <p class="note">
-        Every line carries the command behind it, so you can check any claim rather than
-        take it. Changed your mind after writing them? <code>logos memory forget --source bootstrap</code>
-        removes exactly what the machine added and nothing you did.
-      </p>
-    </div>
-  </div>
-
-  <div class="row" id="portable">
-    <div class="label">Portability</div>
-    <div class="body">
-      <h2>Every integration is a client, never a home</h2>
-      <p>
-        The failure mode this project exists to avoid is memory that lives inside one
-        product. If your record is a table in somebody&rsquo;s app, switching agents means
-        starting over, and the vendor decides how long you get to keep it. So the rule
-        here is enforced at every layer, not just advertised at the top one:
-      </p>
-
-      <ul class="layers">
-        <li><b>Vault format</b><span>Markdown with YAML front matter. Human-readable, diffable, greppable, and committable to your own git. Truth lives here.</span></li>
-        <li><b>Index</b><span><code>.logos/index.db</code> is SQLite and is a <em>cache</em>. Delete it; it rebuilds from the files. Nothing is only in the database.</span></li>
-        <li><b>MCP interface</b><span>The wire protocol every host already speaks. Not a plugin per editor &mdash; one server, and the hosts are interchangeable.</span></li>
-        <li><b>Go package</b><span><code>import "github.com/Coder8124/logos"</code> and embed the engine directly if you are building your own agent.</span></li>
-        <li><b>CLI</b><span>Every operation available over MCP is also a command, so a shell script, a CI job, or an agent framework nobody has written yet is a first-class client.</span></li>
-        <li><b>Provenance</b><span>Each memory records which agent learned it, from what source, when, and at what confidence &mdash; taken from the MCP handshake, never asked of the model.</span></li>
-        <li><b>Semantics</b><span>Supersession, dead ends and abstention mean the same thing to every client, because they are properties of the record rather than of a prompt.</span></li>
-      </ul>
-
-      <p class="pull">
-        If this project stops being maintained tomorrow, you still have a directory of
-        markdown. That is the test of ownership, and it is the only one that matters.
-      </p>
-
-      <div class="tablewrap" style="margin-top:1.9rem">
+      <div class="stats">
+        <div><b>84.4%</b><span>handoff pass rate &middot; next best 46.9%</span></div>
+        <div><b>16.7%</b><span>stale facts leaked &middot; next best 58.3%</span></div>
+        <div><b>0 MB</b><span>of model required</span></div>
+      </div>
+      <div class="tablewrap bench">
         <table>
-          <thead><tr><th scope="col">Host</th><th scope="col">Wired by <code>setup</code></th><th scope="col">Verified</th></tr></thead>
-          <tbody>
-            <tr><td>Claude Code</td><td>yes &mdash; plus hooks, <code>/handoff</code>, a skill</td><td>handshake + round trip</td></tr>
-            <tr><td>Codex</td><td>yes &mdash; <code>codex mcp add</code></td><td>handshake + round trip</td></tr>
-            <tr><td>Cursor</td><td>yes &mdash; merges <code>~/.cursor/mcp.json</code></td><td>handshake + round trip</td></tr>
-            <tr><td>Claude Desktop</td><td>yes &mdash; merges the desktop config</td><td>handshake + round trip</td></tr>
-            <tr><td>Zed &middot; Cline &middot; Windsurf &middot; Continue &middot; Gemini CLI</td><td>manual JSON, below</td><td class="num">help wanted</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="note">
-        &ldquo;Verified&rdquo; means a real handshake and a real store-then-recall against that
-        host, not that the config file looks right. The unverified rows say so on
-        purpose &mdash; if you use one, a report closes the gap.
-      </p>
-    </div>
-  </div>
-
-  <div class="row" id="proof">
-    <div class="label">Proof</div>
-    <div class="body">
-      <h2>Measured, on one machine, against eight others</h2>
-      <p>
-        Existing memory benchmarks score retrieval: given a long history, can the system
-        find the fact. That is not the setting these tools are deployed in. We built a
-        handoff suite instead &mdash; 32 hand-authored scenarios, nine systems, the same
-        embedding model throughout &mdash; where a scenario passes only if the successor
-        gets the current fact, <em>without</em> the stale one beside it, inside a token
-        budget it did not choose.
-      </p>
-
-      <div class="tablewrap">
-        <table class="bench">
           <thead>
             <tr><th scope="col">System</th><th scope="col" class="bar">Pass rate</th><th scope="col">Pass</th><th scope="col">Carry</th><th scope="col">Leak</th><th scope="col">Signal</th></tr>
           </thead>
@@ -1026,110 +742,90 @@ a5e72a2 &middot; 2 files uncommitted
           </tbody>
         </table>
       </div>
-
-      <p class="note">
-        <strong>Carry</strong> is required facts retrieved. <strong>Leak</strong> is superseded
-        facts returned anyway &mdash; lower is better. <strong>Signal</strong> is telling the
-        successor that something was already tried or has since changed.
-      </p>
-
-      <p style="margin-top:1.1rem">
-        Read the row order carefully, because it is the finding: <strong>retrieval is not
-        the differentiator.</strong> Every real system carries 82&ndash;89% of the required
-        facts. The entire spread comes from leakage and signal &mdash; from whether the
-        agent that resumes gets one answer or gets the right one sitting next to the
-        wrong one it replaced.
-      </p>
-
-      <p>
-        On the durability family &mdash; write, delete every rebuildable artifact, read
-        again &mdash; Logos scores 100% and every other system scores 0%.
-      </p>
-
-      <p class="note">
-        It loses too, and the numbers stay in: arithmetic, recency-conflict and multi-hop
-        are all 0%. The suite, the scenarios and the runner are in the repository, so you
-        can reproduce the wins and the losses alike &mdash;
-        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">the write-up is here</a>.
+      <p class="note bench-notes">
+        <strong>Carry</strong> is required facts retrieved; <strong>Leak</strong> is superseded facts
+        returned anyway, lower is better; <strong>Signal</strong> is telling the next agent something
+        was already tried or has changed. It loses too, and those numbers stay in: arithmetic,
+        recency-conflict and multi-hop are all 0%.
+        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Read the write-up</a>.
       </p>
     </div>
-  </div>
+  </section>
 
-  <div class="row">
-    <div class="label">Visible</div>
-    <div class="body">
-      <h2>You can see it working, and you can turn that off</h2>
-      <p>
-        A continuity layer nobody notices restoring anything is a continuity layer nobody
-        believes in. So every operation that changes what the assistant knows says so, in
-        one line, in the host you are already looking at.
-      </p>
-      <div class="shot">
-        <div class="bar"><b>in the chat</b> <span class="side">receipts</span></div>
-<pre>  <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #41 (fact, kestrel)</span>
-  <span class="ok">&#10003; Logos &middot; already knew that &mdash; reinforced memory #12 (fact, kestrel)</span>
-  <span class="ok">&#10003; Logos &middot; checkpoint saved to logos &mdash; 20260902-171104-claude.md</span>
-  <span class="ok">&#10003; Logos &middot; recalled 1 checkpoint, 3 notes, 2 open questions</span></pre>
+  <section id="install">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Install</span>
+        <h2>Pick how you work</h2>
+        <p>Every route installs the same single binary and points every agent at the same vault.</p>
       </div>
-      <p class="note">
-        Too chatty after the first week? <code>LOGOS_ANNOUNCE=quiet</code> shortens them and
-        <code>off</code> removes the marker entirely. What never changes with the setting is
-        the <em>information</em> &mdash; turning receipts down tells you less loudly, not less.
-      </p>
-      <p style="margin-top:1.1rem">
-        And a separate, host-level record that does not depend on a model choosing to write
-        it: <code>logos activity</code> replays every prompt, tool call and turn the agent
-        actually took, captured by hooks rather than volunteered.
-      </p>
-    </div>
-  </div>
 
-  <div class="row" id="install">
-    <div class="label">Claude Code</div>
-    <div class="body">
-      <h2>Install the plugin instead</h2>
-      <p>
-        The version to prefer, because it is more than the MCP server: it also installs a
-        <strong>SessionStart hook</strong> that puts the last handoff in front of the model
-        before it does anything &mdash; the difference between continuity that works and
-        continuity that works when the model remembers to ask for it.
-      </p>
-      <ol class="steps">
-        <li>
+      <div class="install">
+        <div class="tabs" role="tablist" aria-label="Install method">
+          <button type="button" role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
+          <button type="button" role="tab" id="t-npx" aria-controls="p-npx" aria-selected="false" tabindex="-1">Windows</button>
+          <button type="button" role="tab" id="t-plugin" aria-controls="p-plugin" aria-selected="false" tabindex="-1">Claude Code plugin</button>
+          <button type="button" role="tab" id="t-click" aria-controls="p-click" aria-selected="false" tabindex="-1">Cursor &amp; VS&nbsp;Code</button>
+          <button type="button" role="tab" id="t-json" aria-controls="p-json" aria-selected="false" tabindex="-1">Any MCP host</button>
+          <button type="button" role="tab" id="t-bin" aria-controls="p-bin" aria-selected="false" tabindex="-1">Binaries</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
+          <p>macOS and Linux. Setup finds your agents, shows the plan, and writes nothing until you say yes. The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
+          <ol class="steps">
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span></pre>
+                <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp">Copy</button>
+              </div>
+            </li>
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">$ </span>logos setup</pre>
+                <button class="copy" type="button" data-copy="logos setup">Copy</button>
+              </div>
+            </li>
+          </ol>
+          <p class="note">Update with <code>brew upgrade logos-mcp</code>, not <code>logos update</code> &mdash; hosts are wired to brew's <code>opt</code> path, which survives the upgrade.</p>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-npx" aria-labelledby="t-npx">
+          <p>Windows, or anywhere without Homebrew. Needs only Node: <code>npx</code> fetches the binary and runs setup, which shows the plan and writes nothing until you say yes; <code>--dry-run</code> prints the plan and exits.</p>
           <div class="cmd">
-            <pre><span class="prompt">/ </span>plugin marketplace add Coder8124/logos</pre>
-            <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
+            <pre><span class="prompt">$ </span>npx <span class="flag">-y</span> <span class="pkg">@noeton/logos</span> setup</pre>
+            <button class="copy" type="button" data-copy="npx -y @noeton/logos setup">Copy</button>
           </div>
-        </li>
-        <li>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-plugin" aria-labelledby="t-plugin">
+          <p>The version to prefer in Claude Code: besides the MCP server it installs a <strong>SessionStart hook</strong> that puts the last handoff in front of the model before it does anything.</p>
+          <ol class="steps">
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">/ </span>plugin marketplace add Coder8124/logos</pre>
+                <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
+              </div>
+            </li>
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">/ </span>plugin install logos@logos</pre>
+                <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-click" aria-labelledby="t-click">
+          <p>Deep links that hand the host a finished config. Nothing else to edit.</p>
+          <div class="btns" style="margin-top:.9rem">
+            <a class="btn solid" href="cursor://anysphere.cursor-deeplink/mcp/install?name=logos&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==">Add to Cursor</a>
+            <a class="btn solid" href="vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D">Add to VS&nbsp;Code</a>
+          </div>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-json" aria-labelledby="t-json">
+          <p>Zed, Cline, Windsurf, Continue, Gemini CLI or your own agent. <code>npx</code> resolves the binary on demand, so the config is portable between machines.</p>
           <div class="cmd">
-            <pre><span class="prompt">/ </span>plugin install logos@logos</pre>
-            <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
-          </div>
-        </li>
-      </ol>
-      <p class="note">The marketplace is the repository; the plugin inside it is named <code>logos</code>.</p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">One click</div>
-    <div class="body">
-      <h2>Cursor and VS&nbsp;Code</h2>
-      <p>Deep links that hand the host a finished config. Nothing else to edit.</p>
-      <div class="btns">
-        <a class="btn" href="cursor://anysphere.cursor-deeplink/mcp/install?name=logos&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==">Add to Cursor <span class="mk">&rarr;</span></a>
-        <a class="btn" href="vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D">Add to VS&nbsp;Code <span class="mk">&rarr;</span></a>
-      </div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">By hand</div>
-    <div class="body">
-      <h2>Any MCP host</h2>
-      <p>No install at all &mdash; <code>npx</code> resolves the binary on demand, so this config is portable between machines in a way an absolute path is not.</p>
-      <div class="cmd">
 <pre>{
   "mcpServers": {
     "logos": {
@@ -1138,7 +834,7 @@ a5e72a2 &middot; 2 files uncommitted
     }
   }
 }</pre>
-        <button class="copy" type="button" data-copy='{
+            <button class="copy" type="button" data-copy='{
   "mcpServers": {
     "logos": {
       "command": "npx",
@@ -1146,117 +842,97 @@ a5e72a2 &middot; 2 files uncommitted
     }
   }
 }'>Copy</button>
-      </div>
-      <p class="note">Add <code>"env": { "LOGOS_VAULT": "/path/to/vault" }</code> to keep the vault somewhere other than <code>~/logos</code>.</p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">Homebrew</div>
-    <div class="body">
-      <h2>macOS and Linux, with brew</h2>
-      <p>The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
-      <ol class="steps">
-        <li>
-          <div class="cmd">
-            <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span></pre>
-            <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp">Copy</button>
           </div>
-        </li>
-        <li>
-          <div class="cmd">
-            <pre><span class="prompt">$ </span>logos setup</pre>
-            <button class="copy" type="button" data-copy="logos setup">Copy</button>
+          <p class="note">Add <code>"env": { "LOGOS_VAULT": "/path/to/vault" }</code> to keep the vault somewhere other than <code>~/logos</code>.</p>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-bin" aria-labelledby="t-bin">
+          <p>One static executable, pure Go with <code>CGO_ENABLED=0</code>, so a single Linux build covers glibc and musl alike.</p>
+          <div class="tablewrap">
+            <table>
+              <thead>
+                <tr><th scope="col">Platform</th><th scope="col">Archive</th><th scope="col">Size</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_darwin_arm64.tar.gz">logos_v0.4.3_darwin_arm64.tar.gz</a></td><td class="num">4.9 MB</td></tr>
+                <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_darwin_amd64.tar.gz">logos_v0.4.3_darwin_amd64.tar.gz</a></td><td class="num">5.1 MB</td></tr>
+                <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_linux_amd64.tar.gz">logos_v0.4.3_linux_amd64.tar.gz</a></td><td class="num">5.1 MB</td></tr>
+                <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_linux_arm64.tar.gz">logos_v0.4.3_linux_arm64.tar.gz</a></td><td class="num">4.7 MB</td></tr>
+                <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_windows_amd64.zip">logos_v0.4.3_windows_amd64.zip</a></td><td class="num">5.2 MB</td></tr>
+              </tbody>
+            </table>
           </div>
-        </li>
-      </ol>
-      <p class="note">Update with <code>brew upgrade logos-mcp</code>, not <code>logos update</code> &mdash; hosts are wired to brew's <code>opt</code> path, which survives the upgrade.</p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">Binaries</div>
-    <div class="body">
-      <h2>Or just take the binary</h2>
-      <p>One static executable, pure Go with <code>CGO_ENABLED=0</code> &mdash; so a single Linux build covers glibc and musl alike. Checksums travel with the release.</p>
-      <div class="tablewrap">
-        <table>
-          <thead>
-            <tr><th scope="col">Platform</th><th scope="col">Archive</th><th scope="col">Download</th><th scope="col">Unpacked</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>macOS &middot; Apple silicon</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_darwin_arm64.tar.gz">logos_v0.4.3_darwin_arm64.tar.gz</a></td><td class="num">4.9 MB</td><td class="num">11.5 MB</td></tr>
-            <tr><td>macOS &middot; Intel</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_darwin_amd64.tar.gz">logos_v0.4.3_darwin_amd64.tar.gz</a></td><td class="num">5.1 MB</td><td class="num">12.2 MB</td></tr>
-            <tr><td>Linux &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_linux_amd64.tar.gz">logos_v0.4.3_linux_amd64.tar.gz</a></td><td class="num">5.1 MB</td><td class="num">12.0 MB</td></tr>
-            <tr><td>Linux &middot; arm64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_linux_arm64.tar.gz">logos_v0.4.3_linux_arm64.tar.gz</a></td><td class="num">4.7 MB</td><td class="num">11.3 MB</td></tr>
-            <tr><td>Windows &middot; x86-64</td><td><a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/logos_v0.4.3_windows_amd64.zip">logos_v0.4.3_windows_amd64.zip</a></td><td class="num">5.2 MB</td><td class="num">12.3 MB</td></tr>
-          </tbody>
-        </table>
+          <p class="note">
+            Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/SHA256SUMS">SHA256SUMS</a>
+            &middot; releases before v0.4.3 name the executable <code>brain</code>
+            &middot; with Go: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>
+          </p>
+        </div>
       </div>
-      <p class="note">
-        Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.4.3/SHA256SUMS">SHA256SUMS</a>
-        &middot; releases before v0.4.3 name the executable <code>brain</code>.
-        With Go on the machine: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>.
-      </p>
     </div>
-  </div>
+  </section>
 
-  <div class="row">
-    <div class="label">Scope</div>
-    <div class="body">
-      <h2>One vault, one project per folder</h2>
-      <p>
-        Every host points at the same vault &mdash; that is what makes continuity work
-        <em>across</em> tools. Facts are still kept apart: the project comes from the
-        directory the agent is working in, so two repositories open in two windows do not
-        write into each other&rsquo;s memory.
-      </p>
-      <div class="cmd">
-<pre>~/code/kestrel    <span class="flag">&rarr;</span> project "kestrel"
-~/code/acme-api   <span class="flag">&rarr;</span> project "acme-api"   <span class="prompt"># cannot see kestrel's decisions</span></pre>
+  <section id="private">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Private by design</span>
+        <h2>What installing does to your machine</h2>
       </div>
-      <p class="note">
-        Nothing to configure, and the agent never has to remember which project it is on
-        &mdash; a rule a model can forget is not isolation.
-      </p>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="label">What lands</div>
-    <div class="body">
-      <h2>What installing actually does to your machine</h2>
       <ul class="facts">
-        <li><strong>A directory of markdown files</strong>, at <code>~/logos</code> unless you say otherwise. Open them, grep them, commit them, delete them.</li>
-        <li><strong>Nothing is wired without a yes.</strong> Setup lists the agents it found and what it would write to each, and <code>--dry-run</code> prints the plan without touching anything.</li>
-        <li><strong>Nothing an agent proposes is believed on the spot.</strong> A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it, and it carries which agent proposed it.</li>
-        <li><strong>No <code>postinstall</code> script.</strong> The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs both work.</li>
-        <li><strong>No AI runtime required.</strong> Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical, which for identifiers and stack traces is arguably the right tool anyway.</li>
-        <li><strong>No account, no server, no telemetry.</strong> <code>.logos/index.db</code> is a cache; delete it and it rebuilds from the files.</li>
+        <li><strong>A directory of markdown</strong>At <code>~/logos</code> unless you say otherwise. Open it, grep it, commit it, delete it.</li>
+        <li><strong>Nothing wired without a yes</strong>Setup lists the agents it found and what it would write to each before touching anything.</li>
+        <li><strong>Agents propose, you accept</strong>A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it.</li>
+        <li><strong>No account, server or telemetry</strong>Nothing leaves the machine. <code>.logos/index.db</code> is a cache that rebuilds from the files.</li>
+        <li><strong>No AI runtime required</strong>Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical; a 274&nbsp;MB model adds semantic recall, and Ollama, LM Studio, Jan and Msty are auto-discovered.</li>
+        <li><strong>No <code>postinstall</code> script</strong>The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs work.</li>
       </ul>
-      <div class="tablewrap" style="margin-top:1.4rem">
-        <table>
-          <thead><tr><th scope="col">You code with</th><th scope="col">Extra download</th><th scope="col">You get</th></tr></thead>
-          <tbody>
-            <tr><td>Claude Code, Cursor, Codex</td><td class="num">0 MB</td><td>Continuity plus lexical search</td></tr>
-            <tr><td>&hellip;and want paraphrase-tolerant recall</td><td class="num">274 MB</td><td>Adds semantic retrieval</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="note">Ollama, LM Studio, Jan and Msty are auto-discovered if present. Nothing an MCP host calls ever needs a chat model.</p>
+    </div>
+  </section>
+
+  <div class="wrap closing">
+    <h2>Give your next agent a memory.</h2>
+    <div class="cmd primary">
+      <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
+<span class="prompt">$ </span>logos setup</pre>
+      <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
     </div>
   </div>
+</main>
 
-  <footer>
+<footer>
+  <div class="wrap">
     <span>Logos v0.4.3 &middot; Apache 2.0</span>
     <a href="https://github.com/Coder8124/logos">Coder8124/logos</a>
     <a href="https://www.npmjs.com/package/@noeton/logos">@noeton/logos</a>
+    <a href="https://github.com/Coder8124/homebrew-tap">coder8124/tap</a>
     <span class="sp">Formerly &ldquo;brain&rdquo;.</span>
-  </footer>
-
-</div>
+  </div>
+</footer>
 
 <script>
+// Install tabs. Arrow keys move between tabs, as the ARIA tabs pattern expects;
+// a person tabbing through the page lands on the selected tab only.
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+    if (focus) tab.focus();
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener("click", function () { select(tab, false); });
+    tab.addEventListener("keydown", function (e) {
+      var n = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (n) select(tabs[(i + n + tabs.length) % tabs.length], true);
+    });
+  });
+  if (tabs.length) select(tabs[0], false);
+})();
+
 // Copy buttons. The clipboard API is unavailable in some embedded contexts, so
 // fall back to a selection-based copy and, if even that is refused, say what to
 // do rather than silently doing nothing.
