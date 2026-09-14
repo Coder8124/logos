@@ -315,14 +315,14 @@ func TestAnNpxInstallWiresHostsToTheCommandRatherThanTheCachedBinary(t *testing.
 }
 
 // Setup resolves its own symlinks, so under Homebrew it found
-// <prefix>/Cellar/logos/<version>/bin/logos and wrote that into every host.
+// <prefix>/Cellar/logos-mcp/<version>/bin/logos and wrote that into every host.
 // `brew upgrade` deletes that directory, and each host then fails to launch
 // logos with nothing pointing back at the upgrade. The opt link is Homebrew's
 // path that follows upgrades.
 func TestAHomebrewInstallWiresHostsToThePathThatSurvivesBrewUpgrade(t *testing.T) {
 	prefix := t.TempDir()
-	cellar := filepath.Join(prefix, "Cellar", "logos", "0.4.3", "bin", "logos")
-	opt := filepath.Join(prefix, "opt", "logos", "bin", "logos")
+	cellar := filepath.Join(prefix, "Cellar", "logos-mcp", "0.4.3", "bin", "logos")
+	opt := filepath.Join(prefix, "opt", "logos-mcp", "bin", "logos")
 	if err := os.MkdirAll(filepath.Dir(opt), 0o755); err != nil {
 		t.Fatal(err)
 	}

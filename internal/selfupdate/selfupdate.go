@@ -288,17 +288,24 @@ const (
 	Homebrew
 )
 
-// HomebrewStablePath is <prefix>/opt/logos/bin/logos for a binary under
-// <prefix>/Cellar/logos/<version>/, or "" when path is not a Homebrew install
-// or the opt link does not exist. Homebrew points opt/logos at the current
-// version, so that path keeps working after `brew upgrade` removes this one.
+// HomebrewFormula is the tap formula's name. Homebrew's own collection already
+// has a logos (a Bible study app), so the formula is logos-mcp while the
+// command it installs is still logos, and brew's directories use the formula
+// name.
+const HomebrewFormula = "logos-mcp"
+
+// HomebrewStablePath is <prefix>/opt/logos-mcp/bin/logos for a binary under
+// <prefix>/Cellar/logos-mcp/<version>/, or "" when path is not a Homebrew
+// install or the opt link does not exist. Homebrew points the opt link at the
+// current version, so that path keeps working after `brew upgrade` removes
+// this one.
 func HomebrewStablePath(path string) string {
 	norm := filepath.ToSlash(path)
-	i := strings.Index(norm, "/Cellar/logos/")
+	i := strings.Index(norm, "/Cellar/"+HomebrewFormula+"/")
 	if i < 0 {
 		return ""
 	}
-	stable := filepath.Join(filepath.FromSlash(norm[:i]), "opt", "logos", "bin", filepath.Base(path))
+	stable := filepath.Join(filepath.FromSlash(norm[:i]), "opt", HomebrewFormula, "bin", filepath.Base(path))
 	if _, err := os.Stat(stable); err != nil {
 		return ""
 	}
@@ -314,7 +321,7 @@ func DetectInstall(path string) InstallKind {
 		return NPX
 	case strings.Contains(norm, "node_modules/@noeton/logos"):
 		return NPMManaged
-	case strings.Contains(norm, "/Cellar/logos/"):
+	case strings.Contains(norm, "/Cellar/"+HomebrewFormula+"/"):
 		return Homebrew
 	default:
 		return Standalone
@@ -509,7 +516,7 @@ func Update(currentVersion string, opts Options) (Result, error) {
 
 	if DetectInstall(target) == Homebrew {
 		return Result{}, &Error{StepCheck, fmt.Errorf(
-			"installed by Homebrew, which would undo a replaced binary on its next upgrade or cleanup — run `brew upgrade logos`")}
+			"installed by Homebrew, which would undo a replaced binary on its next upgrade or cleanup — run `brew upgrade %s`", HomebrewFormula)}
 	}
 
 	client := opts.client(currentVersion)

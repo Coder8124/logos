@@ -412,7 +412,7 @@ func TestNewerOrdersReleasesByNumberNotByText(t *testing.T) {
 // believing an old release is installed, and the next `brew upgrade` or
 // `brew cleanup` silently undoes the update.
 func TestUpdateUnderHomebrewRefusesAndPointsAtBrewUpgrade(t *testing.T) {
-	brewPath := filepath.Join(t.TempDir(), "Cellar", "logos", "0.4.3", "bin", "logos")
+	brewPath := filepath.Join(t.TempDir(), "Cellar", "logos-mcp", "0.4.3", "bin", "logos")
 
 	opts := Options{
 		Client:     &Client{HTTP: http.DefaultClient, APIBase: "http://127.0.0.1:0", Repo: "Coder8124/logos", Agent: "logos/test"},
@@ -422,16 +422,16 @@ func TestUpdateUnderHomebrewRefusesAndPointsAtBrewUpgrade(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error refusing to replace a Homebrew-managed binary")
 	}
-	if !strings.Contains(err.Error(), "brew upgrade logos") {
+	if !strings.Contains(err.Error(), "brew upgrade logos-mcp") {
 		t.Errorf("the refusal does not say how to update: %v", err)
 	}
 }
 
-// Homebrew symlinks <prefix>/opt/logos to whichever version is current, so
+// Homebrew symlinks <prefix>/opt/logos-mcp to whichever version is current, so
 // that path survives an upgrade that deletes the versioned directory.
 func TestAHomebrewInstallIsFoundByItsStableOptPath(t *testing.T) {
 	prefix := t.TempDir()
-	cellar := filepath.Join(prefix, "Cellar", "logos", "0.4.3", "bin", "logos")
+	cellar := filepath.Join(prefix, "Cellar", "logos-mcp", "0.4.3", "bin", "logos")
 	if DetectInstall(cellar) != Homebrew {
 		t.Fatalf("%s was not recognised as a Homebrew install", cellar)
 	}
@@ -439,7 +439,7 @@ func TestAHomebrewInstallIsFoundByItsStableOptPath(t *testing.T) {
 		t.Errorf("stable path %q offered while no opt link exists", got)
 	}
 
-	opt := filepath.Join(prefix, "opt", "logos", "bin", "logos")
+	opt := filepath.Join(prefix, "opt", "logos-mcp", "bin", "logos")
 	if err := os.MkdirAll(filepath.Dir(opt), 0o755); err != nil {
 		t.Fatal(err)
 	}
