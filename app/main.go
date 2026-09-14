@@ -52,7 +52,7 @@ func main() {
 		// spawning a second one. This is what makes Esc-to-hide safe — with no
 		// traffic lights, reopening from the launcher is how you get it back.
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId:               "com.brain.secondbrain",
+			UniqueId:               "com.logos.app",
 			OnSecondInstanceLaunch: func(options.SecondInstanceData) { app.Show() },
 		},
 		Mac: &mac.Options{
