@@ -1152,6 +1152,29 @@ a5e72a2 &middot; 2 files uncommitted
   </div>
 
   <div class="row">
+    <div class="label">Homebrew</div>
+    <div class="body">
+      <h2>macOS and Linux, with brew</h2>
+      <p>The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
+      <ol class="steps">
+        <li>
+          <div class="cmd">
+            <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span></pre>
+            <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp">Copy</button>
+          </div>
+        </li>
+        <li>
+          <div class="cmd">
+            <pre><span class="prompt">$ </span>logos setup</pre>
+            <button class="copy" type="button" data-copy="logos setup">Copy</button>
+          </div>
+        </li>
+      </ol>
+      <p class="note">Update with <code>brew upgrade logos-mcp</code>, not <code>logos update</code> &mdash; hosts are wired to brew's <code>opt</code> path, which survives the upgrade.</p>
+    </div>
+  </div>
+
+  <div class="row">
     <div class="label">Binaries</div>
     <div class="body">
       <h2>Or just take the binary</h2>
