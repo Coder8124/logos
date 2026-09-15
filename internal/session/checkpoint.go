@@ -60,8 +60,12 @@ type Checkpoint struct {
 	// reading one of these later must be able to tell, from the file itself,
 	// that the work was simply abandoned rather than deliberately wrapped up.
 	AutoClosed bool
-	Slug       string // vault slug, set once written
-	TS         int64
+	// Auto marks a checkpoint built from the activity log when a session ended
+	// without one — see WriteAuto. It records what ran, never what was learned,
+	// so a reader must be able to tell it apart from an agent's own.
+	Auto bool
+	Slug string // vault slug, set once written
+	TS   int64
 }
 
 // CheckpointDir is where checkpoints live inside the vault. A visible folder,

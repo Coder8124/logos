@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -47,6 +48,26 @@ func runNote(args []string) error {
 	}
 	if text == "" || project == "" {
 		return fmt.Errorf("usage: logos note [project] <what you did>")
+	}
+	// LOGOS_AUTO_CHECKPOINT is the SessionEnd hook asking, with its payload on
+	// stdin, for a labelled checkpoint when the session did work and never
+	// checkpointed it: a note says only that work was left open, and the next
+	// session started with none of what it was. An environment variable for
+	// the same reason as LOGOS_NOTE_IF_UNCOMMITTED. Only with a payload piped
+	// in: the variable left set in a shell would otherwise hang on the terminal.
+	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() {
+		raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
+		if err != nil {
+			return err
+		}
+		c, err := autoCheckpoint(vaultPath(), project, raw)
+		if err != nil {
+			return fmt.Errorf("auto checkpoint: %w", err)
+		}
+		if c != nil {
+			fmt.Printf("auto-checkpointed — %s (%s)\n", c.Slug, session.AutoLabel)
+			return nil
+		}
 	}
 
 	ix, err := openEvents()
@@ -334,6 +355,9 @@ func runSessionLog(args []string) error {
 		}
 		if c.AutoClosed {
 			fmt.Printf("    (auto-closed — not a real handoff)\n")
+		}
+		if c.Auto {
+			fmt.Printf("    (%s)\n", session.AutoLabel)
 		}
 	}
 

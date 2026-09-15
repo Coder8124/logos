@@ -8,10 +8,13 @@
 # worse than writing nothing, because a checkpoint nobody can trust is a
 # checkpoint that gets ignored, and then so are the real ones.
 #
-# What a hook *can* do is close the loop honestly: note that work happened and
-# was never committed. That is a fact, it needs no model, and it turns "the agent
-# forgot to checkpoint" from something invisible into something the next session
-# and `logos doctor` can both see.
+# What a hook *can* do is close the loop honestly. When the session edited or
+# ran things after its last checkpoint, logos writes an automatic checkpoint
+# from the activity log — the first prompt, the files, the commands — labelled
+# as not written by an agent and claiming nothing verified or ruled out. Those
+# are facts, they need no model, and the next session starts from what was done
+# rather than from a note that something was. Otherwise it notes that work was
+# left open, which `logos doctor` can see too.
 #
 # And it says so on the way out. This used to send every byte to /dev/null,
 # which meant the one moment Logos does its quietest and most important job —
@@ -26,7 +29,7 @@ logos_resolve || exit 0
 project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 [ -z "$project" ] && exit 0
 
-# A note, not a checkpoint, and it states only what this hook actually knows:
+# When there is no automatic checkpoint to write, a note, and it states only what this hook actually knows:
 # that a session ended, and when.
 #
 # It deliberately does not say "ended without checkpointing" — a hook cannot see
@@ -40,12 +43,17 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # stacked identical copies of it. logos decides both (see runNote); an older
 # logos ignores the variable and notes as it always did.
 #
+# LOGOS_AUTO_CHECKPOINT asks for the automatic checkpoint above; logos reads the
+# session id from this hook's payload, which reaches it on the inherited stdin.
+# An older logos ignores the variable and falls back to the note.
+#
 # LOGOS_AGENT because the CLI otherwise signs as "cli", and this note is the
 # Claude Code session's, under the name its MCP calls already carry. The BRAIN_
 # names too, because the resolver still accepts a 0.4 brain binary, which reads
 # only those.
-if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 BRAIN_AGENT=claude-code BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
+if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 LOGOS_AUTO_CHECKPOINT=1 BRAIN_AGENT=claude-code BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
   case "$out" in
+    auto*)    echo "Logos: session on \"$project\" saved as an automatic checkpoint (not written by the agent, unverified) — the next session resumes from what ran." >&2 ;;
     skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
     *)        echo "Logos: session on \"$project\" ended without a checkpoint — the next session will see work was left open, not what it was." >&2 ;;
   esac

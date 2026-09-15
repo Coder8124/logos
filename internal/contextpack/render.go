@@ -280,6 +280,12 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint) {
 	}
 	list(b, "Verified — safe to continue from", c.Verified)
 	list(b, "Known broken — do not build on it", c.Blockers)
+	// An auto checkpoint's commands are what ran, with no claim they showed
+	// anything; the activity log does not keep their results.
+	if c.Auto {
+		list(b, "Commands run — results not recorded", c.Commands)
+		return
+	}
 	list(b, "Shown by running", c.Commands)
 }
 
@@ -305,6 +311,12 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 	// budget, and "this was not a real handoff" is not safe to lose.
 	if c.AutoClosed {
 		b.WriteString(" This was closed automatically after the session went silent, not by the agent that did the work — treat it as an interrupted session, not a deliberate stop.")
+	}
+	// Said here for the same reason as AutoClosed: the budget can trim State,
+	// and this is the line that stops a record of what ran passing for a
+	// handoff.
+	if c.Auto {
+		b.WriteString(" " + session.AutoLabel + ": the session ended without a checkpoint, so this lists what ran, not what worked or was ruled out.")
 	}
 	// A checkpoint borrowed from the project because this worktree has none of
 	// its own. Said plainly, because the failure it prevents is an agent reading

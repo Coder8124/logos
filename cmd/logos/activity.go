@@ -232,19 +232,12 @@ func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
 	if p.Active || stop.Session == "" || stop.Project == "" {
 		return
 	}
-	events, err := activity.Read(vault, activity.Query{Project: stop.Project})
+	events, err := sessionEvents(vault, stop.Project, stop.Session)
 	if err != nil {
 		return
 	}
-	// Oldest first. Read sorts newest first but keeps file order among events
-	// in the same second, so walking its result backwards would put an edit
-	// after the checkpoint that followed it a moment later.
-	sort.SliceStable(events, func(i, j int) bool { return events[i].TS < events[j].TS })
 	work := false
 	for _, e := range events {
-		if e.Session != stop.Session {
-			continue
-		}
 		switch {
 		case e.Kind == kindCheckpointAsked:
 			return
@@ -328,4 +321,97 @@ func plural(n int, word string) string {
 		return word
 	}
 	return word + "s"
+}
+
+// sessionEvents is one session's activity on a project, oldest first. Read
+// sorts newest first but keeps file order among events in the same second, so
+// walking its result backwards would put an edit after the checkpoint that
+// followed it a moment later.
+func sessionEvents(vault, project, sessionID string) ([]activity.Event, error) {
+	events, err := activity.Read(vault, activity.Query{Project: project})
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].TS < events[j].TS })
+	var mine []activity.Event
+	for _, e := range events {
+		if e.Session == sessionID {
+			mine = append(mine, e)
+		}
+	}
+	return mine, nil
+}
+
+// maxAutoCommands keeps an auto checkpoint readable after a long session; the
+// latest commands are the ones nearest where it stopped.
+const maxAutoCommands = 20
+
+// kindAutoCheckpoint marks the log where an auto checkpoint was written, so a
+// resumed session that ends again records only what came after it.
+const kindAutoCheckpoint = "auto-checkpoint"
+
+// autoCheckpoint writes a checkpoint for a Claude Code session that ended with
+// work done since its last checkpoint, built from what the hooks recorded, and
+// returns it, or nil when there was nothing to record. The task is the
+// session's first prompt, and verified, failed and next stay empty: the log
+// holds what ran, not what it showed, and a guess in those fields would be
+// trusted like an agent's.
+func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, error) {
+	end, err := activity.FromHook("SessionEnd", raw, project)
+	if err != nil || end.Session == "" {
+		return nil, err
+	}
+	events, err := sessionEvents(vault, project, end.Session)
+	if err != nil {
+		return nil, err
+	}
+	c := session.Checkpoint{Project: project, Agent: end.Agent}
+	work := false
+	seen := map[string]bool{}
+	for _, e := range events {
+		switch {
+		case e.Kind == activity.KindPrompt:
+			if c.Task == "" {
+				c.Task = e.Summary
+			}
+		case e.Kind == kindAutoCheckpoint:
+			work, c.Files, c.Commands, seen = false, nil, nil, map[string]bool{}
+		case e.Kind != activity.KindTool:
+		case isCheckpointCall(e):
+			// What came before was handed off by the agent itself; only what
+			// followed is left to record.
+			work, c.Files, c.Commands, seen = false, nil, nil, map[string]bool{}
+		case e.Tool == "Bash":
+			work = true
+			c.Commands = append(c.Commands, strings.TrimPrefix(e.Summary, "Bash: "))
+		case isWork(e.Tool):
+			work = true
+			if f := strings.TrimPrefix(e.Summary, e.Tool+" "); f != e.Summary && !seen[f] {
+				seen[f] = true
+				c.Files = append(c.Files, f)
+			}
+		}
+	}
+	if !work {
+		return nil, nil
+	}
+	if n := len(c.Commands); n > maxAutoCommands {
+		c.Commands = c.Commands[n-maxAutoCommands:]
+	}
+	written, err := session.WriteAuto(vault, c)
+	if err != nil {
+		return nil, err
+	}
+	// The checkpoint is written; a marker that fails to land costs only a
+	// duplicate if this session ends again, so it is reported, not fatal.
+	if err := activity.Append(vault, activity.Event{
+		Kind:    kindAutoCheckpoint,
+		Project: project,
+		Session: end.Session,
+		Agent:   end.Agent,
+		Summary: "wrote " + written.Slug,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: auto checkpoint written but not marked in the activity log: %v\n", err)
+	}
+	return &written, nil
 }
