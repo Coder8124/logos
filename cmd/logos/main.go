@@ -78,6 +78,7 @@ GETTING THERE
     logos setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes] [--downgrade]
                                       connect logos to the AI agents on this machine
     logos mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
+    logos mcp uninstall [--host NAME] take logos back out of the hosts; the vault is left alone
     logos doctor [--probe] [--integration]
                                       health of vault, index, hosts; --integration proves reach
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
@@ -167,6 +168,7 @@ SETUP AND DIAGNOSTICS
                                       Perplexity web UIs) — needs LOGOS_BRIDGE_ORIGIN set; never leaves localhost
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this logos with the MCP hosts found
+    logos mcp uninstall [--host NAME] remove logos from the MCP hosts found; never touches the vault
     logos doctor [--probe] [--integration]
                                       health of vault, index, hosts; --integration proves a host can reach it
     logos key set|rm <ref>            manage API keys in the macOS keychain
@@ -273,6 +275,8 @@ func main() {
 		err = setupCmd(args)
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "install":
 		err = mcpInstallCmd(args)
+	case cmd == "mcp" && len(args) >= 1 && args[0] == "uninstall":
+		err = mcpUninstallCmd(args)
 	case cmd == "doctor":
 		if hasFlag(args, "--integration") {
 			err = doctorIntegration()

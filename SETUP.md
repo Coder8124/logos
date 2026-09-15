@@ -178,6 +178,24 @@ The desktop app is Wails v2:
 cd app && wails dev        # or: wails build
 ```
 
+### Removing Logos
+
+```sh
+logos mcp uninstall                 # every host found; --host NAME for one
+```
+
+It takes the logos entry (and a 0.4 `brain` entry) out of each host's config,
+backs up any config it changed, and says what it removed. It never touches the
+vault: your memory stays in `~/logos` until you delete it yourself.
+
+Then remove whichever way you installed it:
+
+```
+/plugin uninstall logos@logos       # the Claude Code plugin, inside Claude Code
+npm uninstall -g @noeton/logos      # if you installed it globally with npm
+rm ~/.local/bin/logos               # a release or source build — wherever you put the binary
+```
+
 ---
 
 ## Does it actually work?

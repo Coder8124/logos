@@ -235,8 +235,8 @@ func TestSetupSaysItReplacedTheOldBrainEntryOrCouldNot(t *testing.T) {
 	dir := setupInFakeHome(t)
 	fakeHosts(t, "Fakey Cursor", "Fakey Codex")
 	hosts := detectHosts()
-	hosts[0].RemoveOld = func() (bool, error) { return true, nil }
-	hosts[1].RemoveOld = func() (bool, error) { return false, fmt.Errorf("codex: permission denied") }
+	hosts[0].Remove = func(string) (bool, error) { return true, nil }
+	hosts[1].Remove = func(string) (bool, error) { return false, fmt.Errorf("codex: permission denied") }
 	detectHosts = func() []setup.Host { return hosts }
 
 	out := captureStdout(t, func() {

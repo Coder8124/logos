@@ -126,9 +126,10 @@ type Host struct {
 	// back rather than assumed. Nil means this host exposes no way to read
 	// that back — not an error, just a question this host cannot answer.
 	List func() ([]Registration, error)
-	// RemoveOld removes the entry 0.4 setup registered under OldName, and
-	// reports whether there was one. Nil for a host 0.4 never wired.
-	RemoveOld func() (bool, error)
+	// Remove removes the entry registered under name when it runs logos, and
+	// reports whether there was one. Setup uses it for OldName, uninstall for
+	// both names. Nil for a host logos cannot take an entry back out of.
+	Remove func(name string) (bool, error)
 }
 
 // Registration is one server as a host currently reports it — the name it was
@@ -252,8 +253,8 @@ func Install(s Server, hosts []Host) []Result {
 		}
 		// After registering, so a failed registration never leaves a host with
 		// neither entry; and before the comparison below, which must see it.
-		if h.RemoveOld != nil {
-			r.Replaced, r.ReplaceErr = h.RemoveOld()
+		if h.Remove != nil {
+			r.Replaced, r.ReplaceErr = h.Remove(OldName)
 		}
 		// Compared afterwards rather than predicted beforehand: whether a
 		// registration changes anything is only knowable once the host's own
@@ -602,3 +603,71 @@ func joinPath(parts ...string) string { return filepath.Join(parts...) }
 
 // appData is Windows' per-user config root.
 func appData() string { return os.Getenv("APPDATA") }
+
+// Removal says what uninstall took out of one host.
+type Removal struct {
+	Host  string
+	Where string
+	// Removed names the entries taken out: logos, and brain if 0.4 left one.
+	Removed []string
+	// Backup is the config as it was before, kept only when it changed.
+	Backup string
+	Err    error
+}
+
+// Uninstall takes every logos entry back out of each host that is present.
+// Only entries that run `mcp serve` go, under either name, so someone else's
+// server called brain survives, and a host failing does not stop the others.
+func Uninstall(hosts []Host) []Removal {
+	var out []Removal
+	for _, h := range hosts {
+		if !h.Detect() || h.Remove == nil {
+			continue
+		}
+		r := Removal{Host: h.Name, Where: h.Where()}
+		// Backed up to a side file first, so a config is never changed without
+		// one, and moved over the real backup only if something was removed:
+		// writing straight over it on a run that found nothing destroyed the
+		// earlier run's copy, the one that still had logos in it.
+		backup, pending := "", ""
+		if h.Config != nil && h.Config() != "" {
+			path := h.Config()
+			raw, err := os.ReadFile(path)
+			if err != nil && !os.IsNotExist(err) {
+				r.Err = fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
+				out = append(out, r)
+				continue
+			}
+			if err == nil {
+				backup, pending = path+".logos-backup", path+".logos-backup.pending"
+				if err := os.WriteFile(pending, raw, 0o600); err != nil {
+					r.Err = fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
+					out = append(out, r)
+					continue
+				}
+			}
+		}
+		for _, name := range []string{Name, OldName} {
+			removed, err := h.Remove(name)
+			if err != nil {
+				r.Err = err
+				break
+			}
+			if removed {
+				r.Removed = append(r.Removed, name)
+			}
+		}
+		if pending != "" {
+			if unchanged(h, pending) {
+				os.Remove(pending)
+				backup = ""
+			} else if err := os.Rename(pending, backup); err != nil && r.Err == nil {
+				r.Err = fmt.Errorf("removed from %s but could not keep its backup, which is at %s: %w", h.Name, pending, err)
+				backup = pending
+			}
+		}
+		r.Backup = backup
+		out = append(out, r)
+	}
+	return out
+}

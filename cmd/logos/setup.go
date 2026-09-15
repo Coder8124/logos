@@ -1196,6 +1196,47 @@ func mcpInstallCmd(args []string) error {
 	return wireHosts(abs, wireOptsFrom(args))
 }
 
+// mcpUninstallCmd is `logos mcp uninstall [--host NAME]`, the way back out of
+// install. It edits host configs and nothing else: the vault is the user's
+// memory, so where it was left is said and deleting it stays their call.
+func mcpUninstallCmd(args []string) error {
+	known := detectHosts()
+	hosts, unmatched := setup.Only(known, flagStrs(args, "--host"))
+	if len(unmatched) > 0 {
+		return fmt.Errorf("unknown host %s — logos knows: %s",
+			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
+	}
+	failed := 0
+	removals := setup.Uninstall(hosts)
+	if len(removals) == 0 {
+		fmt.Printf("  %-*s none of the hosts logos knows are installed here, so nothing was removed\n", hostColumn, "hosts")
+	}
+	for _, r := range removals {
+		switch {
+		case r.Err != nil:
+			failed++
+			fmt.Printf("  %-*s failed: %v\n", hostColumn, r.Host, r.Err)
+		case len(r.Removed) == 0:
+			fmt.Printf("  %-*s not registered\n", hostColumn, r.Host)
+		default:
+			fmt.Printf("  %-*s removed %s  (%s)\n", hostColumn, r.Host, strings.Join(r.Removed, " and "), r.Where)
+		}
+		if r.Backup != "" {
+			fmt.Printf("  %-*s backup of the old config: %s\n", hostColumn, "", r.Backup)
+		}
+	}
+	// The plugin carries its own server, which no host config holds, so only
+	// Claude Code can take it out.
+	if _, ok := setup.LogosPlugin(); ok {
+		fmt.Printf("\n  %-*s still installed — remove it in Claude Code with /plugin uninstall logos@logos\n", hostColumn, "plugin")
+	}
+	fmt.Printf("\n  %-*s left untouched at %s — delete it yourself if you want the memory gone too\n", hostColumn, "vault", vaultPath())
+	if failed > 0 {
+		return fmt.Errorf("%d host(s) could not be cleaned — see above", failed)
+	}
+	return nil
+}
+
 // confirm asks a yes/no question. An interactive user pressing return accepts;
 // nobody being there declines.
 //
