@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -45,10 +46,25 @@ func serveVault() (string, error) {
 
 // runMCPServe runs the memory MCP server on stdio, so any MCP host (Claude
 // Desktop, Claude Code, Cursor) can plug into the user's local memory.
-func runMCPServe() error {
+func runMCPServe() error { return serveMCP(os.Stdin, os.Stdout) }
+
+func serveMCP(in io.Reader, out io.Writer) error {
+	srv, closeIndex, err := buildStdioServer()
+	if err != nil {
+		// Serve anyway: a server that exits before the handshake is cached as
+		// failed by Claude Code for 15 minutes; see mcpserver.Unavailable.
+		// stderr, because stdout is the JSON-RPC transport.
+		fmt.Fprintf(os.Stderr, "logos: %v\n", err)
+		return mcpserver.Unavailable(err).Serve(in, out)
+	}
+	defer closeIndex()
+	return srv.Serve(in, out)
+}
+
+func buildStdioServer() (*mcpserver.Server, func(), error) {
 	vault, err := serveVault()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// index.Open rather than sql.Open on the file directly. Opening the raw path
@@ -67,18 +83,18 @@ func runMCPServe() error {
 	//     nothing" was not true on the one path agents actually use.
 	ix, err := index.Open(vault)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	defer ix.Close()
 
 	srv, err := newMCPServer(ix.DB, vault)
 	if err != nil {
-		return err
+		ix.Close()
+		return nil, nil, err
 	}
 	if self, err := selfPath(); err == nil {
 		srv.Shell, _ = terminalCommand(self)
 	}
-	return srv.Serve(os.Stdin, os.Stdout)
+	return srv, func() { ix.Close() }, nil
 }
 
 // newMCPServer builds the server both transports run. A missing runtime is

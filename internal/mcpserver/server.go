@@ -100,6 +100,8 @@ type Server struct {
 	vault      string
 	embed      *provider.Provider
 	embedModel string
+	// unavailable is why this server cannot serve the vault; see Unavailable.
+	unavailable error
 	// runtime is the local runtime whether or not it has an embedding model,
 	// so SetEmbedModel can turn embedding on after New found none.
 	runtime *provider.Provider
@@ -180,6 +182,15 @@ func New(db *sql.DB, rt *router.Router, vault string) *Server {
 	return srv
 }
 
+// Unavailable is a server that answers the handshake and returns err from
+// every tool call. Claude Code caches a plugin server that fails to start and
+// skips it for 15 minutes in every session on the machine, so exiting on a
+// vault that won't open turned Logos off for a quarter of an hour with the
+// cause only in a log. A tool error reaches the model on the next call.
+func Unavailable(err error) *Server {
+	return &Server{unavailable: err}
+}
+
 // embedTimeout bounds each embedding a tool call waits on; see
 // provider.Interactive. Long enough for a warm runtime under load, short
 // enough that a host waiting on the answer never gives up first.
@@ -229,8 +240,10 @@ type request struct {
 // caller of Serve gets its own stream and its own session state instead of
 // quietly sharing this one's.
 func (s *Server) Serve(in io.Reader, w io.Writer) error {
-	if err := memory.Init(s.DB); err != nil {
-		return err
+	if s.unavailable == nil {
+		if err := memory.Init(s.DB); err != nil {
+			return err
+		}
 	}
 	out := json.NewEncoder(w)
 	sess := &Session{Server: s}
@@ -388,7 +401,7 @@ func (s *Session) handle(req request) *response {
 			// than in a README nobody wires up: a memory layer the agent has
 			// to be told about by hand is one that works only for the person
 			// who installed it. See internal/agentprompt.
-			"instructions": agentprompt.Text(),
+			"instructions": s.instructions(),
 		})
 	case "notifications/initialized":
 		// notification, no reply
@@ -397,12 +410,21 @@ func (s *Session) handle(req request) *response {
 	case "tools/list":
 		return reply(req.ID, map[string]any{"tools": toolDefs})
 	case "tools/call":
+		if s.unavailable != nil {
+			return reply(req.ID, map[string]any{
+				"content": []map[string]any{{"type": "text", "text": s.unavailableText()}},
+				"isError": true,
+			})
+		}
 		return s.callTool(req)
 	case "resources/list":
 		return reply(req.ID, map[string]any{"resources": resourceDefs})
 	case "resources/templates/list":
 		return reply(req.ID, map[string]any{"resourceTemplates": resourceTemplateDefs})
 	case "resources/read":
+		if s.unavailable != nil {
+			return replyErr(req.ID, -32603, s.unavailableText())
+		}
 		return s.readResourceCall(req)
 	default:
 		if len(req.ID) > 0 {
@@ -410,6 +432,18 @@ func (s *Session) handle(req request) *response {
 		}
 	}
 	return nil
+}
+
+func (s *Session) instructions() string {
+	if s.unavailable != nil {
+		return s.unavailableText()
+	}
+	return agentprompt.Text()
+}
+
+func (s *Server) unavailableText() string {
+	return fmt.Sprintf("Logos is running but can't serve memory: %v. "+
+		"Fix that, then reconnect the logos server (/mcp in Claude Code) or start a new session.", s.unavailable)
 }
 
 func (s *Session) callTool(req request) *response {
