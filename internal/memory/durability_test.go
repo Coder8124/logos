@@ -358,3 +358,35 @@ func TestFactsThatShareAFrameAreNotOneFact(t *testing.T) {
 		}
 	}
 }
+
+// The short names are what tell developer facts apart — web and api, iOS and
+// CLI, dev and QA — and the subject guard dropped every word of three letters or
+// fewer, so the one word that differed vanished and the second fact came back
+// "already knew that". A retry count changed to 0 went the same way, because 0
+// was not counted as a value: the new decision was recorded as corroboration of
+// the old one.
+func TestFactsThatDifferByAShortNameOrByZeroAreNotOneFact(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"The api service deploys to us-east-1 through the blue pipeline", "The web service deploys to us-east-1 through the blue pipeline"},
+		{"Run the iOS build with Xcode 16 on the mac runner", "Run the CLI build with Xcode 16 on the mac runner"},
+		{"Keep max retries at 3 for the payment worker", "Keep max retries at 0 for the payment worker"},
+		{"Tests for the dev environment need the VPN on", "Tests for the QA environment need the VPN on"},
+		{"Worker 0 fact number 0: the red queue holds item 0", "Worker 0 fact number 1: the blue queue holds item 919"},
+		{"Use Rust for the ingest worker", "Use Go for the ingest worker"},
+	} {
+		if sameFact(pair[1], pair[0]) {
+			t.Errorf("%q was judged a restatement of %q", pair[1], pair[0])
+		}
+	}
+	// Short function words differ between any two phrasings of one fact, so
+	// counting them would stop restatements collapsing at all.
+	for _, pair := range [][2]string{
+		{"I prefer terse replies with no preamble", "I like my replies terse, without any preamble"},
+		{"I prefer terse replies with no preamble", "keep replies terse and skip the preamble"},
+		{"The api service deploys to us-east-1", "The api service is deployed to us-east-1 by the blue pipeline"},
+	} {
+		if !sameFact(pair[1], pair[0]) {
+			t.Errorf("%q should still count as a restatement of %q", pair[1], pair[0])
+		}
+	}
+}

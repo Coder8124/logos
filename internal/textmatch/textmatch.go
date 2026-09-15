@@ -125,13 +125,21 @@ var valuePattern = regexp.MustCompile(`\$?\d[\d,]*\.?\d*\s*(?:%|percent|k|m|bn|d
 
 // Values returns the normalised values a statement asserts.
 func Values(s string) map[string]bool {
+	return values(s, false)
+}
+
+// values is Values with a choice about zero. Zero is left out of Values for the
+// conflict detector, which reads any line holding a value as a claim; the
+// dedup guard needs it in, because "retries at 0" is a different decision from
+// "retries at 3" and nothing else in the sentence says so.
+func values(s string, zero bool) map[string]bool {
 	out := map[string]bool{}
 	for _, m := range valuePattern.FindAllString(s, -1) {
 		m = strings.TrimSpace(strings.ToLower(m))
 		m = strings.ReplaceAll(m, ",", "")
 		m = strings.TrimPrefix(m, "$")
 		m = strings.TrimSuffix(strings.TrimSpace(m), ".")
-		if m != "" && m != "0" {
+		if m != "" && (zero || m != "0") {
 			out[m] = true
 		}
 	}
@@ -140,7 +148,16 @@ func Values(s string) map[string]bool {
 
 // DifferingValues reports that both statements assert a value and share none.
 func DifferingValues(a, b string) bool {
-	va, vb := Values(a), Values(b)
+	return differingValues(Values(a), Values(b))
+}
+
+// DifferingFactValues is DifferingValues for deciding whether two memories are
+// one fact, where 0 counts as a value. See values.
+func DifferingFactValues(a, b string) bool {
+	return differingValues(values(a, true), values(b, true))
+}
+
+func differingValues(va, vb map[string]bool) bool {
 	if len(va) == 0 || len(vb) == 0 {
 		return false
 	}
@@ -177,14 +194,52 @@ func DifferingValues(a, b string) bool {
 // Requiring mutual difference also means this never fires on a statement that
 // merely elaborates, which is what a model does every time it re-extracts a fact
 // it has already stated — the case the dedup threshold exists to catch.
+//
+// The words compared are factWords, not Subject: the short names that tell
+// developer facts apart are exactly what Subject throws away.
 func DifferentSubjects(a, b string) bool {
-	sa, sb := Subject(a), Subject(b)
+	sa, sb := factWords(a), factWords(b)
 	if len(sa) == 0 || len(sb) == 0 {
 		// Nothing distinctive on one side: no evidence either way, so this guard
 		// abstains and leaves the decision to similarity and Values.
 		return false
 	}
 	return hasNovel(sa, sb) && hasNovel(sb, sa)
+}
+
+// shortFunctionWords are the words of three letters or fewer that carry no
+// subject. factWords keeps every other short word, because web, api, cli, ios,
+// dev, qa, aws, npm, arm, x86, v2 and go are what distinguish one developer fact
+// from its neighbour. The list is of grammar, not of topics: two phrasings of
+// one fact differ in these ("with no preamble", "without any preamble"), and
+// counting them would keep every restatement as a second fact.
+var shortFunctionWords = map[string]bool{
+	"a": true, "an": true, "the": true, "i": true, "me": true, "my": true, "we": true,
+	"us": true, "our": true, "you": true, "he": true, "she": true, "it": true, "its": true,
+	"his": true, "her": true, "him": true,
+	"is": true, "am": true, "are": true, "was": true, "be": true, "do": true, "did": true, "has": true, "had": true, "can": true, "may": true, "get": true,
+	"got": true, "let": true, "use": true, "put": true, "set": true,
+	"of": true, "to": true, "in": true, "on": true, "at": true, "by": true, "for": true,
+	"as": true, "up": true, "out": true, "off": true, "via": true, "per": true,
+	"and": true, "or": true, "nor": true, "but": true, "so": true, "if": true, "yet": true,
+	"no": true, "not": true, "any": true, "all": true, "few": true, "own": true, "too": true,
+	"how": true, "why": true, "who": true, "now": true, "one": true, "etc": true,
+	"e": true, "g": true, "ie": true, "eg": true, "s": true, "t": true,
+}
+
+// factWords is Subject plus the short words that are not grammar. Numbers stay
+// out: Values compares those, and "16" in both sentences must not look like a
+// shared subject that hides a changed one.
+func factWords(s string) map[string]bool {
+	out := Subject(s)
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	}) {
+		if len(w) <= 3 && !shortFunctionWords[w] && !numeric(w) {
+			out[w] = true
+		}
+	}
+	return out
 }
 
 // hasNovel reports whether any word in have is absent from want.

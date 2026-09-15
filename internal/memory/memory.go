@@ -467,7 +467,7 @@ func nearestMemory(db *sql.DB, query []float32, text string, threshold float64) 
 // A restatement that merely adds or drops words still collapses, because one
 // side's subject is contained in the other's — see DifferentSubjects.
 func sameFact(incoming, existing string) bool {
-	if textmatch.DifferingValues(incoming, existing) {
+	if textmatch.DifferingFactValues(incoming, existing) {
 		return false
 	}
 	return !textmatch.DifferentSubjects(incoming, existing)
