@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -107,11 +108,19 @@ func validToken(r *http.Request, want string) bool {
 		return false // never runs unpaired; see cmd/logos/mcp.go
 	}
 	if auth := r.Header.Get("Authorization"); auth != "" {
-		if tok, ok := strings.CutPrefix(auth, "Bearer "); ok && tok == want {
+		if tok, ok := strings.CutPrefix(auth, "Bearer "); ok && sameToken(tok, want) {
 			return true
 		}
 	}
-	return r.URL.Query().Get("token") == want
+	return sameToken(r.URL.Query().Get("token"), want)
+}
+
+// sameToken compares in constant time. `==` returns at the first differing
+// byte, so how long a rejection takes says how much of a guess was right. Over
+// loopback that is hard to measure, but the token is all that stands between a
+// browser tab and the vault.
+func sameToken(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // serveConn is ServeHTTP's per-connection loop, the WebSocket analogue of
