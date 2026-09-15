@@ -10,6 +10,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/setup"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // fakeHosts replaces host detection and the integration self-test for the
@@ -241,5 +242,58 @@ func TestSetupSaysItReplacedTheOldBrainEntryOrCouldNot(t *testing.T) {
 	}
 	if !strings.Contains(out, "permission denied") {
 		t.Errorf("setup did not report the removal that failed:\n%s", out)
+	}
+}
+
+// `logos setup --vault B --host cursor` moved the machine's recorded vault to B
+// and wired Cursor there, while Claude Desktop stayed on A. Setup said only
+// "recorded", so checkpoints written from one host were invisible to the other
+// with nothing on screen tying it back to that run.
+func TestSetupNamesTheHostsLeftOnThePreviousVault(t *testing.T) {
+	dir := setupInFakeHome(t)
+	old := t.TempDir()
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+	fakeHosts(t, "Fakey Cursor", "Fakey Desktop")
+	hosts := detectHosts()
+	hosts[1].List = func() ([]setup.Registration, error) {
+		return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve", Vault: old}}, nil
+	}
+	detectHosts = func() []setup.Host { return hosts }
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--host", "fakey-cursor", "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "Fakey Desktop") || !strings.Contains(out, old) {
+		t.Errorf("setup moved the vault without naming the host still on the old one:\n%s", out)
+	}
+}
+
+// A dry run records nothing, so nothing moved and no host was left behind.
+func TestADryRunDoesNotSayTheVaultMoved(t *testing.T) {
+	dir := setupInFakeHome(t)
+	old := t.TempDir()
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+	fakeHosts(t, "Fakey Desktop")
+	hosts := detectHosts()
+	hosts[0].List = func() ([]setup.Registration, error) {
+		return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve", Vault: old}}, nil
+	}
+	detectHosts = func() []setup.Host { return hosts }
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--dry-run", "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if strings.Contains(out, "moved from") {
+		t.Errorf("a dry run said the vault moved:\n%s", out)
 	}
 }

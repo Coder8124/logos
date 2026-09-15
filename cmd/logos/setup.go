@@ -72,6 +72,7 @@ func setupCmd(args []string) error {
 	// somewhere else. That is the exact failure internal/vault/path.go was
 	// written to end, reintroduced by the flag people use precisely because
 	// they are being careful.
+	previous := vault.Recorded()
 	dir, created, rec, err := chooseVault(args, opts.dryRun)
 	if err != nil {
 		return err
@@ -115,7 +116,22 @@ func setupCmd(args []string) error {
 	} else {
 		indexVault(dir)
 	}
-	return wireHosts(dir, opts)
+	if err := wireHosts(dir, opts); err != nil {
+		return err
+	}
+	// The record is machine-wide but --host, or a no at the prompt, wires only
+	// some hosts. Said after wiring, so only the hosts actually left behind are
+	// named.
+	if !opts.dryRun && rec == recordedHere && previous != "" && filepath.Clean(previous) != dir {
+		if names, vaults := setup.OnOtherVault(detectHosts(), dir); len(names) > 0 {
+			fmt.Printf("\n  vault      moved from %s — still on a different vault:\n", previous)
+			for i, n := range names {
+				fmt.Printf("    %-*s →  %s\n", hostColumn, n, vaults[i])
+			}
+			fmt.Printf("             → run `logos mcp install` to move them here too\n")
+		}
+	}
+	return nil
 }
 
 // wireOptsFrom reads the wiring flags shared by `setup` and `mcp install`.

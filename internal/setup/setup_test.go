@@ -500,3 +500,19 @@ func TestMergeFileIsMergeJSONExported(t *testing.T) {
 		t.Errorf("%s was not written into %s", Name, path)
 	}
 }
+
+// Doctor and setup compare a host's vault with the recorded one; a reader that
+// dropped LOGOS_VAULT would make every host look like it had none.
+func TestReadMCPServersReadsTheVaultEachEntryIsPinnedTo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if _, err := mergeJSON(path, server()); err != nil {
+		t.Fatal(err)
+	}
+	regs, err := readMCPServers(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) != 1 || regs[0].Vault != server().Env["LOGOS_VAULT"] || regs[0].Vault == "" {
+		t.Errorf("got %+v, want the vault %q", regs, server().Env["LOGOS_VAULT"])
+	}
+}

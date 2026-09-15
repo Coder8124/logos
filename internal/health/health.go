@@ -139,6 +139,9 @@ func Run(in Input) Report {
 	} else if c, ok := checkMissingRegistration(in.Hosts); ok {
 		r.Add(c)
 	}
+	if c, ok := checkOtherVault(in.Hosts, vault.Recorded()); ok {
+		r.Add(c)
+	}
 	if c, ok := checkPlugin(in.Version); ok {
 		r.Add(c)
 	}
@@ -836,6 +839,27 @@ func checkMissingRegistration(hosts []setup.Host) (Check, bool) {
 		}
 	}
 	return Check{}, false
+}
+
+// checkOtherVault finds a host pinned to a vault other than the one recorded
+// for this machine. `logos setup --vault B --host cursor` moved the record to B
+// and left the other hosts on A, so a handoff between them silently split and
+// doctor still listed every host as fine. ok is false when there is no
+// recorded vault or every host that shows its vault is on it.
+func checkOtherVault(hosts []setup.Host, recorded string) (Check, bool) {
+	if recorded == "" {
+		return Check{}, false
+	}
+	names, vaults := setup.OnOtherVault(hosts, recorded)
+	if len(names) == 0 {
+		return Check{}, false
+	}
+	return Check{
+		Name:   "hosts on another vault",
+		State:  Failed,
+		Detail: fmt.Sprintf("%s uses %s, but this machine's vault is %s — checkpoints there are not seen here", names[0], vaults[0], recorded),
+		Fix:    "run `logos mcp install` to point every host at " + recorded,
+	}, true
 }
 
 // checkPlugin compares the Logos plugin installed in Claude Code with this

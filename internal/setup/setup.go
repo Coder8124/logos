@@ -136,6 +136,9 @@ type Host struct {
 type Registration struct {
 	Name    string
 	Command string
+	// Vault is the LOGOS_VAULT the entry sets, empty when the host's listing
+	// does not show environment (`claude mcp list` does not) or none is set.
+	Vault string
 }
 
 // Plan reports what Install would do, without doing any of it.
@@ -186,6 +189,29 @@ func Only(hosts []Host, names []string) (kept []Host, unmatched []string) {
 		}
 	}
 	return kept, unmatched
+}
+
+// OnOtherVault names each detected host with a logos entry pinned to a vault
+// other than dir. Setup records one vault for the whole machine but wires only
+// the hosts it was asked to, so the rest can be left writing somewhere the CLI,
+// the desktop app and the plugin's hooks no longer read.
+func OnOtherVault(hosts []Host, dir string) (names, vaults []string) {
+	for _, h := range hosts {
+		if h.List == nil || h.Detect == nil || !h.Detect() {
+			continue
+		}
+		regs, err := h.List()
+		if err != nil {
+			continue
+		}
+		for _, r := range regs {
+			if isLogosServer(r.Command) && r.Vault != "" && filepath.Clean(r.Vault) != filepath.Clean(dir) {
+				names, vaults = append(names, h.Name), append(vaults, r.Vault)
+				break
+			}
+		}
+	}
+	return names, vaults
 }
 
 // Names lists every host logos knows how to wire, for error messages.
@@ -544,7 +570,7 @@ func readServerBlock(path, root string) ([]Registration, error) {
 	}
 	out := make([]Registration, 0, len(servers))
 	for name, s := range servers {
-		out = append(out, Registration{Name: name, Command: strings.Join(append([]string{s.Command}, s.Args...), " ")})
+		out = append(out, Registration{Name: name, Command: strings.Join(append([]string{s.Command}, s.Args...), " "), Vault: s.Env["LOGOS_VAULT"]})
 	}
 	return out, nil
 }

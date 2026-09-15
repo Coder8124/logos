@@ -1033,3 +1033,35 @@ func TestARegistrationWhoseBinaryIsGoneIsFlagged(t *testing.T) {
 		}
 	}
 }
+
+// A host registered with a LOGOS_VAULT other than the machine's recorded vault
+// writes its checkpoints where the CLI, the desktop app and the plugin's hooks
+// never look. Doctor listed every host as detected and called it fine.
+func TestAHostOnAnotherVaultIsFlagged(t *testing.T) {
+	recorded, other := t.TempDir(), t.TempDir()
+	hosts := func(v string) []setup.Host {
+		return []setup.Host{{
+			Name:   "Claude Desktop",
+			Detect: func() bool { return true },
+			List: func() ([]setup.Registration, error) {
+				return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve", Vault: v}}, nil
+			},
+		}}
+	}
+
+	c, ok := checkOtherVault(hosts(other), recorded)
+	if !ok || c.State != Failed {
+		t.Fatalf("a host on another vault was not flagged: ok=%v state=%v", ok, c.State)
+	}
+	if !strings.Contains(c.Detail, "Claude Desktop") || !strings.Contains(c.Detail, other) || !strings.Contains(c.Detail, recorded) {
+		t.Errorf("the check must name the host and both vaults: %q", c.Detail)
+	}
+	for _, v := range []string{recorded, recorded + "/", ""} {
+		if c, ok := checkOtherVault(hosts(v), recorded); ok {
+			t.Errorf("vault %q was flagged, but it is the recorded one or unset: %+v", v, c)
+		}
+	}
+	if c, ok := checkOtherVault(hosts(other), ""); ok {
+		t.Errorf("flagged with no recorded vault to compare against: %+v", c)
+	}
+}
