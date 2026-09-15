@@ -594,12 +594,28 @@ func Update(currentVersion string, opts Options) (Result, error) {
 // current one is moved aside first; everywhere else os.Rename over a running
 // binary is fine, since the process holds its old inode open until it exits.
 func swap(tmp, target string) error {
-	if runtime.GOOS == "windows" {
+	return swapOn(runtime.GOOS, tmp, target)
+}
+
+// swapOn takes the OS as an argument so the Windows path can be tested
+// anywhere: that path is the one that can leave nothing installed.
+func swapOn(goos, tmp, target string) error {
+	if goos == "windows" {
 		old := target + ".old"
 		os.Remove(old) // best effort — a previous update's leftover, if any
 		if err := os.Rename(target, old); err != nil {
 			return fmt.Errorf("moving the running binary aside: %w", err)
 		}
+		if err := os.Rename(tmp, target); err != nil {
+			// The running binary is already at .old, so returning here left
+			// the install path empty until the user renamed it back by hand.
+			// Put it back, and say whether that worked.
+			if rerr := os.Rename(old, target); rerr != nil {
+				return fmt.Errorf("installing the new binary: %w; putting the old one back also failed (%v) — rename %s to %s by hand", err, rerr, old, target)
+			}
+			return fmt.Errorf("installing the new binary: %w; the old one is back in place", err)
+		}
+		return nil
 	}
 	if err := os.Rename(tmp, target); err != nil {
 		return fmt.Errorf("installing the new binary: %w", err)
