@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,7 +60,9 @@ func TestTheHostListIsNotPrintedTwiceWhenThereIsNothingToConfirm(t *testing.T) {
 		}
 	})
 
-	if n := strings.Count(out, "Fakey Desktop"); n != 1 {
+	// Counted as roster rows, not mentions: the closing steps name the host
+	// on purpose.
+	if n := len(regexp.MustCompile(`(?m)^\s+Fakey Desktop\s{2,}`).FindAllString(out, -1)); n != 1 {
 		t.Errorf("host listed %d times, want 1:\n%s", n, out)
 	}
 	if !strings.Contains(out, "registered") {

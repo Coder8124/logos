@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -834,6 +835,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		byName[h.Name] = h
 	}
 	var wired, failed int
+	var wiredHosts []string
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
 		case setup.Skipped:
@@ -843,6 +845,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("    %-*s ✗  %v\n", hostColumn, r.Host, r.Err)
 		default:
 			wired++
+			wiredHosts = append(wiredHosts, r.Host)
 			fmt.Printf("    %-*s ✓  %s (%s)\n", hostColumn, r.Host, r.Outcome, r.Where)
 			// A registration replaces what was there — `codex mcp add` drops
 			// the whole previous entry, environment and all. Naming the copy is
@@ -933,22 +936,65 @@ func wireHosts(vault string, opts wireOpts) error {
 	// and no indexing: a checkpoint is markdown, and resume reads it back. So
 	// the suggested first move is a handoff someone can run in thirty seconds
 	// and watch survive across two different agents.
-	fmt.Println("\n  Restart the host, then try the handoff — it is what logos is for:")
-	fmt.Println()
-	fmt.Println("    1. In one agent:  \"checkpoint this: trying X, ruled out Y because Z,")
-	fmt.Println("                       next step is W\"")
-	fmt.Println("    2. In another:    \"resume <project>\"")
-	fmt.Println()
-	fmt.Println("  The second agent should recite what the first ruled out, without")
 	cmd, hint := "logos", ""
 	if self, err := selfPath(); err == nil {
 		cmd, hint = terminalCommand(self)
 	}
-	fmt.Printf("  you re-explaining. From the terminal: %s resume <project>\n", cmd)
-	if hint != "" {
-		fmt.Printf("  (%s)\n", hint)
-	}
+	tryTheHandoff(os.Stdout, wiredHosts, cmd, hint)
 	return nil
+}
+
+// tryTheHandoff prints setup's closing steps. It names the hosts setup just
+// wired and asks for nothing the user has to make up: an agent can fill a
+// checkpoint from its own session, and resume with no project name finds the
+// repository the host has open, or the most recent checkpoint. Placeholders
+// ("trying X", "<project>") left a new user inventing a scenario and guessing
+// the name the work was filed under.
+func tryTheHandoff(w io.Writer, hosts []string, cmd, hint string) {
+	restart := hosts[0]
+	if len(hosts) > 1 {
+		restart = strings.Join(hosts[:len(hosts)-1], ", ") + " and " + hosts[len(hosts)-1]
+	}
+	// Claude Desktop has no repository open, so nothing names the project for
+	// it: the checkpoint is written from a host that has one, and Desktop only
+	// resumes, which falls back to that most recent checkpoint.
+	var inRepo []string
+	for _, h := range hosts {
+		if h != "Claude Desktop" {
+			inRepo = append(inRepo, h)
+		}
+	}
+	var one, two string
+	switch {
+	case len(inRepo) == 0:
+		one = `In Claude Desktop, say: "checkpoint this under the project demo"`
+		two = `In a new Claude Desktop chat, say: "resume"`
+	case len(hosts) == 1:
+		one = fmt.Sprintf(`In %s, in a repository you are working in, say: "checkpoint this"`, inRepo[0])
+		two = fmt.Sprintf(`In a new %s session in the same repository, say: "resume this project"`, inRepo[0])
+	default:
+		next := hosts[0]
+		if next == inRepo[0] {
+			next = hosts[1]
+		}
+		one = fmt.Sprintf(`In %s, in a repository you are working in, say: "checkpoint this"`, inRepo[0])
+		two = fmt.Sprintf(`In %s, open the same repository and say: "resume this project"`, next)
+		if next == "Claude Desktop" {
+			two = `In Claude Desktop, say: "resume"`
+		}
+	}
+	fmt.Fprintf(w, "\n  Restart %s, then try the handoff — it is what logos is for:\n\n", restart)
+	fmt.Fprintf(w, "    1. %s\n", one)
+	fmt.Fprintf(w, "    2. %s\n\n", two)
+	fmt.Fprintln(w, "  The second agent should recite what the first ruled out, without you")
+	if len(inRepo) == 0 {
+		fmt.Fprintf(w, "  re-explaining. From a terminal: %s resume demo\n", cmd)
+	} else {
+		fmt.Fprintf(w, "  re-explaining. From a terminal in that repository: %s resume\n", cmd)
+	}
+	if hint != "" {
+		fmt.Fprintf(w, "  (%s)\n", hint)
+	}
 }
 
 // setupUsage is what `logos setup --help` and `logos mcp install --help`
