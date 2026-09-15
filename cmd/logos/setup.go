@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -316,6 +317,9 @@ func checkRuntime(yes, dryRun bool) {
 	}
 	p := found[0].Provider
 	fmt.Printf("  runtime    %s at %s\n", p.Name, p.BaseURL)
+	// Pulling is Ollama's /api/pull. Every other runtime answered it with a 404
+	// after the user had already said yes, so they are told what to load instead.
+	canPull := p.Name == "Ollama"
 
 	have := map[string]bool{}
 	for _, m := range found[0].Models {
@@ -337,7 +341,9 @@ func checkRuntime(yes, dryRun bool) {
 	embed := env("LOGOS_EMBED", defaultEmbedModel)
 	fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
 	if !have[embed] {
-		if dryRun {
+		if !canPull {
+			fmt.Printf("             load %s in %s for semantic search — logos can only pull through Ollama\n", embed, p.Name)
+		} else if dryRun {
 			fmt.Printf("             would offer to pull %s (%s)\n", embed, modelSize(embed))
 		} else if yes || confirm(fmt.Sprintf("             pull %s (%s)? adds semantic search",
 			embed, modelSize(embed))) {
@@ -368,6 +374,10 @@ func checkRuntime(yes, dryRun bool) {
 		fmt.Println("             skipped; pass --all-models to pull them")
 		return
 	}
+	if !canPull {
+		fmt.Printf("             load %s in %s — logos can only pull through Ollama\n", strings.Join(chat, " and "), p.Name)
+		return
+	}
 	if dryRun {
 		fmt.Printf("             would pull %s (%s)\n", strings.Join(chat, " and "), totalSize(chat))
 		return
@@ -380,7 +390,16 @@ func checkRuntime(yes, dryRun bool) {
 // pull fetches one model, reporting either way.
 func pull(baseURL, model string) {
 	fmt.Printf("             pulling %s … ", model)
-	if err := pullModel(baseURL, model); err != nil {
+	// One updating line: a multi-gigabyte download that printed nothing until it
+	// finished could not be told apart from a hang.
+	last := -1
+	progress := func(pct int) {
+		if pct != last {
+			last = pct
+			fmt.Printf("\r             pulling %s … %d%% ", model, pct)
+		}
+	}
+	if err := pullModel(baseURL, model, progress); err != nil {
 		fmt.Printf("failed: %v\n", err)
 		return
 	}
@@ -446,16 +465,26 @@ func tick(ok bool) string {
 	return "✗  missing"
 }
 
+// pullTimeout bounds connecting to Ollama and waiting for it to start
+// answering. Not the download: that streams for as long as the model takes.
+var pullTimeout = 30 * time.Second
+
 // pullModel asks Ollama to fetch a model. The response streams progress as
-// JSON lines; we only need to know it finished without an error.
-func pullModel(baseURL, model string) error {
+// JSON lines, passed on as a percentage of the layer being downloaded.
+func pullModel(baseURL, model string, progress func(pct int)) error {
 	// Ollama's native API sits alongside the OpenAI-compatible /v1 path.
 	root := strings.TrimSuffix(strings.TrimSuffix(baseURL, "/"), "/v1")
 	body, err := json.Marshal(map[string]string{"model": model})
 	if err != nil {
 		return err
 	}
-	resp, err := http.Post(root+"/api/pull", "application/json", strings.NewReader(string(body)))
+	// The default client has no timeout, so an Ollama that accepted the
+	// connection and never answered held setup forever.
+	client := &http.Client{Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: pullTimeout}).DialContext,
+		ResponseHeaderTimeout: pullTimeout,
+	}}
+	resp, err := client.Post(root+"/api/pull", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
@@ -467,10 +496,18 @@ func pullModel(baseURL, model string) error {
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
 		var line struct {
-			Error string `json:"error"`
+			Error     string `json:"error"`
+			Total     int64  `json:"total"`
+			Completed int64  `json:"completed"`
 		}
-		if json.Unmarshal(sc.Bytes(), &line) == nil && line.Error != "" {
+		if json.Unmarshal(sc.Bytes(), &line) != nil {
+			continue
+		}
+		if line.Error != "" {
 			return fmt.Errorf("%s", line.Error)
+		}
+		if line.Total > 0 {
+			progress(int(line.Completed * 100 / line.Total))
 		}
 	}
 	return sc.Err()
@@ -1086,7 +1123,7 @@ const setupUsage = `usage:
   --host NAME     wire only this host; repeat for more
   --no-hosts      create the vault but wire nothing
   --dry-run       describe what would happen and change nothing
-  --yes           accept every prompt, for scripts
+  --yes           accept every prompt, for scripts — including pulling a missing embedding model from Ollama
   --downgrade     under npx, replace a newer pinned logos with this older one
   --all-models    list every local model, not just the recommended ones
 `
