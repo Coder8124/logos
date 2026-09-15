@@ -88,6 +88,10 @@ npx -y @noeton/logos setup
 then shows you which agents it would wire and asks before touching any of them.
 `--dry-run` shows the whole plan and writes nothing.
 
+Use Claude Code and another agent too, such as Cursor or Codex? Install the
+plugin and run setup as well. Setup leaves the plugin's Claude Code wiring
+alone.
+
 From source, if you have Go:
 
 ```sh
