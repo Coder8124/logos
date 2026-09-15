@@ -56,8 +56,12 @@ logos_resolve() {
   # Last resort: the published wrapper. Probed rather than assumed, so an
   # unpublished or offline registry fails here instead of at the first real
   # call, where it would look like Logos itself was broken.
-  if command -v npx >/dev/null 2>&1 && npx -y @noeton/logos --version >/dev/null 2>&1; then
-    LOGOS=(npx -y @noeton/logos)
+  #
+  # --prefer-offline because npx asks the registry before running even a cached
+  # package: behind a proxy or offline that was 70 s per call, and Claude Code
+  # gave up on the server long before. A cold cache still fetches.
+  if command -v npx >/dev/null 2>&1 && npx --prefer-offline -y @noeton/logos --version >/dev/null 2>&1; then
+    LOGOS=(npx --prefer-offline -y @noeton/logos)
     return 0
   fi
   return 1
