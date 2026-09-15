@@ -168,8 +168,13 @@ func New(db *sql.DB, rt *router.Router, vault string) *Server {
 		return &Server{DB: db, vault: vault}
 	}
 	embed, _ := rt.Model(router.T0)
-	return &Server{DB: db, vault: vault, embed: rt.Local(), embedModel: embed}
+	return &Server{DB: db, vault: vault, embed: rt.Local().Interactive(embedTimeout), embedModel: embed}
 }
+
+// embedTimeout bounds each embedding a tool call waits on; see
+// provider.Interactive. Long enough for a warm runtime under load, short
+// enough that a host waiting on the answer never gives up first.
+var embedTimeout = 5 * time.Second
 
 // SetEmbedModel overrides the router's embedding model; "" turns embeddings
 // off and retrieval runs lexical. The index is embedded with whatever
@@ -220,11 +225,31 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 	}
 	out := json.NewEncoder(w)
 	sess := &Session{Server: s}
+	var sendMu sync.Mutex
 	send := func(r *response) {
 		if r != nil {
+			sendMu.Lock()
 			out.Encode(r)
+			sendMu.Unlock()
 		}
 	}
+
+	// Requests run one at a time on a worker, in order, so session state needs
+	// no locking. The reader stays free: a tool waiting on the model runtime
+	// used to hold ping behind it too, and a host that pings to check liveness
+	// restarted a server that was only waiting.
+	work := make(chan request, 256)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for req := range work {
+			send(sess.handle(req))
+		}
+	}()
+	defer func() {
+		close(work)
+		<-done
+	}()
 
 	// A bufio.Scanner gives up permanently on a line longer than its buffer,
 	// which ends the session for every later request too. A Reader lets an
@@ -260,7 +285,11 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			send(replyErr(rawID(line), -32700, "parse error: "+jsonErr.Error()))
 			continue
 		}
-		send(sess.handle(req))
+		if req.Method == "ping" {
+			send(sess.handle(req))
+			continue
+		}
+		work <- req
 	}
 }
 
@@ -393,7 +422,20 @@ func (s *Session) callTool(req request) *response {
 		}
 	}
 
+	stalls := s.embed.Stalls()
 	text, err := s.dispatch(p.Name, args)
+	// Falling back without embeddings is right, and doing it without a word is
+	// not: the answer is thinner than usual and the fix — the runtime — is
+	// outside Logos (invariant 3).
+	if s.embed.Stalls() > stalls {
+		note := fmt.Sprintf("\n\n(%s at %s didn't answer embeddings within %s, so this ran without them — "+
+			"semantic matching skipped. Retried after %s.)", s.embed.Name, s.embed.BaseURL, embedTimeout, provider.StallCooloff)
+		if err != nil {
+			err = fmt.Errorf("%w%s", err, note)
+		} else {
+			text += note
+		}
+	}
 	if err != nil {
 		// MCP convention: tool errors are results with isError, not protocol
 		// errors, so the model sees them and can react.

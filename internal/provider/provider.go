@@ -9,10 +9,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -48,6 +51,9 @@ type Provider struct {
 	// endpoint, which honours it. "default" forces the plain /v1 path.
 	Think string
 	http  *http.Client
+	// stall is set on a copy made by Interactive; nil means wait as long as
+	// the client allows.
+	stall *stall
 }
 
 func New(name, baseURL, apiKey string) *Provider {
@@ -58,6 +64,44 @@ func New(name, baseURL, apiKey string) *Provider {
 		// Local generation on a 24B model genuinely takes a while.
 		http: &http.Client{Timeout: 300 * time.Second},
 	}
+}
+
+// Interactive is a copy of p for embeddings someone is waiting on. The 300 s
+// client is sized for generation, and embeddings shared it: a runtime that
+// listed its models and then never answered — loading the embedding model
+// behind a large one, or wedged after sleep — held an MCP tool call for minutes,
+// three times over in resume, and the host showed a timeout with nothing
+// naming the model as the cause. A refused connection already failed at once;
+// this makes a silent runtime fail the same way after timeout, and then treat
+// it as down for StallCooloff so the calls after it don't each pay again.
+func (p *Provider) Interactive(timeout time.Duration) *Provider {
+	c := *p
+	c.http = &http.Client{Timeout: timeout}
+	c.stall = &stall{timeout: timeout}
+	return &c
+}
+
+// StallCooloff is how long an Interactive provider skips embeddings after one
+// timed out.
+const StallCooloff = time.Minute
+
+type stall struct {
+	timeout time.Duration
+	mu      sync.Mutex
+	until   time.Time
+	count   int
+}
+
+// Stalls counts the embeddings an Interactive provider timed out on or skipped
+// while cooling off, so a caller can tell the user a result was built without
+// them. Always 0 for a provider that is not Interactive.
+func (p *Provider) Stalls() int {
+	if p == nil || p.stall == nil {
+		return 0
+	}
+	p.stall.mu.Lock()
+	defer p.stall.mu.Unlock()
+	return p.stall.count
 }
 
 type Discovered struct {
@@ -180,12 +224,31 @@ func (p *Provider) Embed(model string, inputs []string) ([][]float32, error) {
 		return nil, nil
 	}
 
+	if st := p.stall; st != nil {
+		st.mu.Lock()
+		down := time.Now().Before(st.until)
+		if down {
+			st.count++
+		}
+		st.mu.Unlock()
+		if down {
+			return nil, fmt.Errorf("%s didn't answer embeddings in %s; skipped until it has cooled off", p.Name, st.timeout)
+		}
+	}
+
 	var res struct {
 		Data []struct {
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
 	if err := p.post("/embeddings", map[string]any{"model": model, "input": inputs}, &res); err != nil {
+		var ne net.Error
+		if st := p.stall; st != nil && errors.As(err, &ne) && ne.Timeout() {
+			st.mu.Lock()
+			st.until = time.Now().Add(StallCooloff)
+			st.count++
+			st.mu.Unlock()
+		}
 		return nil, err
 	}
 	if len(res.Data) != len(inputs) {

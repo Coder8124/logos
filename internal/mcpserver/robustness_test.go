@@ -31,7 +31,7 @@ type asyncClient struct {
 	lines chan string
 }
 
-func startAsync(t *testing.T) (*asyncClient, string) {
+func startAsync(t *testing.T, configure ...func(*Server)) (*asyncClient, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
@@ -44,6 +44,9 @@ func startAsync(t *testing.T) (*asyncClient, string) {
 	toSrv, fromClient := io.Pipe()
 	toClient, fromSrv := io.Pipe()
 	srv := &Server{DB: db, vault: dir}
+	for _, c := range configure {
+		c(srv)
+	}
 
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(toSrv, fromSrv) }()
