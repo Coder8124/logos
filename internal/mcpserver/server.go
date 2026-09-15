@@ -24,12 +24,14 @@ package mcpserver
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -161,7 +163,26 @@ type Session struct {
 	// in two places. Also see scope.go.
 	worktree     string
 	worktreeOnce sync.Once
+
+	// lastCheckpoint is what this session last checkpointed. A host that timed
+	// the first call out told the model it failed, and the model sends the
+	// same checkpoint again; see checkpointRetryWindow.
+	lastCheckpoint struct {
+		key, slug string
+		at        time.Time
+	}
 }
+
+func checkpointOnDisk(vault, slug string) bool {
+	_, err := os.Stat(filepath.Join(vault, filepath.FromSlash(slug)+".md"))
+	return err == nil
+}
+
+// checkpointRetryWindow is how long an identical checkpoint counts as a retry
+// of the last one rather than a new record. A host's tool timeout is well
+// inside it; a deliberate second checkpoint with nothing new to say is not
+// worth a second file.
+var checkpointRetryWindow = 5 * time.Minute
 
 // New builds a server over an open index. rt may be nil: a machine with no
 // model runtime still gets every continuity tool, and retrieval falls back to
@@ -262,10 +283,32 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 	// restarted a server that was only waiting.
 	work := make(chan request, 256)
 	done := make(chan struct{})
+
+	// A host that gives up on a call sends notifications/cancelled and tells the
+	// model the call failed, and the model retries. A call still queued is
+	// skipped, since nothing has happened yet; one already running finishes but
+	// is not answered, as the protocol asks. pending holds only calls not yet
+	// answered, so a late cancel for a finished call is not kept forever.
+	var pendingMu sync.Mutex
+	pending := map[string]bool{} // request id → cancelled
 	go func() {
 		defer close(done)
 		for req := range work {
-			send(sess.handle(req))
+			key := idKey(req.ID)
+			pendingMu.Lock()
+			cancelled := pending[key]
+			pendingMu.Unlock()
+			var resp *response
+			if !cancelled {
+				resp = sess.handle(req)
+			}
+			pendingMu.Lock()
+			cancelled = pending[key]
+			delete(pending, key)
+			pendingMu.Unlock()
+			if !cancelled {
+				send(resp)
+			}
 		}
 	}()
 	defer func() {
@@ -311,8 +354,37 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			send(sess.handle(req))
 			continue
 		}
+		if req.Method == "notifications/cancelled" {
+			var p struct {
+				RequestID json.RawMessage `json:"requestId"`
+			}
+			if json.Unmarshal(req.Params, &p) == nil && len(p.RequestID) > 0 {
+				key := idKey(p.RequestID)
+				pendingMu.Lock()
+				if _, ok := pending[key]; ok {
+					pending[key] = true
+				}
+				pendingMu.Unlock()
+			}
+			continue
+		}
+		if len(req.ID) > 0 {
+			pendingMu.Lock()
+			pending[idKey(req.ID)] = false
+			pendingMu.Unlock()
+		}
 		work <- req
 	}
+}
+
+// idKey spells a request id the same way wherever it appears, so a cancel that
+// writes {"requestId": 2} matches the call that wrote "id":2.
+func idKey(id json.RawMessage) string {
+	var b bytes.Buffer
+	if json.Compact(&b, id) != nil {
+		return string(id)
+	}
+	return b.String()
 }
 
 // maxFrame is the largest request accepted. Generous: a checkpoint carrying a
@@ -551,6 +623,9 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
+		// A note since the last checkpoint is something the next one carries, so
+		// the same arguments again are no longer a retry.
+		s.lastCheckpoint.key = ""
 		return s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
 	case "checkpoint":
 		return s.checkpoint(args, "")
@@ -1052,6 +1127,17 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if strings.TrimSpace(proj) == "" {
 		return "", fmt.Errorf("checkpoint needs a project, and none could be inferred from the working directory%s", s.knownProjects())
 	}
+	key, _ := json.Marshal([]any{proj, handoffTo, args})
+	// The file is checked too: a receipt for a checkpoint that is no longer on
+	// disk would be a success-shaped failure.
+	if last := s.lastCheckpoint; last.key == string(key) && time.Since(last.at) < checkpointRetryWindow &&
+		checkpointOnDisk(s.vault, last.slug) {
+		msg := s.receipt(fmt.Sprintf("checkpoint already saved to logos — %s.md; this identical retry was not written again", last.slug))
+		if handoffTo != "" {
+			msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, proj)
+		}
+		return msg, nil
+	}
 	if err := session.Init(s.DB); err != nil {
 		return "", err
 	}
@@ -1075,6 +1161,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
+	s.lastCheckpoint.key, s.lastCheckpoint.slug, s.lastCheckpoint.at = string(key), c.Slug, time.Now()
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
