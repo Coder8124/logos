@@ -3,10 +3,12 @@ package setup
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -32,7 +34,7 @@ func Hosts() []Host {
 func claudeCode() Host {
 	return Host{
 		Name:   "Claude Code",
-		Detect: func() bool { return onPath("claude") },
+		Detect: func() bool { return claudeCLI() != "" },
 		Where:  func() string { return "claude mcp add --scope user" },
 		// User-scope MCP servers live in ~/.claude.json, alongside a great deal
 		// else that is not ours to lose.
@@ -44,7 +46,7 @@ func claudeCode() Host {
 			}
 			args = append(args, "--", s.Bin)
 			args = append(args, s.Args...)
-			outcome, err := viaCLI("claude", args)
+			outcome, err := viaCLI(claudeCLI(), args)
 			if err != nil || outcome != Updated {
 				return outcome, err
 			}
@@ -52,10 +54,10 @@ func claudeCode() Host {
 			// not a sign that it matches. Taken as success, re-running setup
 			// with a new vault or a new binary left Claude Code on the old one
 			// while reporting it connected. Replace it.
-			if _, err := viaCLI("claude", []string{"mcp", "remove", "--scope", "user", Name}); err != nil {
+			if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", Name}); err != nil {
 				return Failed, fmt.Errorf("could not replace the existing logos entry in Claude Code: %w", err)
 			}
-			if outcome, err = viaCLI("claude", args); err != nil {
+			if outcome, err = viaCLI(claudeCLI(), args); err != nil {
 				return Failed, fmt.Errorf("removed the old logos entry from Claude Code but could not add the new one — run `logos setup` again: %w", err)
 			}
 			if outcome != Registered {
@@ -64,20 +66,20 @@ func claudeCode() Host {
 			return Updated, nil
 		},
 		List: func() ([]Registration, error) {
-			out, err := exec.Command("claude", "mcp", "list").CombinedOutput()
+			out, err := exec.Command(claudeCLI(), "mcp", "list").CombinedOutput()
 			if err != nil {
 				return nil, err
 			}
 			return parseClaudeMCPList(out), nil
 		},
 		Remove: func(name string) (bool, error) {
-			out, err := exec.Command("claude", "mcp", "list").CombinedOutput()
+			out, err := exec.Command(claudeCLI(), "mcp", "list").CombinedOutput()
 			if err != nil {
 				return false, err
 			}
 			for _, r := range parseClaudeMCPList(out) {
 				if r.Name == name && isLogosServer(r.Command) {
-					if _, err := viaCLI("claude", []string{"mcp", "remove", "--scope", "user", name}); err != nil {
+					if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {
 						return false, err
 					}
 					return true, nil
@@ -115,7 +117,7 @@ func parseClaudeMCPList(out []byte) []Registration {
 func codex() Host {
 	return Host{
 		Name:   "Codex",
-		Detect: func() bool { return onPath("codex") },
+		Detect: func() bool { return codexCLI() != "" },
 		Where:  func() string { return "codex mcp add" },
 		Config: func() string { return inHome(".codex", "config.toml") },
 		Register: func(s Server) (Outcome, error) {
@@ -125,14 +127,14 @@ func codex() Host {
 			}
 			args = append(args, "--", s.Bin)
 			args = append(args, s.Args...)
-			return viaCLI("codex", args)
+			return viaCLI(codexCLI(), args)
 		},
 		Remove: func(name string) (bool, error) {
 			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
 			if err != nil || !codexHasEntry(string(raw), name) {
 				return false, nil
 			}
-			if _, err := viaCLI("codex", []string{"mcp", "remove", name}); err != nil {
+			if _, err := viaCLI(codexCLI(), []string{"mcp", "remove", name}); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -362,6 +364,80 @@ func claudeDesktopConfig() string {
 	default:
 		return inHome(".config", "Claude", "claude_desktop_config.json")
 	}
+}
+
+// noBundledCLIsEnv turns off finding a host CLI outside PATH. testenv.Run sets
+// it (spelled out there too, since testenv cannot import setup): taking the
+// CLIs off PATH is what keeps tests from running the developer's real claude
+// (see testenv), and a bundled copy would walk straight past that.
+const noBundledCLIsEnv = "LOGOS_TEST_NO_BUNDLED_CLIS"
+
+// codexApp is where the Codex desktop app keeps its CLI. A variable so tests
+// can point it at a stub.
+var codexApp = "/Applications/Codex.app/Contents/Resources/codex"
+
+// codexCLI is the codex setup runs: the one on PATH, else the copy the desktop
+// app ships inside its bundle. Someone who only uses the app has no codex on
+// PATH, and setup called Codex "not installed" and wired nothing.
+func codexCLI() string {
+	if path, err := exec.LookPath("codex"); err == nil {
+		return path
+	}
+	if os.Getenv(noBundledCLIsEnv) == "" && isExecutable(codexApp) {
+		return codexApp
+	}
+	return ""
+}
+
+// claudeCLI is the claude setup runs: the one on PATH, else the copy bundled
+// in the newest Claude Code extension for VS Code, for someone who uses Claude
+// Code only inside the editor. Where the binary sits inside the extension is
+// the extension's business, so the folder is searched rather than assumed; a
+// folder with no executable claude in it drives a separately installed CLI and
+// is not an install on its own.
+func claudeCLI() string {
+	if path, err := exec.LookPath("claude"); err == nil {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || os.Getenv(noBundledCLIsEnv) != "" {
+		return ""
+	}
+	exts, _ := filepath.Glob(filepath.Join(home, ".vscode*", "extensions", "anthropic.claude-code-*"))
+	// Newest first by modification time: version strings do not sort as
+	// text (2.1.9 after 2.1.270), and VS Code leaves old versions behind.
+	mtime := func(p string) int64 {
+		if fi, err := os.Stat(p); err == nil {
+			return fi.ModTime().UnixNano()
+		}
+		return 0
+	}
+	sort.SliceStable(exts, func(i, j int) bool { return mtime(exts[i]) > mtime(exts[j]) })
+	for _, ext := range exts {
+		found := ""
+		filepath.WalkDir(ext, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() && d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			if !d.IsDir() && d.Name() == "claude" && isExecutable(p) {
+				found = p
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if found != "" {
+			return found
+		}
+	}
+	return ""
+}
+
+func isExecutable(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0
 }
 
 func onPath(bin string) bool {

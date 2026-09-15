@@ -45,6 +45,9 @@ func Run(m *testing.M) int {
 		dirs = append(dirs, shadow)
 	}
 	os.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	// Setup also finds claude and codex bundled inside the VS Code extension and
+	// the Codex app when PATH has none; this is setup's noBundledCLIsEnv.
+	os.Setenv("LOGOS_TEST_NO_BUNDLED_CLIS", "1")
 	return m.Run()
 }
 
