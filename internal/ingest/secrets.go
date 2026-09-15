@@ -32,12 +32,33 @@ const redactedMarker = "[REDACTED]"
 // than try to salvage the rest of it.
 var authHeaderLine = regexp.MustCompile(`(?i)^(\s*)Authorization\s*:\s*\S.*$`)
 
+// authHeaderInline is the same header inside a command — `curl -H
+// "Authorization: Bearer <token>"` — where dropping the rest of the line would
+// eat the URL. It masks up to the closing quote, or the end of the token when
+// there is none. The scheme is masked too: it is short, and a Basic value is
+// only base64 of user:password.
+var authHeaderInline = regexp.MustCompile(`(?i)\bAuthorization\s*:\s*(?:(?:Bearer|Basic|Token)\s+)?[^\s'"]+`)
+
+// urlPassword is the password in a URL's user:password@host. It is almost
+// never high-entropy (hunter2hunter2) and it sits inside one long word, so
+// neither the prefix nor the entropy check could see it.
+var urlPassword = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@]+:)([^\s/@]+)@`)
+
+// mysqlPassword is mysql's -p<password>, which takes the password glued to
+// the flag. Only on a mysql-family command line: elsewhere -print and -prune
+// are ordinary flags.
+var (
+	mysqlCommand  = regexp.MustCompile(`\b(mysql|mysqldump|mysqladmin|mariadb)\b`)
+	mysqlPassword = regexp.MustCompile(`(^|\s)-p(\S+)`)
+)
+
 // secretPrefixes are provider-issued token shapes specific enough that
 // matching on the prefix alone is safe: nothing else legitimately starts this
 // way in command output or a distilled claim.
 var secretPrefixes = []string{
 	"sk-", "sk_live_", "sk_test_", "rk_live_", // OpenAI / Stripe secret keys
 	"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", // GitHub tokens
+	"glpat-",       // GitLab personal access tokens
 	"AKIA", "ASIA", // AWS access key IDs
 	"xox", // Slack tokens (xoxb-, xoxp-, xoxa-, ...)
 }
@@ -80,26 +101,61 @@ func redactText(field, s string) (string, []Redaction) {
 			found = append(found, Redaction{Field: field, Reason: "Authorization header"})
 			continue
 		}
+		line = replaceCounting(authHeaderInline, line, "Authorization: "+redactedMarker, field, "Authorization header", &found)
+		line = replaceCounting(urlPassword, line, "${1}"+redactedMarker+"@", field, "password in a URL", &found)
+		if mysqlCommand.MatchString(line) {
+			line = replaceCounting(mysqlPassword, line, "${1}-p"+redactedMarker, field, "mysql -p password", &found)
+		}
 		lines[i], found = redactTokens(field, line, found)
 	}
 	return strings.Join(lines, "\n"), found
 }
 
+func replaceCounting(re *regexp.Regexp, line, repl, field, reason string, found *[]Redaction) string {
+	return re.ReplaceAllStringFunc(line, func(m string) string {
+		*found = append(*found, Redaction{Field: field, Reason: reason})
+		return re.ReplaceAllString(m, repl)
+	})
+}
+
 // redactTokens walks whitespace-separated tokens in one line and masks any
-// that look like a credential, preserving surrounding punctuation so the
-// masked line still reads.
+// part of one that looks like a credential, preserving the text around it so
+// the masked line still reads. A word is split on assignment and quoting
+// punctuation first: whole-word matching missed --token=ghp_… and
+// {"api_key":"sk-…"}, where the credential is only part of the word.
 func redactTokens(field, line string, found []Redaction) (string, []Redaction) {
 	words := strings.Fields(line)
 	changed := false
 	for i, w := range words {
-		trimmed := strings.Trim(w, ",;:'\"()[]{}`")
-		reason := secretReason(trimmed)
-		if reason == "" {
-			continue
+		// Rebuilt part by part rather than with strings.Replace, which would
+		// mask the first occurrence of the text — possibly inside an earlier,
+		// harmless part — and leave the credential itself in place.
+		var b strings.Builder
+		start := -1
+		flush := func(end int) {
+			if start < 0 {
+				return
+			}
+			part := w[start:end]
+			if reason := secretReason(part); reason != "" {
+				b.WriteString(redactedMarker)
+				found = append(found, Redaction{Field: field, Reason: reason})
+				changed = true
+			} else {
+				b.WriteString(part)
+			}
+			start = -1
 		}
-		words[i] = strings.Replace(w, trimmed, redactedMarker, 1)
-		found = append(found, Redaction{Field: field, Reason: reason})
-		changed = true
+		for j, r := range w {
+			if isTokenSeparator(r) {
+				flush(j)
+				b.WriteRune(r)
+			} else if start < 0 {
+				start = j
+			}
+		}
+		flush(len(w))
+		words[i] = b.String()
 	}
 	if !changed {
 		return line, found
@@ -107,15 +163,26 @@ func redactTokens(field, line string, found []Redaction) (string, []Redaction) {
 	return strings.Join(words, " "), found
 }
 
+func isTokenSeparator(r rune) bool {
+	return strings.ContainsRune("=:@,;'\"()[]{}`", r)
+}
+
 // secretReason reports why tok looks like a credential, or "" if it does not.
 func secretReason(tok string) string {
-	if tok == "" {
+	// A marker an earlier pass left, split out of its brackets.
+	if tok == "" || tok == strings.Trim(redactedMarker, "[]") {
 		return ""
 	}
 	for _, p := range secretPrefixes {
 		if strings.HasPrefix(tok, p) && len(tok) >= len(p)+6 {
 			return "known credential prefix (" + p + ")"
 		}
+	}
+	// After a scheme's colon, a URL's path is one long mixed-case word with
+	// slashes in it — a GitHub link to a repository, say — which the entropy
+	// check would flag. Only a known prefix is trusted there.
+	if strings.HasPrefix(tok, "//") {
+		return ""
 	}
 	if looksHighEntropy(tok) {
 		return "high-entropy token"
