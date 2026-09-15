@@ -621,6 +621,9 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	// already had, or queuing one that still needs a yes.
 	switch r.Outcome {
 	case memory.EvReinforced:
+		if r.StillQueued {
+			return s.receipt(fmt.Sprintf("still queued — memory #%d (%s, %s) is waiting for review; the user runs `%s review` to accept or reject it", r.Ref, kind, where, s.shell())), nil
+		}
 		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
 	case memory.EvQuarantined:
 		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where)), nil
@@ -686,9 +689,9 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 	}
 	if len(mems) == 0 {
 		if project != "" {
-			return fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project), nil
+			return fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project) + s.awaitingReview(), nil
 		}
-		return "No relevant memories.", nil
+		return "No relevant memories." + s.awaitingReview(), nil
 	}
 	var b strings.Builder
 	for _, m := range mems {
@@ -705,7 +708,7 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 			fmt.Fprintf(&b, "- (%s, from %s) %s\n", m.Kind, m.Project, untrusted.Inline(m.Text))
 		}
 	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return strings.TrimRight(b.String(), "\n") + s.awaitingReview(), nil
 }
 
 func (s *Server) listMemories() (string, error) {
@@ -788,7 +791,7 @@ func (s *Server) context(req contextpack.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.lead(pack) + pack.Render(), nil
+	return s.lead(pack) + pack.Render() + s.awaitingReview(), nil
 }
 
 // lead puts the receipt above the pack rather than below it. A person skimming
@@ -959,6 +962,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		out += "\n_No checkpoint has been written for this project yet — " +
 			"this is context, not a handoff. Call checkpoint before you stop._\n"
 	}
+	out += s.awaitingReview()
 	// Filed under the scope the pack itself read, so the note lands in the same
 	// session a checkpoint will later close — in this worktree, not in the
 	// project the worktree belongs to.
@@ -1267,9 +1271,33 @@ func argList(args map[string]any, k string) []string {
 // npx or the plugin alone there is no logos on PATH, and "run `logos review`"
 // left the memory queued behind a command the user could not run.
 func (s *Server) quarantineReceipt(id int64, kind, where string) string {
-	shell := s.Shell
-	if shell == "" {
-		shell = "logos"
+	return fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `%s review` to accept or reject it before it becomes active", id, kind, where, s.shell())
+}
+
+// shell is the command this install answers to; see quarantineReceipt.
+func (s *Server) shell() string {
+	if s.Shell == "" {
+		return "logos"
 	}
-	return fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `%s review` to accept or reject it before it becomes active", id, kind, where, shell)
+	return s.Shell
+}
+
+// awaitingReview is the line every read appends while the review queue is not
+// empty. Quarantine keeps an agent's memories out of recall until the user says
+// yes, and a user who is never told there is anything to say yes to leaves them
+// there for good — while the agent reads the empty recall as the fact never
+// having been stored. A failed count is said, not swallowed, but does not fail
+// the read it is attached to.
+func (s *Server) awaitingReview() string {
+	n, err := memory.PendingCount(s.DB)
+	if err != nil {
+		return fmt.Sprintf("\n\n(could not count the memories waiting for review: %v)", err)
+	}
+	if n == 0 {
+		return ""
+	}
+	if n == 1 {
+		return fmt.Sprintf("\n\n1 memory is waiting for your review — `%s review`", s.shell())
+	}
+	return fmt.Sprintf("\n\n%d memories are waiting for your review — `%s review`", n, s.shell())
 }

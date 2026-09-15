@@ -509,8 +509,8 @@ func TestRememberReturnsAReceipt(t *testing.T) {
 	second, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(second, "already knew that") {
-		t.Errorf("restating a fact still pending review should report reinforcement, got %q", second)
+	if !strings.Contains(second, "still queued — memory #") {
+		t.Errorf("restating a fact still pending review should say it is still queued, got %q", second)
 	}
 }
 

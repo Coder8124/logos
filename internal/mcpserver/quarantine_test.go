@@ -128,3 +128,57 @@ func TestTheReviewReceiptNamesTheCommandThisInstallAnswersTo(t *testing.T) {
 		t.Errorf("with nothing known about the install the receipt stays `logos review`, got %q", got)
 	}
 }
+
+// A remembered fact waits in quarantine, and recall one call later said "No
+// relevant memories" with no hint that anything was queued. An agent reads that
+// as memory being broken or the fact never stored, and the user never learns
+// there is something to review. Every read an agent makes has to say so.
+func TestRecallResumeAndContextSayMemoriesAreWaitingForReview(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+	if _, isErr := c.callText(t, "remember", map[string]any{
+		"text": "Staging DB is on port 5433.", "project": "kestrel",
+	}); isErr {
+		t.Fatal("remember reported error")
+	}
+
+	for _, read := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"recall", map[string]any{"query": "what port is the staging database on", "project": "kestrel"}},
+		{"resume", map[string]any{"project": "kestrel"}},
+		{"context", map[string]any{"task": "connect to the staging database", "project": "kestrel"}},
+	} {
+		out, isErr := c.callText(t, read.tool, read.args)
+		if isErr {
+			t.Fatalf("%s errored: %s", read.tool, out)
+		}
+		if !strings.Contains(out, "1 memory is waiting for your review — `logos review`") {
+			t.Errorf("%s did not mention the queued memory:\n%s", read.tool, out)
+		}
+	}
+}
+
+// Re-remembering a queued fact said "already knew that — reinforced memory
+// #1" while #1 was still in quarantine, and the same session's recall then
+// said it was not known. The receipt has to say the fact is still waiting.
+func TestRememberingAQueuedFactAgainSaysItIsStillQueued(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+	for i := 0; i < 2; i++ {
+		receipt, isErr := c.callText(t, "remember", map[string]any{"text": "Staging DB is on port 5433."})
+		if isErr {
+			t.Fatalf("remember reported error: %s", receipt)
+		}
+		if i == 0 {
+			continue
+		}
+		if strings.Contains(receipt, "already knew") {
+			t.Errorf("a fact still in quarantine was reported as known: %q", receipt)
+		}
+		if !strings.Contains(receipt, "still queued") || !strings.Contains(receipt, "`logos review`") {
+			t.Errorf("the receipt should say the fact is still queued for review, got %q", receipt)
+		}
+	}
+}

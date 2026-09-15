@@ -66,6 +66,13 @@ func PendingCount(db *sql.DB) (int, error) {
 	return n, err
 }
 
+// isQueued reports whether a memory is waiting in quarantine. A failed read
+// answers false, which only costs the receipt its "still queued" wording.
+func isQueued(db *sql.DB, id int64) bool {
+	var q int
+	return db.QueryRow("SELECT quarantined FROM memories WHERE id = ?", id).Scan(&q) == nil && q == 1
+}
+
 // Accept releases a quarantined memory into active memory: it becomes
 // recallable and gets written to the vault, same as anything Store creates
 // directly. Rejects an id that is not actually pending, rather than silently

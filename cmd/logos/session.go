@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"os"
 	"strconv"
@@ -224,6 +225,7 @@ func runResume(args []string) error {
 	}
 	if pack.Empty() {
 		printNothingToResume(ix.Vault, project)
+		printAwaitingReview(ix.DB)
 		return nil
 	}
 	fmt.Print(pack.Render())
@@ -233,7 +235,24 @@ func runResume(args []string) error {
 	if n := ingestPendingCount(ix.Vault); n > 0 {
 		fmt.Printf("\n%d ingested candidate%s pending review — logos ingest review\n", n, pluralS(n))
 	}
+	printAwaitingReview(ix.DB)
 	return nil
+}
+
+// printAwaitingReview names the memories agents proposed that the user has not
+// reviewed. Resume is what the SessionStart hook injects, and quarantine only
+// works if the user hears there is something to say yes to; otherwise the
+// queue was mentioned by doctor alone, which nobody runs to start work.
+func printAwaitingReview(db *sql.DB) {
+	n, err := memory.PendingCount(db)
+	switch {
+	case err != nil:
+		fmt.Printf("\n(could not count the memories waiting for review: %v)\n", err)
+	case n == 1:
+		fmt.Println("\n1 memory is waiting for your review — logos review")
+	case n > 1:
+		fmt.Printf("\n%d memories are waiting for your review — logos review\n", n)
+	}
 }
 
 // printNothingToResume replaces the empty context pack for the one caller that

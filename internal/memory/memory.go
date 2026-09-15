@@ -196,6 +196,10 @@ type Receipt struct {
 	// Ref is the memory that was reinforced, when the store folded into an
 	// existing one instead of adding a twin.
 	Ref int64 `json:"ref,omitempty"`
+	// StillQueued is set when the memory reinforced is itself waiting in
+	// quarantine. Dedup matches queued rows too, and "already knew that" about
+	// a fact recall will not return is a receipt contradicted one call later.
+	StillQueued bool `json:"still_queued,omitempty"`
 }
 
 // OutcomeNoop means nothing was stored — there was nothing to store.
@@ -276,7 +280,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			return Receipt{Outcome: EvReinforced, ID: id, Ref: id}, flushLocked(db, m.Kind)
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id, StillQueued: isQueued(db, id)}, flushLocked(db, m.Kind)
 		}
 	}
 
@@ -292,7 +296,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", dup)
 		logEvent(db, dup, EvReinforced, m.Text, 0)
 		m.ID = dup
-		return Receipt{Outcome: EvReinforced, ID: dup, Ref: dup}, nil
+		return Receipt{Outcome: EvReinforced, ID: dup, Ref: dup, StillQueued: isQueued(db, dup)}, nil
 	}
 
 	if m.Quarantined {

@@ -116,6 +116,8 @@ func memoryCmd(args []string) error {
 		switch {
 		case r.Created():
 			fmt.Printf("remembered%s — memory #%d.\n", where, r.ID)
+		case r.StillQueued:
+			fmt.Printf("still queued%s — memory #%d is waiting for review; accept it with logos review.\n", where, r.Ref)
 		case r.Outcome == memory.EvReinforced:
 			fmt.Printf("already knew that%s — reinforced memory #%d.\n", where, r.Ref)
 		default:
