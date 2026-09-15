@@ -53,6 +53,17 @@ func TestABinaryNotOnPathIsNamedByItsFullPath(t *testing.T) {
 	}
 }
 
+// The hint used to say only "move it into a directory that is". Setup had
+// just wired every host to the path it was run from, so doing as told left
+// every host launching a file that was no longer there.
+func TestThePathHintSaysMovingLogosMeansRunningSetupAgain(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, hint := terminalCommand("/Users/someone/Downloads/logos_0.4.3_darwin_arm64/logos")
+	if !strings.Contains(hint, "setup` again") {
+		t.Errorf("the hint must say to run setup again after moving logos, got %q", hint)
+	}
+}
+
 // The closing line itself: this test binary is nowhere on PATH, exactly like a
 // release binary run from Downloads, so it must not be told to type `logos`.
 func TestSetupDoesNotSuggestLogosWhenLogosIsNotOnPath(t *testing.T) {

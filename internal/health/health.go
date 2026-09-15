@@ -136,6 +136,8 @@ func Run(in Input) Report {
 	r.Add(checkDuplicateRegistration(in.Hosts))
 	if c, ok := checkCachedRegistration(in.Hosts); ok {
 		r.Add(c)
+	} else if c, ok := checkMissingRegistration(in.Hosts); ok {
+		r.Add(c)
 	}
 	if c, ok := checkPlugin(in.Version); ok {
 		r.Add(c)
@@ -796,6 +798,39 @@ func checkCachedRegistration(hosts []setup.Host) (Check, bool) {
 					State:  Failed,
 					Detail: fmt.Sprintf("%s runs %s from npm's npx cache, which npm deletes when it prunes", h.Name, r.Name),
 					Fix:    "run `npx -y @noeton/logos setup` again — it registers a command that does not live in the cache",
+				}, true
+			}
+		}
+	}
+	return Check{}, false
+}
+
+// checkMissingRegistration finds a host launching logos from a path that no
+// longer exists. Setup wires hosts to the binary it was run as, so a release
+// binary run from Downloads and then moved onto PATH left every host pointing
+// at nothing, while doctor said the hosts were fine. Only absolute paths are
+// checked: `npx …` or a bare `logos` is resolved at launch, not a file here.
+// ok is false when every registration's binary exists.
+func checkMissingRegistration(hosts []setup.Host) (Check, bool) {
+	for _, h := range hosts {
+		if h.List == nil || h.Detect == nil || !h.Detect() {
+			continue
+		}
+		regs, err := h.List()
+		if err != nil {
+			continue
+		}
+		for _, r := range regs {
+			bin, _, ok := strings.Cut(r.Command, " mcp serve")
+			if !ok || !filepath.IsAbs(bin) {
+				continue
+			}
+			if _, err := os.Stat(bin); err != nil && os.IsNotExist(err) {
+				return Check{
+					Name:   "host command",
+					State:  Failed,
+					Detail: fmt.Sprintf("%s runs %s from %s, which no longer exists", h.Name, r.Name, bin),
+					Fix:    "run `logos setup` again from where logos is now — it rewires the hosts to that path",
 				}, true
 			}
 		}

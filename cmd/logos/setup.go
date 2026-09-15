@@ -525,7 +525,9 @@ func terminalCommand(self string) (cmd, hint string) {
 	if strings.ContainsAny(self, " '\"$\\") {
 		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
 	}
-	return self, "logos is not on your PATH — move it into a directory that is (for example ~/.local/bin) to type `logos`"
+	// The hosts setup just wired launch this exact path, so moving the file
+	// breaks every one of them unless setup rewires them to where it went.
+	return self, "logos is not on your PATH — to type `logos`, move it into a directory that is (for example ~/.local/bin), then run `logos setup` again: the hosts are wired to where it is now"
 }
 
 // probeTarget is what the integration check launches, which is deliberately not

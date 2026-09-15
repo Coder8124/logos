@@ -1000,3 +1000,36 @@ func TestARegistrationThatRunsNpxIsNotFlagged(t *testing.T) {
 		t.Error("an npx registration was flagged as living in npm's cache")
 	}
 }
+
+// A release binary run from Downloads is wired there; moving it onto PATH, as
+// setup suggested, left every host launching a file that no longer existed,
+// and doctor still said the hosts were fine.
+func TestARegistrationWhoseBinaryIsGoneIsFlagged(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "Downloads", "logos_v0.4.3_darwin_arm64", "logos")
+	here := filepath.Join(t.TempDir(), "logos")
+	if err := os.WriteFile(here, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hosts := func(cmd string) []setup.Host {
+		return []setup.Host{{
+			Name:   "Cursor",
+			Detect: func() bool { return true },
+			List: func() ([]setup.Registration, error) {
+				return []setup.Registration{{Name: "logos", Command: cmd + " mcp serve"}}, nil
+			},
+		}}
+	}
+
+	c, ok := checkMissingRegistration(hosts(gone))
+	if !ok || c.State != Failed {
+		t.Fatalf("a registration naming a missing binary was not flagged: ok=%v state=%v", ok, c.State)
+	}
+	if !strings.Contains(c.Detail, "Cursor") || !strings.Contains(c.Detail, gone) || !strings.Contains(c.Fix, "setup") {
+		t.Errorf("the check must name the host and the path, and say to re-run setup: %q / %q", c.Detail, c.Fix)
+	}
+	for _, cmd := range []string{here, "npx -y @noeton/logos", "logos"} {
+		if c, ok := checkMissingRegistration(hosts(cmd)); ok {
+			t.Errorf("%q was flagged, but nothing about it is missing: %+v", cmd, c)
+		}
+	}
+}
