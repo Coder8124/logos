@@ -302,17 +302,15 @@ func looksLikeSourceTree(dir string) bool {
 }
 
 // checkRuntime reports the local model runtime and offers to pull what is
-// missing. A machine with no runtime is told what to install and left working:
-// lexical retrieval and the whole continuity surface need no model at all.
+// missing. A machine with no runtime hears nothing about one: lexical retrieval
+// and the whole continuity surface need no model, and telling a coding-agent
+// user to install Ollama made a tool that needs no configuring look like it did.
 // dryRun turns every offer into a description. `--dry-run --yes` used to be a
 // combination that downloaded models — several gigabytes, from a command whose
 // last line says nothing was written.
 func checkRuntime(yes, dryRun bool) {
 	found := provider.Discover()
 	if len(found) == 0 {
-		fmt.Println("  runtime    none found")
-		fmt.Println("             install Ollama (ollama.com) for semantic search;")
-		fmt.Println("             without it retrieval is lexical, which still works")
 		return
 	}
 	p := found[0].Provider

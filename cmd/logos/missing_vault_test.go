@@ -53,7 +53,7 @@ func TestDoctorExitsNonZeroWhenACheckFailed(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", filepath.Join(t.TempDir(), "not-a-vault"))
 
 	var err error
-	out := captureStdout(t, func() { err = doctor(false) })
+	out := captureStdout(t, func() { err = doctor(false, false) })
 
 	if !strings.Contains(out, "FAILED") {
 		t.Fatalf("expected a failing check to report on:\n%s", out)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -79,7 +80,7 @@ GETTING THERE
                                       connect logos to the AI agents on this machine
     logos mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     logos mcp uninstall [--host NAME] take logos back out of the hosts; the vault is left alone
-    logos doctor [--probe] [--integration]
+    logos doctor [--verbose] [--probe] [--integration]
                                       health of vault, index, hosts; --integration proves reach
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
 
@@ -169,8 +170,8 @@ SETUP AND DIAGNOSTICS
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this logos with the MCP hosts found
     logos mcp uninstall [--host NAME] remove logos from the MCP hosts found; never touches the vault
-    logos doctor [--probe] [--integration]
-                                      health of vault, index, hosts; --integration proves a host can reach it
+    logos doctor [--verbose] [--probe] [--integration]
+                                      health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it
     logos key set|rm <ref>            manage API keys in the macOS keychain
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
     logos version                     which build this is
@@ -282,7 +283,7 @@ func main() {
 			err = doctorIntegration()
 			break
 		}
-		err = doctor(hasFlag(args, "--probe"))
+		err = doctor(hasFlag(args, "--probe"), hasFlag(args, "--verbose"))
 	case cmd == "key":
 		err = keyCmd(args)
 	case cmd == "update":
@@ -600,7 +601,7 @@ func openEvents() (*index.Index, error) {
 	return openIndex()
 }
 
-func doctor(probe bool) error {
+func doctor(probe, verbose bool) error {
 	// The product first, the model plumbing second. This used to be the other
 	// way round — and in fact only ever reported the plumbing, so a vault that
 	// did not exist and an index a week stale both passed silently.
@@ -620,7 +621,7 @@ func doctor(probe bool) error {
 			w = len(c.Name)
 		}
 	}
-	for _, c := range rep.Checks {
+	for _, c := range leadWith(rep.Checks, "vault", "agent hosts", "continuity") {
 		fmt.Printf("  %-*s %s\n", w, c.Name, renderState(c.State))
 		if c.Detail != "" {
 			fmt.Printf("  %-*s   %s\n", w, "", c.Detail)
@@ -631,6 +632,14 @@ func doctor(probe bool) error {
 	}
 	ok, warn, failed, unknown := rep.Counts()
 	fmt.Printf("\n  %d ok · %d to do · %d failed · %d unchecked\n", ok, warn, failed, unknown)
+
+	// Runtimes, tiers and the web bridge are for `ask`, the rollup and the
+	// browser extension. No continuity tool uses them, and printed by default
+	// they were most of the report and made logos look like it needed a model.
+	if !verbose && !probe {
+		fmt.Println("\nrun `logos doctor --verbose` for the web bridge, model runtimes and tiers")
+		return doctorVerdict(failed)
+	}
 
 	if mcpserver.HasToken(vaultPath()) {
 		fmt.Println("\nweb bridge: paired — `logos mcp serve --http` will reuse the existing token")
@@ -693,6 +702,27 @@ func doctor(probe bool) error {
 		}
 	}
 	return doctorVerdict(failed)
+}
+
+// leadWith moves the named checks to the front, in that order, and keeps the
+// rest as they were: what a coding-agent user runs doctor for is whether the
+// vault is there, whether their agents are wired to it, and where the last
+// session stopped.
+func leadWith(checks []health.Check, names ...string) []health.Check {
+	out := make([]health.Check, 0, len(checks))
+	for _, n := range names {
+		for _, c := range checks {
+			if c.Name == n {
+				out = append(out, c)
+			}
+		}
+	}
+	for _, c := range checks {
+		if !slices.Contains(names, c.Name) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // probeRow renders one probe result and says whether it counts as a failure.
