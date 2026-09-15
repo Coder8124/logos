@@ -12,6 +12,13 @@ import (
 // because a person typed this exact command — see selfupdate's package
 // comment for the rest of that promise.
 func updateCmd(args []string) error {
+	// Anything but --check used to mean "update now", so a mistyped or
+	// guessed flag replaced the binary.
+	for _, a := range args {
+		if a != "--check" {
+			return fmt.Errorf("update does not know %q; `logos update --check` only checks, `logos update` updates", a)
+		}
+	}
 	if selfupdate.IsDevBuild(version) {
 		return fmt.Errorf("this is an unstamped dev build; `logos update` has nothing to check it against")
 	}

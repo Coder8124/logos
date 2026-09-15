@@ -189,6 +189,36 @@ ENV
 `, defaultChatModel, defaultEmbedModel)
 }
 
+// commandHelp prints the lines of the full help that describe cmd, each with
+// the explanation indented under it, and reports whether there were any.
+func commandHelp(w io.Writer, cmd string) bool {
+	if cmd == "" || strings.HasPrefix(cmd, "-") {
+		return false
+	}
+	var all strings.Builder
+	helpAll(&all)
+	var out strings.Builder
+	inEntry := false
+	for _, line := range strings.Split(all.String(), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "logos "):
+			inEntry = trimmed == "logos "+cmd || strings.HasPrefix(trimmed, "logos "+cmd+" ") ||
+				strings.Contains(trimmed, "| "+cmd+" ")
+		case trimmed == "" || !strings.HasPrefix(line, " "):
+			inEntry = false
+		}
+		if inEntry {
+			out.WriteString(line + "\n")
+		}
+	}
+	if out.Len() == 0 {
+		return false
+	}
+	fmt.Fprint(w, out.String())
+	return true
+}
+
 // usage is the failure path — no arguments, or a verb nobody recognises. It
 // prints the short help to stderr and exits non-zero, because a command line
 // that could not be parsed is an error even though the text is identical to
@@ -215,6 +245,16 @@ func main() {
 	cmd := os.Args[1]
 	args := os.Args[2:]
 	rest := strings.Join(args, " ")
+
+	// Most commands never looked for --help: `update --help` replaced the
+	// binary, `note --help` wrote a note reading "--help", `index --help`
+	// rebuilt the index. Asking how a command works has to be free, so the
+	// flag is answered here, before any command gets the chance to act.
+	// setup, review and mcp install print their own fuller usage.
+	if (hasFlag(args, "--help") || hasFlag(args, "-h")) && cmd != "setup" && cmd != "review" &&
+		!(cmd == "mcp" && firstNonFlag(args) == "install") && commandHelp(os.Stdout, cmd) {
+		return
+	}
 
 	var err error
 	switch {
