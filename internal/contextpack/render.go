@@ -9,6 +9,7 @@ import (
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/textmatch"
 )
 
 // Rendering is where the budget is actually spent, which is why Render takes a
@@ -200,6 +201,9 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// thing in an old checkpoint that is still true.
 	if older := p.priorFailures(); len(older) > 0 {
 		list(&tail, "Ruled out earlier in this project", older)
+	}
+	if earlier := p.priorDecisions(); len(earlier) > 0 {
+		list(&tail, "Decided earlier in this project", earlier)
 	}
 	if c.Next != "" {
 		if m, ok := overtaken(c.Next, c.TS, p.all()); ok {
@@ -442,6 +446,64 @@ func (p *Pack) priorFailures() []string {
 		}
 	}
 	return out
+}
+
+// priorDecisions is what earlier checkpoints decided, newest first, attributed
+// and dated. Only the latest checkpoint's decisions used to be handed over, so a
+// settled question was forgotten as soon as one more checkpoint landed without
+// restating it — while the dead ends from the same checkpoint were carried
+// forward — and the next agent re-opened it.
+//
+// Unlike a dead end, a decision can be reversed, so one is dropped when a later
+// checkpoint decided the same question again, or when a newer memory calls it
+// off (see overtaken). Handing over both sides is handing over a choice that
+// was already made the other way.
+func (p *Pack) priorDecisions() []string {
+	seen := map[string]bool{}
+	var later []map[string]bool
+	if p.Checkpoint != nil {
+		for _, d := range p.Checkpoint.Decisions {
+			seen[normalizeKey(d)] = true
+			later = append(later, textmatch.Subject(d))
+		}
+	}
+	var out []string
+	for _, c := range p.History {
+		var subjects []map[string]bool
+		for _, d := range c.Decisions {
+			k := normalizeKey(d)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			subject := textmatch.Subject(d)
+			subjects = append(subjects, subject)
+			if decidedAgain(subject, later) {
+				continue
+			}
+			if _, ok := overtaken(d, c.TS, p.all()); ok {
+				continue
+			}
+			who := c.Agent
+			if who == "" {
+				who = "an earlier agent"
+			}
+			out = append(out, fmt.Sprintf("(%s, %s) %s", who, project.Age(c.TS), flatten(d)))
+		}
+		// After the checkpoint, not per decision: two decisions recorded
+		// together are both standing, however much they share.
+		later = append(later, subjects...)
+	}
+	return out
+}
+
+func decidedAgain(subject map[string]bool, later []map[string]bool) bool {
+	for _, l := range later {
+		if textmatch.Overlap(subject, l) >= textmatch.Related {
+			return true
+		}
+	}
+	return false
 }
 
 // otherOpenWork is the earlier checkpoints that stopped on a different task with
