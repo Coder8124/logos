@@ -828,7 +828,7 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 	if err := session.Init(s.DB); err != nil {
 		return "", err
 	}
-	hits, err := deadend.Check(s.vault, s.DB, s.embed, s.embedModel, approach, project, 6)
+	hits, semanticErr, err := deadend.CheckNoting(s.vault, s.DB, s.embed, s.embedModel, approach, project, 6)
 	if err != nil {
 		return "", err
 	}
@@ -852,6 +852,7 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 	b.WriteString(untrusted.Boundary)
 	b.WriteString("\n\n")
 	b.WriteString(deadend.Render(approach, hits))
+	b.WriteString(deadend.SemanticSkipped(semanticErr))
 	if section := procedure.Render(procHits); section != "" {
 		b.WriteString("\n")
 		b.WriteString(section)

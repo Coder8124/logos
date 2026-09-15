@@ -188,15 +188,23 @@ const cosineFloor = 0.74
 // has no reason to line up. With no embedder available the lexical arm still
 // works, so this degrades rather than disappearing.
 func Check(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, proposed, project string, k int) ([]Ruling, error) {
+	hits, _, err := CheckNoting(vaultDir, db, p, embedModel, proposed, project, k)
+	return hits, err
+}
+
+// CheckNoting is Check, also returning why the semantic arm did not cover the
+// whole corpus, if it did not. Degrading to lexical is fine; doing it silently
+// made a weaker check read exactly like a full one that found nothing.
+func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, proposed, project string, k int) (hits []Ruling, semanticErr error, err error) {
 	if strings.TrimSpace(proposed) == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	corpus, err := Collect(vaultDir, db, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(corpus) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	asked := textmatch.Subject(proposed)
@@ -214,19 +222,23 @@ func Check(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, propos
 
 	semantic := make([]float64, len(corpus))
 	if p != nil {
-		texts := make([]string, 0, len(corpus)+1)
-		texts = append(texts, proposed)
-		for _, r := range corpus {
-			texts = append(texts, r.Text)
-		}
-		if vecs, err := p.Embed(embedModel, texts); err == nil && len(vecs) == len(texts) {
+		// Only the proposal is new on a typical call; the rulings come from the
+		// cache and are embedded once, when they first appear.
+		if query, err := p.Embed(embedModel, []string{proposed}); err != nil {
+			semanticErr = err
+		} else {
+			texts := make([]string, len(corpus))
+			for i, r := range corpus {
+				texts[i] = r.Text
+			}
+			vecs, err := rulingVectors(db, p, embedModel, texts)
+			semanticErr = err
 			for i := range corpus {
-				semantic[i] = cosine(vecs[0], vecs[i+1])
+				semantic[i] = cosine(query[0], vecs[i])
 			}
 		}
 	}
 
-	var hits []Ruling
 	for i, r := range corpus {
 		if lexical[i] < textmatch.Related && semantic[i] < cosineFloor {
 			continue
@@ -247,7 +259,7 @@ func Check(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, propos
 	if k > 0 && len(hits) > k {
 		hits = hits[:k]
 	}
-	return hits, nil
+	return hits, semanticErr, nil
 }
 
 func sharedWords(a, b map[string]bool) int {

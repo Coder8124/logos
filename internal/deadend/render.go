@@ -134,3 +134,13 @@ func oneLine(s string) string {
 	}
 	return s
 }
+
+// SemanticSkipped is the line that says the check ran on wording alone, or ""
+// when the semantic arm covered everything.
+func SemanticSkipped(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("\n_The semantic check skipped some or all rulings (%s), so only ones worded like the proposal were compared._\n",
+		untrusted.Inline(err.Error()))
+}

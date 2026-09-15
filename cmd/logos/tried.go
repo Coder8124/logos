@@ -37,11 +37,12 @@ func runTried(args []string) error {
 		}
 	}
 
-	hits, err := deadend.Check(ix.Vault, ix.DB, embed, model, proposed, flagStr(args, "--project", ""), 6)
+	hits, semanticErr, err := deadend.CheckNoting(ix.Vault, ix.DB, embed, model, proposed, flagStr(args, "--project", ""), 6)
 	if err != nil {
 		return err
 	}
 	fmt.Print(deadend.Render(proposed, hits))
+	fmt.Print(deadend.SemanticSkipped(semanticErr))
 	return nil
 }
 
