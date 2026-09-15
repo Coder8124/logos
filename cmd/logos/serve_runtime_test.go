@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -119,5 +120,38 @@ func TestTheMCPServerUsesTheRuntimeAndEmbedModelTheIndexUses(t *testing.T) {
 	}
 	if !strings.Contains(out, `"id":2`) {
 		t.Errorf("remember did not answer with embeddings off:\n%s", out)
+	}
+}
+
+// Ollama with only chat models pulled is a common setup. The server dropped the
+// error from resolving the embedding model and embedded with it anyway, so
+// every tool call sent a request that could only fail, recall fell back to
+// every memory unranked, and stderr still said nothing about it. With no
+// embedding model the server serves lexical, and a model LOGOS_EMBED names
+// still turns embedding back on.
+func TestTheMCPServerWithNoEmbeddingModelPulledServesLexicalWithoutAsking(t *testing.T) {
+	chatOnly := newRecordingRuntime(t, "llama3.2", "custom-embed")
+	old := provider.LocalEndpoints
+	provider.LocalEndpoints = []provider.LocalEndpoint{{Name: "Fake", URL: chatOnly.URL}}
+	t.Cleanup(func() { provider.LocalEndpoints = old })
+	t.Setenv("LOGOS_TRUST_MCP", "1")
+	t.Setenv("LOGOS_RUNTIME", "")
+	t.Setenv("LOGOS_EMBED", "")
+	os.Unsetenv("LOGOS_EMBED")
+
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	out := serveOnce(t, vaultPath())
+	if got := chatOnly.embedded(); len(got) != 0 {
+		t.Errorf("with no embedding model pulled the server still sent embeddings for %v", got)
+	}
+	if !strings.Contains(out, `"id":2`) {
+		t.Errorf("remember did not answer:\n%s", out)
+	}
+
+	t.Setenv("LOGOS_EMBED", "custom-embed")
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	serveOnce(t, vaultPath())
+	if got := chatOnly.embedded(); len(got) == 0 || got[0] != "custom-embed" {
+		t.Errorf("LOGOS_EMBED=custom-embed embedded with %v", got)
 	}
 }

@@ -79,7 +79,7 @@ func (ix *Index) LexicalSearch(query string, k int) ([]Hit, error) {
 // text came back empty, because internal/memory keeps its own table and its
 // own ranking (memory.Recall), wired only into the MCP recall tool. This is
 // the fix: reuse memory.Recall itself — it already applies the pin/quarantine/
-// exclude rules and already degrades to salience-first All() when p is nil —
+// exclude rules and already degrades to keyword ranking when p is nil —
 // rather than duplicating that ranking logic here.
 //
 // p and model come from the same guard HybridSearch/Ask already apply

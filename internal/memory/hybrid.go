@@ -35,9 +35,17 @@ func Fuse(query string, qVec []float32, cands []Candidate) []float64 {
 		val float64
 	}
 
-	vec := make([]sc, len(cands))
-	for i, c := range cands {
-		vec[i] = sc{i, cosine(qVec, c.Vec)}
+	// Only a candidate with a vector takes part in the vector arm. A missing
+	// vector would score cosine 0 and still collect a rank reward, so a
+	// vectorless memory — or every memory, when the query itself could not be
+	// embedded — would be ranked by the arbitrary order of equal zeros.
+	var vec []sc
+	if len(qVec) > 0 {
+		for i, c := range cands {
+			if len(c.Vec) > 0 {
+				vec = append(vec, sc{i, cosine(qVec, c.Vec)})
+			}
+		}
 	}
 	sort.Slice(vec, func(a, b int) bool { return vec[a].val > vec[b].val })
 

@@ -89,8 +89,8 @@ func negotiateVersion(params json.RawMessage) string {
 }
 
 // Server holds the memory store and the embedding backend it recalls against.
-// embed may be nil — the store then works without vectors (recall falls back to
-// salience order), which is what keeps the transport testable without a live
+// embed may be nil — the store then works without vectors (recall ranks by
+// keyword), which is what keeps the transport testable without a live
 // model.
 type Server struct {
 	DB *sql.DB
@@ -100,6 +100,9 @@ type Server struct {
 	vault      string
 	embed      *provider.Provider
 	embedModel string
+	// runtime is the local runtime whether or not it has an embedding model,
+	// so SetEmbedModel can turn embedding on after New found none.
+	runtime *provider.Provider
 	// Shell is how the user reaches this install from a terminal — `logos`,
 	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
 	// command use it; empty means `logos`.
@@ -167,8 +170,14 @@ func New(db *sql.DB, rt *router.Router, vault string) *Server {
 	if rt == nil {
 		return &Server{DB: db, vault: vault}
 	}
-	embed, _ := rt.Model(router.T0)
-	return &Server{DB: db, vault: vault, embed: rt.Local().Interactive(embedTimeout), embedModel: embed}
+	srv := &Server{DB: db, vault: vault, runtime: rt.Local().Interactive(embedTimeout)}
+	// No embedding model pulled — Ollama with only chat models — serves lexical
+	// rather than sending every tool call an embeddings request that can only
+	// fail. SetEmbedModel still turns embedding on for a model LOGOS_EMBED names.
+	if model, err := rt.Model(router.T0); err == nil {
+		srv.embed, srv.embedModel = srv.runtime, model
+	}
+	return srv
 }
 
 // embedTimeout bounds each embedding a tool call waits on; see
@@ -186,7 +195,7 @@ func (s *Server) SetEmbedModel(model string) {
 		s.embed, s.embedModel = nil, ""
 		return
 	}
-	s.embedModel = model
+	s.embed, s.embedModel = s.runtime, model
 }
 
 // EmbedModel is the embedding model the server queries with, "" when off.

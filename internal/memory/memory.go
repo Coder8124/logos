@@ -478,16 +478,17 @@ func sameFact(incoming, existing string) bool {
 // stays fresh — memory that is exercised persists, memory that never helps fades
 // in the ranking.
 func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) ([]Memory, error) {
-	if p == nil {
-		mems, err := All(db) // no embedding backend: fall back to everything, salience-first
-		return excludeNever(filterKind(mems, Procedure, false)), err
+	// With no embedding — no runtime, no model pulled, or LOGOS_EMBED=off — rank
+	// by keyword and still honour k. The fallback used to be every memory,
+	// salience-first: `recall "who owns billing" limit 3` on forty memories
+	// returned forty, and billing came first only if it happened to be salient.
+	var qvec []float32
+	if p != nil {
+		if vecs, err := p.Embed(embedModel, []string{query}); err == nil && len(vecs) > 0 {
+			qvec = vecs[0]
+		}
 	}
-	vecs, err := p.Embed(embedModel, []string{query})
-	if err != nil || len(vecs) == 0 {
-		mems, err := All(db)
-		return excludeNever(filterKind(mems, Procedure, false)), err
-	}
-	mems, err := recallByVec(db, vecs[0], k, query)
+	mems, err := recallByVec(db, qvec, k, query)
 	if err != nil {
 		return nil, err
 	}
@@ -558,9 +559,10 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 			return nil, err
 		}
 		m.Kind = Kind(kind)
-		if len(vec) == 0 {
-			continue
-		}
+		// A row with no vector stays a candidate. It is what a memory stored
+		// while no runtime answered looks like, and skipping it dropped that
+		// memory from recall and resume for good once a runtime came up — the
+		// lexical arm below can still find it; Fuse leaves it out of the vector arm.
 		mems = append(mems, m)
 		cands = append(cands, Candidate{ID: fmt.Sprint(m.ID), Text: m.Text, Vec: blobToFloats(vec)})
 	}
@@ -611,18 +613,14 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 	// The no-provider fallback must still honour the project, or scoping is a
 	// no-op on every machine without a model runtime — which since the MCP
 	// server learned to start without one is a supported configuration, not an
-	// edge case. Losing relevance ranking is acceptable here; leaking another
-	// project's facts is not.
-	if p == nil {
-		mems, err := AllInProject(db, project)
-		return excludeNever(filterKind(mems, Procedure, false)), err
+	// edge case. That fallback ranks by keyword alone; see Recall.
+	var qvec []float32
+	if p != nil {
+		if vecs, err := p.Embed(embedModel, []string{query}); err == nil && len(vecs) > 0 {
+			qvec = vecs[0]
+		}
 	}
-	vecs, err := p.Embed(embedModel, []string{query})
-	if err != nil || len(vecs) == 0 {
-		mems, err := AllInProject(db, project)
-		return excludeNever(filterKind(mems, Procedure, false)), err
-	}
-	mems, err := recallScoped(db, vecs[0], k, query, project, Procedure, false)
+	mems, err := recallScoped(db, qvec, k, query, project, Procedure, false)
 	if err != nil {
 		return nil, err
 	}
