@@ -208,13 +208,15 @@ func runResume(args []string) error {
 		return err
 	}
 	var embed *provider.Provider
-	var embedModel string
-	if rt != nil {
-		embedModel, _ = rt.Model(router.T0)
+	var model string
+	// LOGOS_EMBED=off is how the SessionStart hook keeps resume inside its
+	// timeout; see plugin/hooks/session-start.sh.
+	if _, ok := embedModel(); rt != nil && ok {
+		model, _ = rt.Model(router.T0)
 		embed = rt.Local()
 	}
 
-	pack, err := contextpack.Build(ix, embed, embedModel, contextpack.Request{
+	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Budget: budget, Since: contextpack.Since(since),
 	})
 	if err != nil {

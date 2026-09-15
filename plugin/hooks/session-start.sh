@@ -41,7 +41,13 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # nothing.
 # From inside the project, so resume can tell this repository's checkpoints
 # from those of another repository with the same folder name.
-handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && "${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
+#
+# LOGOS_EMBED=off: what gets injected is the checkpoint, which is markdown and
+# needs no vectors, but resume embeds its query three times on the way. A model
+# runtime slow to answer — loading the embedding model behind a large one —
+# took this past the 10 s hook timeout, and Claude Code killed the hook with no
+# restore and no reason.
+handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_EMBED=off "${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
 [ -z "$handoff" ] && exit 0
 
 # resume on a project with no checkpoint still returns context — standing
