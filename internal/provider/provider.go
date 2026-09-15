@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -64,6 +65,42 @@ type Discovered struct {
 	Models   []string
 }
 
+// Configured is the runtime LOGOS_RUNTIME names (LOGOS_RUNTIME_KEY for a bearer
+// token), or nil when it is unset. Discovery only probes localhost ports, so
+// this is the only way to reach a runtime on another host or a non-standard
+// port.
+func Configured() *Provider {
+	url := os.Getenv("LOGOS_RUNTIME")
+	if url == "" {
+		return nil
+	}
+	return New("configured", url, os.Getenv("LOGOS_RUNTIME_KEY"))
+}
+
+// Resolve is Discover, unless LOGOS_RUNTIME names a runtime, in which case that
+// runtime is the only candidate. It is what every long-lived caller resolves
+// through. `logos index` honoured LOGOS_RUNTIME and `mcp serve` did not, so the
+// server embedded queries on whatever answered on localhost — or, with the
+// configured runtime on another host, had no embeddings at all — while the
+// index had been built somewhere else.
+//
+// A configured runtime that does not answer is reported as none rather than
+// falling back to discovery: the user named where the model runs, and quietly
+// using a different runtime is how vectors end up from two models.
+func Resolve() []Discovered {
+	p := Configured()
+	if p == nil {
+		return Discover()
+	}
+	// Longer than discovery's probe: a configured runtime may be on another
+	// host, and a slow answer there is not an absent runtime.
+	models, err := listModels(&http.Client{Timeout: 2 * time.Second}, p.BaseURL, p.APIKey)
+	if err != nil {
+		return nil
+	}
+	return []Discovered{{p, models}}
+}
+
 // Discover probes the well-known ports and reports what is actually running.
 // This is what lets the app say "found LM Studio running Qwen3" on first launch
 // instead of presenting an empty endpoint configuration box.
@@ -72,27 +109,41 @@ func Discover() []Discovered {
 	var out []Discovered
 
 	for _, ep := range LocalEndpoints {
-		res, err := probe.Get(ep.URL + "/models")
+		models, err := listModels(probe, ep.URL, "")
 		if err != nil {
 			continue
-		}
-		var list struct {
-			Data []struct {
-				ID string `json:"id"`
-			} `json:"data"`
-		}
-		err = json.NewDecoder(res.Body).Decode(&list)
-		res.Body.Close()
-		if err != nil {
-			continue
-		}
-		models := make([]string, 0, len(list.Data))
-		for _, m := range list.Data {
-			models = append(models, m.ID)
 		}
 		out = append(out, Discovered{New(ep.Name, ep.URL, ""), models})
 	}
 	return out
+}
+
+func listModels(client *http.Client, baseURL, apiKey string) ([]string, error) {
+	req, err := http.NewRequest("GET", strings.TrimRight(baseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	var list struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(list.Data))
+	for _, m := range list.Data {
+		models = append(models, m.ID)
+	}
+	return models, nil
 }
 
 func (p *Provider) post(path string, body any, into any) error {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -45,23 +46,6 @@ func serveVault() (string, error) {
 // runMCPServe runs the memory MCP server on stdio, so any MCP host (Claude
 // Desktop, Claude Code, Cursor) can plug into the user's local memory.
 func runMCPServe() error {
-	// A missing runtime is not fatal here. Continuity — checkpoint, resume,
-	// note_progress, before_you_try — needs no model, and retrieval falls back
-	// to lexical, so the useful half of the server still runs. Refusing to start
-	// meant `logos setup` could wire four hosts, report success, and leave the
-	// user with a host that fails to connect.
-	rt, err := openRouterOptional()
-	if err != nil {
-		return err
-	}
-	if rt == nil {
-		// stderr, not stdout: stdout is the JSON-RPC transport and anything
-		// written there corrupts the stream. The host surfaces this in its logs.
-		fmt.Fprintln(os.Stderr,
-			"logos: no local model runtime found — serving with lexical retrieval; "+
-				"checkpoint, resume and before_you_try are unaffected")
-	}
-
 	vault, err := serveVault()
 	if err != nil {
 		return err
@@ -87,11 +71,50 @@ func runMCPServe() error {
 	}
 	defer ix.Close()
 
-	srv := mcpserver.New(ix.DB, rt, vault)
+	srv, err := newMCPServer(ix.DB, vault)
+	if err != nil {
+		return err
+	}
 	if self, err := selfPath(); err == nil {
 		srv.Shell, _ = terminalCommand(self)
 	}
 	return srv.Serve(os.Stdin, os.Stdout)
+}
+
+// newMCPServer builds the server both transports run. A missing runtime is
+// not fatal here. Continuity — checkpoint, resume, note_progress,
+// before_you_try — needs no model, and retrieval falls back to lexical, so the
+// useful half of the server still runs. Refusing to start meant `logos setup`
+// could wire four hosts, report success, and leave the user with a host that
+// fails to connect.
+func newMCPServer(db *sql.DB, vault string) (*mcpserver.Server, error) {
+	rt, err := openRouterOptional()
+	if err != nil {
+		return nil, err
+	}
+	if rt == nil {
+		// stderr, not stdout: stdout is the JSON-RPC transport and anything
+		// written there corrupts the stream. The host surfaces this in its logs.
+		fmt.Fprintln(os.Stderr,
+			"logos: no local model runtime found — serving with lexical retrieval; "+
+				"checkpoint, resume and before_you_try are unaffected")
+	}
+	srv := mcpserver.New(db, rt, vault)
+	// LOGOS_EMBED chooses the model `logos index` embeds the vault with, so the
+	// server has to query with the same one — see SetEmbedModel. Unset, both
+	// sides use the default and the router's choice stands.
+	if _, set := os.LookupEnv("LOGOS_EMBED"); set {
+		model, _ := embedModel()
+		srv.SetEmbedModel(model)
+	}
+	if rt != nil {
+		if model := srv.EmbedModel(); model != "" {
+			fmt.Fprintf(os.Stderr, "logos: %s at %s, embedding with %s\n", rt.Local().Name, rt.Local().BaseURL, model)
+		} else {
+			fmt.Fprintf(os.Stderr, "logos: %s at %s, no embedding model — lexical retrieval\n", rt.Local().Name, rt.Local().BaseURL)
+		}
+	}
+	return srv, nil
 }
 
 // runMCPServeHTTP is runMCPServe's local-network sibling: same Server, a
@@ -100,16 +123,6 @@ func runMCPServe() error {
 // AI's chat UI, see extension/ — can reach the same memory an MCP host on
 // stdio does.
 func runMCPServeHTTP(port int) error {
-	rt, err := openRouterOptional()
-	if err != nil {
-		return err
-	}
-	if rt == nil {
-		fmt.Fprintln(os.Stderr,
-			"logos: no local model runtime found — serving with lexical retrieval; "+
-				"checkpoint, resume and before_you_try are unaffected")
-	}
-
 	vault := vaultPath()
 	if _, err := os.Stat(vault); err != nil {
 		return missingVaultError(vault)
@@ -143,7 +156,10 @@ func runMCPServeHTTP(port int) error {
 	fmt.Printf("logos: web bridge listening on %s, paired for %v\n", addr, origins)
 	fmt.Printf("logos: pairing token: %s\n", token)
 
-	srv := mcpserver.New(ix.DB, rt, vault)
+	srv, err := newMCPServer(ix.DB, vault)
+	if err != nil {
+		return err
+	}
 	if self, err := selfPath(); err == nil {
 		srv.Shell, _ = terminalCommand(self)
 	}

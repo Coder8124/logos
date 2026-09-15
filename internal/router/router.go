@@ -57,7 +57,7 @@ func New(cfg *Config, vault string) (*Router, error) {
 	if cfg == nil {
 		cfg = Defaults()
 	}
-	found := provider.Discover()
+	found := provider.Resolve()
 	if len(found) == 0 {
 		return nil, ErrNoRuntime
 	}

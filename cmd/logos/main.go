@@ -470,8 +470,7 @@ func vaultPath() string { return vault.Path() }
 // on a non-standard port — and the only way to exercise the no-runtime path on a
 // machine that happens to have Ollama up.
 func findProvider() (*provider.Provider, error) {
-	if url := os.Getenv("LOGOS_RUNTIME"); url != "" {
-		p := provider.New("configured", url, os.Getenv("LOGOS_RUNTIME_KEY"))
+	if p := provider.Configured(); p != nil {
 		fmt.Fprintf(os.Stderr, "· runtime %s (LOGOS_RUNTIME)\n", p.BaseURL)
 		return p, nil
 	}

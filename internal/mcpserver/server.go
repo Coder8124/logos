@@ -171,6 +171,27 @@ func New(db *sql.DB, rt *router.Router, vault string) *Server {
 	return &Server{DB: db, vault: vault, embed: rt.Local(), embedModel: embed}
 }
 
+// SetEmbedModel overrides the router's embedding model; "" turns embeddings
+// off and retrieval runs lexical. The index is embedded with whatever
+// LOGOS_EMBED names, and a query vector from a different model has a different
+// length, so every cosine against the stored vectors is 0 — vector retrieval
+// dead with nothing to say so.
+func (s *Server) SetEmbedModel(model string) {
+	if model == "" {
+		s.embed, s.embedModel = nil, ""
+		return
+	}
+	s.embedModel = model
+}
+
+// EmbedModel is the embedding model the server queries with, "" when off.
+func (s *Server) EmbedModel() string {
+	if s.embed == nil {
+		return ""
+	}
+	return s.embedModel
+}
+
 // index wraps the open database as an Index so the context builder can search
 // vault prose. The struct is just a vault path and a handle; constructing it
 // here avoids a second connection to a single-connection SQLite file.
