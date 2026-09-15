@@ -128,11 +128,11 @@ var toolDefs = []map[string]any{
 		"annotations": reads(),
 		"description": "Pick up a project where the last agent — possibly a different tool — left off: their last checkpoint (what they were doing, decided, already tried and failed, what's open, next step), plus full project context. Use when the user says 'continue' or names a project you have no history with. Read what already failed before proposing anything." + relay,
 		"inputSchema": obj(map[string]any{
-			"project": str("the project to resume"),
+			"project": str("the project to resume; omit to resume the most recently checkpointed one"),
 			"agent":   str("optional: your name, e.g. 'claude' or 'cursor', recorded in the trail"),
 			"budget":  intSchema("approximate token ceiling for the result (default 4000)"),
 			"since":   enumStr("optional: how far back to look, overriding the inferred window", "day", "week", "month", "quarter", "year", "all"),
-		}, "project"),
+		}),
 	},
 	{
 		"name":        "before_you_try",

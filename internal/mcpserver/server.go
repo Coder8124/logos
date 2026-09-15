@@ -943,8 +943,22 @@ func writeList(b *strings.Builder, label string, items []string) {
 // all decides whether the worktree narrows it — see resolveContinuity.
 func (s *Session) resume(projectArg, agent string, budget int, since contextpack.Since) (string, error) {
 	project, worktree := s.resolveContinuity(projectArg)
+	chose := ""
 	if strings.TrimSpace(project) == "" {
-		return "", fmt.Errorf("resume needs a project%s", s.knownProjects())
+		// Hosts without hooks (Cursor, Codex, Claude Desktop) launched outside
+		// any repository give no project, and an error sent the user off to
+		// learn the name another tool filed the work under. The most recent
+		// checkpoint is the likeliest thing they mean by "resume"; saying which
+		// was picked lets the agent correct course if it was not. The worktree
+		// is dropped because it was read from where the host stands, not from
+		// the project being resumed.
+		ps := s.checkpointedProjects()
+		if len(ps) == 0 {
+			return "", fmt.Errorf("resume needs a project%s", s.knownProjects())
+		}
+		project, worktree = ps[0].name, ""
+		chose = fmt.Sprintf("_No project given and none to tell from where this host was launched — resuming %s, the most recently checkpointed project%s. Pass project to resume a different one._\n\n",
+			untrusted.Inline(project), s.knownProjects())
 	}
 	if err := session.Init(s.DB); err != nil {
 		return "", err
@@ -955,7 +969,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	if err != nil {
 		return "", err
 	}
-	out := s.lead(pack) + pack.Render()
+	out := chose + s.lead(pack) + pack.Render()
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and
 		// finds none will invent continuity that never existed.
@@ -1110,24 +1124,10 @@ func (s *Server) memoryDiff(subject string, days int) (string, error) {
 // other way to learn it from the refusal, and a host that launches the server
 // in / never supplies one.
 func (s *Server) knownProjects() string {
-	names, err := session.Projects(s.vault)
-	if err != nil {
-		return ""
-	}
-	type known struct {
-		name, agent string
-		ts          int64
-	}
-	var ps []known
-	for _, n := range names {
-		if h, err := session.History(s.vault, n, 1); err == nil && len(h) > 0 {
-			ps = append(ps, known{n, h[0].Agent, h[0].TS})
-		}
-	}
+	ps := s.checkpointedProjects()
 	if len(ps) == 0 {
 		return ""
 	}
-	sort.Slice(ps, func(i, j int) bool { return ps[i].ts > ps[j].ts })
 	const maxKnown = 5
 	if len(ps) > maxKnown {
 		ps = ps[:maxKnown]
@@ -1140,6 +1140,28 @@ func (s *Server) knownProjects() string {
 		}
 	}
 	return ". Known projects: " + strings.Join(parts, ", ")
+}
+
+type knownProject struct {
+	name, agent string
+	ts          int64
+}
+
+// checkpointedProjects lists the projects that have a checkpoint, most recent
+// first.
+func (s *Server) checkpointedProjects() []knownProject {
+	names, err := session.Projects(s.vault)
+	if err != nil {
+		return nil
+	}
+	var ps []knownProject
+	for _, n := range names {
+		if h, err := session.History(s.vault, n, 1); err == nil && len(h) > 0 {
+			ps = append(ps, knownProject{n, h[0].Agent, h[0].TS})
+		}
+	}
+	sort.Slice(ps, func(i, j int) bool { return ps[i].ts > ps[j].ts })
+	return ps
 }
 
 // listProjects enumerates the projects logos detected, most-recently-active

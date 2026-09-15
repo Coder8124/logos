@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 
 	_ "modernc.org/sqlite"
 )
@@ -400,7 +401,7 @@ func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T)
 	}); !ok {
 		t.Fatal("checkpoint failed")
 	}
-	for i, tool := range []string{"resume", "checkpoint", "note_progress"} {
+	for i, tool := range []string{"checkpoint", "note_progress"} {
 		line, ok := call(t, c, 4+i, tool, map[string]any{"text": "halfway"})
 		if !ok {
 			t.Fatalf("%s did not answer", tool)
@@ -408,6 +409,44 @@ func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T)
 		if !strings.Contains(line, "needs a project") || !strings.Contains(line, "kestrel (") {
 			t.Errorf("%s did not name the project that has a checkpoint:\n%s", tool, truncateForLog(line))
 		}
+	}
+}
+
+// Cursor, Codex and Claude Desktop have no hook to start continuity, and a host
+// launched in / gives no project to default to. "resume" on its own was an
+// error, so the user had to know the exact name the other tool filed the work
+// under. It resumes the most recently checkpointed project and says which, so
+// an agent that guessed wrong can tell the user and pass the right one.
+func TestResumeWithNoProjectPicksUpTheMostRecentlyCheckpointedOne(t *testing.T) {
+	t.Setenv("LOGOS_PROJECT", "")
+	t.Chdir("/")
+	c, db, vault := startServer(t)
+	handshake(t, c)
+	if err := session.Init(db); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, cp := range []session.Checkpoint{
+		{Project: "heron", Agent: "cursor", Next: "rewrite the heron importer", TS: time.Now().Add(-48 * time.Hour).Unix()},
+		{Project: "kestrel", Agent: "claude-code", Next: "quote the extruded option", TS: time.Now().Add(-time.Hour).Unix()},
+	} {
+		if err := session.Commit(db, vault, &cp); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, isErr := c.callText(t, "resume", map[string]any{})
+	if isErr {
+		t.Fatalf("resume with no project errored: %s", out)
+	}
+	if !strings.Contains(out, "quote the extruded option") {
+		t.Errorf("resume did not hand over the most recent checkpoint:\n%s", out)
+	}
+	if strings.Contains(out, "rewrite the heron importer") {
+		t.Errorf("resume handed over an older project's checkpoint:\n%s", out)
+	}
+	if !strings.Contains(out, "resuming kestrel") || !strings.Contains(out, "heron") {
+		t.Errorf("resume did not say which project it chose and what else there is:\n%s", out)
 	}
 }
 
