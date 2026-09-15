@@ -162,11 +162,14 @@ func TestAnOlderNpxSetupKeepsANewerPinnedCopyUnderYes(t *testing.T) {
 // Asked interactively, pressing return must not be the downgrade.
 func TestPressingReturnDoesNotDowngradeThePinnedCopy(t *testing.T) {
 	withVersion(t, "0.4.3")
-	withAnswers(t, "n\ny\n\n") // n: leave the temporary test vault unrecorded
+	withAnswers(t, "y\n\n")
 	home, out, _ := npxSetup(t, newerCopy(t))
 
 	if !strings.Contains(pinnedReports(t, home), "logos 0.4.9") {
 		t.Errorf("return at the downgrade prompt replaced the newer copy:\n%s", out)
+	}
+	if !strings.Contains(out, "--downgrade") {
+		t.Errorf("setup never reached the downgrade prompt:\n%s", out)
 	}
 }
 
@@ -179,7 +182,7 @@ func TestAChosenDowngradeReplacesThePinnedCopy(t *testing.T) {
 			return home, out
 		},
 		"answering y": func() (string, string) {
-			withAnswers(t, "n\ny\ny\n")
+			withAnswers(t, "y\ny\n")
 			home, out, _ := npxSetup(t, newerCopy(t))
 			return home, out
 		},

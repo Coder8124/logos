@@ -116,6 +116,14 @@ func setupCmd(args []string) error {
 	} else {
 		indexVault(dir)
 	}
+	// "This run only" has to be true of the hosts too: a host config outlives
+	// the run, so wiring them to a vault nobody recorded made it permanent.
+	// A dry run still previews the wiring: the real run asks, and may record it.
+	// A temporary vault recorded by an earlier run is already permanent, and
+	// refusing its hosts would only leave them on whatever they had before.
+	if rec == recordSkipTemp && vault.Recorded() != dir && !opts.dryRun && !opts.none {
+		return fmt.Errorf("no hosts were wired: %s was not recorded, and a host config would keep it after this run — pass --yes to record and wire it, or --vault somewhere that lasts", dir)
+	}
 	if err := wireHosts(dir, opts); err != nil {
 		return err
 	}
@@ -257,6 +265,21 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		return abs, created, recordFailed, nil
 	}
 	return abs, created, recordedHere, nil
+}
+
+// goRunBinary reports a binary inside a go-build directory, where `go run`
+// puts the executable it removes on exit. A `.test` binary lives there too,
+// but it is this package's tests calling setup, not a person wiring hosts.
+func goRunBinary(bin string) bool {
+	if strings.HasSuffix(bin, ".test") || strings.HasSuffix(bin, ".test.exe") {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(bin), "/") {
+		if strings.HasPrefix(part, "go-build") {
+			return true
+		}
+	}
+	return false
 }
 
 // looksLikeSourceTree reports a directory holding a Go or npm project and no
@@ -710,6 +733,13 @@ func wireHosts(vault string, opts wireOpts) error {
 		}
 	}
 	bin := srv.Bin
+	// `go run` builds into a go-build temp directory and deletes the binary
+	// when the command exits. Every check passes during the run, then no host
+	// can start the server.
+	if !opts.yes && goRunBinary(bin) {
+		return fmt.Errorf("%s is a `go run` build that Go deletes when this command exits — "+
+			"build one that stays (`go build -o ~/.local/bin/logos ./cmd/logos` or `go install ./cmd/logos`) and run setup from it, or pass --yes to wire this one anyway", bin)
+	}
 
 	known := detectHosts()
 	hosts, unmatched := setup.Only(known, opts.only)

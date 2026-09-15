@@ -44,6 +44,14 @@ func setupInFakeHome(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	dir := filepath.Join(t.TempDir(), "vault")
 	t.Setenv("LOGOS_VAULT", dir)
+	// Setup declines to wire hosts to a temporary vault nobody recorded, and
+	// t.TempDir is one. Moving TMPDIR makes this vault an ordinary directory, so
+	// the tests built on it exercise the prompts they are about.
+	tmp := filepath.Join(home, "tmp")
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", tmp)
 	return dir
 }
 
