@@ -84,8 +84,20 @@
     width: 36px; height: 36px; border-radius: 18px; border: none;
     background: #222; color: #fff; font-size: 16px; cursor: pointer;
   `;
-  function renderStatus(text) {
-    panel.innerHTML = `<div style="padding:12px">${text}</div>`;
+  // The panel is built from nodes, never from markup strings: error text and
+  // tool descriptions come from the bridge, and anything that ever echoes
+  // vault content must not become markup inside chatgpt.com.
+  function el(tag, style, text) {
+    const node = document.createElement(tag);
+    if (style) node.style.cssText = style;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function renderStatus(...children) {
+    const box = el("div", "padding:12px");
+    box.append(...children);
+    panel.replaceChildren(box);
   }
 
   async function renderTools() {
@@ -95,14 +107,13 @@
       const result = await callLogos("tools/list", {});
       tools = result.tools || [];
     } catch (e) {
-      renderStatus(
-        `<b>not connected</b><br>${e.message}<br><br>` +
-        `<a href="#" id="logos-open-options">open pairing settings</a>`
-      );
-      panel.querySelector("#logos-open-options")?.addEventListener("click", (ev) => {
+      const open = el("a", "", "open pairing settings");
+      open.href = "#";
+      open.addEventListener("click", (ev) => {
         ev.preventDefault();
         window.open(chrome.runtime.getURL("options.html"));
       });
+      renderStatus(el("b", "", "not connected"), el("br"), e.message, el("br"), el("br"), open);
       return;
     }
 
@@ -112,16 +123,22 @@
     const primary = ["recall", "remember"];
     const rows = tools
       .sort((a, b) => (primary.includes(b.name) ? 1 : 0) - (primary.includes(a.name) ? 1 : 0))
-      .map(
-        (t) => `
-      <div style="border-bottom:1px solid #eee;padding:8px 12px">
-        <div style="font-weight:600">${t.name}</div>
-        <div style="color:#666;font-size:12px;margin:2px 0 6px">${(t.description || "").split(".")[0]}.</div>
-        <button data-tool="${t.name}" class="logos-run">run</button>
-      </div>`
-      )
-      .join("");
-    panel.innerHTML = `<div style="padding:8px 12px;font-weight:700;border-bottom:1px solid #ddd">logos memory</div>${rows}`;
+      .map((t) => {
+        const row = el("div", "border-bottom:1px solid #eee;padding:8px 12px");
+        const run = el("button", "", "run");
+        run.dataset.tool = t.name;
+        run.className = "logos-run";
+        row.append(
+          el("div", "font-weight:600", t.name),
+          el("div", "color:#666;font-size:12px;margin:2px 0 6px", `${(t.description || "").split(".")[0]}.`),
+          run
+        );
+        return row;
+      });
+    panel.replaceChildren(
+      el("div", "padding:8px 12px;font-weight:700;border-bottom:1px solid #ddd", "logos memory"),
+      ...rows
+    );
 
     panel.querySelectorAll(".logos-run").forEach((btn) => {
       btn.addEventListener("click", async () => {
