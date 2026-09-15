@@ -808,6 +808,9 @@ func doctorIntegration() error {
 func gatherHealth() health.Report {
 	vault := vaultPath()
 	in := health.Input{Vault: vault, EmbedModel: env("LOGOS_EMBED", defaultEmbedModel), Hosts: setup.Hosts(), Version: buildinfo.Version}
+	if self, err := selfPath(); err == nil {
+		in.Self = self
+	}
 
 	// Stat before opening, because index.Open creates <vault>/.logos and that
 	// brings the vault itself into existence. Opening it here meant doctor made

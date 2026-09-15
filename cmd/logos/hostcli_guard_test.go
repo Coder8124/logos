@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/testenv"
 )
 
@@ -14,6 +15,9 @@ import (
 const runMainEnv = "LOGOS_TEST_RUN_MAIN"
 
 func TestMain(m *testing.M) {
+	// The developer's own Homebrew logos would be reported by every setup and
+	// doctor a test runs; a test that wants one supplies its own prefix.
+	health.HomebrewPrefixes = func() []string { return nil }
 	if args, ok := os.LookupEnv(runMainEnv); ok {
 		os.Args = append([]string{"logos"}, strings.Split(args, "\x1f")...)
 		main()

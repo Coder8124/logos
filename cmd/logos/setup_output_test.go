@@ -413,3 +413,32 @@ func TestSetupSaysHowToUpdateAPluginOlderThanThisLogos(t *testing.T) {
 		t.Errorf("setup skipped an outdated plugin without saying how to update it:\n%s", out)
 	}
 }
+
+// A copy an npx setup pinned in ~/.local/bin stays ahead of Homebrew on PATH,
+// so `logos setup` after `brew install` ran the old copy and wired every host
+// to it, saying nothing about the install `brew upgrade` actually updates.
+func TestSetupRunFromAnOldCopyNamesTheHomebrewInstallItDidNotWire(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Cursor")
+	home := os.Getenv("HOME")
+	prefix := filepath.Join(home, "homebrew")
+	fakeProgram(t, filepath.Join(prefix, "opt", "logos-mcp", "bin"), "logos", `echo "logos 0.4.3 darwin/arm64 go1.26"`)
+	pinDir := filepath.Join(home, ".local", "bin")
+	fakeProgram(t, pinDir, "logos", `echo "logos 0.4.2 darwin/arm64 go1.26"`)
+	pin, _ := filepath.EvalSymlinks(filepath.Join(pinDir, "logos"))
+
+	oldExe, oldPrefixes := executable, health.HomebrewPrefixes
+	executable = func() (string, error) { return pin, nil }
+	health.HomebrewPrefixes = func() []string { return []string{prefix} }
+	t.Cleanup(func() { executable, health.HomebrewPrefixes = oldExe, oldPrefixes })
+	withVersion(t, "v0.4.2")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+	if !strings.Contains(out, "Homebrew's logos 0.4.3") || !strings.Contains(out, "remove "+pin) {
+		t.Errorf("setup from an old copy did not name the Homebrew install:\n%s", out)
+	}
+}

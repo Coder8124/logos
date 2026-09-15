@@ -1061,6 +1061,13 @@ func wireHosts(vault string, opts wireOpts) error {
 	cmd, hint := "logos", ""
 	if self, err := selfPath(); err == nil {
 		cmd, hint = terminalCommand(self)
+		// The hosts were just wired to this copy while another logos is the
+		// one that upgrades, or the one the shell runs; "not on your PATH"
+		// would misname that.
+		if c := health.CheckOtherInstall(self, version); c.State == health.Warn {
+			fmt.Printf("\n  %s\n  → %s\n", c.Detail, c.Fix)
+			hint = ""
+		}
 	}
 	tryTheHandoff(os.Stdout, wiredHosts, cmd, hint)
 	return nil
