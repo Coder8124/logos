@@ -869,9 +869,17 @@ func checkOtherVault(hosts []setup.Host, recorded string) (Check, bool) {
 // 0.1.2 against 0.4.2 with nothing saying so. ok is false when no plugin is
 // installed: most people running doctor never used it.
 func checkPlugin(version string) (c Check, ok bool) {
+	c = CheckPlugin(version)
+	return c, c.Name != ""
+}
+
+// CheckPlugin is checkPlugin for setup, which skips Claude Code on the
+// plugin's account and so owes the same warning. A zero Check means no plugin
+// connects Claude Code.
+func CheckPlugin(version string) (c Check) {
 	pluginVersion, installed := setup.LogosPlugin()
 	if !installed {
-		return Check{}, false
+		return Check{}
 	}
 	c = Check{Name: "Claude Code plugin"}
 	plugin, pluginOK := releaseNumber(pluginVersion)
@@ -879,14 +887,14 @@ func checkPlugin(version string) (c Check, ok bool) {
 	if !pluginOK || !binaryOK {
 		c.State = Unknown
 		c.Detail = fmt.Sprintf("plugin %q installed; this logos (%s) has no release number to compare it with", pluginVersion, version)
-		return c, true
+		return c
 	}
 	for i := range plugin {
 		if plugin[i] < binary[i] {
 			c.State = Warn
 			c.Detail = fmt.Sprintf("the Logos plugin is %s but this logos is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
 			c.Fix = "run `claude plugin marketplace update logos && claude plugin update logos@logos`, then restart Claude Code"
-			return c, true
+			return c
 		}
 		if plugin[i] > binary[i] {
 			break
@@ -894,7 +902,7 @@ func checkPlugin(version string) (c Check, ok bool) {
 	}
 	c.State = OK
 	c.Detail = "plugin " + pluginVersion
-	return c, true
+	return c
 }
 
 // releaseNumber reads "0.4.3" or "v0.4.3". Anything else — dev, a pseudo

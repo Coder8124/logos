@@ -445,32 +445,81 @@ func onPath(bin string) bool {
 	return err == nil
 }
 
-// LogosPlugin reports whether the Logos plugin is installed in Claude Code, and
-// at which version. The plugin carries its own MCP server, so registering logos
+// PluginRecord is what Claude Code's own files say about the Logos plugin.
+type PluginRecord struct {
+	Version   string
+	Installed bool // some logos@ install is recorded
+	Connects  bool // it gives Claude Code Logos in every project
+	Why       string
+}
+
+// LogosPlugin reports whether the Logos plugin connects Claude Code, and at
+// which version. The plugin carries its own MCP server, so registering logos
 // with `claude mcp add` on top of it lists every tool twice and pays the
-// per-session cost twice. Claude Code records installed plugins in this file,
-// keyed "<plugin>@<marketplace>".
-func LogosPlugin() (version string, installed bool) {
+// per-session cost twice.
+func LogosPlugin() (version string, connects bool) {
+	r := LogosPluginRecord()
+	return r.Version, r.Connects
+}
+
+// LogosPluginRecord reads the plugin's install record. Claude Code records
+// installed plugins in installed_plugins.json, keyed "<plugin>@<marketplace>",
+// and the on/off switch separately in settings.json's enabledPlugins.
+//
+// Any logos@ key used to count as connected, so a plugin turned off in
+// /plugin, or installed for a single project, made setup skip Claude Code and
+// leave it with no Logos anywhere else. Only an install at user (or managed)
+// scope that the user settings do not disable counts. A disable in one
+// project's settings cannot be seen from here, which Why says.
+func LogosPluginRecord() PluginRecord {
 	path := inHome(".claude", "plugins", "installed_plugins.json")
 	if path == "" {
-		return "", false
+		return PluginRecord{}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", false
+		return PluginRecord{}
 	}
 	var reg struct {
 		Plugins map[string][]struct {
-			Version string `json:"version"`
+			Scope       string `json:"scope"`
+			ProjectPath string `json:"projectPath"`
+			Version     string `json:"version"`
 		} `json:"plugins"`
 	}
 	if json.Unmarshal(raw, &reg) != nil {
-		return "", false
+		return PluginRecord{}
 	}
+	var enabled struct {
+		EnabledPlugins map[string]bool `json:"enabledPlugins"`
+	}
+	if settings, err := os.ReadFile(inHome(".claude", "settings.json")); err == nil {
+		_ = json.Unmarshal(settings, &enabled)
+	}
+	// Map order is random, so a disabled logos@ from one marketplace must not
+	// hide an enabled one from another.
+	var found PluginRecord
 	for key, installs := range reg.Plugins {
-		if strings.HasPrefix(key, "logos@") && len(installs) > 0 {
-			return installs[0].Version, true
+		if !strings.HasPrefix(key, "logos@") || len(installs) == 0 {
+			continue
 		}
+		r := PluginRecord{Version: installs[0].Version, Installed: true}
+		if on, set := enabled.EnabledPlugins[key]; set && !on {
+			r.Why = "installed but disabled in Claude Code"
+			found = r
+			continue
+		}
+		for _, in := range installs {
+			if in.Scope == "" || in.Scope == "user" || in.Scope == "managed" {
+				r.Version, r.Connects = in.Version, true
+				return r
+			}
+		}
+		r.Why = "installed only for " + installs[0].ProjectPath
+		if installs[0].ProjectPath == "" {
+			r.Why = "installed at " + installs[0].Scope + " scope only"
+		}
+		found = r
 	}
-	return "", false
+	return found
 }

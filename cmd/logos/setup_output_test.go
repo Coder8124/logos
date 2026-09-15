@@ -355,3 +355,61 @@ func TestSetupKeepsAVaultWithHistoryEvenIfItHoldsAGoModule(t *testing.T) {
 		}
 	})
 }
+
+// installPluginRecord writes Claude Code's installed-plugins record, and its
+// settings when given, into the fake HOME.
+func installPluginRecord(t *testing.T, manifest, settings string) {
+	t.Helper()
+	claude := filepath.Join(os.Getenv("HOME"), ".claude")
+	if err := os.MkdirAll(filepath.Join(claude, "plugins"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claude, "plugins", "installed_plugins.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if settings != "" {
+		if err := os.WriteFile(filepath.Join(claude, "settings.json"), []byte(settings), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// With the plugin turned off, setup still said "already connected by the
+// Logos plugin" and wired nothing, leaving Claude Code with no Logos.
+func TestSetupWiresClaudeCodeWhenTheLogosPluginIsDisabled(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Claude Code")
+	installPluginRecord(t, `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.4.3"}]}}`, `{"enabledPlugins":{"logos@logos":false}}`)
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+	if !strings.Contains(out, fmt.Sprintf("%-*s ✓", hostColumn, "Claude Code")) {
+		t.Errorf("Claude Code was not wired though the plugin is disabled:\n%s", out)
+	}
+	if !strings.Contains(out, "disabled") {
+		t.Errorf("setup did not say why it wired Claude Code despite the plugin:\n%s", out)
+	}
+}
+
+// A plugin older than the binary runs old hooks against a new server, and the
+// setup run that skipped Claude Code because of it said nothing.
+func TestSetupSaysHowToUpdateAPluginOlderThanThisLogos(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Claude Code")
+	installPluginRecord(t, `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.1.2"}]}}`, "")
+	old := version
+	version = "v0.4.3"
+	t.Cleanup(func() { version = old })
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+	if !strings.Contains(out, "claude plugin update logos@logos") {
+		t.Errorf("setup skipped an outdated plugin without saying how to update it:\n%s", out)
+	}
+}

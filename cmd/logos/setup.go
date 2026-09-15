@@ -789,14 +789,22 @@ func wireHosts(vault string, opts wireOpts) error {
 	// who ran both had logos registered twice in Claude Code. The plugin
 	// already connects it, so Claude Code is left out and the reason printed.
 	pluginNote := ""
-	if version, ok := setup.LogosPlugin(); ok {
+	plugin := setup.LogosPluginRecord()
+	if plugin.Connects {
 		kept := hosts[:0:0]
 		for _, h := range hosts {
 			if h.Name == "Claude Code" {
-				if version != "" {
-					version = " " + version
+				pv := ""
+				if plugin.Version != "" {
+					pv = " " + plugin.Version
 				}
-				pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, version)
+				pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, pv)
+				// Skipping Claude Code on an old plugin's say-so left its
+				// old hooks running against this server with nothing said;
+				// doctor's check is the one that knows how to compare.
+				if c := health.CheckPlugin(version); c.State == health.Warn {
+					pluginNote += fmt.Sprintf("    %-*s    %s — %s\n", hostColumn, "", c.Detail, c.Fix)
+				}
 				continue
 			}
 			kept = append(kept, h)
@@ -986,7 +994,13 @@ func wireHosts(vault string, opts wireOpts) error {
 			// plugin's hooks, so nothing restores the last checkpoint when a
 			// session starts. A user who never hears of the plugin never gets
 			// the part of the product that works without being asked.
-			if r.Host == "Claude Code" {
+			// A plugin that is installed but does not count is said, so the
+			// row does not read as setup ignoring it, or telling the user to
+			// install what they already have.
+			if r.Host == "Claude Code" && plugin.Installed {
+				fmt.Printf("    %-*s    the Logos plugin is %s (unless enabled per project), so Claude Code is registered directly;\n", hostColumn, "", plugin.Why)
+				fmt.Printf("    %-*s    to use the plugin instead, enable it for your user in /plugin, then `claude mcp remove --scope user logos`\n", hostColumn, "")
+			} else if r.Host == "Claude Code" {
 				fmt.Printf("    %-*s    for resume at every session start, install the Logos plugin in Claude Code:\n", hostColumn, "")
 				fmt.Printf("    %-*s    /plugin marketplace add Coder8124/logos, then /plugin install logos@logos,\n", hostColumn, "")
 				fmt.Printf("    %-*s    then `claude mcp remove --scope user logos` so it is not registered twice\n", hostColumn, "")
@@ -1225,7 +1239,7 @@ func mcpUninstallCmd(args []string) error {
 	}
 	// The plugin carries its own server, which no host config holds, so only
 	// Claude Code can take it out.
-	if _, ok := setup.LogosPlugin(); ok {
+	if setup.LogosPluginRecord().Installed {
 		fmt.Printf("\n  %-*s still installed — remove it in Claude Code with /plugin uninstall logos@logos\n", hostColumn, "plugin")
 	}
 	fmt.Printf("\n  %-*s left untouched at %s — delete it yourself if you want the memory gone too\n", hostColumn, "vault", vaultPath())
