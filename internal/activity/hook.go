@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/text"
 )
 
@@ -15,8 +16,7 @@ import (
 // we do not ship and cannot version-lock, and the cost of being strict is that
 // a field rename upstream turns the whole record off — silently, because a hook
 // that exits non-zero is a hook nobody notices. So every field is optional,
-// every unknown shape still produces a row, and anything not understood is kept
-// verbatim in Extra rather than dropped.
+// and every unknown shape still produces a row.
 //
 // The one thing never done here: guessing. A summary is built from fields the
 // payload actually contains, and when there is nothing to say the row says the
@@ -73,14 +73,13 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 		}
 	}
 	e.Tool = str(p, "tool_name")
-	e.Summary = summarize(kind, e.Tool, p)
-
-	// What we did not model. Keeping the input but not the response: a tool
-	// result can be megabytes, and a log that grows with the size of everything
-	// an agent has ever read is a log that gets deleted.
-	if in, ok := p["tool_input"].(map[string]any); ok && len(in) > 0 {
-		e.Extra = map[string]any{"tool_input": in}
-	}
+	// The summary is all that is kept of a tool call. The input used to be
+	// stored whole — every Write's content, every Edit's old and new text,
+	// every shell command — unredacted, in a log nobody chose to write. A shell
+	// command still reaches the summary, so it is masked the way ingest masks a
+	// transcript: an `export API_KEY=…` typed in a session must not land in the
+	// vault in the clear.
+	e.Summary = ingest.Redact(summarize(kind, e.Tool, p))
 	return e, nil
 }
 
@@ -129,8 +128,7 @@ func toolDetail(tool string, in map[string]any) string {
 			return tool + " " + v
 		}
 	}
-	// A tool we have no special knowledge of. Naming it is honest and enough;
-	// the full input is in Extra for anyone who wants it.
+	// A tool we have no special knowledge of. Naming it is honest and enough.
 	return tool
 }
 

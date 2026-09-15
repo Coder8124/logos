@@ -857,13 +857,14 @@ func runIndex(watch bool) error {
 
 	// A vault someone put under git must never be offered .logos/ to commit —
 	// it is a rebuildable cache, and two people sharing a vault over git would
-	// otherwise fight a merge conflict in a SQLite file on every pull. Runs
+	// otherwise fight a merge conflict in a SQLite file on every pull — nor the
+	// activity log, which is every command and file path a host reported. Runs
 	// every time and reports only the run that actually changed something, so
 	// `logos index` calling this on every invocation never turns into noise.
 	if wrote, err := vault.EnsureGitignore(ix.Vault); err != nil {
 		fmt.Fprintln(os.Stderr, "· could not update .gitignore:", err)
 	} else if wrote {
-		fmt.Println("· added .logos/ to .gitignore")
+		fmt.Println("· .gitignore now keeps .logos/ and activity/ out of git")
 	}
 
 	// Sync is pure file reading — it needs no model, and it is what keeps the

@@ -173,8 +173,7 @@ func recordActivity(args []string) error {
 	}
 
 	// A plan a person approved in ExitPlanMode is worth more than an audit-log
-	// row: the activity log rolls off under capture retention, and that plan
-	// is exactly the artifact retention should never quietly take. Save it as
+	// row, which keeps only a one-line summary of the call. Save it as
 	// its own vault note in addition to the row just appended above. A host
 	// only reaches PostToolUse for ExitPlanMode once the plan is approved (a
 	// denial never gets past PreToolUse), so every call here is safe to keep.

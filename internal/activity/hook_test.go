@@ -1,6 +1,10 @@
 package activity
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestPostToolUseNamesTheThingThatHappened(t *testing.T) {
 	raw := []byte(`{"session_id":"a2b97274-634b-4129-9c0f-11","cwd":"/Users/x/kestrel",
@@ -88,8 +92,26 @@ func TestToolResponseIsNotStored(t *testing.T) {
 	if _, ok := e.Extra["tool_response"]; ok {
 		t.Error("tool responses must not be kept — the log would grow without bound")
 	}
-	if _, ok := e.Extra["tool_input"]; !ok {
-		t.Error("the input is the part worth keeping")
+}
+
+// The input used to be kept whole: every Write's content, every Edit's old
+// and new text, every shell command, unredacted, in a log nothing prunes and
+// nothing mentions. The one-line summary is what a reader of the log uses, so
+// that is all that is kept, with secrets masked the way ingest masks them.
+func TestToolInputBodiesAreNotStoredAndTheSummaryIsRedacted(t *testing.T) {
+	raw := []byte(`{"tool_name":"Write","tool_input":{"file_path":"config.env","content":"STRIPE=sk_live_abcdefghijklmnopqrstuvwxyz0123"}}`)
+	e, _ := FromHook("PostToolUse", raw, "kestrel")
+	if len(e.Extra) != 0 || e.Summary != "Write config.env" {
+		t.Errorf("a Write kept more than its path: summary %q, extra %v", e.Summary, e.Extra)
+	}
+
+	raw = []byte(`{"tool_name":"Bash","tool_input":{"command":"curl -H 'Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789' https://api.github.com"}}`)
+	e, _ = FromHook("PostToolUse", raw, "kestrel")
+	if strings.Contains(e.Summary, "ghp_") || strings.Contains(fmt.Sprint(e.Extra), "ghp_") {
+		t.Errorf("a token in a shell command was stored: summary %q, extra %v", e.Summary, e.Extra)
+	}
+	if !strings.HasPrefix(e.Summary, "Bash: curl") {
+		t.Errorf("redaction should mask the token, not the command: %q", e.Summary)
 	}
 }
 

@@ -106,11 +106,30 @@ func TestEnsureGitignoreRecognizesAnExistingLogosRuleWrittenByHand(t *testing.T)
 		t.Fatal(err)
 	}
 
+	if _, err := EnsureGitignore(dir); err != nil {
+		t.Fatalf("EnsureGitignore: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if strings.Contains(string(got), ".logos/") {
+		t.Errorf("a hand-written .logos rule should already cover the cache, and it was added again:\n%s", got)
+	}
+}
+
+// The activity log records every prompt and tool call a host reports. It is
+// a local audit trail, not something a vault shared over git should publish
+// with every commit. A rule that merely mentions the word is not one that keeps
+// the log out.
+func TestEnsureGitignoreKeepsTheActivityLogOutOfGit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".logos/\nsrc/activity.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	wrote, err := EnsureGitignore(dir)
 	if err != nil {
 		t.Fatalf("EnsureGitignore: %v", err)
 	}
-	if wrote {
-		t.Error("a hand-written .logos rule should already satisfy this, without another write")
+	got, _ := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if !wrote || !strings.Contains(string(got), "\nactivity/\n") {
+		t.Errorf("a vault already ignoring .logos/ should gain activity/ too (wrote %v):\n%s", wrote, got)
 	}
 }

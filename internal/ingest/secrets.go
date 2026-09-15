@@ -87,6 +87,13 @@ func redactCandidateText(c *Candidate) []Redaction {
 	return found
 }
 
+// Redact masks every secret-shaped substring of s, for callers outside ingest
+// that store text a host handed them without anyone choosing to write it.
+func Redact(s string) string {
+	out, _ := redactText("", s)
+	return out
+}
+
 // redactText masks every secret-shaped substring of s and reports what it
 // found. field is carried through only for the report, not for matching.
 func redactText(field, s string) (string, []Redaction) {
