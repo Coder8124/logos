@@ -779,7 +779,18 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Println("\n  --dry-run: nothing was written.")
 		return nil
 	}
-	if !opts.yes && !confirm(fmt.Sprintf("\n  wire %d host(s)?", present)) {
+	wire := opts.yes
+	if !wire {
+		answer, ok := readAnswer(fmt.Sprintf("\n  wire %d host(s)? [Y/n] ", present))
+		// Nobody there to ask is not a no. Exiting 0 let a provisioning script
+		// (`brew install … && logos setup`) take a run that wired nothing as a
+		// success; the user found out when their AI tool had no Logos.
+		if !ok {
+			return fmt.Errorf("nothing was wired: no terminal to ask — re-run with --yes to wire the %d host(s) found", present)
+		}
+		wire = answer == "" || answer == "y" || answer == "yes"
+	}
+	if !wire {
 		fmt.Println("  skipped; re-run `logos mcp install` when you are ready")
 		// The prompt cannot pick a subset, so the way to wire some of these is
 		// printed with each found host's spelling, ready to trim and paste.
