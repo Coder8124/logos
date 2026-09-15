@@ -297,3 +297,53 @@ func TestADryRunDoesNotSayTheVaultMoved(t *testing.T) {
 		t.Errorf("a dry run said the vault moved:\n%s", out)
 	}
 }
+
+// The README's source route cloned logos into ~ and ran setup, and the clone
+// was ~/logos — setup's default vault. Setup took the checkout without a word,
+// indexed the repository's own markdown as notes, and would have written the
+// user's memory inside a tree a `git clean` deletes.
+func TestSetupRefusesASourceCheckoutNobodyChoseAsTheVault(t *testing.T) {
+	setupInFakeHome(t)
+	t.Setenv("LOGOS_VAULT", "")
+	fakeHosts(t, "Fakey Cursor")
+	checkout := filepath.Join(os.Getenv("HOME"), "logos")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "go.mod"), []byte("module github.com/Coder8124/logos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	captureStdout(t, func() { err = setupCmd([]string{"--yes"}) })
+
+	if err == nil || !strings.Contains(err.Error(), "--vault") {
+		t.Fatalf("setup took a source checkout as the vault: err=%v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(checkout, "sessions")); statErr == nil {
+		t.Errorf("setup wrote into the checkout before refusing it")
+	}
+	if vault.Pointer() != "" {
+		t.Errorf("setup recorded the checkout as this machine's vault: %s", vault.Pointer())
+	}
+}
+
+// A vault that already holds memory is a vault, whatever else sits in it.
+func TestSetupKeepsAVaultWithHistoryEvenIfItHoldsAGoModule(t *testing.T) {
+	setupInFakeHome(t)
+	t.Setenv("LOGOS_VAULT", "")
+	fakeHosts(t, "Fakey Cursor")
+	dir := filepath.Join(os.Getenv("HOME"), "logos")
+	if err := os.MkdirAll(filepath.Join(dir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	captureStdout(t, func() {
+		if err := setupCmd([]string{"--yes"}); err != nil {
+			t.Fatalf("setup refused a vault that already has sessions: %v", err)
+		}
+	})
+}

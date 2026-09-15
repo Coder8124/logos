@@ -99,7 +99,7 @@ alone.
 From source, if you have Go:
 
 ```sh
-git clone https://github.com/Coder8124/logos && cd logos
+git clone https://github.com/Coder8124/logos ~/src/logos && cd ~/src/logos
 go build -o bin/logos ./cmd/logos && ./bin/logos setup
 ```
 

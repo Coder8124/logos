@@ -204,6 +204,13 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		// empty vault at the mount path.
 		return "", false, recordFailed, missingVaultError(abs)
 	}
+	if flagStr(args, "--vault", "") == "" && !fromEnv && looksLikeSourceTree(abs) {
+		// Nobody chose this directory; it is the default, and it is a project.
+		// `git clone …/logos` run in ~ lands exactly on ~/logos, and taking it
+		// indexes the repository's markdown as notes and puts the user's memory
+		// inside a tree `git clean` or a re-clone deletes.
+		return "", false, recordFailed, fmt.Errorf("%s looks like a source checkout, not a vault — pass --vault <dir> to choose where the vault goes", abs)
+	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) {
 		created = true
 		if !dryRun {
@@ -250,6 +257,24 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		return abs, created, recordFailed, nil
 	}
 	return abs, created, recordedHere, nil
+}
+
+// looksLikeSourceTree reports a directory holding a Go or npm project and no
+// Logos history. A vault with sessions or memories is a vault whatever else is
+// in it; a plain git repository is not enough, since notes vaults are often
+// kept in git.
+func looksLikeSourceTree(dir string) bool {
+	for _, d := range []string{"sessions", "memories"} {
+		if _, err := os.Stat(filepath.Join(dir, d)); err == nil {
+			return false
+		}
+	}
+	for _, f := range []string{"go.mod", "package.json"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // checkRuntime reports the local model runtime and offers to pull what is
