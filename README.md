@@ -85,8 +85,12 @@ handoff in front of the model before it does anything:
 Anywhere else — no Go toolchain, no clone, no build:
 
 ```sh
-npx -y @noeton/logos setup
+brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
+npx -y @noeton/logos setup                             # anywhere with Node
 ```
+
+The formula is `logos-mcp` from the `coder8124/tap` tap: a bare `brew install
+logos` installs Logos Bible Software. Update with `brew upgrade logos-mcp`.
 
 `setup` picks a vault, finds your local model runtime, runs the first index, and
 then shows you which agents it would wire and asks before touching any of them.

@@ -54,8 +54,14 @@ One click, for the other hosts:
 Or one command, for everything else:
 
 ```sh
-npx -y @noeton/logos setup
+brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
+npx -y @noeton/logos setup                             # anywhere with Node
 ```
+
+With Homebrew, the formula is `logos-mcp` from the `coder8124/tap` tap — a bare
+`brew install logos` installs Logos Bible Software — and the command it installs
+is still `logos`. Update with `brew upgrade logos-mcp`, not `logos update`: hosts
+are wired to brew's `opt` path, which survives the upgrade.
 
 No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
 for your platform (~5 MB over the wire: the platform packages are gated on `os`
