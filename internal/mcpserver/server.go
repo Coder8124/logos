@@ -145,6 +145,10 @@ type Session struct {
 	project     string
 	projectOnce sync.Once
 
+	// hasRoots is whether the host declared the roots capability, and so can be
+	// asked which folder is open. See askRoots.
+	hasRoots bool
+
 	// clientAgent is who the MCP host said it is at handshake — "claude-code",
 	// "cursor", "codex" — read once from initialize and never asked of the
 	// model. See identity.go. Empty for a host that omits clientInfo, or before
@@ -250,6 +254,11 @@ type request struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+
+	// Result and Error are set only on the host's answer to a request this
+	// server sent, such as roots/list.
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  json.RawMessage `json:"error,omitempty"`
 }
 
 // Serve runs the request loop until stdin closes. Read errors end the loop;
@@ -291,9 +300,50 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 	// answered, so a late cancel for a finished call is not kept forever.
 	var pendingMu sync.Mutex
 	pending := map[string]bool{} // request id → cancelled
+
+	// Cursor, Cline and Claude Desktop start the server in / or their own
+	// folder and send no roots at initialize, so the folder the user has open
+	// is only known by asking. The worker asks and waits for the answer before
+	// taking the next request, so a tool call the host sent meanwhile is scoped
+	// by it rather than by wherever the server was started. rootsWant is the id
+	// of the roots/list request still unanswered; the reader hands its answer
+	// over on rootsGot.
+	rootsWant := ""
+	rootsGot := make(chan []string, 1)
+	rootsAsked := 0
+	askRoots := func() {
+		// An answer that arrived just as an earlier wait timed out is stale.
+		select {
+		case <-rootsGot:
+		default:
+		}
+		rootsAsked++
+		id := "logos-roots-" + strconv.Itoa(rootsAsked)
+		pendingMu.Lock()
+		rootsWant = `"` + id + `"`
+		pendingMu.Unlock()
+		sendMu.Lock()
+		out.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "method": "roots/list"})
+		sendMu.Unlock()
+		select {
+		case roots := <-rootsGot:
+			sess.setRoots(roots)
+		case <-time.After(rootsTimeout):
+			pendingMu.Lock()
+			rootsWant = ""
+			pendingMu.Unlock()
+		}
+	}
+
 	go func() {
 		defer close(done)
 		for req := range work {
+			if req.Method == "notifications/initialized" || req.Method == "notifications/roots/list_changed" {
+				if sess.hasRoots && (req.Method != "notifications/initialized" || len(sess.roots) == 0) {
+					askRoots()
+				}
+				continue
+			}
 			key := idKey(req.ID)
 			pendingMu.Lock()
 			cancelled := pending[key]
@@ -348,6 +398,17 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			// the id out of the raw bytes and answer with the parse error
 			// JSON-RPC defines for exactly this.
 			send(replyErr(rawID(line), -32700, "parse error: "+jsonErr.Error()))
+			continue
+		}
+		if req.Method == "" && len(req.ID) > 0 && (len(req.Result) > 0 || len(req.Error) > 0) {
+			// A response to something this server asked, never a request: a
+			// reply to it would be an error for a message the host did not send.
+			pendingMu.Lock()
+			if rootsWant != "" && idKey(req.ID) == rootsWant {
+				rootsWant = ""
+				rootsGot <- rootsFromResult(req.Result)
+			}
+			pendingMu.Unlock()
 			continue
 		}
 		if req.Method == "ping" {
@@ -461,6 +522,7 @@ func (s *Session) handle(req request) *response {
 		// windows from one process. Captured before the first tool call, which
 		// is when the project is resolved.
 		s.roots = rootsFromInitialize(req.Params)
+		s.hasRoots = clientHasRoots(req.Params)
 		s.clientAgent = clientInfoFromInitialize(req.Params)
 		return reply(req.ID, map[string]any{
 			"protocolVersion": negotiateVersion(req.Params),
@@ -604,7 +666,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.excludeMemory(argStr(args, "id"))
 	case "context":
 		hint, worktree := s.resolveContinuity(argStr(args, "project"))
-		return s.context(contextpack.Request{
+		out, err := s.context(contextpack.Request{
 			Task:     argStr(args, "task"),
 			Hint:     hint,
 			Worktree: worktree,
@@ -612,6 +674,13 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 			Budget:   argInt(args, "budget", 0),
 			Since:    contextpack.Since(argStr(args, "since")),
 		})
+		// A host that started the server in / or the home folder and never said
+		// which folder is open leaves no project in scope, and the pack alone
+		// reads as nothing being recorded. Say which it is.
+		if err == nil && hint == "" {
+			out = fmt.Sprintf("No project is in scope: this server was started in %s and the host did not say which folder is open. Call context again and pass `project` to get its handoff and ruled-out approaches.\n\n", scopeDir(s.roots)) + out
+		}
+		return out, err
 	case "resume":
 		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0), contextpack.Since(argStr(args, "since")))
 	case "before_you_try":

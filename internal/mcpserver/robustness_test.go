@@ -33,6 +33,17 @@ type asyncClient struct {
 
 func startAsync(t *testing.T, configure ...func(*Server)) (*asyncClient, string) {
 	t.Helper()
+	c, dir := startBare(t, configure...)
+	c.send(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`)
+	if _, ok := c.await(t, `"id":1`, 3*time.Second); !ok {
+		t.Fatal("no response to initialize")
+	}
+	return c, dir
+}
+
+// startBare is startAsync without the handshake, for tests that send their own.
+func startBare(t *testing.T, configure ...func(*Server)) (*asyncClient, string) {
+	t.Helper()
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "mem.db"))
 	if err != nil {
@@ -69,11 +80,6 @@ func startAsync(t *testing.T, configure ...func(*Server)) (*asyncClient, string)
 			t.Error("server did not shut down after stdin close")
 		}
 	})
-
-	c.send(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`)
-	if _, ok := c.await(t, `"id":1`, 3*time.Second); !ok {
-		t.Fatal("no response to initialize")
-	}
 	return c, dir
 }
 

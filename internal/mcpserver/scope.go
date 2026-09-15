@@ -63,7 +63,10 @@ import (
 	"encoding/json"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/scope"
@@ -83,7 +86,8 @@ func (s *Session) resolveProject(arg string) string {
 // folder the host was launched in, unless something more specific was set.
 // Computed once: the working directory cannot change under a served process,
 // and re-deriving it per call would let a stray chdir silently re-scope a
-// session halfway through.
+// session halfway through. Only the host saying its roots changed resolves it
+// again; see setRoots.
 func (s *Session) sessionProject() string {
 	s.projectOnce.Do(func() {
 		s.project = firstNonEmpty(
@@ -253,9 +257,9 @@ func pathFromURI(raw string) string {
 }
 
 // rootsFromInitialize pulls filesystem roots out of an initialize request.
-// The MCP roots capability is normally a server→client request, which this
-// transport has no way to issue mid-handshake; but hosts that know their roots
-// up front include them in the initialize params, and reading those costs
+// The MCP roots capability is normally a server→client request, which Serve
+// sends once the handshake completes (see askRoots); but hosts that know their
+// roots up front include them in the initialize params, and reading those costs
 // nothing. When none arrive, cwd still answers.
 func rootsFromInitialize(params json.RawMessage) []string {
 	if len(params) == 0 {
@@ -283,4 +287,57 @@ func rootsFromInitialize(params json.RawMessage) []string {
 		}
 	}
 	return out
+}
+
+// rootsTimeout bounds how long calls wait on a host that declared roots and
+// never answered roots/list. After it the working directory answers, as it did
+// before the server asked at all.
+var rootsTimeout = 2 * time.Second
+
+// clientHasRoots reports whether initialize declared the roots capability. A
+// host without it has nothing to answer roots/list with, so it is never asked.
+func clientHasRoots(params json.RawMessage) bool {
+	var p struct {
+		Capabilities struct {
+			Roots json.RawMessage `json:"roots"`
+		} `json:"capabilities"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return false
+	}
+	r := strings.TrimSpace(string(p.Capabilities.Roots))
+	return r != "" && r != "null"
+}
+
+// rootsFromResult reads the roots out of the host's answer to roots/list. An
+// error answer or an unreadable one is no roots, which leaves cwd answering.
+func rootsFromResult(result json.RawMessage) []string {
+	var r struct {
+		Roots []struct {
+			URI string `json:"uri"`
+		} `json:"roots"`
+	}
+	if len(result) == 0 || json.Unmarshal(result, &r) != nil {
+		return nil
+	}
+	var out []string
+	for _, root := range r.Roots {
+		if root.URI != "" {
+			out = append(out, root.URI)
+		}
+	}
+	return out
+}
+
+// setRoots adopts the folder the host says is open. Changed roots mean the user
+// opened another folder, so the project and worktree are resolved again from
+// them on the next call; unchanged or empty roots leave the session as it was,
+// so a host that answers with nothing does not undo a scope already in use.
+func (s *Session) setRoots(roots []string) {
+	if len(roots) == 0 || slices.Equal(roots, s.roots) {
+		return
+	}
+	s.roots = roots
+	s.project, s.projectOnce = "", sync.Once{}
+	s.worktree, s.worktreeOnce = "", sync.Once{}
 }
