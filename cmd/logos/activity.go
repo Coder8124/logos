@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -171,6 +172,9 @@ func recordActivity(args []string) error {
 	if err := activity.Append(vault, e); err != nil {
 		return err
 	}
+	if event == "Stop" && hasFlag(args, "--ask-checkpoint") {
+		askForCheckpoint(vault, e, raw)
+	}
 
 	// A plan a person approved in ExitPlanMode is worth more than an audit-log
 	// row, which keeps only a one-line summary of the call. Save it as
@@ -206,6 +210,99 @@ func recordActivity(args []string) error {
 		}
 	}
 	return nil
+}
+
+// kindCheckpointAsked marks that the Stop hook already asked this session for
+// a checkpoint. It lives in the log the question was decided from, so the
+// once-per-session rule needs no second store.
+const kindCheckpointAsked = "checkpoint-asked"
+
+// askForCheckpoint prints Claude Code's stop-hook decision to block the stop
+// once, when this session changed files or ran commands after its last
+// checkpoint. A session that ends without one hands nothing to the next, and
+// most hosts never show the user a hook's warning, so the model is the only
+// one who can still be asked.
+func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
+	var p struct {
+		Active bool `json:"stop_hook_active"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	// The host is already continuing because a stop hook blocked; blocking
+	// again is how a stop hook traps a model in a loop.
+	if p.Active || stop.Session == "" || stop.Project == "" {
+		return
+	}
+	events, err := activity.Read(vault, activity.Query{Project: stop.Project})
+	if err != nil {
+		return
+	}
+	// Oldest first. Read sorts newest first but keeps file order among events
+	// in the same second, so walking its result backwards would put an edit
+	// after the checkpoint that followed it a moment later.
+	sort.SliceStable(events, func(i, j int) bool { return events[i].TS < events[j].TS })
+	work := false
+	for _, e := range events {
+		if e.Session != stop.Session {
+			continue
+		}
+		switch {
+		case e.Kind == kindCheckpointAsked:
+			return
+		case e.Kind != activity.KindTool:
+		case isCheckpointCall(e):
+			work = false
+		case isWork(e.Tool):
+			work = true
+		}
+	}
+	if !work {
+		return
+	}
+	// Recorded before asking: if this write fails, not asking is the safe
+	// side, since a marker that never landed would let every stop block.
+	if activity.Append(vault, activity.Event{
+		Kind:    kindCheckpointAsked,
+		Project: stop.Project,
+		Session: stop.Session,
+		Agent:   stop.Agent,
+		Summary: "asked the agent to checkpoint before stopping",
+	}) != nil {
+		return
+	}
+	out, _ := json.Marshal(map[string]string{
+		"decision": "block",
+		"reason": fmt.Sprintf("This session changed files or ran commands on %q and has no Logos checkpoint since, "+
+			"so the next session would start with none of it. Call the Logos `checkpoint` tool now with task, "+
+			"verified (what you actually ran), failed (what you tried or ruled out, and why) and next. "+
+			"If nothing here is worth handing off, say so in one line and stop.", stop.Project),
+	})
+	fmt.Println(string(out))
+}
+
+// isCheckpointCall reports a checkpoint or handoff through the MCP tool, under
+// whatever server name the host gave Logos, or through the CLI in a shell.
+func isCheckpointCall(e activity.Event) bool {
+	if strings.HasSuffix(e.Tool, "__checkpoint") || strings.HasSuffix(e.Tool, "__handoff") {
+		return true
+	}
+	if e.Tool == "Bash" {
+		for _, verb := range []string{"logos checkpoint", "logos handoff", "brain checkpoint", "brain handoff"} {
+			if strings.Contains(e.Summary, verb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isWork is an edit or a command: what a quick question answered by reading
+// does not do.
+func isWork(tool string) bool {
+	switch tool {
+	case "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash":
+		return true
+	}
+	return false
 }
 
 // planText pulls ExitPlanMode's plan text straight out of the raw hook

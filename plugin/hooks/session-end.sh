@@ -47,7 +47,7 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 BRAIN_AGENT=claude-code BRAIN_NOTE_IF_UNCOMMITTED=1 "${LOGOS[@]}" note "$project" "claude-code session ended" 2>/dev/null); then
   case "$out" in
     skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
-    *)        echo "Logos: session on \"$project\" recorded. Next session resumes from here." >&2 ;;
+    *)        echo "Logos: session on \"$project\" ended without a checkpoint — the next session will see work was left open, not what it was." >&2 ;;
   esac
 else
   # Named, not swallowed. A vault that cannot be written to is a continuity
