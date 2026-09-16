@@ -32,6 +32,13 @@ func fakeHome(t *testing.T, dirs ...string) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("APPDATA", filepath.Join(home, "AppData"))
+	// os.UserConfigDir — where the plugin update stamp lives — answers
+	// XDG_CONFIG_HOME on Linux before it looks at HOME, and GitHub's ubuntu
+	// image exports it. Without this, every test in this package shared one
+	// stamp file and four of them failed on CI while passing on macOS, where
+	// os.UserConfigDir is HOME-relative. It also means the suite was writing
+	// into a Linux developer's real ~/.config/logos.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	for _, d := range dirs {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
 			t.Fatal(err)

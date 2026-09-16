@@ -39,19 +39,50 @@ func fakeHosts(t *testing.T, registered ...string) {
 
 func setupInFakeHome(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
+	home := lastingDir(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	dir := filepath.Join(t.TempDir(), "vault")
+	dir := filepath.Join(home, "vault")
 	t.Setenv("LOGOS_VAULT", dir)
-	// Setup declines to wire hosts to a temporary vault nobody recorded, and
-	// t.TempDir is one. Moving TMPDIR makes this vault an ordinary directory, so
-	// the tests built on it exercise the prompts they are about.
+	// Anything either of them makes on the side belongs inside the fake home
+	// too, not in the developer's real temp directory.
 	tmp := filepath.Join(home, "tmp")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", tmp)
+	return dir
+}
+
+// lastingDir is a scratch directory setup cannot tell is temporary, removed
+// when the test ends.
+//
+// t.TempDir will not do. Setup declines to wire hosts to a vault nobody
+// recorded that it can see is temporary, and that prompt eats the answer the
+// test meant for the next question. This helper used to move TMPDIR instead,
+// which only appeared to work: health.UnderTempDir knows "/tmp" literally,
+// whatever TMPDIR says, and it is only reachable through os.TempDir() on
+// macOS, where the real temp root is under /var/folders. So the prompt stayed
+// silent here and fired on Linux, and three of these tests passed on the
+// machine they were written on and failed on CI.
+func lastingDir(t *testing.T) string {
+	t.Helper()
+	// testdata is the one directory name the go tool ignores outright.
+	base, err := filepath.Abs("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.UnderTempDir(base) {
+		t.Fatalf("this checkout is itself under a temporary directory (%s), so setup cannot be shown a vault that lasts; run the tests from a checkout somewhere else", base)
+	}
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(base, "home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	return dir
 }
 
@@ -440,5 +471,28 @@ func TestSetupRunFromAnOldCopyNamesTheHomebrewInstallItDidNotWire(t *testing.T) 
 	})
 	if !strings.Contains(out, "Homebrew's logos 0.4.3") || !strings.Contains(out, "remove "+pin) {
 		t.Errorf("setup from an old copy did not name the Homebrew install:\n%s", out)
+	}
+}
+
+// Every test in this file builds on setupInFakeHome, and all of them are about
+// what setup asks and prints. A vault setup can see is temporary inserts one more
+// question ahead of those, which then answers itself with input meant for the
+// next one — and refusing to record it makes setup refuse to wire any host at
+// all. Both halves are checked, because the spelling of the temp root is what
+// diverges: on Linux the vault sat under /tmp, which UnderTempDir knows
+// literally; on macOS it sat under the real TMPDIR, which the helper had
+// merely pointed away from.
+func TestTheSetupTestsGetAVaultSetupCannotTellIsTemporary(t *testing.T) {
+	// Cleaned: $TMPDIR on macOS ends in a separator, and a prefix test against
+	// the raw value silently matches nothing.
+	realTemp := filepath.Clean(os.TempDir())
+
+	dir := setupInFakeHome(t)
+
+	if health.UnderTempDir(dir) {
+		t.Errorf("setup can see %s is a temporary directory, so it will ask about it before anything these tests are testing", dir)
+	}
+	if strings.HasPrefix(dir, realTemp+string(filepath.Separator)) {
+		t.Errorf("%s is under this machine's temp directory %s; moving TMPDIR afterwards only hides that from os.TempDir()", dir, realTemp)
 	}
 }

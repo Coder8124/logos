@@ -2,6 +2,7 @@ package setup
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -150,4 +151,33 @@ func TestAFailedPluginUpdateIsReportedNotSwallowed(t *testing.T) {
 	if !strings.Contains(notice, "claude plugin marketplace update logos") {
 		t.Errorf("the notice does not say how to do it by hand: %q", notice)
 	}
+}
+
+// The stamp is the one piece of durable state these tests share, and it does
+// not live under HOME on Linux: os.UserConfigDir answers XDG_CONFIG_HOME first,
+// and GitHub's ubuntu image exports it. So a fake home that moved only HOME
+// left every test in this package reading one real stamp file — four of them
+// failed on CI while passing on macOS, and the suite wrote into the developer's
+// own ~/.config/logos on the way. The decoy stands in for CI's environment.
+func TestThePluginUpdateStampStaysInsideTheFakeHome(t *testing.T) {
+	decoy := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", decoy)
+	home := fakeHome(t)
+
+	p, err := updateStampPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if under(p, decoy) {
+		t.Fatalf("the update stamp is written to %s, outside the fake home — on a real machine that is the developer's own config directory", p)
+	}
+	if !under(p, home) {
+		t.Errorf("the update stamp is at %s, which is not under the fake home %s", p, home)
+	}
+}
+
+// under is separator-anchored, so a sibling temp directory whose name merely
+// starts with the same characters does not read as being inside it.
+func under(path, dir string) bool {
+	return strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
 }
