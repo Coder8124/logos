@@ -31,11 +31,18 @@ up next.
 ## Install
 
 ```bash
-npx -y @noeton/logos setup
+brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
+npm i -g @noeton/logos && logos setup                  # Windows
 ```
 
-That is the whole thing. No Go toolchain, no clone, no build — this package
-carries a prebuilt binary for your platform, about 5 MB.
+On macOS and Linux, prefer Homebrew: it installs a real binary, so hosts launch
+Logos directly instead of going through a package runner that reaches the
+registry on every start. The formula is `logos-mcp` from the `coder8124/tap`
+tap — a bare `brew install logos` installs Logos Bible Software — and the command
+it installs is still `logos`.
+
+Either way that is the whole thing. No Go toolchain, no clone, no build — this
+package carries a prebuilt binary for your platform, about 5 MB.
 
 `setup` picks a vault (`~/logos` unless you say otherwise), runs the first index,
 then **shows you which agents it would wire and asks before touching any of

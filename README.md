@@ -30,10 +30,11 @@ call's path or shell command, with anything secret-shaped masked, which `logos
 activity` shows and `logos index` keeps out of the vault's git. Nothing prunes
 it yet, and removing the plugin stops it. The one network call Logos ever makes
 on its own is `logos update` checking for a new release, and only when you type it; nothing
-else leaves the machine, ever. Launched through `npx`, npm itself asks the
-registry for the package on every start — the package name, none of your
-data — and without a connection it waits and then fails. An installed binary
-(`npm i -g @noeton/logos`, or a release) makes no such call.
+else leaves the machine, ever. A host wired to run Logos through `npx` is the one
+exception: npm itself asks the registry for the package on every start — the
+package name, none of your data — and without a connection it waits and then
+fails. An installed binary, which is what `brew install` and `npm i -g` both
+give you, makes no such call.
 
 **Logos is built for continuity:**
 
@@ -89,11 +90,17 @@ Anywhere else — no Go toolchain, no clone, no build:
 
 ```sh
 brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
-npx -y @noeton/logos setup                             # anywhere with Node
+npm i -g @noeton/logos && logos setup                  # Windows
 ```
 
-The formula is `logos-mcp` from the `coder8124/tap` tap: a bare `brew install
-logos` installs Logos Bible Software. Update with `brew upgrade logos-mcp`.
+Homebrew is the route to prefer where it runs: it installs a real binary, so
+your agents launch Logos directly instead of going through a package runner. The
+formula is `logos-mcp` from the `coder8124/tap` tap — a bare `brew install logos`
+installs Logos Bible Software — and the command it installs is still `logos`.
+Update with `brew upgrade logos-mcp`.
+
+On Windows, install from npm instead:
+[@noeton/logos](https://www.npmjs.com/package/@noeton/logos).
 
 `setup` picks a vault, finds your local model runtime, runs the first index, and
 then shows you which agents it would wire and asks before touching any of them.

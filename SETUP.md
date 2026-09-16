@@ -47,7 +47,7 @@ the model remembers to ask for it. Plus a `/handoff` command and a skill that
 teaches it to check `before_you_try` before proposing.
 
 `logos setup` installs the plugin itself when Claude Code's CLI is on your
-PATH — and updates it when it is older than your logos — so a brew or npx
+PATH — and updates it when it is older than your logos — so a brew or npm
 install does not have to run these by hand.
 
 One click, for the other hosts:
@@ -59,17 +59,21 @@ Or one command, for everything else:
 
 ```sh
 brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
-npx -y @noeton/logos setup                             # anywhere with Node
+npm i -g @noeton/logos && logos setup                  # Windows
 ```
 
-With Homebrew, the formula is `logos-mcp` from the `coder8124/tap` tap — a bare
-`brew install logos` installs Logos Bible Software — and the command it installs
-is still `logos`. Update with `brew upgrade logos-mcp`, not `logos update`: hosts
+Prefer Homebrew where it runs. It installs a real binary, so hosts launch Logos
+directly rather than through a package runner that reaches the registry on every
+start. The formula is `logos-mcp` from the `coder8124/tap` tap — a bare `brew
+install logos` installs Logos Bible Software — and the command it installs is
+still `logos`. Update with `brew upgrade logos-mcp`, not `logos update`: hosts
 are wired to brew's `opt` path, which survives the upgrade.
 
-No Go toolchain, no clone, no build — the npm package carries a prebuilt binary
-for your platform (~5 MB over the wire: the platform packages are gated on `os`
-and `cpu`, so you fetch one of the five, not all of them).
+Windows has no Homebrew, so there the route is
+[@noeton/logos](https://www.npmjs.com/package/@noeton/logos) from npm. Either way
+there is no Go toolchain, no clone and no build — the npm package carries a
+prebuilt binary for your platform (~5 MB over the wire: the platform packages are
+gated on `os` and `cpu`, so you fetch one of the five, not all of them).
 
 <details>
 <summary>Other ways in</summary>
