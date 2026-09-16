@@ -888,11 +888,24 @@ func checkPlugin(version string) (c Check, ok bool) {
 // plugin's account and so owes the same warning. A zero Check means no plugin
 // connects Claude Code.
 func CheckPlugin(version string) (c Check) {
-	pluginVersion, installed := setup.LogosPlugin()
-	if !installed {
+	r := setup.LogosPluginRecord()
+	if !r.Installed {
 		return Check{}
 	}
 	c = Check{Name: "Claude Code plugin"}
+	// An installed plugin that Claude Code never loads — turned off in
+	// /plugin, or installed for one project — runs no hooks, so nothing
+	// restores the last checkpoint when a session starts, and doctor used to
+	// say nothing at all about it.
+	if !r.Connects {
+		c.State = Warn
+		// A project's own settings can still enable it, and they cannot be
+		// read from here, so the claim is hedged the way setup hedges it.
+		c.Detail = "the Logos plugin is " + r.Why + ", so unless a project enables it no session starts with your last checkpoint"
+		c.Fix = "enable it for your user in Claude Code's /plugin, then `claude mcp remove --scope user logos` so logos is not registered twice"
+		return c
+	}
+	pluginVersion := r.Version
 	plugin, pluginOK := releaseNumber(pluginVersion)
 	binary, binaryOK := releaseNumber(version)
 	if !pluginOK || !binaryOK {

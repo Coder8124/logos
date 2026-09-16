@@ -955,6 +955,57 @@ func TestDoctorMakesNoClaimAboutThePluginFromADevBuild(t *testing.T) {
 	}
 }
 
+// writePluginRecords installs the plugin with the given record and user
+// settings, so a test can describe a plugin Claude Code does not load.
+func writePluginRecords(t *testing.T, installs, settings string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "plugins"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"), []byte(installs), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if settings != "" {
+		if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(settings), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A plugin switched off in /plugin runs none of its hooks, so no session
+// starts with the last checkpoint — and doctor reported nothing, because it
+// only ever compared versions of a plugin that was connecting.
+func TestDoctorWarnsWhenTheInstalledPluginIsDisabled(t *testing.T) {
+	writePluginRecords(t,
+		`{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.4.3"}]}}`,
+		`{"enabledPlugins":{"logos@logos":false}}`)
+
+	c, ok := checkPlugin("v0.4.3")
+	if !ok {
+		t.Fatal("a disabled plugin must be reported")
+	}
+	if c.State != Warn || !strings.Contains(c.Detail, "disabled") || c.Fix == "" {
+		t.Errorf("a disabled plugin must be a warning that says so and how to fix it: %+v", c)
+	}
+}
+
+// A plugin installed for one project is not loaded anywhere else, so the
+// machine's other sessions silently have no hooks.
+func TestDoctorWarnsWhenThePluginIsInstalledForOneProjectOnly(t *testing.T) {
+	writePluginRecords(t,
+		`{"version":2,"plugins":{"logos@logos":[{"scope":"project","projectPath":"/work/shop","version":"0.4.3"}]}}`, "")
+
+	c, ok := checkPlugin("v0.4.3")
+	if !ok {
+		t.Fatal("a project-scoped plugin must be reported")
+	}
+	if c.State != Warn || !strings.Contains(c.Detail, "/work/shop") {
+		t.Errorf("the warning must name the project the plugin is limited to: %+v", c)
+	}
+}
+
 // Most people using doctor never installed the plugin; a row about it would
 // be noise.
 func TestDoctorSaysNothingAboutAPluginThatIsNotInstalled(t *testing.T) {
