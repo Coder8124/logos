@@ -98,6 +98,13 @@ type Result struct {
 	// they still exist.
 	CommentsOnlyInBackup bool
 	Err                  error
+	// Tier is how much of Logos this host ends up with, and Hooked whether its
+	// session-start hook went in. HookErr does not fail the host: the server is
+	// registered either way, and a hook that could not be written is reported
+	// rather than swallowed.
+	Tier    Tier
+	Hooked  Outcome
+	HookErr error
 	// Replaced is set when the entry 0.4 setup wrote under OldName was
 	// removed, and ReplaceErr when that was tried and failed. Neither fails the
 	// host: logos is registered either way, and the leftover is reported.
@@ -126,6 +133,10 @@ type Host struct {
 	// back rather than assumed. Nil means this host exposes no way to read
 	// that back — not an error, just a question this host cannot answer.
 	List func() ([]Registration, error)
+	// Hooks installs this host's user-level session-start hook, so a session
+	// starts with the last checkpoint instead of waiting to be asked. Nil for a
+	// host with no hooks, and for Claude Code, whose plugin carries its own.
+	Hooks func(bin string) (Outcome, error)
 	// Remove removes the entry registered under name when it runs logos, and
 	// reports whether there was one. Setup uses it for OldName, uninstall for
 	// both names. Nil for a host logos cannot take an entry back out of.
@@ -156,7 +167,7 @@ type Registration struct {
 func Plan(hosts []Host) []Result {
 	out := make([]Result, 0, len(hosts))
 	for _, h := range hosts {
-		r := Result{Host: h.Name, Where: h.Where(), Outcome: Pending}
+		r := Result{Host: h.Name, Where: h.Where(), Outcome: Pending, Tier: TierOf(h)}
 		if !h.Detect() {
 			r.Outcome = Skipped
 		}
@@ -231,7 +242,7 @@ func Names(hosts []Host) []string {
 func Install(s Server, hosts []Host) []Result {
 	out := make([]Result, 0, len(hosts))
 	for _, h := range hosts {
-		r := Result{Host: h.Name, Where: h.Where()}
+		r := Result{Host: h.Name, Where: h.Where(), Tier: TierOf(h)}
 		if !h.Detect() {
 			r.Outcome = Skipped
 			out = append(out, r)
@@ -250,6 +261,12 @@ func Install(s Server, hosts []Host) []Result {
 			r.Outcome = Failed
 			out = append(out, r)
 			continue
+		}
+		// After registering: a hook that restores context is no use to a host
+		// that has no logos to call, and a hook installed beside a failed
+		// registration would run on every session for nothing.
+		if h.Hooks != nil {
+			r.Hooked, r.HookErr = h.Hooks(s.Bin)
 		}
 		// After registering, so a failed registration never leaves a host with
 		// neither entry; and before the comparison below, which must see it.
@@ -612,7 +629,11 @@ type Removal struct {
 	Removed []string
 	// Backup is the config as it was before, kept only when it changed.
 	Backup string
-	Err    error
+	// Unhooked is set when this host's session-start hook was taken out too. A
+	// hook left behind runs a logos that uninstall just removed, and the host
+	// reports the failure at the user on every session.
+	Unhooked bool
+	Err      error
 }
 
 // Uninstall takes every logos entry back out of each host that is present.
@@ -667,6 +688,13 @@ func Uninstall(hosts []Host) []Removal {
 			}
 		}
 		r.Backup = backup
+		if h.Hooks != nil {
+			removed, err := removeHook(hooksPathFor(h.Name))
+			r.Unhooked = removed
+			if err != nil && r.Err == nil {
+				r.Err = err
+			}
+		}
 		out = append(out, r)
 	}
 	return out

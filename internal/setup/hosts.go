@@ -129,6 +129,13 @@ func codex() Host {
 			args = append(args, s.Args...)
 			return viaCLI(codexCLI(), args)
 		},
+		Hooks: func(bin string) (Outcome, error) {
+			p := codexHooksPath()
+			if _, err := backupHooks(p); err != nil {
+				return Failed, err
+			}
+			return installHook(p, "codex", bin)
+		},
 		Remove: func(name string) (bool, error) {
 			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
 			if err != nil || !codexHasEntry(string(raw), name) {
@@ -192,7 +199,14 @@ func cursor() Host {
 		Register: func(s Server) (Outcome, error) {
 			return mergeJSON(path, s)
 		},
-		List:   func() ([]Registration, error) { return readMCPServers(path) },
+		List: func() ([]Registration, error) { return readMCPServers(path) },
+		Hooks: func(bin string) (Outcome, error) {
+			p := cursorHooksPath()
+			if _, err := backupHooks(p); err != nil {
+				return Failed, err
+			}
+			return installHook(p, "cursor", bin)
+		},
 		Remove: func(name string) (bool, error) { return removeJSON(path, "mcpServers", name) },
 	}
 }

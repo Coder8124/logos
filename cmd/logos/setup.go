@@ -885,7 +885,10 @@ func wireHosts(vault string, opts wireOpts) error {
 				fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
 				continue
 			}
-			fmt.Printf("    %-*s →  %s\n", hostColumn, r.Host, r.Where)
+			// The tier, because "connected" meant three different things:
+			// Claude Code restores context on its own, Cursor and Codex do once
+			// their hook is in, and the rest only answer when asked.
+			fmt.Printf("    %-*s →  %s (%s)\n", hostColumn, r.Host, r.Where, r.Tier)
 		}
 	}
 
@@ -1019,6 +1022,18 @@ func wireHosts(vault string, opts wireOpts) error {
 			wired++
 			wiredHosts = append(wiredHosts, r.Host)
 			fmt.Printf("    %-*s ✓  %s (%s)\n", hostColumn, r.Host, r.Outcome, r.Where)
+			switch {
+			case r.HookErr != nil:
+				// Not a failure of the host: logos is registered, and this is
+				// the difference between restoring on its own and being asked.
+				fmt.Printf("    %-*s    no session-start hook, so you have to ask for `resume`: %v\n", hostColumn, "", r.HookErr)
+			case r.Hooked != "":
+				fmt.Printf("    %-*s    session-start hook %s — new sessions open with your last checkpoint\n", hostColumn, "", r.Hooked)
+				if r.Host == "Codex" {
+					// Codex will not run a hook nobody has agreed to.
+					fmt.Printf("    %-*s    approve it in Codex's /hooks before it runs\n", hostColumn, "")
+				}
+			}
 			// A registration replaces what was there — `codex mcp add` drops
 			// the whole previous entry, environment and all. Naming the copy is
 			// what makes a wrong --vault recoverable.
@@ -1295,6 +1310,10 @@ func mcpUninstallCmd(args []string) error {
 			fmt.Printf("  %-*s not registered\n", hostColumn, r.Host)
 		default:
 			fmt.Printf("  %-*s removed %s  (%s)\n", hostColumn, r.Host, strings.Join(r.Removed, " and "), r.Where)
+		}
+		// Invariant 3: a hook removed silently is one the user keeps looking for.
+		if r.Unhooked {
+			fmt.Printf("  %-*s and its session-start hook\n", hostColumn, "")
 		}
 		if r.Backup != "" {
 			fmt.Printf("  %-*s backup of the old config: %s\n", hostColumn, "", r.Backup)

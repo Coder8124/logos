@@ -161,6 +161,18 @@ Where a host ships its own registration command (Claude Code, Codex) logos uses
 it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
 Devin and GitHub Copilot get their JSON merged instead.
 
+Hosts differ in how much they can do, and setup names the tier beside each one:
+
+| tier | hosts | what you get |
+| --- | --- | --- |
+| **plugin** | Claude Code | the server, the skills, and hooks that restore and record on their own |
+| **MCP + session hooks** | Cursor, Codex | the server, plus a session-start hook that opens a new session with your last checkpoint |
+| **MCP only** | everyone else | the tools, when the model chooses to call them — say "resume this project" |
+
+The hooks go in `~/.cursor/hooks.json` and `~/.codex/hooks.json`, merged into
+whatever is already there with a `.logos-backup` beside it. Codex will not run a
+hook nobody has agreed to: approve it in its `/hooks` first.
+
 **No model runtime is required.** Every continuity tool — `checkpoint`,
 `resume`, `note_progress`, `before_you_try` — is markdown and SQL, and works
 with nothing installed. Retrieval falls back to BM25, which for code

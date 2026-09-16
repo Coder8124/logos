@@ -103,6 +103,11 @@ Use Claude Code and another agent too, such as Cursor or Codex? Install the
 plugin and run setup as well. Setup leaves the plugin's Claude Code wiring
 alone.
 
+Setup names what each host gets: Claude Code restores context on its own through
+the plugin, Cursor and Codex do once setup adds their session-start hook (Codex
+asks you to approve it in `/hooks`), and everywhere else the tools are there to
+be asked for.
+
 From source, if you have Go:
 
 ```sh
