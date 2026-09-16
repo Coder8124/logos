@@ -1,4 +1,4 @@
-package logos
+package engine
 
 import (
 	"github.com/Coder8124/logos/internal/deadend"

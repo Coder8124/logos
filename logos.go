@@ -30,18 +30,25 @@
 // # What this package is, and is not
 //
 // This is a deliberately small facade over a much larger engine. The
-// implementation lives under internal/ and stays there: keeping it private is
-// what lets the retrieval, budgeting and consolidation internals change without
-// breaking anyone. What is exported here is the surface an agent actually
-// needs, which is roughly the same surface the MCP server exposes — that server
-// having been the forcing function for working out what an external consumer
-// genuinely uses.
+// implementation lives in [github.com/Coder8124/logos/engine] and under
+// internal/, and stays there: keeping it private is what lets the retrieval,
+// budgeting and consolidation internals change without breaking anyone. What is
+// exported here is the surface an agent actually needs, which is roughly the
+// same surface the MCP server exposes — that server having been the forcing
+// function for working out what an external consumer genuinely uses.
 //
-// The domain types (Memory, Checkpoint, Note, Hit, Ruling, Context) are aliases
-// for their internal definitions rather than copies. That makes them part of
-// this package's contract: they are stable, and changing them is a breaking
-// change. The alternative — parallel structs and a translation layer — buys
-// freedom nobody asked for at the cost of conversions in every call.
+// The declarations here are aliases for the engine package's, not copies, so
+// the two cannot drift: [Logos] is the same type either way and its methods are
+// documented on the engine package. This file exists because Go binds an import
+// path to a directory, and this is the import path that was published. The code
+// moved down a level to keep the repository root readable; the import did not
+// move, and will not.
+//
+// The domain types (Memory, Checkpoint, Note, Hit, Ruling, Context) are in turn
+// aliases for their internal definitions rather than copies. That makes them
+// part of this package's contract: they are stable, and changing them is a
+// breaking change. The alternative — parallel structs and a translation layer —
+// buys freedom nobody asked for at the cost of conversions in every call.
 //
 // # Models
 //
@@ -49,100 +56,56 @@
 // it for embeddings. If none is running, everything still works: retrieval
 // falls back to lexical and graph traversal, which needs no model at all. Pass
 // WithoutEmbedding to skip discovery entirely — useful in tests and CI.
-// The exported surface is split across files by the question a caller is asking:
-// context.go (what do I need to start), continuity.go (record where I stopped),
-// deadend.go (has this been ruled out), memory.go (what's known about the user),
-// vault.go (search the notes), serve.go (put a host in front of it). This file
-// holds the package doc, the domain types, and opening and closing a vault.
 package logos
 
-import (
-	"fmt"
-	"os"
+import "github.com/Coder8124/logos/engine"
 
-	"github.com/Coder8124/logos/internal/contextpack"
-	"github.com/Coder8124/logos/internal/deadend"
-	"github.com/Coder8124/logos/internal/index"
-	"github.com/Coder8124/logos/internal/memory"
-	"github.com/Coder8124/logos/internal/provider"
-	"github.com/Coder8124/logos/internal/router"
-	"github.com/Coder8124/logos/internal/secretary"
-	"github.com/Coder8124/logos/internal/session"
-)
-
-// The domain types. Aliases, not copies — see the package doc.
+// The published surface. Aliases, so an embedder and the engine can never hold
+// two different versions of the same type.
 type (
+	// Logos is an open vault. It is safe to keep for the life of a process and
+	// must be closed when done. Not safe for concurrent use across goroutines:
+	// the underlying SQLite handle is single-writer by design. Its methods are
+	// documented on [engine.Logos].
+	Logos = engine.Logos
+	// An Option configures Open.
+	Option = engine.Option
+	// A Request describes what you are about to do, for Context.
+	Request = engine.Request
 	// Memory is one durable thing the store knows about the user.
-	Memory = memory.Memory
+	Memory = engine.Memory
 	// Kind classifies a memory: Preference, Person, Fact or Context.
-	Kind = memory.Kind
+	Kind = engine.Kind
 	// Receipt reports what a write actually did — created a fact, or
 	// corroborated one already held.
-	Receipt = memory.Receipt
+	Receipt = engine.Receipt
 	// Checkpoint is where an agent stopped, written well enough that a
 	// different agent can start. Failed is the field that earns its keep.
-	Checkpoint = session.Checkpoint
+	Checkpoint = engine.Checkpoint
 	// Note is one line of uncommitted progress.
-	Note = session.Note
+	Note = engine.Note
 	// Mention is a checkpoint that touched a file, and what was being worked
 	// out at the time. Returned by Why.
-	Mention = session.Mention
+	Mention = engine.Mention
 	// Hit is a retrieved vault note, with its provenance.
-	Hit = index.Hit
+	Hit = engine.Hit
 	// Ruling is something already tried that did not work.
-	Ruling = deadend.Ruling
+	Ruling = engine.Ruling
 	// Context is everything bearing on a task, budgeted. Call Render for the
 	// markdown to put in a model's context window.
-	Context = contextpack.Pack
+	Context = engine.Context
 	// SyncReport counts what an Index call changed.
-	SyncReport = index.SyncReport
+	SyncReport = engine.SyncReport
 )
 
 // Memory kinds, re-exported so callers need not reach into internal packages.
 const (
-	Preference = memory.Preference
-	Person     = memory.Person
-	Fact       = memory.Fact
-	Standing   = memory.Context
-	Procedure  = memory.Procedure
+	Preference = engine.Preference
+	Person     = engine.Person
+	Fact       = engine.Fact
+	Standing   = engine.Standing
+	Procedure  = engine.Procedure
 )
-
-// Logos is an open vault. It is safe to keep for the life of a process and must
-// be closed when done. Not safe for concurrent use across goroutines: the
-// underlying SQLite handle is single-writer by design.
-type Logos struct {
-	ix         *index.Index
-	embed      *provider.Provider
-	embedModel string
-	chatModel  string
-	rt         *router.Router
-	agent      string
-}
-
-// An Option configures Open.
-type Option func(*config)
-
-type config struct {
-	embed     bool
-	agent     string
-	embedName string
-}
-
-// WithoutEmbedding skips model discovery. Retrieval then uses lexical search
-// and graph traversal only — no model process required, which is what you want
-// in tests and CI.
-func WithoutEmbedding() Option { return func(c *config) { c.embed = false } }
-
-// WithEmbeddingModel names the embedding model instead of taking the detected
-// default.
-func WithEmbeddingModel(name string) Option {
-	return func(c *config) { c.embedName = name }
-}
-
-// WithAgent sets the name recorded against notes and checkpoints — "claude",
-// "cursor", your own product's name. A handoff is meaningless without knowing
-// who is handing off, so this is worth setting.
-func WithAgent(name string) Option { return func(c *config) { c.agent = name } }
 
 // Open loads the vault at path, creating its cache if absent.
 //
@@ -150,62 +113,26 @@ func WithAgent(name string) Option { return func(c *config) { c.agent = name } }
 // pointing this at a typo and silently creating an empty knowledge base is a
 // worse failure than an error.
 func Open(vaultPath string, opts ...Option) (*Logos, error) {
-	cfg := config{embed: true, agent: "agent"}
-	for _, o := range opts {
-		o(&cfg)
-	}
-
-	if info, err := os.Stat(vaultPath); err != nil {
-		return nil, fmt.Errorf("vault not found at %s: %w", vaultPath, err)
-	} else if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", vaultPath)
-	}
-
-	ix, err := index.Open(vaultPath)
-	if err != nil {
-		return nil, err
-	}
-	for _, init := range []func() error{
-		func() error { return memory.Init(ix.DB) },
-		func() error { return session.Init(ix.DB) },
-		func() error { return secretary.Init(ix.DB) },
-	} {
-		if err := init(); err != nil {
-			ix.Close()
-			return nil, err
-		}
-	}
-
-	b := &Logos{ix: ix, agent: cfg.agent}
-	if cfg.embed {
-		// A missing runtime is not an error. Everything downstream degrades to
-		// lexical and graph retrieval, which is worse but not broken, and a
-		// library that refuses to load because Ollama is not running is a
-		// library nobody embeds.
-		rcfg, err := router.Load(vaultPath)
-		if err != nil {
-			ix.Close()
-			return nil, err
-		}
-		if rt, err := router.New(rcfg, vaultPath); err == nil {
-			b.rt = rt
-			b.embed = rt.Local()
-			b.embedModel, _ = rt.Model(router.T0)
-			b.chatModel, _ = rt.Model(router.T2)
-		}
-		if cfg.embedName != "" {
-			b.embedModel = cfg.embedName
-		}
-	}
-	return b, nil
+	return engine.Open(vaultPath, opts...)
 }
 
-// Close releases the vault.
-func (b *Logos) Close() error { return b.ix.Close() }
+// WithoutEmbedding skips model discovery. Retrieval then uses lexical search
+// and graph traversal only — no model process required, which is what you want
+// in tests and CI.
+func WithoutEmbedding() Option { return engine.WithoutEmbedding() }
 
-// Vault is the path this Logos was opened on.
-func (b *Logos) Vault() string { return b.ix.Vault }
+// WithEmbeddingModel names the embedding model instead of taking the detected
+// default.
+func WithEmbeddingModel(name string) Option { return engine.WithEmbeddingModel(name) }
 
-// Embedded reports whether a model runtime was found. When false, retrieval is
-// lexical and graph-only — still useful, measurably weaker.
-func (b *Logos) Embedded() bool { return b.embed != nil && b.embedModel != "" }
+// WithAgent sets the name recorded against notes and checkpoints — "claude",
+// "cursor", your own product's name. A handoff is meaningless without knowing
+// who is handing off, so this is worth setting.
+func WithAgent(name string) Option { return engine.WithAgent(name) }
+
+// Explain renders the result of Tried as prose to put in front of a model,
+// taking the same approach string so the output can quote what was proposed. A
+// recorded failure is evidence, not a veto, and the wording says so. An empty
+// slice renders as an explicit "no record", which is worth showing: silence and
+// approval are different answers.
+func Explain(approach string, rulings []Ruling) string { return engine.Explain(approach, rulings) }

@@ -647,6 +647,7 @@ near-perfect with a JSON schema enforced at the sampler.
 
 ```
 logos.go         the public API — what an embedding agent imports
+engine/          its implementation, one level down to keep the root readable
 enginetest/      that API exercised from outside, as an embedder sees it
 examples/        runnable embeddings, starting with the handoff
 cmd/logos/       the CLI — one engine, two front ends

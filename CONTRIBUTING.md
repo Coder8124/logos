@@ -113,6 +113,7 @@ this file, not the vault.
 
 ```
 logos.go         the public API — what an embedding agent imports
+engine/          its implementation, one level down to keep the root readable
 enginetest/      that API exercised from outside, as an embedder sees it
 cmd/logos/       the CLI
 internal/        index, memory, session, contextpack, deadend, mcpserver, …
@@ -125,8 +126,12 @@ systemmd/        credits and the prompt agents are given
 examples/        runnable embeddings
 ```
 
-`logos.go` is the module's public surface. Moving or renaming it changes the
-import path for everyone embedding the engine, so treat it as API.
+`logos.go` is the module's public surface, and it is a facade: it declares the
+package doc and aliases everything in `engine/`. Go binds an import path to a
+directory, so moving or renaming it changes the import path for everyone
+embedding the engine — treat it as API. A new exported name in `engine/` needs
+an alias beside the others or embedders cannot reach it, which is what
+`enginetest/facade_test.go` fails on.
 
 ## Adding an AI host
 

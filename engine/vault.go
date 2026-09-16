@@ -1,4 +1,4 @@
-package logos
+package engine
 
 import "fmt"
 
