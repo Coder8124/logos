@@ -82,6 +82,9 @@ handoff in front of the model before it does anything:
 /plugin install logos@logos
 ```
 
+`logos setup` runs the same two commands for you when Claude Code's CLI is on
+your PATH, and updates the plugin when it is older than your logos.
+
 Anywhere else — no Go toolchain, no clone, no build:
 
 ```sh

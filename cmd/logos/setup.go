@@ -788,22 +788,51 @@ func wireHosts(vault string, opts wireOpts) error {
 	// The README offers the plugin and this command side by side, and someone
 	// who ran both had logos registered twice in Claude Code. The plugin
 	// already connects it, so Claude Code is left out and the reason printed.
-	pluginNote := ""
+	pluginNote, pluginPlan := "", ""
 	plugin := setup.LogosPluginRecord()
-	if plugin.Connects {
+	// Claude Code's CLI installs and updates plugins without a human in
+	// /plugin, so setup does it rather than printing steps a brew or npx user
+	// has to follow to get the hooks, the skills and the session restore.
+	// pluginSteps is what it will run, shown in the roster and under
+	// --dry-run, and only run once the same consent covers it.
+	var pluginSteps [][]string
+	pluginLabel, pluginDone := "", ""
+	claudeCode := setup.Host{}
+	if hasHost(hosts, "Claude Code") && setup.SupportsPluginCommands() {
+		switch {
+		case !plugin.Installed:
+			pluginSteps, pluginLabel, pluginDone = setup.InstallPluginSteps(), "install the Logos plugin", "installed"
+		case plugin.Connects && health.CheckPlugin(version).State == health.Warn:
+			pluginSteps, pluginLabel, pluginDone = setup.UpdatePluginSteps(), "update the Logos plugin", "updated"
+		}
+	}
+	if plugin.Connects || pluginSteps != nil {
 		kept := hosts[:0:0]
 		for _, h := range hosts {
 			if h.Name == "Claude Code" {
+				claudeCode = h
 				pv := ""
 				if plugin.Version != "" {
 					pv = " " + plugin.Version
 				}
-				pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, pv)
-				// Skipping Claude Code on an old plugin's say-so left its
-				// old hooks running against this server with nothing said;
-				// doctor's check is the one that knows how to compare.
-				if c := health.CheckPlugin(version); c.State == health.Warn {
-					pluginNote += fmt.Sprintf("    %-*s    %s — %s\n", hostColumn, "", c.Detail, c.Fix)
+				switch {
+				case pluginSteps != nil:
+					// The plugin carries the same server, so registering it
+					// as well would load logos twice. The commands are part of
+					// the plan, not the outcome, so they go in the roster: the
+					// outcome line below says what happened.
+					pluginPlan = fmt.Sprintf("    %-*s →  %s\n", hostColumn, h.Name, pluginLabel)
+					for _, step := range pluginSteps {
+						pluginPlan += fmt.Sprintf("    %-*s    %s\n", hostColumn, "", setup.PluginCommand(step))
+					}
+				default:
+					pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, pv)
+					// Skipping Claude Code on an old plugin's say-so left its
+					// old hooks running against this server with nothing said;
+					// doctor's check is the one that knows how to compare.
+					if c := health.CheckPlugin(version); c.State == health.Warn {
+						pluginNote += fmt.Sprintf("    %-*s    %s — %s\n", hostColumn, "", c.Detail, c.Fix)
+					}
 				}
 				continue
 			}
@@ -821,6 +850,12 @@ func wireHosts(vault string, opts wireOpts) error {
 		if r.Outcome == setup.Pending {
 			present++
 		}
+	}
+	// The plugin is a host being wired as much as any entry in the roster: it
+	// is counted so a machine whose only host is Claude Code still asks, and
+	// still does the work.
+	if pluginSteps != nil {
+		present++
 	}
 
 	fmt.Println("\n  hosts")
@@ -844,6 +879,7 @@ func wireHosts(vault string, opts wireOpts) error {
 	// fault at exactly the moment a new user is deciding whether to trust it.
 	showPlan := opts.dryRun || !opts.yes
 	if showPlan {
+		fmt.Print(pluginPlan)
 		for _, r := range plan {
 			if r.Outcome == setup.Skipped {
 				fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
@@ -944,6 +980,26 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
 		} else {
 			fmt.Printf("    %-*s ✓  copied to %s\n", hostColumn, "binary", pin)
+		}
+	}
+	if pluginSteps != nil {
+		if err := setup.RunPluginSteps(pluginSteps); err != nil {
+			fmt.Printf("    %-*s ✗  could not %s: %v\n", hostColumn, "Claude Code", pluginLabel, err)
+			// Claude Code was left out of the roster because the plugin was
+			// going to carry the server; with the plugin not installed it
+			// would otherwise end the run with no Logos at all.
+			if !plugin.Connects {
+				fmt.Printf("    %-*s    registering the server directly instead\n", hostColumn, "")
+				hosts = append(hosts, claudeCode)
+			}
+		} else {
+			fmt.Printf("    %-*s ✓  %s the Logos plugin (%s)\n", hostColumn, "Claude Code", pluginDone, setup.PluginRef)
+			fmt.Printf("    %-*s    restart Claude Code to load it\n", hostColumn, "")
+			// An earlier setup's `claude mcp add` entry stays behind the
+			// plugin's own copy of the same server, so logos loads twice.
+			if err := setup.RemoveServerEntry(); err != nil {
+				fmt.Printf("    %-*s    an earlier `logos` entry is still registered and now loads twice — remove it with `claude mcp remove --scope user logos`: %v\n", hostColumn, "", err)
+			}
 		}
 	}
 	byName := map[string]setup.Host{}
@@ -1432,4 +1488,14 @@ func releaseParts(v string) ([3]int, bool) {
 		parts[i] = n
 	}
 	return parts, true
+}
+
+// hasHost says whether the roster about to be wired includes a host by name.
+func hasHost(hosts []setup.Host, name string) bool {
+	for _, h := range hosts {
+		if h.Name == name {
+			return true
+		}
+	}
+	return false
 }

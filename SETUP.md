@@ -46,6 +46,10 @@ is the difference between continuity that works and continuity that works when
 the model remembers to ask for it. Plus a `/handoff` command and a skill that
 teaches it to check `before_you_try` before proposing.
 
+`logos setup` installs the plugin itself when Claude Code's CLI is on your
+PATH — and updates it when it is older than your logos — so a brew or npx
+install does not have to run these by hand.
+
 One click, for the other hosts:
 
 [![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==)
