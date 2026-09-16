@@ -29,12 +29,40 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
 
+# Keep the plugin level with the binary, without anyone having to ask.
+#
+# Claude Code has no auto-update for plugins and never refreshes a third-party
+# marketplace, so hooks installed once stay at that version against a server
+# that has moved on. The check is bounded to once a day inside logos, and it is
+# backgrounded here with both file descriptors closed onto /dev/null: a child
+# still holding the hook's stdout would keep Claude Code waiting on output that
+# is never coming, which is a stalled session start — the one thing this hook
+# must never cause. So nothing is waited for, and what the last run did is read
+# back from the stamp file below, one session later.
+( "${LOGOS[@]}" plugin autoupdate >/dev/null 2>&1 & ) >/dev/null 2>&1
+updated=$("${LOGOS[@]}" plugin autoupdate --notice 2>/dev/null) || updated=""
+
+# A plugin that updated itself in silence is indistinguishable from one that
+# did nothing, so the notice is said even in the sessions that have no handoff
+# to fold it into — an empty vault, a project with no checkpoints.
+announce_update() {
+  if [ -n "$updated" ]; then
+    cat <<EOF
+FIRST, in one short line before anything else, tell the user: $updated
+
+They cannot see this block, and an update they never hear about reads to them
+as one that never happened. One line, then get on with the work.
+EOF
+  fi
+  exit 0
+}
+
 # The project the work is filed under. Usually the directory being worked in —
 # a repo is a project and the agent is already standing in it — but a repo whose
 # folder is not what the work is called says so in .logos-project, and
 # logos_project is what reads it. See internal/scope.
 project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
-[ -z "$project" ] && exit 0
+[ -z "$project" ] && announce_update
 
 # Bounded, and quiet on failure. A vault that does not exist yet, a project with
 # no checkpoints, or a Logos that is not installed all land here and print
@@ -47,8 +75,8 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # runtime slow to answer — loading the embedding model behind a large one —
 # took this past the 10 s hook timeout, and Claude Code killed the hook with no
 # restore and no reason.
-handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_EMBED=off "${LOGOS[@]}" resume "$project" 2>/dev/null) || exit 0
-[ -z "$handoff" ] && exit 0
+handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_EMBED=off "${LOGOS[@]}" resume "$project" 2>/dev/null) || announce_update
+[ -z "$handoff" ] && announce_update
 
 # resume on a project with no checkpoint still returns context — standing
 # memories and vault notes. That is useful to a person and noise to a model
@@ -65,7 +93,7 @@ handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_EMBED=off "${LOG
 # internal/contextpack/untrusted.go already neutralises headings forged inside
 # vault content, so a heading surviving to here is one the renderer wrote.
 if ! printf '%s\n' "$handoff" | grep -q '^## Where we left off'; then
-  exit 0
+  announce_update
 fi
 
 # What the receipt is allowed to claim, counted off the handoff itself rather
@@ -128,7 +156,8 @@ need to call resume or context again just to get oriented; call context only
 if a specific task later needs a narrower or fresher pack.
 
 FIRST, in one short line before anything else, tell the user that Logos restored
-context for "$project"${when:+ $when}, carrying $carried. They cannot see this
+context for "$project"${when:+ $when}, carrying $carried.${updated:+ In the same
+line, tell them: $updated} They cannot see this
 block, and a restore they never hear about reads to them as a restore that never
 happened. One line, then get on with the work.
 

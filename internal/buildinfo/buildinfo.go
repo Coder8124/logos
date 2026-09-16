@@ -17,6 +17,8 @@ package buildinfo
 import (
 	"regexp"
 	"runtime/debug"
+	"strconv"
+	"strings"
 )
 
 // Version is the release this binary was built from, stamped at link time:
@@ -49,4 +51,41 @@ func fromModule(stamped, module string) string {
 		return module
 	}
 	return stamped
+}
+
+// Older says whether release a is an earlier release than b, and whether the
+// two could be ranked at all.
+//
+// Both have to be plain releases, "0.4.3" or "v0.4.3". Anything else — dev, a
+// pseudo-version, a pre-release — is unrankable rather than ancient, and the
+// difference matters to a caller that updates on the answer: treating "dev" as
+// older than everything would have it reinstall on every single check.
+func Older(a, b string) (older, ranked bool) {
+	x, okA := releaseNumber(a)
+	y, okB := releaseNumber(b)
+	if !okA || !okB {
+		return false, false
+	}
+	for i := range x {
+		if x[i] != y[i] {
+			return x[i] < y[i], true
+		}
+	}
+	return false, true
+}
+
+func releaseNumber(v string) ([3]int, bool) {
+	var n [3]int
+	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+	if len(parts) != 3 {
+		return n, false
+	}
+	for i, p := range parts {
+		x, err := strconv.Atoi(p)
+		if err != nil || x < 0 {
+			return n, false
+		}
+		n[i] = x
+	}
+	return n, true
 }

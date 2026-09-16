@@ -126,6 +126,9 @@ CONTINUITY
     logos project-name [dir]          the project name for a directory, as the hooks compute it
     logos hook <cursor|codex> session-start
                                       what a host's session-start hook runs; prints the handoff as JSON
+    logos plugin autoupdate [--notice]
+                                      update the Claude Code plugin when it is older than this
+                                      binary, at most once a day; --notice prints what it did, once
     logos project rename <old> <new> [--dry-run] [--merge]
                                       rename a project, carrying its history with it;
                                       --merge combines it into an existing project instead of refusing
@@ -340,6 +343,8 @@ func main() {
 		err = runProjectName(args)
 	case cmd == "hook":
 		err = hookCmd(args)
+	case cmd == "plugin":
+		err = pluginCmd(args)
 	case cmd == "project" && len(args) > 0 && args[0] == "rename":
 		err = runProjectRename(args[1:])
 	case cmd == "review":

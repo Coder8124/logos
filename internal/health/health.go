@@ -21,10 +21,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -906,23 +906,17 @@ func CheckPlugin(version string) (c Check) {
 		return c
 	}
 	pluginVersion := r.Version
-	plugin, pluginOK := releaseNumber(pluginVersion)
-	binary, binaryOK := releaseNumber(version)
-	if !pluginOK || !binaryOK {
+	stale, ranked := buildinfo.Older(pluginVersion, version)
+	if !ranked {
 		c.State = Unknown
 		c.Detail = fmt.Sprintf("plugin %q installed; this logos (%s) has no release number to compare it with", pluginVersion, version)
 		return c
 	}
-	for i := range plugin {
-		if plugin[i] < binary[i] {
-			c.State = Warn
-			c.Detail = fmt.Sprintf("the Logos plugin is %s but this logos is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
-			c.Fix = "run `claude plugin marketplace update logos && claude plugin update logos@logos`, then restart Claude Code"
-			return c
-		}
-		if plugin[i] > binary[i] {
-			break
-		}
+	if stale {
+		c.State = Warn
+		c.Detail = fmt.Sprintf("the Logos plugin is %s but this logos is %s — its hooks are older than the server", pluginVersion, strings.TrimPrefix(version, "v"))
+		c.Fix = "run `claude plugin marketplace update logos && claude plugin update logos@logos`, then restart Claude Code"
+		return c
 	}
 	c.State = OK
 	c.Detail = "plugin " + pluginVersion
@@ -997,24 +991,6 @@ func logosVersion(path string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(fields[1], "v"), true
-}
-
-// releaseNumber reads "0.4.3" or "v0.4.3". Anything else — dev, a pseudo
-// version, a pre-release — is not a number doctor will rank.
-func releaseNumber(v string) ([3]int, bool) {
-	var n [3]int
-	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
-	if len(parts) != 3 {
-		return n, false
-	}
-	for i, p := range parts {
-		x, err := strconv.Atoi(p)
-		if err != nil || x < 0 {
-			return n, false
-		}
-		n[i] = x
-	}
-	return n, true
 }
 
 // --- helpers -----------------------------------------------------------------
