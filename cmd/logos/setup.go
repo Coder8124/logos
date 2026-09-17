@@ -25,6 +25,7 @@ import (
 	"github.com/Coder8124/logos/internal/selfupdate"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
+	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -150,7 +151,39 @@ func setupCmd(args []string) error {
 			fmt.Printf("             → run `logos mcp install` to move them here too\n")
 		}
 	}
+	reportHistoryOnThisMachine()
 	return nil
+}
+
+// reportHistoryOnThisMachine names the transcripts already on disk and the one
+// command that reads them.
+//
+// A fresh vault is empty, and the person deciding whether Logos is worth
+// keeping decides against that emptiness — while months of sessions from the
+// hosts setup has just wired sit in ~/.claude/projects, readable. Nothing in
+// setup, SETUP.md or the README said so; ingest was named once, in a list of
+// MCP tools, as something an agent calls. Said here because this is the moment
+// the count is in hand and the emptiness is being explained.
+//
+// Silence when there is nothing to read: offering to recover history a machine
+// does not have is the same false promise as a healthy zero.
+func reportHistoryOnThisMachine() {
+	var lines []string
+	for _, a := range transcript.Available() {
+		if a.Found && a.Sessions > 0 {
+			lines = append(lines, fmt.Sprintf("    %-*s    %d sessions in %s\n", hostColumn, a.Harness, a.Sessions, a.Root))
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Println("\n  history    this machine has sessions from before this vault:")
+	for _, l := range lines {
+		fmt.Print(l)
+	}
+	// --dry-run because promotion is consented to one candidate at a time, and
+	// the first thing anyone should see is how much there is, not a queue.
+	fmt.Println("             → `logos ingest --dry-run` reads them; nothing is written without your say")
 }
 
 // wireOptsFrom reads the wiring flags shared by `setup` and `mcp install`.

@@ -270,6 +270,23 @@ go run ./cmd/logos bench continuity --logos-only
 
 ---
 
+## The history you already have
+
+A new vault is empty, and that is not the same as starting from zero: the agents
+on this machine have been writing transcripts all along. `logos ingest` reads
+them.
+
+```sh
+logos ingest --dry-run     # what is there, from Claude Code and Codex
+logos ingest               # turn it into candidates you review before promoting
+```
+
+Nothing is promoted without you: ingest fills a review queue, and the facts in it
+enter the vault only when you accept them. `logos setup` says how many sessions
+it found, on the machines that have any.
+
+---
+
 ## Lending the memory to other agents
 
 `logos mcp serve` exposes the memory over the **Model Context Protocol** — the
