@@ -44,12 +44,23 @@ const AutoUpdateEvery = 24 * time.Hour
 // a second machine would otherwise arrive claiming its plugin was up to date.
 const updateStamp = "plugin-update.json"
 
+// AutoUpdateBackoff is how long an update that changed nothing is believed for.
+// `claude plugin update` exits 0 with nothing to install, so a plugin the
+// marketplace cannot move would otherwise reach the network every day for the
+// rest of the install's life. A week still picks up a late release without
+// making the failure a daily habit.
+const AutoUpdateBackoff = 7 * 24 * time.Hour
+
 // An UpdateRecord is the outcome of the last check. Announced is what keeps the
 // announcement to one session: the notice is read once and then marked.
+// Stayed is set when an update ran and moved nothing: it holds the version this
+// binary wanted, with From still the version the plugin is on. That pair used to
+// be written as a completed update.
 type UpdateRecord struct {
 	Checked   time.Time `json:"checked"`
 	From      string    `json:"from,omitempty"`
 	To        string    `json:"to,omitempty"`
+	Stayed    string    `json:"stayed,omitempty"`
 	Failed    string    `json:"failed,omitempty"`
 	Announced bool      `json:"announced,omitempty"`
 }
@@ -81,6 +92,12 @@ func AutoUpdatePlugin(version string, now time.Time) (updated bool, err error) {
 	if !r.Installed || !r.Connects {
 		return false, nil
 	}
+	// An update that ran and moved nothing is worth believing for a while: the
+	// plugin is still on the version it stayed at, so the same two commands
+	// would reach the network for the same nothing.
+	if rec.Stayed != "" && rec.From == strings.TrimPrefix(r.Version, "v") && now.Sub(rec.Checked) < AutoUpdateBackoff {
+		return false, nil
+	}
 	stale, ranked := buildinfo.Older(r.Version, version)
 	if !ranked || !stale {
 		// Still a check: not writing the stamp here would reach for the plugin
@@ -89,12 +106,22 @@ func AutoUpdatePlugin(version string, now time.Time) (updated bool, err error) {
 	}
 	// Both versions are recorded without their "v", since the notice puts them
 	// side by side and "0.4.1 to v0.4.4" reads like two different schemes.
-	next := UpdateRecord{Checked: now, From: strings.TrimPrefix(r.Version, "v"), To: strings.TrimPrefix(version, "v")}
+	was := strings.TrimPrefix(r.Version, "v")
+	next := UpdateRecord{Checked: now, From: was, To: strings.TrimPrefix(version, "v")}
 	if err := updatePlugin(); err != nil {
 		next.Failed = err.Error()
 		_ = writeUpdateRecord(next)
 		return false, err
 	}
+	// What the plugin is on now, not what this binary is on. The two commands
+	// exit 0 with nothing to install, so the version afterwards is the only
+	// evidence that anything happened.
+	after := strings.TrimPrefix(LogosPluginRecord().Version, "v")
+	if after == was {
+		next.To, next.Stayed = "", next.To
+		return false, writeUpdateRecord(next)
+	}
+	next.To = after
 	return true, writeUpdateRecord(next)
 }
 
@@ -114,6 +141,8 @@ func UpdateNotice() string {
 		return fmt.Sprintf("The Logos plugin is %s and this logos is %s, and updating it failed: %s. Run `claude plugin marketplace update logos && claude plugin update logos@logos` by hand.", rec.From, rec.To, rec.Failed)
 	case rec.To != "":
 		return fmt.Sprintf("Logos updated its own Claude Code plugin from %s to %s; restart Claude Code if its hooks look stale.", rec.From, rec.To)
+	case rec.Stayed != "":
+		return fmt.Sprintf("The Logos plugin is %s and this logos is %s: the update ran and the marketplace had nothing newer, so the plugin stayed where it is. Logos looks again in a week.", rec.From, rec.Stayed)
 	}
 	return ""
 }

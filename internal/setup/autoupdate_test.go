@@ -18,13 +18,18 @@ func installedPlugin(t *testing.T, home, version string) {
 }
 
 // stubUpdate replaces the one side effect, so these tests decide whether an
-// update should happen on a machine with no Claude Code on it.
-func stubUpdate(t *testing.T, err error) *int {
+// update should happen on a machine with no Claude Code on it. to is the
+// version the plugin is on afterwards — empty for the real-world case that
+// `claude plugin update` exits 0 having installed nothing.
+func stubUpdate(t *testing.T, home, to string, err error) *int {
 	t.Helper()
 	runs := 0
 	prev := updatePlugin
 	updatePlugin = func() error {
 		runs++
+		if to != "" {
+			installedPlugin(t, home, to)
+		}
 		return err
 	}
 	t.Cleanup(func() { updatePlugin = prev })
@@ -37,7 +42,7 @@ func stubUpdate(t *testing.T, err error) *int {
 func TestThePluginUpdatesItselfWhenItIsOlderThanTheBinary(t *testing.T) {
 	home := fakeHome(t)
 	installedPlugin(t, home, "0.4.1")
-	runs := stubUpdate(t, nil)
+	runs := stubUpdate(t, home, "0.4.4", nil)
 
 	updated, err := AutoUpdatePlugin("v0.4.4", time.Now())
 	if err != nil || !updated {
@@ -53,7 +58,9 @@ func TestThePluginUpdatesItselfWhenItIsOlderThanTheBinary(t *testing.T) {
 func TestThePluginIsNotCheckedMoreThanOnceADay(t *testing.T) {
 	home := fakeHome(t)
 	installedPlugin(t, home, "0.4.1")
-	runs := stubUpdate(t, nil)
+	// Each run moves the plugin one version, so the day-two check still has a
+	// plugin behind the binary and a reason to run.
+	runs := stubUpdate(t, home, "0.4.2", nil)
 
 	now := time.Now()
 	if _, err := AutoUpdatePlugin("v0.4.4", now); err != nil {
@@ -80,7 +87,7 @@ func TestAnUpToDatePluginIsNotUpdated(t *testing.T) {
 		t.Run(plugin, func(t *testing.T) {
 			home := fakeHome(t)
 			installedPlugin(t, home, plugin)
-			runs := stubUpdate(t, nil)
+			runs := stubUpdate(t, home, "", nil)
 
 			updated, err := AutoUpdatePlugin("v0.4.4", time.Now())
 			if err != nil || updated {
@@ -103,7 +110,7 @@ func TestAPluginClaudeCodeDoesNotLoadIsNotUpdated(t *testing.T) {
 	home := fakeHome(t)
 	installedPlugin(t, home, "0.4.1")
 	writeClaudeFile(t, home, "settings.json", `{"enabledPlugins":{"logos@logos":false}}`)
-	runs := stubUpdate(t, nil)
+	runs := stubUpdate(t, home, "", nil)
 
 	if updated, err := AutoUpdatePlugin("v0.4.4", time.Now()); updated || err != nil {
 		t.Fatalf("AutoUpdatePlugin = %v, %v; want nothing done", updated, err)
@@ -119,7 +126,7 @@ func TestAPluginClaudeCodeDoesNotLoadIsNotUpdated(t *testing.T) {
 func TestASessionSaysThePluginUpdatedItselfAndSaysItOnlyOnce(t *testing.T) {
 	home := fakeHome(t)
 	installedPlugin(t, home, "0.4.1")
-	stubUpdate(t, nil)
+	stubUpdate(t, home, "0.4.4", nil)
 
 	if _, err := AutoUpdatePlugin("v0.4.4", time.Now()); err != nil {
 		t.Fatal(err)
@@ -138,7 +145,7 @@ func TestASessionSaysThePluginUpdatedItselfAndSaysItOnlyOnce(t *testing.T) {
 func TestAFailedPluginUpdateIsReportedNotSwallowed(t *testing.T) {
 	home := fakeHome(t)
 	installedPlugin(t, home, "0.4.1")
-	stubUpdate(t, errors.New("`claude plugin update logos@logos` did not finish in two minutes"))
+	stubUpdate(t, home, "", errors.New("`claude plugin update logos@logos` did not finish in two minutes"))
 
 	updated, err := AutoUpdatePlugin("v0.4.4", time.Now())
 	if updated || err == nil {
@@ -180,4 +187,60 @@ func TestThePluginUpdateStampStaysInsideTheFakeHome(t *testing.T) {
 // starts with the same characters does not read as being inside it.
 func under(path, dir string) bool {
 	return strings.HasPrefix(path, strings.TrimSuffix(dir, string(filepath.Separator))+string(filepath.Separator))
+}
+
+// `claude plugin update` exits 0 whether or not there was anything to install,
+// so a plugin the marketplace cannot move — behind the release, pinned by an
+// enterprise, or simply current there — was announced as having moved to this
+// binary's version, and the whole thing ran again the next day, forever. That
+// is invariant 4 in the one code path whose purpose is to be believed.
+func TestAPluginTheUpdateCouldNotMoveIsNotAnnouncedAsUpdated(t *testing.T) {
+	home := fakeHome(t)
+	installedPlugin(t, home, "0.4.1")
+	runs := stubUpdate(t, home, "", nil)
+
+	now := time.Now()
+	updated, err := AutoUpdatePlugin("v0.4.4", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated {
+		t.Error("the plugin is still 0.4.1 and the run was reported as an update")
+	}
+	notice := UpdateNotice()
+	if strings.Contains(notice, "updated its own") {
+		t.Errorf("the next session is told about an update that did not happen: %q", notice)
+	}
+	if !strings.Contains(notice, "0.4.1") || notice == "" {
+		t.Errorf("nothing says the plugin stayed where it is: %q", notice)
+	}
+
+	if _, err := AutoUpdatePlugin("v0.4.4", now.Add(AutoUpdateEvery+time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if *runs != 1 {
+		t.Errorf("ran the update %d times; a marketplace that had nothing newer yesterday is not retried the next day", *runs)
+	}
+}
+
+// The other half: when the update does move the plugin, To is the version it
+// actually moved to, read back off Claude Code's own record rather than assumed
+// from this binary.
+func TestAnUpdateThatMovesThePluginAnnouncesTheVersionItMovedTo(t *testing.T) {
+	home := fakeHome(t)
+	installedPlugin(t, home, "0.4.1")
+	prev := updatePlugin
+	updatePlugin = func() error {
+		installedPlugin(t, home, "0.4.3")
+		return nil
+	}
+	t.Cleanup(func() { updatePlugin = prev })
+
+	updated, err := AutoUpdatePlugin("v0.4.4", time.Now())
+	if err != nil || !updated {
+		t.Fatalf("AutoUpdatePlugin = %v, %v; want an update", updated, err)
+	}
+	if notice := UpdateNotice(); !strings.Contains(notice, "from 0.4.1 to 0.4.3") {
+		t.Errorf("the notice does not name the version the plugin is actually on: %q", notice)
+	}
 }
