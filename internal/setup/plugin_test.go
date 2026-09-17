@@ -103,3 +103,65 @@ func TestAPluginStepThatTimesOutKillsWhatClaudeStarted(t *testing.T) {
 		t.Error("the child claude started outlived the step that timed out")
 	}
 }
+
+// loggingClaude puts a `claude` on PATH that records how it was called, and
+// with which vault overrides, and succeeds at everything.
+func loggingClaude(t *testing.T) (log string) {
+	t.Helper()
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin")
+	log = filepath.Join(t.TempDir(), "calls")
+	stub := "#!/bin/sh\necho \"$* | LOGOS_VAULT=${LOGOS_VAULT-unset} BRAIN_VAULT=${BRAIN_VAULT-unset}\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return log
+}
+
+func claudeCalls(t *testing.T, log string) string {
+	t.Helper()
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("claude was never run: %v", err)
+	}
+	return string(raw)
+}
+
+// `claude mcp list` starts every server Claude Code has, the plugin installed
+// seconds earlier included, and one failed start of a plugin's server makes
+// Claude Code skip Logos for the next fifteen minutes. Setup was running it as
+// its very last act on the plugin path, just after telling the user to restart.
+func TestLookingForAnOldEntryDoesNotHealthCheckEveryServerClaudeCodeHas(t *testing.T) {
+	log := loggingClaude(t)
+
+	if err := RemoveServerEntry(); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := claudeCalls(t, log)
+	if strings.Contains(calls, "mcp list") {
+		t.Errorf("setup still health-checks every server to find one entry:\n%s", calls)
+	}
+	if !strings.Contains(calls, "mcp get logos") {
+		t.Errorf("the entry must still be looked for:\n%s", calls)
+	}
+}
+
+// Someone debugging a vault typo has LOGOS_VAULT set to the typo, and running
+// setup is what they do next. The host CLI it calls starts logos servers in the
+// environment it was given, so the override went straight into Claude Code's
+// own plugin server — and its failed start is cached for fifteen minutes.
+func TestTheHostCLIDoesNotInheritAVaultOverrideFromTheShellSetupRanIn(t *testing.T) {
+	log := loggingClaude(t)
+	t.Setenv("LOGOS_VAULT", "/vaults/typo")
+	t.Setenv("BRAIN_VAULT", "/vaults/older-typo")
+
+	if err := RemoveServerEntry(); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := claudeCalls(t, log)
+	if strings.Contains(calls, "typo") {
+		t.Errorf("claude was run with this shell's vault overrides:\n%s", calls)
+	}
+}

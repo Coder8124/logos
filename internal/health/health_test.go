@@ -1,6 +1,7 @@
 package health
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1114,5 +1115,41 @@ func TestAHostOnAnotherVaultIsFlagged(t *testing.T) {
 	}
 	if c, ok := checkOtherVault(hosts(other), ""); ok {
 		t.Errorf("flagged with no recorded vault to compare against: %+v", c)
+	}
+}
+
+// One failed start of the plugin's server — a `claude mcp list` run in a shell
+// with a mistyped LOGOS_VAULT is enough — and Claude Code skips Logos in every
+// session begun in the next fifteen minutes. Everything else doctor knows about
+// the plugin stayed green through it: installed, enabled, current, and absent.
+func TestDoctorSaysHowLongClaudeCodeWillGoOnSkippingThePlugin(t *testing.T) {
+	installPlugin(t, "0.4.3")
+	failed := time.Now().Add(-5 * time.Minute).UnixMilli()
+	cache := fmt.Sprintf(`{"plugin:logos:logos":{"timestamp":%d,"id":"abc"}}`, failed)
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude", "mcp-needs-auth-cache.json"), []byte(cache), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c, ok := checkPlugin("v0.4.3")
+	if !ok {
+		t.Fatal("an installed plugin must be reported")
+	}
+	if c.State != Warn || !strings.Contains(c.Detail, "skipping") {
+		t.Errorf("a cached failed start must be a warning that says so: %+v", c)
+	}
+	if !strings.Contains(c.Detail, "10m") || c.Fix == "" {
+		t.Errorf("the warning must say how long is left and what clears it: %+v", c)
+	}
+}
+
+// An expired entry is not a problem: the next session connects.
+func TestDoctorIsQuietAboutAPluginFailureThatHasAgedOut(t *testing.T) {
+	installPlugin(t, "0.4.3")
+	cache := fmt.Sprintf(`{"plugin:logos:logos":{"timestamp":%d}}`, time.Now().Add(-time.Hour).UnixMilli())
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude", "mcp-needs-auth-cache.json"), []byte(cache), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := checkPlugin("v0.4.3"); c.State != OK {
+		t.Errorf("state = %q, want ok: %s", c.State, c.Detail)
 	}
 }

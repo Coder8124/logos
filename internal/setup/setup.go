@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -372,10 +373,38 @@ func unchanged(h Host, backup string) bool {
 
 // --- registering through a host's own CLI ------------------------------------
 
+// vaultOverrides point logos at a vault, and a host's CLI must not inherit
+// them: `claude mcp list`, `mcp get` and `mcp add` start the servers they
+// report on, in whatever environment they were run in. Someone debugging a
+// vault typo has LOGOS_VAULT set to the typo — and running setup or doctor is
+// exactly what they do next — so the probe started Claude Code's own plugin
+// server against it. One failed start of a plugin's server and Claude Code
+// skips Logos for fifteen minutes, in every session begun in that window.
+var vaultOverrides = []string{"LOGOS_VAULT", "BRAIN_VAULT"}
+
+// hostCommand builds a command for a host's own CLI, with those stripped.
+func hostCommand(bin string, args ...string) *exec.Cmd {
+	cmd := exec.Command(bin, args...)
+	cmd.Env = hostCLIEnv()
+	return cmd
+}
+
+func hostCLIEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(vaultOverrides, name) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return env
+}
+
 // viaCLI registers through a command the host provides. args is built by the
 // caller because each CLI spells the same idea differently.
 func viaCLI(bin string, args []string) (Outcome, error) {
-	cmd := exec.Command(bin, args...)
+	cmd := hostCommand(bin, args...)
 	outBytes, err := cmd.CombinedOutput()
 	if err == nil {
 		return Registered, nil

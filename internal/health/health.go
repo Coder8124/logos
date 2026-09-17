@@ -905,6 +905,16 @@ func CheckPlugin(version string) (c Check) {
 		c.Fix = "enable it for your user in Claude Code's /plugin, then `claude mcp remove --scope user logos` so logos is not registered twice"
 		return c
 	}
+	// An installed, enabled, current plugin whose server Claude Code is
+	// refusing to start looks perfect to every other check here, and the line
+	// Claude Code prints about it scrolls past at session start. Until the
+	// window is out, this machine has no Logos in any new session.
+	if left, skipped := setup.PluginConnectionSkipped(time.Now()); skipped {
+		c.State = Warn
+		c.Detail = fmt.Sprintf("Claude Code cached a failed start of the Logos plugin's server and is skipping it for another %s", left.Round(time.Second))
+		c.Fix = "reconnect with /mcp in Claude Code, or start a session after that — and make sure LOGOS_VAULT is unset or right, since a start against the wrong vault is what caches this"
+		return c
+	}
 	pluginVersion := r.Version
 	stale, ranked := buildinfo.Older(pluginVersion, version)
 	if !ranked {

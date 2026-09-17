@@ -2,7 +2,9 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -24,7 +26,7 @@ func SupportsPluginCommands() bool {
 	if cli == "" {
 		return false
 	}
-	cmd := exec.Command(cli, "plugin", "--help")
+	cmd := hostCommand(cli, "plugin", "--help")
 	out, err := cmd.CombinedOutput()
 	// An older claude exits non-zero on an unknown subcommand, but a `plugin`
 	// that is only a stub would pass on the exit code alone, so the commands
@@ -97,6 +99,7 @@ func runPluginStep(cli string, step []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), pluginStepTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cli, step...)
+	cmd.Env = hostCLIEnv()
 	inOwnProcessGroup(cmd)
 	cmd.Cancel = func() error { return killTree(cmd) }
 	// The pipes this reads are inherited by whatever claude started, so a child
@@ -120,18 +123,55 @@ func RemoveServerEntry() error {
 	if cli == "" {
 		return nil
 	}
-	out, err := exec.Command(cli, "mcp", "list").CombinedOutput()
-	if err != nil {
-		return nil // nothing listable means nothing of ours to remove
-	}
-	for _, r := range parseClaudeMCPList(out) {
-		if r.Name != Name {
-			continue
-		}
-		if _, err := viaCLI(cli, []string{"mcp", "remove", "--scope", "user", Name}); err != nil {
-			return err
-		}
+	// `mcp get logos`, not `mcp list`: list health-checks every server Claude
+	// Code has, including the plugin installed seconds earlier, and one failed
+	// start of a plugin's server turns Logos off for fifteen minutes. This is
+	// the last thing setup does on the plugin path, so it was poisoning the
+	// install it had just reported as finished. `mcp get` exits non-zero when
+	// there is no such server, which is the common case and nothing to remove.
+	if err := hostCommand(cli, "mcp", "get", Name).Run(); err != nil {
 		return nil
 	}
-	return nil
+	_, err := viaCLI(cli, []string{"mcp", "remove", "--scope", "user", Name})
+	return err
+}
+
+// pluginFailureWindow is how long Claude Code skips a plugin's MCP server for
+// after one failed start, and pluginServerName is what it calls ours.
+const (
+	pluginFailureWindow = 15 * time.Minute
+	pluginServerName    = "plugin:logos:logos"
+)
+
+// PluginConnectionSkipped reports how much of that window is left. Claude Code
+// records a plugin server's failed start in its own cache and then skips that
+// server in every session started for the next fifteen minutes, saying so in a
+// line most people never see. Without this, the machine simply has no Logos and
+// doctor's other checks all pass: the plugin is installed, enabled, current.
+func PluginConnectionSkipped(now time.Time) (time.Duration, bool) {
+	path := inHome(".claude", "mcp-needs-auth-cache.json")
+	if path == "" {
+		return 0, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	// Claude Code's file, so only what is needed is read from it, and a shape
+	// it changes later reads as "nothing cached" rather than as an error.
+	var cache map[string]struct {
+		Timestamp int64 `json:"timestamp"`
+	}
+	if json.Unmarshal(raw, &cache) != nil {
+		return 0, false
+	}
+	entry, ok := cache[pluginServerName]
+	if !ok {
+		return 0, false
+	}
+	left := pluginFailureWindow - now.Sub(time.UnixMilli(entry.Timestamp))
+	if left <= 0 {
+		return 0, false
+	}
+	return left, true
 }

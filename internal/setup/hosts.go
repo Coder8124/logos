@@ -66,14 +66,14 @@ func claudeCode() Host {
 			return Updated, nil
 		},
 		List: func() ([]Registration, error) {
-			out, err := exec.Command(claudeCLI(), "mcp", "list").CombinedOutput()
+			out, err := hostCommand(claudeCLI(), "mcp", "list").CombinedOutput()
 			if err != nil {
 				return nil, err
 			}
 			return parseClaudeMCPList(out), nil
 		},
 		Remove: func(name string) (bool, error) {
-			out, err := exec.Command(claudeCLI(), "mcp", "list").CombinedOutput()
+			out, err := hostCommand(claudeCLI(), "mcp", "list").CombinedOutput()
 			if err != nil {
 				return false, err
 			}
