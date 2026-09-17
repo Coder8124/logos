@@ -114,3 +114,31 @@ func TestUninstallAsksBeforeRemovingMoreThanOneHost(t *testing.T) {
 		}
 	}
 }
+
+// "none of the hosts logos knows are installed here" is about the machine, and
+// it was printed for a run that was about one named host: three hosts were
+// installed, and the person disconnecting one read it as "already clean".
+func TestUninstallSaysTheSelectedHostIsNotInstalledNotThatNothingIs(t *testing.T) {
+	setupInFakeHome(t)
+	fakeHosts(t, "Fakey Cursor", "Fakey Codex")
+	hosts := detectHosts()
+	hosts = append(hosts, setup.Host{
+		Name:   "Fakey Zed",
+		Detect: func() bool { return false },
+		Where:  func() string { return "" },
+		Remove: func(string) (bool, error) { return false, nil },
+	})
+	detectHosts = func() []setup.Host { return hosts }
+
+	out := captureStdout(t, func() {
+		if err := mcpUninstallCmd([]string{"uninstall", "--host", "fakey-zed"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "Fakey Zed is not installed here") {
+		t.Errorf("the message is not about the host that was asked for:\n%s", out)
+	}
+	if !strings.Contains(out, "Fakey Cursor") {
+		t.Errorf("the message does not say what is installed:\n%s", out)
+	}
+}

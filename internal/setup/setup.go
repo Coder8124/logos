@@ -180,6 +180,13 @@ func Plan(hosts []Host) []Result {
 // `--host claude-code`, `--host "Claude Code"` and `--host codex` all work. An
 // unmatched name is returned so the caller can say so rather than silently
 // wiring nothing.
+//
+// A prefix several hosts share keeps all of them, which is what `--host cline`
+// plainly means with four Clines on the list. It used to keep the first and
+// break, so which Cline you got was decided by the order of Hosts() and nothing
+// said the others existed. An exact name still wins outright: `--host cline` on
+// a machine that has Cline itself is about Cline, not also about Cline in
+// Cursor.
 func Only(hosts []Host, names []string) (kept []Host, unmatched []string) {
 	if len(names) == 0 {
 		return hosts, nil
@@ -187,20 +194,41 @@ func Only(hosts []Host, names []string) (kept []Host, unmatched []string) {
 	norm := func(s string) string {
 		return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(s))
 	}
+	seen := map[string]bool{}
 	for _, want := range names {
-		found := false
+		var matches []Host
 		for _, h := range hosts {
-			if strings.HasPrefix(norm(h.Name), norm(want)) {
-				kept = append(kept, h)
-				found = true
-				break
+			switch {
+			case norm(h.Name) == norm(want):
+				matches = []Host{h}
+			case strings.HasPrefix(norm(h.Name), norm(want)) && (len(matches) == 0 || norm(matches[0].Name) != norm(want)):
+				matches = append(matches, h)
 			}
 		}
-		if !found {
+		if len(matches) == 0 {
 			unmatched = append(unmatched, want)
+			continue
+		}
+		for _, h := range matches {
+			if !seen[h.Name] {
+				seen[h.Name] = true
+				kept = append(kept, h)
+			}
 		}
 	}
 	return kept, unmatched
+}
+
+// Detected keeps the hosts that are actually present, for a message that has to
+// say what is here rather than what logos knows about.
+func Detected(hosts []Host) []Host {
+	var out []Host
+	for _, h := range hosts {
+		if h.Detect != nil && h.Detect() {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // OnOtherVault names each detected host with a logos entry pinned to a vault

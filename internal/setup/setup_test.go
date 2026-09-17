@@ -559,3 +559,30 @@ func modeOf(t *testing.T, path string) os.FileMode {
 	}
 	return info.Mode().Perm()
 }
+
+// Four hosts begin with "Cline". Keeping the first and stopping meant which one
+// `--host cline` reached was decided by the order of Hosts(), with nothing said
+// about the rest — someone whose only Cline is Cline in Cursor was told nothing
+// was installed.
+func TestAPrefixSeveralHostsShareKeepsAllOfThem(t *testing.T) {
+	hosts := []Host{{Name: "Cline in Cursor"}, {Name: "Cline in VS Code"}, {Name: "Devin"}}
+
+	kept, unmatched := Only(hosts, []string{"cline"})
+	if len(unmatched) != 0 {
+		t.Fatalf("unmatched %v", unmatched)
+	}
+	if got := Names(kept); len(got) != 2 {
+		t.Errorf("--host cline kept %v; both Clines are Clines", got)
+	}
+}
+
+// An exact name is not an ambiguous prefix: on a machine that has Cline itself,
+// `--host cline` is about Cline.
+func TestAnExactHostNameWinsOverTheHostsThatMerelyStartWithIt(t *testing.T) {
+	hosts := []Host{{Name: "Cline in Cursor"}, {Name: "Cline"}, {Name: "Devin"}}
+
+	kept, _ := Only(hosts, []string{"cline"})
+	if got := Names(kept); len(got) != 1 || got[0] != "Cline" {
+		t.Errorf("--host cline kept %v, want just Cline", got)
+	}
+}

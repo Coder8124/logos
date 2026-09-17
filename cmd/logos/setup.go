@@ -1306,7 +1306,8 @@ func mcpUninstallCmd(args []string) error {
 		return err
 	}
 	known := detectHosts()
-	hosts, unmatched := setup.Only(known, flagStrs(args, "--host"))
+	names := flagStrs(args, "--host")
+	hosts, unmatched := setup.Only(known, names)
 	if len(unmatched) > 0 {
 		return fmt.Errorf("unknown host %s — logos knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
@@ -1325,7 +1326,15 @@ func mcpUninstallCmd(args []string) error {
 	failed := 0
 	removals := setup.Uninstall(hosts)
 	if len(removals) == 0 {
-		fmt.Printf("  %-*s none of the hosts logos knows are installed here, so nothing was removed\n", hostColumn, "hosts")
+		// About the selection, not the machine: "nothing was removed" for a
+		// host the user named reads as "already clean", and they leave an entry
+		// in place that is still there.
+		if len(names) > 0 {
+			fmt.Printf("  %-*s %s is not installed here (found: %s), so nothing was removed\n", hostColumn, "hosts",
+				strings.Join(setup.Names(hosts), ", "), strings.Join(setup.Names(setup.Detected(known)), ", "))
+		} else {
+			fmt.Printf("  %-*s none of the hosts logos knows are installed here, so nothing was removed\n", hostColumn, "hosts")
+		}
 	}
 	for _, r := range removals {
 		switch {

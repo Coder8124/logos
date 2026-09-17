@@ -191,8 +191,13 @@ func TestSetupWiresGitHubCopilotInVSCodeUnderServers(t *testing.T) {
 // matched nothing while the names began with "GitHub".
 func TestHostCopilotSelectsACopilotHost(t *testing.T) {
 	kept, unmatched := Only(Hosts(), []string{"copilot", "cline", "devin"})
-	if len(unmatched) != 0 || len(kept) != 3 {
+	if len(unmatched) != 0 || len(kept) < 3 {
 		t.Errorf("kept %v, unmatched %v", Names(kept), unmatched)
+	}
+	for _, name := range Names(kept) {
+		if !strings.HasPrefix(name, "Copilot") && !strings.HasPrefix(name, "Cline") && name != "Devin" {
+			t.Errorf("kept %s, which is none of the three that were asked for", name)
+		}
 	}
 }
 
