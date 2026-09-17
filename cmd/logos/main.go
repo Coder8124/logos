@@ -439,9 +439,19 @@ func firstNonFlag(args []string) string {
 	return ""
 }
 
+// isFlagToken reports whether a word is another flag rather than a value, so a
+// flag given with nothing after it falls back to its default instead of eating
+// the next one. `--project --kind decision` recorded the project as "--kind"
+// and said nothing; invariant 4 says a missing value is reported as missing.
+//
+// A lone "-" is a value: it is the conventional name for stdin.
+func isFlagToken(a string) bool {
+	return strings.HasPrefix(a, "-") && a != "-"
+}
+
 func flagStr(args []string, name, def string) string {
 	for i, a := range args {
-		if a == name && i+1 < len(args) {
+		if a == name && i+1 < len(args) && !isFlagToken(args[i+1]) {
 			return args[i+1]
 		}
 	}
@@ -458,9 +468,11 @@ func dropFlag(args []string, name string) []string {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		if args[i] == name {
-			// Skip the value too, unless the flag was given last with nothing
-			// after it — in which case there is no value to skip.
-			if i+1 < len(args) {
+			// Skip the value too, unless the flag was given last with
+			// nothing after it, or what follows is another flag — in which
+			// case there is no value to skip and dropping a word would take
+			// the next flag out of the line with it.
+			if i+1 < len(args) && !isFlagToken(args[i+1]) {
 				i++
 			}
 			continue
@@ -477,7 +489,7 @@ func dropFlag(args []string, name string) []string {
 func flagStrs(args []string, name string) []string {
 	var out []string
 	for i, a := range args {
-		if a != name || i+1 >= len(args) {
+		if a != name || i+1 >= len(args) || isFlagToken(args[i+1]) {
 			continue
 		}
 		for _, part := range strings.Split(args[i+1], ",") {

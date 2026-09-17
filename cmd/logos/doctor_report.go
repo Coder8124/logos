@@ -69,23 +69,38 @@ func doctorReport() error {
 	}
 
 	fmt.Println("hosts")
+	var detected []setup.Host
 	for _, h := range setup.Hosts() {
-		if h.Detect == nil || !h.Detect() {
-			continue
+		if h.Detect != nil && h.Detect() {
+			detected = append(detected, h)
 		}
+	}
+	// A bare heading reads as a rendering fault in a bundle whose whole job is
+	// to be believed, and "no host detected" is itself the answer to a good
+	// share of the reports this command exists to shorten.
+	if len(detected) == 0 {
+		fmt.Println("    none detected")
+	}
+	w := 0
+	for _, h := range detected {
+		if len(h.Name) > w {
+			w = len(h.Name)
+		}
+	}
+	for _, h := range detected {
 		where := ""
 		if h.Config != nil {
 			where = redactHome(h.Config())
 		}
-		fmt.Printf("    %-20s %s\n", h.Name, where)
+		fmt.Printf("    %-*s %s\n", w, h.Name, where)
 	}
 
 	fmt.Println("checks")
 	checks := gatherHealth().Checks
 	// Width from the longest name, as the report proper does: a row whose
 	// verdict falls outside the column everything else lines up in reads as a
-	// rendering bug, in a bundle whose whole job is to be believed.
-	w := 0
+	// rendering bug.
+	w = 0
 	for _, c := range checks {
 		if len(c.Name) > w {
 			w = len(c.Name)

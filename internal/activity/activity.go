@@ -131,9 +131,13 @@ const disclosedMarker = ".disclosed"
 
 // Disclose returns the one-time sentence telling the user their prompts and
 // tool calls are being written down, and where, and how to stop — empty once it
-// has been said, or when there is nothing being recorded to disclose. Saying it
-// is the caller's job; marking it said is this function's, so a crash between
-// the two repeats the notice rather than losing it.
+// has been said, or when there is nothing being recorded to disclose.
+//
+// The marker is written before the sentence is returned, so a crash between the
+// two loses the notice rather than repeating it. That is the right way round: a
+// disclosure that reappears every session is one the user learns to skip past,
+// and the next session discloses anyway if this one never got as far as
+// recording anything.
 func Disclose(vault string) (string, error) {
 	if !Recording(vault) {
 		return "", nil
