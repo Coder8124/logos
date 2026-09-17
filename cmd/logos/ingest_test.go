@@ -236,3 +236,33 @@ func TestResumeMentionsPendingCandidates(t *testing.T) {
 		t.Errorf("resume did not mention the pending ingest queue:\n%s", out)
 	}
 }
+
+// #114: the CLI advertised "distil other agents' transcripts", and the receipt
+// said "N queued". Both describe a tier the command cannot produce — `runIngest`
+// harvests (files touched, commands run, turn counts) and stops. The fields the
+// next agent actually reads are empty and stay empty until an agent calls
+// ingest_distil, and a user who read "queued" and waited has kept the mechanical
+// half and lost the judgement half. Invariant 3 with the number attached: say
+// which tier was written, how many, and what upgrades them.
+func TestIngestSaysTheCandidatesAreHarvestsAndNamesWhatUpgradesThem(t *testing.T) {
+	scratchIngest(t)
+
+	out := captureStdout(t, func() {
+		if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "harvest") {
+		t.Errorf("the receipt never says the candidates are harvests, so the user reads them as distilled:\n%s", out)
+	}
+	if !strings.Contains(out, "3 of 3") {
+		t.Errorf("the receipt does not count how many candidates are still harvest-only:\n%s", out)
+	}
+	// #115's warnable half: distillation re-reads the source transcript, so a
+	// candidate whose transcript is deleted can never be upgraded. Saying it
+	// while the user still has the transcript is the whole point.
+	if !strings.Contains(out, "transcript") {
+		t.Errorf("the receipt does not say distillation needs the source transcript to still exist:\n%s", out)
+	}
+}

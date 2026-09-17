@@ -111,7 +111,7 @@ CONTINUITY
     logos resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
     logos ingest [project] [--harness N] [--path FILE] [--dry-run] [--all-projects]
-                                      distil other agents' transcripts into checkpoint candidates
+                                      harvest other agents' transcripts into checkpoint candidates
     logos ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
     logos sessions [project]          checkpoint history for a project, and any abandoned ones

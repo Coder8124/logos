@@ -61,6 +61,7 @@ func runIngest(args []string) error {
 
 	// Announce what was read and what was skipped, with numbers (invariant 3).
 	read, queued, skippedDup, skippedProj, redacted := 0, 0, 0, 0, 0
+	harvestOnly := 0
 	var ix *index.Index
 	for _, s := range sessions {
 		read++
@@ -84,6 +85,9 @@ func runIngest(args []string) error {
 			continue
 		}
 		queued++
+		if c.Tier == ingest.TierHarvest || c.Tier == "" {
+			harvestOnly++
+		}
 		fmt.Printf("  queued  %s  %s\n", orUnattributed(c.Project), res.Path)
 		if len(res.Redactions) > 0 {
 			redacted += len(res.Redactions)
@@ -122,6 +126,18 @@ func runIngest(args []string) error {
 		}
 		if queued > 0 {
 			fmt.Println("review them:  logos ingest review")
+		}
+		// #114: the command harvests and stops. Saying only "queued" let users
+		// read these as finished work and wait; the judgement fields — verified,
+		// failed, blockers, next — are the reason to ingest at all and are empty
+		// until an agent distils. Said with the count, per invariant 3.
+		if harvestOnly > 0 {
+			fmt.Printf("\n%d of %d are harvests: files touched, commands run, turn counts.\n", harvestOnly, queued)
+			fmt.Println("The judgement fields (verified, failed, blockers, next) are empty until an")
+			fmt.Println("agent distils them — ask one connected to logos to run ingest_distil.")
+			// #115: distillation re-reads the source, which logos does not own.
+			fmt.Println("Distilling re-reads the original transcript, so it has to still be on")
+			fmt.Println("disk — distil before anything deletes or rotates them.")
 		}
 	}
 	return nil
@@ -296,8 +312,8 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 	if !assumeYes {
 		fmt.Println("`logos ingest` reads other coding agents' session transcripts from disk")
 		fmt.Println("(Claude Code under ~/.claude/projects, Codex under ~/.codex/sessions, and")
-		fmt.Println("others via txcript). Only a distilled checkpoint candidate is written to the")
-		fmt.Println("vault — never the transcript itself. This is asked once.")
+		fmt.Println("others via txcript). Only a checkpoint candidate is written to the vault —")
+		fmt.Println("never the transcript itself. This is asked once.")
 		fmt.Print("\nallow ingest to read transcripts on this machine? [y/N] ")
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		if a := strings.TrimSpace(strings.ToLower(line)); a != "y" && a != "yes" {
