@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -73,25 +74,40 @@ func RunPluginSteps(steps [][]string) error {
 		return fmt.Errorf("claude is not installed here")
 	}
 	for _, step := range steps {
-		// A plugin install reaches the network, and a hung one would hang
-		// setup itself with no way out but ^C.
-		cmd := exec.Command(cli, step...)
-		done := make(chan struct{})
-		var out []byte
-		var err error
-		go func() {
-			out, err = cmd.CombinedOutput()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Minute):
-			cmd.Process.Kill()
-			return fmt.Errorf("`%s` did not finish in two minutes", PluginCommand(step))
+		if err := runPluginStep(cli, step); err != nil {
+			return err
 		}
-		if err != nil {
-			return fmt.Errorf("`%s`: %v: %s", PluginCommand(step), err, strings.TrimSpace(string(out)))
-		}
+	}
+	return nil
+}
+
+// pluginStepTimeout bounds one step. A plugin install reaches the network, and
+// a hung one would hang setup itself with no way out but ^C. A variable so a
+// test of the timeout does not take two minutes to run.
+var pluginStepTimeout = 2 * time.Minute
+
+// runPluginStep runs one step under that timeout.
+//
+// The timeout is the context's rather than a race between this function and a
+// goroutine writing the command's output: on the timeout branch that goroutine
+// was still running while this one had already returned, and both touched the
+// same `out` and `err` — a data race, which is to say garbage in the very
+// message that says what went wrong.
+func runPluginStep(cli string, step []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), pluginStepTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, cli, step...)
+	inOwnProcessGroup(cmd)
+	cmd.Cancel = func() error { return killTree(cmd) }
+	// The pipes this reads are inherited by whatever claude started, so a child
+	// that ignored the kill must not be able to hold the read open after it.
+	cmd.WaitDelay = 5 * time.Second
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("`%s` did not finish in %s", PluginCommand(step), pluginStepTimeout)
+	}
+	if err != nil {
+		return fmt.Errorf("`%s`: %v: %s", PluginCommand(step), err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

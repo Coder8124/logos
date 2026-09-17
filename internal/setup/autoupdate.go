@@ -2,6 +2,7 @@ package setup
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,45 +85,73 @@ var updatePlugin = func() error {
 // was attempted and the update itself failed — and that is recorded too, so the
 // next session says so out loud rather than retrying in silence forever.
 func AutoUpdatePlugin(version string, now time.Time) (updated bool, err error) {
-	rec, _ := readUpdateRecord()
-	if now.Sub(rec.Checked) < AutoUpdateEvery {
-		return false, nil
+	next, mine, err := claimUpdateCheck(version, now)
+	if err != nil || !mine {
+		return false, err
 	}
-	r := LogosPluginRecord()
-	if !r.Installed || !r.Connects {
-		return false, nil
-	}
-	// An update that ran and moved nothing is worth believing for a while: the
-	// plugin is still on the version it stayed at, so the same two commands
-	// would reach the network for the same nothing.
-	if rec.Stayed != "" && rec.From == strings.TrimPrefix(r.Version, "v") && now.Sub(rec.Checked) < AutoUpdateBackoff {
-		return false, nil
-	}
-	stale, ranked := buildinfo.Older(r.Version, version)
-	if !ranked || !stale {
-		// Still a check: not writing the stamp here would reach for the plugin
-		// record on every session start of an install that is already current.
-		return false, writeUpdateRecord(UpdateRecord{Checked: now, Announced: true})
-	}
-	// Both versions are recorded without their "v", since the notice puts them
-	// side by side and "0.4.1 to v0.4.4" reads like two different schemes.
-	was := strings.TrimPrefix(r.Version, "v")
-	next := UpdateRecord{Checked: now, From: was, To: strings.TrimPrefix(version, "v")}
 	if err := updatePlugin(); err != nil {
 		next.Failed = err.Error()
-		_ = writeUpdateRecord(next)
+		_ = saveUpdateRecord(next)
 		return false, err
 	}
 	// What the plugin is on now, not what this binary is on. The two commands
 	// exit 0 with nothing to install, so the version afterwards is the only
 	// evidence that anything happened.
 	after := strings.TrimPrefix(LogosPluginRecord().Version, "v")
-	if after == was {
+	if after == next.From {
 		next.To, next.Stayed = "", next.To
-		return false, writeUpdateRecord(next)
+		return false, saveUpdateRecord(next)
 	}
 	next.To = after
-	return true, writeUpdateRecord(next)
+	return true, saveUpdateRecord(next)
+}
+
+// claimUpdateCheck decides whether this process is the one that runs the update,
+// and says so in the stamp before it lets go of the lock.
+//
+// The stamp is the only thing bounding the update to once a day, so deciding and
+// recording had to stop being two steps with a network call between them: the
+// session-start hook starts one logos in the background and another in the
+// foreground milliseconds later, and someone opening four Claude Code windows at
+// once started four. All of them read the same stale stamp, all of them ran
+// `claude plugin update`, and Claude Code's own installed_plugins.json — not our
+// file — had four concurrent writers.
+func claimUpdateCheck(version string, now time.Time) (UpdateRecord, bool, error) {
+	unlock, err := lockUpdateStamp()
+	if err != nil {
+		// Another logos holds the stamp, which means another logos is already
+		// doing this. There is nothing here worth queueing for.
+		if errors.Is(err, errStampBusy) {
+			return UpdateRecord{}, false, nil
+		}
+		return UpdateRecord{}, false, err
+	}
+	defer unlock()
+
+	rec, _ := readUpdateRecord()
+	if now.Sub(rec.Checked) < AutoUpdateEvery {
+		return UpdateRecord{}, false, nil
+	}
+	r := LogosPluginRecord()
+	if !r.Installed || !r.Connects {
+		return UpdateRecord{}, false, nil
+	}
+	// An update that ran and moved nothing is worth believing for a while: the
+	// plugin is still on the version it stayed at, so the same two commands
+	// would reach the network for the same nothing.
+	if rec.Stayed != "" && rec.From == strings.TrimPrefix(r.Version, "v") && now.Sub(rec.Checked) < AutoUpdateBackoff {
+		return UpdateRecord{}, false, nil
+	}
+	stale, ranked := buildinfo.Older(r.Version, version)
+	if !ranked || !stale {
+		// Still a check: not writing the stamp here would reach for the plugin
+		// record on every session start of an install that is already current.
+		return UpdateRecord{}, false, writeUpdateRecord(UpdateRecord{Checked: now, Announced: true})
+	}
+	// Both versions are recorded without their "v", since the notice puts them
+	// side by side and "0.4.1 to v0.4.4" reads like two different schemes.
+	next := UpdateRecord{Checked: now, From: strings.TrimPrefix(r.Version, "v"), To: strings.TrimPrefix(version, "v")}
+	return next, true, writeUpdateRecord(next)
 }
 
 // UpdateNotice is the line the next session says, and says once — an empty
@@ -130,6 +159,14 @@ func AutoUpdatePlugin(version string, now time.Time) (updated bool, err error) {
 // a second session does not repeat a week-old update as though it just
 // happened.
 func UpdateNotice() string {
+	unlock, err := lockUpdateStamp()
+	if err != nil {
+		// Said next session rather than raced for: reading the record and
+		// marking it announced is a read-modify-write like any other, and the
+		// one it would overwrite is the outcome of the check running right now.
+		return ""
+	}
+	defer unlock()
 	rec, err := readUpdateRecord()
 	if err != nil || rec.Announced {
 		return ""
@@ -145,6 +182,64 @@ func UpdateNotice() string {
 		return fmt.Sprintf("The Logos plugin is %s and this logos is %s: the update ran and the marketplace had nothing newer, so the plugin stayed where it is. Logos looks again in a week.", rec.From, rec.Stayed)
 	}
 	return ""
+}
+
+// errStampBusy is another logos holding the stamp for longer than it is worth
+// waiting for.
+var errStampBusy = errors.New("another logos is checking the plugin")
+
+// stampLockStale is when a lock file stops being believed. A logos killed
+// between taking the lock and releasing it — ^C at a session start, a laptop
+// closed — would otherwise stop this machine ever checking again.
+const stampLockStale = 5 * time.Minute
+
+// lockUpdateStamp takes the lock that makes read-modify-writes of the stamp one
+// at a time across processes, and returns the way to give it back. O_EXCL
+// because this has to hold between separate logos processes, which is exactly
+// what a mutex cannot do.
+//
+// The wait is short: everything done under this lock is a read and a write of
+// one small file, so a lock held longer than that is a dead one, not a busy one.
+func lockUpdateStamp() (func(), error) {
+	p, err := updateStampPath()
+	if err != nil {
+		return nil, err
+	}
+	if err := vault.MkdirPrivate(filepath.Dir(p)); err != nil {
+		return nil, err
+	}
+	lock := p + ".lock"
+	for deadline := time.Now().Add(2 * time.Second); ; {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			return func() { os.Remove(lock) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > stampLockStale {
+			os.Remove(lock)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, errStampBusy
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// saveUpdateRecord writes the outcome of a check under the lock, so it does not
+// land on top of a notice being marked announced at the same moment.
+func saveUpdateRecord(rec UpdateRecord) error {
+	unlock, err := lockUpdateStamp()
+	if err != nil {
+		// The outcome of an update is worth more than the lock: writing it
+		// anyway is one atomic replace, which is where this started.
+		return writeUpdateRecord(rec)
+	}
+	defer unlock()
+	return writeUpdateRecord(rec)
 }
 
 func readUpdateRecord() (UpdateRecord, error) {

@@ -3,7 +3,9 @@ package setup
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // writeClaudeFile writes one of Claude Code's own records under the fake HOME.
@@ -71,5 +73,33 @@ func TestAnEnabledLogosPluginIsFoundBesideADisabledOneFromAnotherMarketplace(t *
 		if r := LogosPluginRecord(); !r.Connects || r.Version != "0.4.3" {
 			t.Fatalf("the enabled plugin was missed: %+v", r)
 		}
+	}
+}
+
+// `claude` is a wrapper around node, so killing the process logos started left
+// the work it had started running: a network call for a step already reported
+// as failed, and a child still holding the pipes this package reads.
+func TestAPluginStepThatTimesOutKillsWhatClaudeStarted(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin")
+	marker := filepath.Join(t.TempDir(), "child-outlived-the-step")
+	// The timings are generous on purpose: what is being tested is whether the
+	// child outlives the kill, and a stub killed before it got as far as
+	// starting one would pass either way.
+	stub := "#!/bin/sh\n(sleep 1.5; : > " + marker + ") &\nsleep 30\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := pluginStepTimeout
+	pluginStepTimeout = 700 * time.Millisecond
+	t.Cleanup(func() { pluginStepTimeout = prev })
+
+	err := RunPluginSteps(UpdatePluginSteps())
+	if err == nil || !strings.Contains(err.Error(), "did not finish") {
+		t.Fatalf("RunPluginSteps = %v; want the timeout back", err)
+	}
+	time.Sleep(1600 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the child claude started outlived the step that timed out")
 	}
 }

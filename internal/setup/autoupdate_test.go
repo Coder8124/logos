@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -242,5 +244,43 @@ func TestAnUpdateThatMovesThePluginAnnouncesTheVersionItMovedTo(t *testing.T) {
 	}
 	if notice := UpdateNotice(); !strings.Contains(notice, "from 0.4.1 to 0.4.3") {
 		t.Errorf("the notice does not name the version the plugin is actually on: %q", notice)
+	}
+}
+
+// The session-start hook starts one logos in the background and another in the
+// foreground a millisecond later, and four Claude Code windows opened together
+// start four more. Deciding to check and recording the check used to be two
+// steps with a network call between them, so every one of them read the same
+// stale stamp and ran `claude plugin update` — concurrent writers to Claude
+// Code's own installed_plugins.json, which is not ours to race over.
+func TestOnlyOneOfTheSessionsStartedTogetherRunsThePluginUpdate(t *testing.T) {
+	home := fakeHome(t)
+	installedPlugin(t, home, "0.4.1")
+	var runs atomic.Int64
+	prev := updatePlugin
+	updatePlugin = func() error {
+		runs.Add(1)
+		time.Sleep(20 * time.Millisecond) // the real one reaches the network
+		installedPlugin(t, home, "0.4.4")
+		return nil
+	}
+	t.Cleanup(func() { updatePlugin = prev })
+
+	now := time.Now()
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			AutoUpdatePlugin("v0.4.4", now)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if n := runs.Load(); n != 1 {
+		t.Errorf("%d of 8 sessions started together ran the update; want 1", n)
 	}
 }
