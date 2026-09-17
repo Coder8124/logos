@@ -183,3 +183,55 @@ func TestUninstallTakesTheSessionStartHookOutToo(t *testing.T) {
 		t.Errorf("uninstall did not leave the user's own hooks alone: %q", cmds)
 	}
 }
+
+// entryFields returns the session-start entries whole, not just their commands,
+// which is the difference this test turns on.
+func entryFields(t *testing.T, path string) []map[string]any {
+	t.Helper()
+	hooks, _ := readJSON(t, path)["hooks"].(map[string]any)
+	events, _ := hooks["sessionStart"].([]any)
+	var out []map[string]any
+	for _, e := range events {
+		m, _ := e.(map[string]any)
+		out = append(out, m)
+	}
+	return out
+}
+
+// Keeping the user's other hook is not the same as keeping it intact. The file
+// was decoded into a struct with one field, so a timeout, a name, a matcher —
+// anything the host understands and logos does not — was dropped on the way
+// back out, by both install and uninstall. Logos's own entry is the only one it
+// may rewrite.
+func TestInstallingTheHookKeepsEveryFieldOfTheUsersOwnEntry(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "hooks.json")
+	theirs := `{"command":"~/bin/theirs.sh","timeout":30,"name":"audit","matcher":"*"}`
+	if err := os.WriteFile(path, []byte(`{"version":1,"hooks":{"sessionStart":[`+theirs+`]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := installHook(path, "cursor", "/usr/local/bin/logos"); err != nil {
+		t.Fatal(err)
+	}
+	assertTheirEntryIsWhole(t, path)
+
+	if _, err := removeHook(path); err != nil {
+		t.Fatal(err)
+	}
+	assertTheirEntryIsWhole(t, path)
+}
+
+func assertTheirEntryIsWhole(t *testing.T, path string) {
+	t.Helper()
+	entries := entryFields(t, path)
+	if len(entries) == 0 {
+		t.Fatalf("the user's session-start entry is gone from %s", path)
+	}
+	e := entries[0]
+	for field, want := range map[string]any{"command": "~/bin/theirs.sh", "timeout": 30.0, "name": "audit", "matcher": "*"} {
+		if e[field] != want {
+			t.Errorf("the user's own hook lost %s: have %v, want %v", field, e[field], want)
+		}
+	}
+}

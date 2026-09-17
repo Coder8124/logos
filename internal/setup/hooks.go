@@ -47,8 +47,26 @@ type hookFile struct {
 	rest    map[string]json.RawMessage // everything in the file, ours included
 }
 
-type hookEntry struct {
-	Command string `json:"command"`
+// A session-start entry is kept as the object the file held, not as a struct of
+// the one field logos reads. Hosts put more on an entry than a command — a
+// timeout, a name, a matcher — and a struct with a single field silently
+// dropped all of it on the round trip, so installing (or uninstalling) logos
+// rewrote hooks it never wrote.
+type hookEntry map[string]json.RawMessage
+
+// command is the entry's command, or "" when it has none or holds something
+// other than a string. Only logos's own entry is ever matched on it.
+func (e hookEntry) command() string {
+	var s string
+	if raw, ok := e["command"]; ok {
+		json.Unmarshal(raw, &s)
+	}
+	return s
+}
+
+func logosEntryFor(host, bin string) hookEntry {
+	cmd, _ := json.Marshal(quoteForShell(bin) + " hook " + host + " session-start")
+	return hookEntry{"command": cmd}
 }
 
 // installHook puts `logos hook <host> session-start` in the host's hooks file
@@ -74,10 +92,10 @@ func installHook(path, host, bin string) (Outcome, error) {
 				path, err)
 		}
 	}
-	want := hookEntry{Command: quoteForShell(bin) + " hook " + host + " session-start"}
+	want := logosEntryFor(host, bin)
 	had := false
 	for i, e := range entries {
-		if strings.Contains(e.Command, " hook "+host+" session-start") {
+		if strings.Contains(e.command(), " hook "+host+" session-start") {
 			had, entries[i] = true, want
 			break
 		}
@@ -216,8 +234,8 @@ func removeHook(path string) (bool, error) {
 	}
 	kept, found := entries[:0], false
 	for _, e := range entries {
-		if strings.Contains(e.Command, " hook cursor session-start") ||
-			strings.Contains(e.Command, " hook codex session-start") {
+		if strings.Contains(e.command(), " hook cursor session-start") ||
+			strings.Contains(e.command(), " hook codex session-start") {
 			found = true
 			continue
 		}
