@@ -296,9 +296,14 @@ func TestSetupNamesTheHostsLeftOnThePreviousVault(t *testing.T) {
 	}
 	fakeHosts(t, "Fakey Cursor", "Fakey Desktop")
 	hosts := detectHosts()
-	hosts[1].List = func() ([]setup.Registration, error) {
-		return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve", Vault: old}}, nil
+	// Through the config file, because that is where a host's environment is
+	// written down — a host's listing command does not report it.
+	cfg := filepath.Join(t.TempDir(), "desktop.json")
+	entry := fmt.Sprintf(`{"mcpServers":{"logos":{"command":"/usr/local/bin/logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":%q}}}}`, old)
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	hosts[1].Config = func() string { return cfg }
 	detectHosts = func() []setup.Host { return hosts }
 
 	out := captureStdout(t, func() {

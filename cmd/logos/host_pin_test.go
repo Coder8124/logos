@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,15 +10,20 @@ import (
 )
 
 // pinnedHosts stands in for the machine's real host configs, with claude-code
-// wired to dir.
-func pinnedHosts(dir string) []setup.Host {
+// wired to dir — through a config file, which is where a host's environment is
+// really written down and the only place the pin is read from.
+func pinnedHosts(t *testing.T, dir string) []setup.Host {
+	t.Helper()
+	cfg := filepath.Join(t.TempDir(), "claude.json")
+	entry := fmt.Sprintf(`{"mcpServers":{"logos":{"command":"logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":%q}}}}`, dir)
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return []setup.Host{{
 		Name:   "claude-code",
 		Detect: func() bool { return true },
 		Where:  func() string { return "" },
-		List: func() ([]setup.Registration, error) {
-			return []setup.Registration{{Name: "logos", Command: "logos mcp serve", Vault: dir}}, nil
-		},
+		Config: func() string { return cfg },
 	}}
 }
 
@@ -33,7 +39,7 @@ func TestAHookInAHostUsesTheVaultThatHostPinsRatherThanTheMachinePointer(t *test
 	t.Setenv("LOGOS_VAULT", "")
 	os.Unsetenv("LOGOS_VAULT")
 
-	adoptHostPin(pinnedHosts(pinned))
+	adoptHostPin(pinnedHosts(t, pinned))
 
 	if got := os.Getenv("LOGOS_VAULT"); got != pinned {
 		t.Errorf("the hook resolved to %q, not the vault its host is wired to (%q)", got, pinned)
@@ -48,7 +54,7 @@ func TestAnExplicitVaultIsNotOverruledByTheHostPin(t *testing.T) {
 	t.Setenv("LOGOS_HOST", "claude-code")
 	t.Setenv("LOGOS_VAULT", chosen)
 
-	adoptHostPin(pinnedHosts(t.TempDir()))
+	adoptHostPin(pinnedHosts(t, t.TempDir()))
 
 	if got := os.Getenv("LOGOS_VAULT"); got != chosen {
 		t.Errorf("an explicitly chosen vault was replaced by the host pin: %q", got)
@@ -64,7 +70,7 @@ func TestAPinNamingAVaultThatIsNotThereIsIgnored(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", "")
 	os.Unsetenv("LOGOS_VAULT")
 
-	adoptHostPin(pinnedHosts(filepath.Join(t.TempDir(), "deleted-last-week")))
+	adoptHostPin(pinnedHosts(t, filepath.Join(t.TempDir(), "deleted-last-week")))
 
 	if got := os.Getenv("LOGOS_VAULT"); got != "" {
 		t.Errorf("a pin pointing at nothing was adopted: %q", got)
@@ -79,9 +85,40 @@ func TestOutsideAHostNothingIsAdopted(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", "")
 	os.Unsetenv("LOGOS_VAULT")
 
-	adoptHostPin(pinnedHosts(t.TempDir()))
+	adoptHostPin(pinnedHosts(t, t.TempDir()))
 
 	if got := os.Getenv("LOGOS_VAULT"); got != "" {
 		t.Errorf("a plain CLI run adopted a host's pin: %q", got)
+	}
+}
+
+// The pin is not somebody typing LOGOS_VAULT, and `logos setup` must not
+// mistake it for one. chooseVault reads a non-empty LOGOS_VAULT as "this
+// process only" and records no machine pointer, printing that the variable
+// named a vault for this run — a variable the user never set. Inside a host,
+// that turned `logos setup` into a command that quietly declined to do the one
+// thing it is for.
+func TestSetupStillRecordsTheMachinePointerWhenTheVaultCameFromTheHostPin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	pinned := filepath.Join(t.TempDir(), "pinned-vault")
+	if err := os.MkdirAll(pinned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_HOST", "claude-code")
+	t.Setenv("LOGOS_VAULT", "")
+	os.Unsetenv("LOGOS_VAULT")
+
+	adoptHostPin(pinnedHosts(t, pinned))
+
+	dir, _, rec, err := chooseVault([]string{"--yes"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != pinned {
+		t.Errorf("setup acted on %q, not the vault its host pins (%q)", dir, pinned)
+	}
+	if rec == recordSkipEnv {
+		t.Error("setup read its host's pin as a LOGOS_VAULT the user typed and recorded no machine pointer")
 	}
 }

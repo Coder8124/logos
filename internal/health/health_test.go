@@ -1091,13 +1091,19 @@ func TestARegistrationWhoseBinaryIsGoneIsFlagged(t *testing.T) {
 // never look. Doctor listed every host as detected and called it fine.
 func TestAHostOnAnotherVaultIsFlagged(t *testing.T) {
 	recorded, other := t.TempDir(), t.TempDir()
+	// Through the config file the host wrote, because that is the only place a
+	// host's environment is recorded — a host's listing command does not show
+	// it, which is why this check was blind on Claude Code.
 	hosts := func(v string) []setup.Host {
+		cfg := filepath.Join(t.TempDir(), "desktop.json")
+		entry := fmt.Sprintf(`{"mcpServers":{"logos":{"command":"/usr/local/bin/logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":%q}}}}`, v)
+		if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		return []setup.Host{{
 			Name:   "Claude Desktop",
 			Detect: func() bool { return true },
-			List: func() ([]setup.Registration, error) {
-				return []setup.Registration{{Name: "logos", Command: "/usr/local/bin/logos mcp serve", Vault: v}}, nil
-			},
+			Config: func() string { return cfg },
 		}}
 	}
 

@@ -1,7 +1,7 @@
 package setup_test
 
 import (
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,14 +9,21 @@ import (
 	"github.com/Coder8124/logos/internal/setup"
 )
 
-func pinnedHost(name, command, vault string) setup.Host {
+// pinnedHost writes the config file a host would have written for this
+// registration, because that file is where the pin really lives — a host's
+// listing command does not report environment.
+func pinnedHost(t *testing.T, name, command, vault string) setup.Host {
+	t.Helper()
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	entry := fmt.Sprintf(`{"mcpServers":{"logos":{"command":%q,"args":["mcp","serve"],"env":{"LOGOS_VAULT":%q}}}}`, command, vault)
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return setup.Host{
 		Name:   name,
 		Detect: func() bool { return true },
 		Where:  func() string { return "/tmp/" + name + ".json" },
-		List: func() ([]setup.Registration, error) {
-			return []setup.Registration{{Name: "logos", Command: command, Vault: vault}}, nil
-		},
+		Config: func() string { return cfg },
 	}
 }
 
@@ -28,8 +35,8 @@ func pinnedHost(name, command, vault string) setup.Host {
 // read it back.
 func TestThePinnedVaultIsReadBackFromTheHostThatWiredIt(t *testing.T) {
 	hosts := []setup.Host{
-		pinnedHost("cursor", "logos mcp serve", "/Users/bob/other"),
-		pinnedHost("claude-code", "/opt/homebrew/bin/logos mcp serve", "/Users/bob/brain"),
+		pinnedHost(t, "cursor", "logos", "/Users/bob/other"),
+		pinnedHost(t, "claude-code", "/opt/homebrew/bin/logos", "/Users/bob/brain"),
 	}
 	if got := setup.PinnedVault(hosts, "claude-code"); got != "/Users/bob/brain" {
 		t.Errorf("the vault claude-code pins was not read back: %q", got)
@@ -39,13 +46,16 @@ func TestThePinnedVaultIsReadBackFromTheHostThatWiredIt(t *testing.T) {
 // Another MCP server's entry pins its own directories, and taking one for the
 // vault would point logos at somebody else's data.
 func TestAnEntryThatIsNotLogosIsNotReadAsAVaultPin(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "claude.json")
+	entry := `{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem"],"env":{"LOGOS_VAULT":"/Users/bob/notes"}}}}`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	hosts := []setup.Host{{
 		Name:   "claude-code",
 		Detect: func() bool { return true },
 		Where:  func() string { return "" },
-		List: func() ([]setup.Registration, error) {
-			return []setup.Registration{{Name: "filesystem", Command: "npx -y @modelcontextprotocol/server-filesystem", Vault: "/Users/bob/notes"}}, nil
-		},
+		Config: func() string { return cfg },
 	}}
 	if got := setup.PinnedVault(hosts, "claude-code"); got != "" {
 		t.Errorf("a non-logos server's environment was read as the vault pin: %q", got)
@@ -56,11 +66,15 @@ func TestAnEntryThatIsNotLogosIsNotReadAsAVaultPin(t *testing.T) {
 // all — and it must read as "nothing to say", never as an empty vault path that
 // a caller could act on.
 func TestAHostThatCannotReportItsEnvironmentPinsNothing(t *testing.T) {
+	broken := filepath.Join(t.TempDir(), "claude.json")
+	if err := os.WriteFile(broken, []byte("{not json at all"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	unreadable := setup.Host{
 		Name:   "claude-code",
 		Detect: func() bool { return true },
 		Where:  func() string { return "" },
-		List:   func() ([]setup.Registration, error) { return nil, errors.New("config is not valid JSON") },
+		Config: func() string { return broken },
 	}
 	if got := setup.PinnedVault([]setup.Host{unreadable}, "claude-code"); got != "" {
 		t.Errorf("an unreadable host reported a pin: %q", got)
@@ -100,7 +114,7 @@ func TestAHostWhoseListingHidesTheEnvironmentIsReadFromItsConfigFile(t *testing.
 // space and a capital is the awkward spelling. The name is a label for one
 // thing, so the two spellings have to mean it.
 func TestTheHostNameIsMatchedHoweverItIsSpelled(t *testing.T) {
-	hosts := []setup.Host{pinnedHost("Claude Code", "logos mcp serve", "/Users/bob/brain")}
+	hosts := []setup.Host{pinnedHost(t, "Claude Code", "logos", "/Users/bob/brain")}
 	if got := setup.PinnedVault(hosts, "claude-code"); got != "/Users/bob/brain" {
 		t.Errorf("the hook's spelling of its host did not match the host: %q", got)
 	}
@@ -128,5 +142,38 @@ func TestAHostLeftOnAnotherVaultIsSeenEvenWhenItsListingHidesTheEnvironment(t *t
 	names, vaults := setup.OnOtherVault(hosts, "/Users/bob/brain")
 	if len(names) != 1 || names[0] != "Claude Code" || vaults[0] != "/Users/bob/old-vault" {
 		t.Errorf("Claude Code left on an old vault went unreported: %v %v", names, vaults)
+	}
+}
+
+// The pin is read off the config file and nothing else. PinnedVault used to ask
+// the host's own listing first, which for Claude Code means running `claude mcp
+// list` — a Node process, started before argument dispatch, on every single
+// `logos` invocation including the per-tool-call hooks. Worse, `claude mcp list`
+// connects to the servers it lists, so logos launched by the plugin would start
+// a claude that starts a logos, with the LOGOS_VAULT that guards re-entry
+// stripped from the child on the way down. The listing could never answer the
+// question anyway: `claude mcp list` prints no environment.
+func TestThePinIsReadWithoutRunningTheHostsOwnCommand(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "claude.json")
+	entry := `{"mcpServers":{"logos":{"command":"/opt/homebrew/bin/logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":"/Users/bob/brain"}}}}`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	hosts := []setup.Host{{
+		Name:   "Claude Code",
+		Detect: func() bool { return true },
+		Where:  func() string { return "claude mcp add" },
+		Config: func() string { return cfg },
+		List: func() ([]setup.Registration, error) {
+			asked = true
+			return []setup.Registration{{Name: "logos", Command: "logos mcp serve", Vault: "/Users/bob/from-the-listing"}}, nil
+		},
+	}}
+	if got := setup.PinnedVault(hosts, "claude-code"); got != "/Users/bob/brain" {
+		t.Errorf("the pin came from %q, not the host's config file", got)
+	}
+	if asked {
+		t.Error("PinnedVault ran the host's own listing command to answer a question the config file already answers")
 	}
 }

@@ -16,9 +16,16 @@ import "strings"
 //
 // Only a logos entry counts. Other MCP servers set environment of their own,
 // and taking one for the vault would point logos at somebody else's directory.
-// An unreadable host, an unknown name and a listing with no environment are all
-// "" — this is a question a host may simply not be able to answer (`claude mcp
-// list` does not show environment), which is not a failure.
+// An unreadable host, an unknown name and a config with no environment in it
+// are all "" — this is a question a host may simply not be able to answer,
+// which is not a failure.
+//
+// The answer comes off the config file, never from running the host's own
+// listing command. `claude mcp list` prints name, command and status and no
+// environment, so it could not answer this anyway — and it is a Node process
+// that connects to every server it lists. Asking it here, before argument
+// dispatch, on a binary the plugin's per-tool-call hooks run, meant a logos
+// started by the plugin started a claude that started a logos.
 func PinnedVault(hosts []Host, name string) string {
 	for _, h := range hosts {
 		if !sameHost(h.Name, name) {
@@ -26,16 +33,6 @@ func PinnedVault(hosts []Host, name string) string {
 		}
 		if h.Detect != nil && !h.Detect() {
 			continue
-		}
-		if h.List != nil {
-			regs, err := h.List()
-			if err == nil {
-				for _, r := range regs {
-					if isLogosServer(r.Command) && r.Vault != "" {
-						return r.Vault
-					}
-				}
-			}
 		}
 		if h.Config != nil {
 			return pinInConfig(h.Config())
@@ -45,11 +42,11 @@ func PinnedVault(hosts []Host, name string) string {
 }
 
 // pinInConfig reads the pin out of the config file the host keeps its servers
-// in, for the hosts whose listing cannot report environment.
+// in — the one place a host's environment is actually written down.
 //
-// Claude Code is exactly that host, and the one the plugin's hooks run inside:
-// `claude mcp list` prints name, command and status and no environment at all,
-// so without this #95 stays open on the host it matters most on. Both spellings
+// Claude Code is the host the plugin's hooks run inside, and reading its file
+// is the only way to see the pin: `claude mcp list` prints name, command and
+// status and no environment at all. Both spellings
 // of the server map are tried because VS Code calls it "servers" where everyone
 // else calls it "mcpServers". A file that is missing, unparseable or somebody
 // else's shape is "nothing to say" — the caller keeps the machine pointer.

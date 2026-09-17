@@ -242,7 +242,11 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	fromEnv := false
 	if dir == "" {
 		if v := os.Getenv("LOGOS_VAULT"); v != "" {
-			dir, fromEnv = v, true
+			// fromEnv means somebody named a vault for this one run. The host
+			// pin this process adopted is not that: it is the machine's own
+			// recorded choice arriving by another road, and treating it as
+			// per-process made setup inside a host record nothing.
+			dir, fromEnv = v, !vaultCameFromHostPin(v)
 		} else {
 			dir = vaultPath() // the recorded path, then ~/logos
 		}

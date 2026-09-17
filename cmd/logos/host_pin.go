@@ -31,7 +31,15 @@ const (
 // creates and then reports as a healthy zero (#96), and the pointer is the
 // safer answer. And nothing happens without LOGOS_HOST, so a plain `logos`
 // in a terminal never reads a config file to answer a question it already has.
+// adoptedPin is the vault adoptHostPin put into the environment, so a later
+// caller can tell it apart from a LOGOS_VAULT somebody typed. `logos setup`
+// reads a set LOGOS_VAULT as "this process only" and records no machine
+// pointer; without this, running setup inside a host made it decline to do the
+// one thing it is for, citing a variable the user never set.
+var adoptedPin string
+
 func adoptHostPin(hosts []setup.Host) {
+	adoptedPin = ""
 	name := os.Getenv(logosHostEnv)
 	if name == "" || os.Getenv(logosVaultEnv) != "" {
 		return
@@ -44,4 +52,11 @@ func adoptHostPin(hosts []setup.Host) {
 		return
 	}
 	os.Setenv(logosVaultEnv, pin)
+	adoptedPin = pin
+}
+
+// vaultCameFromHostPin reports whether a set LOGOS_VAULT is this process's own
+// adopted pin rather than a choice the user made for this run.
+func vaultCameFromHostPin(v string) bool {
+	return v != "" && v == adoptedPin
 }
