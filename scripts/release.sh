@@ -105,3 +105,10 @@ ls -lh "$OUT"
 echo
 echo "checksums:"
 cat "${OUT}/SHA256SUMS"
+
+# The archives are only one of three things a user can install from. Say so
+# here, because the version skew this catches is invisible from inside a
+# successful build.
+echo
+echo "after tagging and pushing the tap, check every route agrees:"
+echo "  scripts/check-release-consistency.sh"
