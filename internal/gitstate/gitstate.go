@@ -310,3 +310,17 @@ func (s State) Summary() string {
 	}
 	return strings.Join(parts, " · ")
 }
+
+// Head is the branch and short commit of the tree at dir, each "" when git
+// will not say. It exists for readers that only need to know whether the tree
+// has moved since a checkpoint: Read shells out five more times for a diffstat
+// and a file list nobody is going to look at on that path.
+func Head(dir string) (branch, commit string) {
+	if dir == "" || !isRepo(dir) {
+		return "", ""
+	}
+	if b := git(dir, "rev-parse", "--abbrev-ref", "HEAD"); b != "" && b != "HEAD" {
+		branch = b
+	}
+	return branch, git(dir, "rev-parse", "--short", "HEAD")
+}

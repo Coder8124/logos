@@ -1109,7 +1109,8 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		return "", err
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
-		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project), Budget: budget, Since: since,
+		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project),
+		Agent: s.agentFor(map[string]any{"agent": agent}), Budget: budget, Since: since,
 	})
 	if err != nil {
 		return "", err

@@ -52,6 +52,11 @@ type Request struct {
 	// repository, which is right for a caller asking about a project by name
 	// from somewhere else.
 	Dir string
+	// Agent is who is reading, when the caller knows. It is only used to say
+	// that somebody else did the verifying: within one toolchain that reads as
+	// redundancy, and across two it is the difference between "this was
+	// established" and "another tool established this".
+	Agent string
 	// Budget is the approximate token ceiling for the rendered pack. 0 means
 	// DefaultBudget.
 	Budget int
@@ -104,6 +109,14 @@ type Pack struct {
 	// OtherRepo names the repository the project's latest checkpoint came from
 	// when it is not the one the agent is in, and so was not handed over.
 	OtherRepo string `json:"other_repo,omitempty"`
+	// Drifted is where the tree stands now, filled in only when it is not where
+	// the checkpoint below says it was. "Repository was: memory/bugfix ·
+	// fcd0331" is a claim about a moment that may be forty commits gone, and
+	// until this was rendered the pack printed it with nothing to compare it
+	// against — though the sha was in hand and the tree was one rev-parse away.
+	Drifted *gitstate.State `json:"drifted,omitempty"`
+	// Reader is who asked, when the caller said. See Request.Agent.
+	Reader string `json:"reader,omitempty"`
 
 	// Checkpoint is where the last agent stopped on this project, and Working is
 	// what has been recorded since without being committed. Together they are the
@@ -256,6 +269,8 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 			p.History = all[1:]
 		}
 	}
+	p.Reader = req.Agent
+	p.noteDrift(req.Dir)
 	// Uncommitted notes get no such fallback. A checkpoint is a finished record
 	// of where the codebase was; an open note is another agent's live work in
 	// another tree, and presenting that as this session's own progress is
@@ -740,4 +755,19 @@ func sameRepository(all []session.Checkpoint, dir string) ([]session.Checkpoint,
 		}
 	}
 	return kept, other
+}
+
+// noteDrift records where the tree stands when that is not where the
+// checkpoint left it. Only a differing commit counts: the same commit on a
+// branch renamed underneath it is not a handoff hazard, and a tree that has
+// simply gained uncommitted work since is the ordinary case.
+func (p *Pack) noteDrift(dir string) {
+	if dir == "" || p.Checkpoint == nil || p.Checkpoint.Git.Commit == "" {
+		return
+	}
+	branch, commit := gitstate.Head(dir)
+	if commit == "" || commit == p.Checkpoint.Git.Commit {
+		return
+	}
+	p.Drifted = &gitstate.State{Branch: branch, Commit: commit}
 }

@@ -60,6 +60,23 @@ func gitRepo(t *testing.T) string {
 	return dir
 }
 
+// committedRepo is a repository with a commit in it, so a test can ask what
+// HEAD is and get an answer.
+func committedRepo(t *testing.T) string {
+	t.Helper()
+	dir := gitRepo(t)
+	for _, args := range [][]string{
+		{"-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "first"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git commit: %v %s", err, out)
+		}
+	}
+	return dir
+}
+
 // "10 files uncommitted" told the next agent how many and not which, though
 // the checkpoint had recorded the paths all along.
 func TestThePackNamesTheUncommittedFilesTheCheckpointRecorded(t *testing.T) {
@@ -91,5 +108,65 @@ func TestThePackNamesTheUncommittedFilesTheCheckpointRecorded(t *testing.T) {
 	}
 	if !strings.Contains(out, "2 of 47") {
 		t.Errorf("a capped list reads as the whole list; it should say 2 of 47:\n%s", out)
+	}
+}
+
+// A checkpoint an hour old can describe a tree forty commits and a release
+// ago. The pack printed "Repository was: memory/bugfix · fcd0331" against a
+// tree standing on main at 44e541d and said nothing.
+func TestThePackSaysTheTreeHasMovedSinceTheCheckpoint(t *testing.T) {
+	repo := committedRepo(t)
+	ix := seedVault(t)
+	now := time.Now()
+	remote, root := gitstate.Identity(repo)
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "api", Agent: "claude-code", Task: "ship the release",
+		Next: "cut the tag", TS: now.Add(-time.Hour).Unix(),
+		Verified: []string{"the release workflow succeeded"},
+		Git:      gitstate.State{Branch: "release", Commit: "fcd0331", Remote: remote, Root: root},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: repo, Agent: "copilot-cli", Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	_, head := gitstate.Head(repo)
+	if head == "" {
+		t.Fatal("the test repository has no commit to have drifted to")
+	}
+	if !strings.Contains(out, "You are on:") || !strings.Contains(out, head) {
+		t.Errorf("the pack describes a tree that has moved and never says where it is now (%s):\n%s", head, out)
+	}
+	// The second half: a different toolchain is inheriting these claims.
+	if !strings.Contains(out, "not by you") || !strings.Contains(out, "claude-code") {
+		t.Errorf("another agent's verified claims are handed over as if this one had checked them:\n%s", out)
+	}
+}
+
+// The same tree, still where it was left: saying so is noise, and a branch
+// renamed under an unchanged commit is not a handoff hazard.
+func TestThePackIsQuietWhenTheTreeIsWhereTheCheckpointLeftIt(t *testing.T) {
+	repo := committedRepo(t)
+	ix := seedVault(t)
+	now := time.Now()
+	remote, root := gitstate.Identity(repo)
+	branch, head := gitstate.Head(repo)
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "api", Agent: "claude", Task: "ship the release", Next: "cut the tag",
+		TS:  now.Add(-time.Minute).Unix(),
+		Git: gitstate.State{Branch: branch, Commit: head, Remote: remote, Root: root},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: repo, Agent: "claude", Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := p.Render(); strings.Contains(out, "You are on:") {
+		t.Errorf("the tree has not moved and the pack says it has:\n%s", out)
 	}
 }

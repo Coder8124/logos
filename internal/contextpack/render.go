@@ -191,7 +191,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	}
 	// Above the session log, and charged with the fixed tier: evidence that a
 	// long standup log can evict is evidence the next agent regenerates by hand.
-	safeToContinue(&head, c)
+	safeToContinue(&head, c, p.Reader)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	list(&tail, "Already tried, didn't work", c.Failed)
@@ -274,11 +274,20 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 // Verified leads, blockers follow, commands last. What is standing decides what
 // to do next; what is broken qualifies it; the invocations only matter once the
 // agent has picked a claim it wants to re-run for itself.
-func safeToContinue(b *strings.Builder, c *session.Checkpoint) {
+func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 	if len(c.Verified) == 0 && len(c.Blockers) == 0 && len(c.Commands) == 0 {
 		return // nothing was verified, or the checkpoint predates these fields
 	}
-	list(b, "Verified — safe to continue from", c.Verified)
+	// Who checked, when it was not the agent reading this. The pack names the
+	// author once at the top, which within one tool is redundancy and across
+	// two is the whole difference between a claim someone established and a
+	// claim another toolchain established in an environment this one has not
+	// got.
+	verified := "Verified — safe to continue from"
+	if reader != "" && c.Agent != "" && reader != c.Agent {
+		verified = fmt.Sprintf("Verified by **%s**, not by you — safe to continue from", inline(c.Agent))
+	}
+	list(b, verified, c.Verified)
 	list(b, "Known broken — do not build on it", c.Blockers)
 	// An auto checkpoint's commands are what ran, with no claim they showed
 	// anything; the activity log does not keep their results.
@@ -340,6 +349,12 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 			// Same project, divergent parallel state, which is exactly where a
 			// handoff goes wrong silently.
 			fmt.Fprintf(b, "\n**In worktree:** %s", c.Git.Worktree)
+		}
+		// Was, and is. Age is not the signal — a checkpoint an hour old can
+		// describe a tree forty commits and a release ago — so the pack says
+		// where the reader is actually standing whenever that is somewhere else.
+		if d := p.Drifted; d != nil {
+			fmt.Fprintf(b, "\n**You are on:** %s — the tree has moved since, so treat the state above as where it was, not where it is", inline(d.Summary()))
 		}
 	}
 	// A checkpoint that has sat for a fortnight describes a situation that may
