@@ -59,3 +59,37 @@ func gitRepo(t *testing.T) string {
 	}
 	return dir
 }
+
+// "10 files uncommitted" told the next agent how many and not which, though
+// the checkpoint had recorded the paths all along.
+func TestThePackNamesTheUncommittedFilesTheCheckpointRecorded(t *testing.T) {
+	repo := gitRepo(t)
+	ix := seedVault(t)
+	now := time.Now()
+	remote, root := gitstate.Identity(repo)
+	files := []string{"internal/setup/plugin.go", "internal/health/health.go"}
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "api", Agent: "claude", Task: "wire up the plugin check",
+		Next: "run the gate", TS: now.Add(-time.Minute).Unix(),
+		Git: gitstate.State{
+			Branch: "main", Commit: "abc1234", Remote: remote, Root: root,
+			Dirty: 47, Files: files,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: repo, Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	for _, f := range files {
+		if !strings.Contains(out, f) {
+			t.Errorf("the pack says how many files were uncommitted but not that %s was one:\n%s", f, out)
+		}
+	}
+	if !strings.Contains(out, "2 of 47") {
+		t.Errorf("a capped list reads as the whole list; it should say 2 of 47:\n%s", out)
+	}
+}

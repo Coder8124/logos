@@ -348,7 +348,21 @@ func (p *Pack) renderCheckpoint(b *strings.Builder, body string) {
 	if daysOld(c.TS) >= staleAfterDays {
 		fmt.Fprintf(b, " That was %s — treat the plan below as a starting point, not the current state.", humanAge(c.TS))
 	}
-	fmt.Fprintf(b, "\n\n%s\n", body)
+	// "10 files uncommitted" and not which ten sends the next agent to run git
+	// status to find out what the checkpoint already recorded. These are the
+	// paths the repository reported rather than the ones the agent claimed to
+	// have touched, and the list is capped, so a capped one says how much it is
+	// not showing instead of reading as the whole.
+	b.WriteString("\n\n")
+	if len(c.Git.Files) > 0 {
+		heading := "Uncommitted then"
+		if c.Git.Dirty > len(c.Git.Files) {
+			heading = fmt.Sprintf("Uncommitted then (%d of %d)", len(c.Git.Files), c.Git.Dirty)
+		}
+		// list ends with the blank line the body needs after it.
+		list(b, heading, c.Git.Files)
+	}
+	fmt.Fprintf(b, "%s\n", body)
 }
 
 func (p *Pack) wantWorking() []string {
