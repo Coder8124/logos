@@ -156,7 +156,14 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 			continue
 		}
 		for _, n := range notes {
-			if readsAsFailure(n.Text) {
+			// A note written in the typed record shape is a dead end whether or
+			// not it happens to contain one of the markers above. The markers
+			// exist to recognise a ruling someone wrote as ordinary prose; a
+			// note anchored on `route:` was filed as a ruling on purpose — by
+			// `logos tried --ruled-out`, which is the one way to record one
+			// without waiting for a checkpoint — and second-guessing its
+			// wording would lose exactly the entries that were deliberate.
+			if readsAsFailure(n.Text) || ParseRecord(textmatch.Flatten(n.Text)).Typed() {
 				rec := ParseRecord(textmatch.Flatten(n.Text))
 				out = append(out, Ruling{
 					Text: rec.Route, Project: proj, Agent: n.Agent,

@@ -366,3 +366,29 @@ func TestOneSharedWordDoesNotMakeARepeat(t *testing.T) {
 		t.Error("a proposal naming the whole ruling was not matched")
 	}
 }
+
+// A ruling filed deliberately, in the typed shape, with none of the words the
+// marker list looks for.
+//
+// `logos tried --ruled-out` writes exactly this: the point of it is that a dead
+// end no longer has to wait for a checkpoint, and an agent that files one
+// should not have to also guess which synonyms for "failed" the corpus matches
+// on. The shape is the declaration.
+func TestATypedRulingInANoteIsFoundWithoutAnyFailureWord(t *testing.T) {
+	dir, db := seed(t)
+	if _, err := session.AddNote(db, "kestrel-one", "claude",
+		"route: move the antenna under the display | observation: return loss goes to -4 dB | layer: design | scope: local"); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := Check(dir, db, nil, "", "move the antenna under the display", "kestrel-one", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 {
+		t.Fatal("a ruling filed in the typed shape should be found even with no failure word in it")
+	}
+	if hits[0].Record.Layer != LayerDesign || hits[0].Record.Scope != ScopeLocal {
+		t.Errorf("the typing should survive the note: %+v", hits[0].Record)
+	}
+}

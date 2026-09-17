@@ -74,6 +74,8 @@ THE BRIEF — what bears on the work, before the work starts
 THE INTERCEPT — the dead end nobody remembers recording
     logos tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
+    logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
+                                      record one now, without waiting for a checkpoint
 
 GETTING THERE
     logos setup [--vault DIR] [--host NAME] [--no-hosts] [--dry-run] [--yes] [--downgrade]
@@ -121,6 +123,8 @@ CONTINUITY
                                       everything bearing on a task, budgeted (also an MCP tool)
     logos tried <approach> [--project X]
                                       has this already been ruled out? ask before proposing
+    logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
+                                      record one now, without waiting for a checkpoint
     logos insights [project]          patterns already in the vault: a recurring blocker, a dormant memory
     logos why <file> [--limit N]      what was being decided when this file was touched
     logos projects | project <name>   auto-detected projects and their dossiers
