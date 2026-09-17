@@ -29,6 +29,9 @@ func runIngest(args []string) error {
 	if len(args) >= 1 && args[0] == "status" {
 		return runIngestStatus()
 	}
+	if len(args) >= 1 && args[0] == "archive" {
+		return runIngestArchive(args[1:])
+	}
 
 	dryRun := hasFlag(args, "--dry-run")
 	allProjects := hasFlag(args, "--all-projects")
@@ -440,6 +443,66 @@ func runIngestStatus() error {
 	if harvest-stranded > 0 {
 		fmt.Printf("\nDistil the remaining %d before anything deletes or rotates the transcripts:\n", harvest-stranded)
 		fmt.Println("ask an agent connected to logos to run ingest_distil.")
+		// The user rarely controls that date. Offer the one thing they do
+		// control before it passes, not after.
+		fmt.Println("To keep the window open past that, `logos ingest archive <dir>` copies the")
+		fmt.Println("transcripts somewhere you choose and repoints the candidates at the copies.")
+	}
+	return nil
+}
+
+// runIngestArchive is `logos ingest archive <dir>`: copy the transcripts the
+// queue still cites into a directory the user names, and repoint the candidates
+// at the copies.
+//
+// #115: logos deliberately does not own these files — they hold pasted secrets
+// and dead-end reasoning nobody meant to persist, which is why they are never
+// copied into the vault. That leaves distillation and provenance depending on a
+// file somebody else can delete on a date the user knows in advance. The
+// directory is an argument rather than a default because where those secrets
+// come to rest is the user's decision and their corp's policy, not ours.
+func runIngestArchive(args []string) error {
+	dest := ""
+	for _, a := range positionals(args) {
+		dest = a
+		break
+	}
+	if dest == "" {
+		return fmt.Errorf("logos ingest archive needs a directory to copy the transcripts into: logos ingest archive ~/transcripts-backup")
+	}
+
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return missingVaultError(v)
+	}
+
+	res, problems, err := ingest.Archive(v, expandHome(dest))
+	if err != nil {
+		return err
+	}
+	// Named with a count before the good news: the transcripts that are already
+	// gone are the reason to run this, and burying them under a success line is
+	// the failure invariant 4 exists for.
+	if len(problems) > 0 {
+		fmt.Printf("%d transcript(s) could not be archived:\n", len(problems))
+		for _, p := range problems {
+			fmt.Printf("  %s\n", p)
+		}
+		fmt.Println()
+	}
+	fmt.Printf("%d transcript(s) copied to %s (%d KB)\n", res.Copied, res.Dir, (res.Bytes+1023)/1024)
+	fmt.Printf("%d candidate(s) now cite the archive", res.Repointed)
+	if res.Already > 0 {
+		fmt.Printf(", %d already did", res.Already)
+	}
+	fmt.Println(".")
+	if res.Missing > 0 {
+		fmt.Printf("\n%d transcript(s) were already gone, so those candidates can no longer be\n", res.Missing)
+		fmt.Println("distilled; they keep citing where the transcript used to be.")
+	}
+	if res.Copied > 0 {
+		fmt.Println("\nThese are raw transcripts: they can hold anything that was pasted into a")
+		fmt.Println("session. Store them the way you would store the originals.")
 	}
 	return nil
 }

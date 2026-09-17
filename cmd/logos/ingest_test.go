@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/transcript"
 )
 
@@ -311,4 +312,59 @@ func TestIngestStatusCountsCandidatesByTierAndWhetherTheirSourceSurvives(t *test
 		t.Errorf("status does not say the candidates whose transcripts are gone are stuck at harvest forever:\n%s", out)
 	}
 	_ = vaultDir
+}
+
+// #115: the archive command is the user's answer to a deadline they do not
+// control, so the end-to-end path that matters is "ingest, archive, lose the
+// originals, and the queue still resolves" — the package test proves the copy,
+// this proves the command reports it and survives the wipe.
+func TestIngestArchiveCopiesTheTranscriptsAndSaysWhereTheyWent(t *testing.T) {
+	vaultDir := scratchIngest(t)
+	if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "keep")
+	out := captureStdout(t, func() {
+		if err := runIngest([]string{"archive", dest}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, dest) {
+		t.Errorf("the archive never said where the transcripts went:\n%s", out)
+	}
+	if !strings.Contains(out, "cite the archive") {
+		t.Errorf("the archive never said the candidates were repointed:\n%s", out)
+	}
+
+	// The transcripts the candidates now cite must be the copies, not the
+	// fixtures: an archive the queue cannot read is a backup of nothing.
+	all, skipped := ingest.All(vaultDir)
+	if len(skipped) > 0 {
+		t.Fatalf("candidates unreadable after archiving: %v", skipped)
+	}
+	if len(all) == 0 {
+		t.Fatal("nothing was ingested, so nothing was archived")
+	}
+	for _, c := range all {
+		if !strings.HasPrefix(c.Source, dest) {
+			t.Errorf("%s still cites a transcript logos does not own: %q", c.SessionID, c.Source)
+		}
+		if _, err := os.Stat(transcript.SourceFile(c.Source)); err != nil {
+			t.Errorf("%s cites an archived transcript that is not there: %v", c.SessionID, err)
+		}
+	}
+}
+
+// Naming no directory must not pick one: where raw transcripts come to rest is
+// the user's decision, and a default would make it silently.
+func TestIngestArchiveRefusesToChooseTheDirectoryItself(t *testing.T) {
+	scratchIngest(t)
+	err := runIngest([]string{"archive"})
+	if err == nil {
+		t.Fatal("archiving with no directory was accepted")
+	}
+	if !strings.Contains(err.Error(), "directory") {
+		t.Errorf("the error does not say a directory is missing: %v", err)
+	}
 }
