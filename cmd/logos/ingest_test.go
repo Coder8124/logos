@@ -21,6 +21,11 @@ func scratchIngest(t *testing.T) (vaultDir string) {
 	t.Setenv("LOGOS_VAULT", vaultDir)
 	t.Setenv(transcript.LogosClaudeProjectsEnv, absFixture(t, "claude-code"))
 	t.Setenv(transcript.LogosCodexSessionsEnv, absFixture(t, "codex"))
+	// Every reader gets pinned, including the ones with no fixture: Cursor's
+	// storage lives outside HOME on macOS, so leaving it unset is how this
+	// helper read the developer's own chat history and queued 200 candidates
+	// from it. An empty directory has no state.vscdb, so the reader finds none.
+	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
 	return vaultDir
 }
 

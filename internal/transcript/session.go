@@ -79,6 +79,7 @@ func register(r reader) { registry[r.harness()] = r }
 func init() {
 	register(claudeCodeReader{})
 	register(codexReader{})
+	register(cursorReader{})
 	registerTxcriptReaders()
 }
 

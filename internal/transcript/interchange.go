@@ -163,7 +163,6 @@ func txcriptOnPath() bool {
 // support all 16, only the ones worth naming in `logos doctor`.
 func registerTxcriptReaders() {
 	for _, f := range []txcriptReader{
-		{name: "cursor", format: "cursor"},
 		{name: "aider", format: "aider"},
 		{name: "cline", format: "cline"},
 		{name: "windsurf", format: "windsurf"},
