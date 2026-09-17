@@ -475,3 +475,35 @@ func TestACheckpointDropsPlaceholderFailuresAndSaysSo(t *testing.T) {
 		t.Errorf("the real failure was dropped too:\n%s", truncateForLog(line))
 	}
 }
+
+// `next` is the single step the recipient takes. A conditional is kept — a
+// checkpoint is written when context is running out, and refusing one there is
+// worse than any ambiguity — but the receipt says the field reads as two.
+func TestACheckpointKeepsAConditionalNextAndSaysItReadsAsTwoSteps(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"next":    "if asked: populate Appendix A, otherwise quote the extruded option",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "more than one step") {
+		t.Errorf("a conditional next was recorded with no comment:\n%s", truncateForLog(line))
+	}
+	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
+	if !strings.Contains(line, "Appendix A") {
+		t.Errorf("the next step was not kept as given:\n%s", truncateForLog(line))
+	}
+
+	line, ok = call(t, c, 5, "checkpoint", map[string]any{
+		"project": "kestrel", "next": "quote the extruded option",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "more than one step") {
+		t.Errorf("a single next step was second-guessed:\n%s", truncateForLog(line))
+	}
+}

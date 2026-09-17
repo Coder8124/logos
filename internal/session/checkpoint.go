@@ -398,3 +398,42 @@ func DropPlaceholders(failed []string) ([]string, int) {
 	}
 	return kept, len(failed) - len(kept)
 }
+
+// NextReadsAsMoreThanOneStep reports that `next` is not the single step the
+// schema asks for — a conditional ("if asked, populate Appendix A, otherwise
+// ship it") or a second sentence.
+//
+// The receipt is deliberately not a refusal. A checkpoint is written when an
+// agent's context is running out, which is the worst possible moment to argue
+// about grammar and lose the record; the writing agent reads fine to itself and
+// only a different tool pays for the ambiguity, so the record is kept and the
+// doubt is said out loud instead.
+func NextReadsAsMoreThanOneStep(next string) bool {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return false
+	}
+	lower := strings.ToLower(next)
+	for _, word := range []string{"if ", "if,", "otherwise", "unless ", "depending on", "either way"} {
+		if strings.HasPrefix(lower, word) || strings.Contains(lower, " "+word) {
+			return true
+		}
+	}
+	// A second sentence, not merely a full stop. "Cut the tag. Then watch the
+	// run" is two steps; "run go test ./... and report" is one, and a naive
+	// search for ". " reads its ellipsis as the end of a sentence.
+	trimmed := strings.TrimRight(next, ".!?")
+	for i, r := range trimmed {
+		if r != '.' && r != '?' && r != '!' && r != ';' {
+			continue
+		}
+		if i == 0 || i+1 >= len(trimmed) || trimmed[i+1] != ' ' {
+			continue
+		}
+		if r == '.' && (trimmed[i-1] == '.' || trimmed[i-1] == '/') {
+			continue
+		}
+		return true
+	}
+	return strings.Contains(trimmed, "\n")
+}

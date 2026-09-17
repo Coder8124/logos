@@ -181,6 +181,9 @@ func runCheckpoint(args []string) error {
 		fmt.Printf("dropped %d placeholder failed entr%s — leave failed empty when nothing was ruled out.\n",
 			dropped, map[bool]string{true: "y", false: "ies"}[dropped == 1])
 	}
+	if session.NextReadsAsMoreThanOneStep(c.Next) {
+		fmt.Println("recorded as given; --next reads as more than one step — the conditional or later parts usually belong in --question, which resume prints as \"Still open\".")
+	}
 	// Deliberately not "run `logos index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user
 	// just did: resume reads this file off disk, so the handoff already works.

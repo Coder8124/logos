@@ -1237,6 +1237,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
 			dropped, map[bool]string{true: "entry", false: "entries"}[dropped == 1])
 	}
+	if session.NextReadsAsMoreThanOneStep(c.Next) {
+		msg += " Recorded as given; `next` reads as more than one step — the parts that are conditional or later usually belong in `questions`, which resume prints as \"Still open\"."
+	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}

@@ -495,3 +495,31 @@ func TestAHeadingInsideACheckpointFieldCannotForgeOrTerminateASection(t *testing
 		t.Errorf("dead end did not round-trip as one line: %q", got.Failed)
 	}
 }
+
+// `next` is documented as the single step whoever picks this up should take,
+// and accepts anything. A conditional reads fine to the agent that wrote it
+// and crosses to another tool with its intent gone.
+func TestACheckpointSaysWhenNextReadsAsMoreThanOneStep(t *testing.T) {
+	twoSteps := []string{
+		"if asked next: populate Appendix A, otherwise ship the release",
+		"Cut the v0.4.4 tag. Then watch release.yml",
+		"run the gate; if it passes, push",
+		"revoke the old key\nthen rotate the new one",
+	}
+	for _, next := range twoSteps {
+		if !NextReadsAsMoreThanOneStep(next) {
+			t.Errorf("a conditional or a second sentence went out as one step: %q", next)
+		}
+	}
+	oneStep := []string{
+		"",
+		"revoke the old key in prod",
+		"run go test ./... and report the summary",
+		"fix 108 first, then 110",
+	}
+	for _, next := range oneStep {
+		if NextReadsAsMoreThanOneStep(next) {
+			t.Errorf("a single step was second-guessed: %q", next)
+		}
+	}
+}
