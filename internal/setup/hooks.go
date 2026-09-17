@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Tier names how much of Logos a host actually gets. Registering the MCP
@@ -175,7 +173,7 @@ func saveHookFile(path string, f hookFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return vault.WriteAtomic(path, append(out, '\n'))
+	return writeHostFile(path, append(out, '\n'))
 }
 
 // backupHooks copies a hooks file aside before it is merged, for the same

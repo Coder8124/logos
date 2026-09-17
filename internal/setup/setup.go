@@ -549,7 +549,33 @@ func saveServers(path, root string, cfg mcpConfig, servers map[string]json.RawMe
 	if err != nil {
 		return err
 	}
-	return vault.WriteAtomic(path, append(out, '\n'))
+	return writeHostFile(path, append(out, '\n'))
+}
+
+// writeHostFile writes a host's config through a symlink instead of over it.
+//
+// An atomic write is a temp file and a rename, which replaces the link with a
+// regular file. People keep these configs in a dotfiles repository and symlink
+// them into place, so the link's target kept the old contents and the next
+// `stow` or `chezmoi apply` put it back — setup worked, then Logos quietly
+// disappeared from the host, with nothing to connect the two. The file's own
+// permissions are put back too: the config is the host's, not a vault note, and
+// 0600 on a file that was group-readable is a change nobody asked for.
+func writeHostFile(path string, data []byte) error {
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
+	mode := os.FileMode(0)
+	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
+		mode = info.Mode().Perm()
+	}
+	if err := vault.WriteAtomic(path, data); err != nil {
+		return err
+	}
+	if mode != 0 && mode != vault.FileMode {
+		return os.Chmod(path, mode)
+	}
+	return nil
 }
 
 // readMCPServers reads back what a JSON-config host (Claude Desktop, Cursor)

@@ -516,3 +516,46 @@ func TestReadMCPServersReadsTheVaultEachEntryIsPinnedTo(t *testing.T) {
 		t.Errorf("got %+v, want the vault %q", regs, server().Env["LOGOS_VAULT"])
 	}
 }
+
+// A host config kept in a dotfiles repository and symlinked into place is the
+// arrangement setup has to leave standing: writing over the link detaches it,
+// the target keeps the old contents, and the next dotfiles sync puts a config
+// back that has no logos in it.
+func TestASymlinkedHostConfigIsWrittenThroughAndStaysALink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles-mcp.json")
+	if err := os.WriteFile(target, []byte(`{"mcpServers":{"theirs":{"command":"/usr/bin/other"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "mcp.json")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := mergeJSON(path, server()); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Error("the symlink was replaced with a regular file, so the next dotfiles sync undoes the setup")
+	}
+	if got := readServers(t, target); got[Name].Command == "" {
+		t.Errorf("logos did not reach the file the link points at: %+v", got)
+	}
+	if mode := modeOf(t, target); mode != 0o644 {
+		t.Errorf("the config's permissions changed to %o; setup edits the host's file, it does not own it", mode)
+	}
+}
+
+func modeOf(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
