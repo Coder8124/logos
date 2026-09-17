@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,5 +92,47 @@ func TestTheServerRefusesWhenTheRecordedVaultIsNotMounted(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "logos")); err == nil {
 		t.Error("~/logos was created while the real vault was unmounted")
+	}
+}
+
+// A recorded vault under a temp root still exists right now, so nothing above
+// refuses it — and the server serves it in silence. That is how Claude Desktop
+// ended up wired to /var/folders/…/tmp.AFhBsX8awu/vault: everything reported a
+// healthy zero, because a healthy zero is exactly what an empty scratch vault
+// looks like. doctor sees this, but only when somebody runs doctor; the server
+// is what runs every session, so it says so where the host logs it.
+func TestTheServerSaysWhenTheVaultItServesIsUnderATempRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("LOGOS_VAULT", "")
+	scratch := filepath.Join(os.TempDir(), "logos-scratch-vault")
+	if err := vaultmod.MkdirPrivate(scratch); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(scratch) })
+	if err := vaultmod.Record(scratch); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	dir, serveErr := serveVault()
+	os.Stderr = saved
+	w.Close()
+	msg, _ := io.ReadAll(r)
+
+	if serveErr != nil {
+		t.Fatalf("the server refused a vault that is there: %v", serveErr)
+	}
+	if dir != scratch {
+		t.Errorf("served %s, not the recorded vault", dir)
+	}
+	if !strings.Contains(string(msg), "temporary") || !strings.Contains(string(msg), scratch) {
+		t.Errorf("nothing warned that this machine's vault is a scratch directory:\n%s", msg)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/mcpserver"
 	vaultmod "github.com/Coder8124/logos/internal/vault"
@@ -30,6 +31,15 @@ import (
 func serveVault() (string, error) {
 	dir, explicit := vaultmod.Chosen()
 	if _, err := os.Stat(dir); err == nil {
+		// A vault under a temp root is there today and gone after a reboot, and
+		// while it is there everything reports a healthy zero — which is what an
+		// empty scratch vault and a working install with nothing in it both look
+		// like. doctor checks this, but only when somebody runs doctor; the
+		// server runs every session, so it is the one that can say so in time.
+		// LOGOS_VAULT set for this process is someone doing it deliberately.
+		if os.Getenv("LOGOS_VAULT") == "" && health.UnderTempDir(dir) {
+			fmt.Fprintf(os.Stderr, "logos: this machine's vault is %s, a temporary directory — it will be empty or gone after a reboot; `logos setup --vault <path>` moves it\n", dir)
+		}
 		return dir, nil
 	} else if explicit {
 		return "", missingVaultError(dir)
