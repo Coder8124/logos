@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/secretary"
@@ -194,7 +195,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	safeToContinue(&head, c, p.Reader)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
-	list(&tail, "Already tried, didn't work", c.Failed)
+	failures(&tail, "Already tried, didn't work", c.Failed)
 	list(&tail, "Still open", c.Questions)
 	list(&tail, "Files touched", c.Files)
 	// Predecessors' dead ends, attributed. Cheap — a line each — and the only
@@ -965,6 +966,39 @@ func list(b *strings.Builder, heading string, items []string) {
 		// inline, not TrimSpace: these are single-value fields, and a newline
 		// inside one is how payload forges a heading. See untrusted.go.
 		fmt.Fprintf(b, "- %s\n", inline(it))
+	}
+	b.WriteString("\n")
+}
+
+// failures renders the ruled-out approaches, unpacking the ones that were
+// recorded with the typed vocabulary. The scope a ruling carries is what tells
+// the reader whether it applies to them at all — a dead end at the environment
+// layer is about the toolchain that hit it, not about this codebase — and until
+// now that vocabulary only ever reached before_you_try, so a handoff to another
+// tool delivered either the raw pipe-separated source text or a ruling nobody
+// could place. A free-prose entry still reads exactly as it did.
+func failures(b *strings.Builder, heading string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "**%s:**\n", heading)
+	for _, it := range items {
+		r := deadend.ParseRecord(it)
+		if !r.Typed() {
+			fmt.Fprintf(b, "- %s\n", inline(it))
+			continue
+		}
+		fmt.Fprintf(b, "- %s", inline(r.Route))
+		if r.Observation != "" {
+			fmt.Fprintf(b, " — %s", inline(r.Observation))
+		}
+		if tags := deadend.Tags(r); tags != "" {
+			fmt.Fprintf(b, " · %s", inline(tags))
+		}
+		if r.Alternative != "" {
+			fmt.Fprintf(b, " — try instead: %s", inline(r.Alternative))
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 }

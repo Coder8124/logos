@@ -79,6 +79,13 @@ func Render(proposed string, hits []Ruling) string {
 	return b.String()
 }
 
+// Tags is the typed vocabulary of one ruling, rendered for a reader: the layer
+// it lives at, how far it travels, how hard the evidence is, what to do about
+// it. Exported because the handoff path needs it too — a ruling that crosses to
+// another tool untagged is the one that gets re-run, and until it was rendered
+// there this vocabulary only ever reached before_you_try.
+func Tags(r Record) string { return recordTags(r) }
+
 // recordTags renders the typed fields as one short line, empty for an
 // unclassified entry so a plain Failed string keeps reading exactly as it did
 // before this schema existed.

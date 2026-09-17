@@ -170,3 +170,40 @@ func TestThePackIsQuietWhenTheTreeIsWhereTheCheckpointLeftIt(t *testing.T) {
 		t.Errorf("the tree has not moved and the pack says it has:\n%s", out)
 	}
 }
+
+// A ruling recorded as "layer: environment" is about the toolchain that hit it,
+// not about the codebase. Handed to another agent as its own raw wire format,
+// or stripped back to the route alone, it reads as a universal dead end and
+// gets re-run by the one toolchain it never applied to.
+func TestARuledOutApproachReachesThePackWithTheScopeItWasRecordedWith(t *testing.T) {
+	dir := gitRepo(t)
+	ix := seedVault(t)
+	now := time.Now()
+	remote, root := gitstate.Identity(dir)
+	typed := "route: run the plugin update through npx | observation: the sandbox has no network | layer: environment | scope: local | degree: contradicted | action: change-method | alternative: vendor the tarball"
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "api", Agent: "claude", Task: "ship the plugin",
+		Failed: []string{typed, "tried caching the index in SQLite, it went stale"},
+		Next:   "vendor the tarball", TS: now.Add(-time.Minute).Unix(),
+		Git: gitstate.State{Branch: "main", Commit: "abc1234", Remote: remote, Root: root},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: dir, Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	for _, want := range []string{"run the plugin update through npx", "the sandbox has no network", "environment", "local", "contradicted", "change-method", "vendor the tarball"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the ruling reached the pack without %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "route:") || strings.Contains(out, "layer:") {
+		t.Errorf("the pack printed the wire format rather than rendering it:\n%s", out)
+	}
+	if !strings.Contains(out, "- tried caching the index in SQLite, it went stale") {
+		t.Errorf("a free-prose dead end stopped reading as it did:\n%s", out)
+	}
+}

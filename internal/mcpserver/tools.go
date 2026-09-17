@@ -181,7 +181,7 @@ var toolDefs = []map[string]any{
 			"task":      str("what you were trying to do"),
 			"state":     str("where things actually stand now"),
 			"decisions": arrStr("decisions made and why"),
-			"failed":    arrStr("approaches tried that did NOT work, and why — the most valuable field here. Plain prose is fine; for a record before_you_try can act on precisely, one line as 'route: ... | observation: ... | layer: ... | scope: ... | degree: ... | action: ... | alternative: ...' — see the agent instructions for the vocabulary"),
+			"failed":    arrStr("approaches tried that did NOT work, and why — the most valuable field here. Plain prose is fine; for a record before_you_try can act on precisely, one line as 'route: ... | observation: ... | layer: ... | scope: ... | degree: ... | action: ... | alternative: ...' — see the agent instructions for the vocabulary. A dead end that is about the toolchain you happen to be holding rather than about this codebase is 'layer: environment' — say so, or the next agent, on a different toolchain, cannot tell whether it applies to them"),
 			"verified":  arrStr("claims you actually demonstrated, with the command that showed it, e.g. 'auth rejects expired tokens — go test ./internal/auth -run TestExpiry'. Only what you ran — belief goes in 'state'"),
 			"blockers":  arrStr("what is known broken or unfinished, and what it blocks"),
 			"commands":  arrStr("the build, test and lint commands you actually ran"),
