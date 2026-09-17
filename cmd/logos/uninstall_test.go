@@ -142,3 +142,28 @@ func TestUninstallSaysTheSelectedHostIsNotInstalledNotThatNothingIs(t *testing.T
 		t.Errorf("the message does not say what is installed:\n%s", out)
 	}
 }
+
+// The way in is automated and the way out was homework: uninstall printed
+// `/plugin uninstall logos@logos` and left a plugin that kept starting its own
+// server, running its hooks and updating itself daily, after a run that
+// reported success.
+func TestUninstallRemovesTheClaudeCodePluginRatherThanPrintingTheCommand(t *testing.T) {
+	setupInFakeHome(t)
+	home := os.Getenv("HOME")
+	calls := claudeWithPluginCommands(t, home)
+	writeClaudeJSON(t, home, "plugins/installed_plugins.json",
+		`{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.4.3"}]}}`)
+	fakeHosts(t, "Claude Code")
+
+	var err error
+	out := captureStdout(t, func() { err = mcpUninstallCmd([]string{"uninstall", "--yes"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran := readCalls(t, calls); !strings.Contains(ran, "plugin uninstall logos@logos") {
+		t.Errorf("uninstall left the plugin installed:\n%s", ran)
+	}
+	if !strings.Contains(out, "uninstalled") {
+		t.Errorf("uninstall did not say the plugin was removed:\n%s", out)
+	}
+}

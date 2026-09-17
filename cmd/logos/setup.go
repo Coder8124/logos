@@ -1312,12 +1312,19 @@ func mcpUninstallCmd(args []string) error {
 		return fmt.Errorf("unknown host %s — logos knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
 	}
-	// Unwiring more than one host at a time is asked about, the way wiring them
+	// The plugin goes with Claude Code and only with it: `--host cursor` is not
+	// a run that should take Claude Code's plugin out from under it.
+	pluginGoing := hasHost(hosts, "Claude Code") && setup.LogosPluginRecord().Installed
+	going := setup.Names(hosts)
+	if pluginGoing {
+		going = append(going, "the Claude Code plugin")
+	}
+	// Unwiring more than one thing at a time is asked about, the way wiring them
 	// is: `--host` matches on a prefix and a mistyped flag used to mean every
-	// host, so the run that takes logos off the whole machine says which hosts
-	// those are before it does it.
-	if len(hosts) > 1 && !hasFlag(args, "--yes") && !hasFlag(args, "-y") {
-		fmt.Printf("  %-*s %s\n", hostColumn, "hosts", strings.Join(setup.Names(hosts), ", "))
+	// host, so the run that takes logos off the whole machine says what it is
+	// about to remove before it does it.
+	if len(going) > 1 && !hasFlag(args, "--yes") && !hasFlag(args, "-y") {
+		fmt.Printf("  %-*s %s\n", hostColumn, "hosts", strings.Join(going, ", "))
 		if !confirm("  Remove logos from all of them?") {
 			fmt.Println("  nothing was removed")
 			return nil
@@ -1354,10 +1361,20 @@ func mcpUninstallCmd(args []string) error {
 			fmt.Printf("  %-*s backup of the old config: %s\n", hostColumn, "", r.Backup)
 		}
 	}
-	// The plugin carries its own server, which no host config holds, so only
-	// Claude Code can take it out.
-	if setup.LogosPluginRecord().Installed {
-		fmt.Printf("\n  %-*s still installed — remove it in Claude Code with /plugin uninstall logos@logos\n", hostColumn, "plugin")
+	// The plugin carries its own server, which no host config holds, so it is
+	// removed through claude's own CLI rather than left running.
+	if pluginGoing {
+		switch {
+		case !setup.SupportsPluginCommands():
+			fmt.Printf("\n  %-*s still installed — this claude cannot remove plugins from the command line, so remove it in Claude Code with /plugin uninstall logos@logos\n", hostColumn, "plugin")
+		default:
+			if err := setup.RunPluginSteps(setup.UninstallPluginSteps()); err != nil {
+				failed++
+				fmt.Printf("\n  %-*s could not be removed: %v — remove it in Claude Code with /plugin uninstall logos@logos\n", hostColumn, "plugin", err)
+			} else {
+				fmt.Printf("\n  %-*s uninstalled with `%s`\n", hostColumn, "plugin", setup.PluginCommand(setup.UninstallPluginSteps()[0]))
+			}
+		}
 	}
 	fmt.Printf("\n  %-*s left untouched at %s — delete it yourself if you want the memory gone too\n", hostColumn, "vault", vaultPath())
 	if failed > 0 {

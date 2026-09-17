@@ -50,6 +50,15 @@ func UpdatePluginSteps() [][]string {
 	}
 }
 
+// UninstallPluginSteps take the plugin back out. The way in is automated and
+// the way out was a printed instruction, which is homework handed to someone at
+// the worst possible moment — and a plugin left behind keeps starting its own
+// MCP server, running its session-start hooks and updating itself daily after a
+// run that reported success.
+func UninstallPluginSteps() [][]string {
+	return [][]string{{"plugin", "uninstall", PluginRef}}
+}
+
 // PluginCommand renders one step the way a user would type it, for a dry run.
 func PluginCommand(step []string) string {
 	return "claude " + strings.Join(step, " ")
