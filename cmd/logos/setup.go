@@ -1225,6 +1225,9 @@ const setupUsage = `usage:
 var (
 	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade"}
 	setupValueFlags = []string{"--vault", "--host", "--config", "--format"}
+
+	uninstallBoolFlags  = []string{"--yes", "-y"}
+	uninstallValueFlags = []string{"--host"}
 )
 
 // normalizeSetupFlags splits --name=value into --name value, and refuses an
@@ -1232,6 +1235,14 @@ var (
 // treated as missing, because `--vault --yes` otherwise made a vault named
 // --yes in the current directory.
 func normalizeSetupFlags(args []string) ([]string, error) {
+	return normalizeFlags(args, setupValueFlags, setupBoolFlags)
+}
+
+// normalizeFlags is the same check against whichever flags the command actually
+// takes. Uninstall has its own, shorter list: it accepted anything, so
+// `--hosts cursor` was not a flag with no effect but the absence of the filter,
+// and the command removed logos from every host on the machine.
+func normalizeFlags(args, valueFlags, boolFlags []string) ([]string, error) {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -1241,7 +1252,7 @@ func normalizeSetupFlags(args []string) ([]string, error) {
 		}
 		name, value, hasValue := strings.Cut(a, "=")
 		switch {
-		case slices.Contains(setupValueFlags, name):
+		case slices.Contains(valueFlags, name):
 			if !hasValue {
 				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 					i++
@@ -1252,11 +1263,11 @@ func normalizeSetupFlags(args []string) ([]string, error) {
 				return nil, fmt.Errorf("%s needs a value, e.g. %s <value>; nothing was changed", name, name)
 			}
 			out = append(out, name, value)
-		case slices.Contains(setupBoolFlags, name) && !hasValue:
+		case slices.Contains(boolFlags, name) && !hasValue:
 			out = append(out, a)
 		default:
 			return nil, fmt.Errorf("unknown flag %s; nothing was changed. The flags are %s and %s",
-				a, strings.Join(setupValueFlags, " "), strings.Join(setupBoolFlags, " "))
+				a, strings.Join(valueFlags, " "), strings.Join(boolFlags, " "))
 		}
 	}
 	return out, nil
@@ -1290,11 +1301,26 @@ func mcpInstallCmd(args []string) error {
 // install. It edits host configs and nothing else: the vault is the user's
 // memory, so where it was left is said and deleting it stays their call.
 func mcpUninstallCmd(args []string) error {
+	args, err := normalizeFlags(args, uninstallValueFlags, uninstallBoolFlags)
+	if err != nil {
+		return err
+	}
 	known := detectHosts()
 	hosts, unmatched := setup.Only(known, flagStrs(args, "--host"))
 	if len(unmatched) > 0 {
 		return fmt.Errorf("unknown host %s — logos knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
+	}
+	// Unwiring more than one host at a time is asked about, the way wiring them
+	// is: `--host` matches on a prefix and a mistyped flag used to mean every
+	// host, so the run that takes logos off the whole machine says which hosts
+	// those are before it does it.
+	if len(hosts) > 1 && !hasFlag(args, "--yes") && !hasFlag(args, "-y") {
+		fmt.Printf("  %-*s %s\n", hostColumn, "hosts", strings.Join(setup.Names(hosts), ", "))
+		if !confirm("  Remove logos from all of them?") {
+			fmt.Println("  nothing was removed")
+			return nil
+		}
 	}
 	failed := 0
 	removals := setup.Uninstall(hosts)
