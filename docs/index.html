@@ -556,10 +556,16 @@ footer .sp { margin-left: auto; }
 <main>
   <div class="wrap hero">
     <span class="eyebrow fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.4">v0.4.4</a> &middot; Apache 2.0 &middot; local-first</span>
-    <h1 class="fade">Your memory. <em>Any</em> agent.</h1>
+    <h1 class="fade">The handoff between <em>agents</em>.</h1>
     <p class="sub fade">
-      One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
-      from it, Codex picks up where both stopped &mdash; and none of them owns it.
+      For two situations: you use more than one coding agent, or you work one project
+      long enough that sessions start forgetting. Claude Code writes to a vault of markdown
+      on your disk, Cursor reads from it, Codex picks up where both stopped &mdash; and none
+      of them owns it.
+    </p>
+    <p class="note fade">
+      If you use a single agent on short tasks, its own built-in memory is probably enough
+      and this will not earn its install.
     </p>
 
     <div class="cmd primary fade">
@@ -713,9 +719,16 @@ a5e72a2 &middot; 2 files uncommitted
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Benchmark</span>
-        <h2>Measured, on one machine, against eight others</h2>
+        <h2>Numbers I ran on my own harness</h2>
         <p>
-          32 hand-authored handoff scenarios, the same embedding model throughout. A scenario
+          Stated up front, because it decides what these are worth: <strong>I wrote the benchmark,
+          I wrote the system it scores best, and I wrote the ~100-line adapters that drive the other
+          systems through their own APIs.</strong> That is not independent evaluation and should not be
+          read as one. It is published because the problem it measures &mdash; handoff, not recall &mdash;
+          is one no existing suite tests, and because you can run the whole thing yourself in one command.
+        </p>
+        <p>
+          32 hand-authored handoff scenarios on one machine, the same embedding model throughout. A scenario
           passes only if the next agent gets the current fact, without the stale one beside it, inside a token budget it did not choose.
         </p>
       </div>
@@ -747,7 +760,15 @@ a5e72a2 &middot; 2 files uncommitted
         returned anyway, lower is better; <strong>Signal</strong> is telling the next agent something
         was already tried or has changed. It loses too, and those numbers stay in: arithmetic,
         recency-conflict and multi-hop are all 0%.
-        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Read the write-up</a>.
+      </p>
+      <p class="note bench-notes">
+        Run it against your own scenarios rather than taking these:
+        <code>go run ./cmd/logos bench continuity</code> reproduces the whole table, and
+        <code>--logos-only</code> needs nothing but Ollama. The scenarios, the scoring and the
+        adapters are all in the repository, and every one of mem0's and Letta's settings is argued
+        for in the write-up &mdash; including the two that were run both ways because the choice
+        was arguable.
+        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Read the write-up, caveats first</a>.
       </p>
     </div>
   </section>

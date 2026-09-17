@@ -233,6 +233,13 @@ Stated plainly, because they bound what these numbers are worth.
   marked as known weaknesses up front and the report prints every wrong
   prediction, but this is not independent evaluation and should not be read as
   one.
+- **I also wrote the adapters the other systems run through.** Each is ~100
+  lines of Python translating the harness's events into that system's own API
+  (`bench/adapters/`), and every one of them was written by someone who knows
+  logos far better than he knows mem0 or Letta. A maintainer of either would
+  likely drive their own system better than these do. The adapters are in the
+  repository precisely so that disagreement can take the form of a patch:
+  a better adapter that moves a row is a result, not an objection.
 - **The headline table runs mem0 with `infer=False` and Letta with its agent
   loop off.** Both then store text verbatim rather than running an LLM over
   every write — favourable to them on retrieval, since nothing is lost to a
