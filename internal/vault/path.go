@@ -30,6 +30,9 @@ import (
 // it points at cannot be found by anyone who does not already know where that is.
 const pointerName = "vault-path"
 
+// backupSuffix names the copy of the pointer taken before it is overwritten.
+const backupSuffix = ".bak"
+
 // Path resolves where the vault lives. One answer, for every front end.
 //
 // The order is explicit override, then recorded choice, then default:
@@ -124,7 +127,29 @@ func Record(dir string) error {
 	if err := MkdirPrivate(filepath.Dir(p)); err != nil {
 		return err
 	}
+	// Keep whatever the pointer said before this. Moving a machine's vault is
+	// one atomic write over one file, and the path it replaced is not written
+	// down anywhere else — so a move made by a script, or by a setup run the
+	// user was not reading closely, left nothing to go back to. Best effort: a
+	// config directory that cannot hold the backup still gets the move.
+	if prev := Pointer(); prev != "" && prev != abs {
+		_ = WriteAtomic(p+backupSuffix, []byte(prev+"\n"))
+	}
 	return WriteAtomic(p, []byte(abs+"\n"))
+}
+
+// Previous returns the vault path the pointer held before the most recent
+// Record, or "" if this machine has only ever had one.
+func Previous() string {
+	p, err := pointerPath()
+	if err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(p + backupSuffix)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func pointerPath() (string, error) {

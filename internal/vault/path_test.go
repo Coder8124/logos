@@ -100,6 +100,24 @@ func TestRecordingAgainMovesThePointer(t *testing.T) {
 	}
 }
 
+// The pointer is one file, and overwriting it is how a machine's whole memory
+// moves. Keeping the value it had is what makes the move recoverable by
+// someone who reads the file rather than by someone who remembers the path.
+func TestRecordingANewVaultKeepsThePathItReplaced(t *testing.T) {
+	isolate(t)
+	first, second := t.TempDir(), t.TempDir()
+
+	if err := Record(first); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if err := Record(second); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if got := Previous(); got != first {
+		t.Errorf("Previous() = %q, want the vault that was recorded before %q", got, first)
+	}
+}
+
 // A recorded vault that is not there is usually on a drive that is not
 // mounted, not gone. Falling back to ~/logos used to be the answer, and it split
 // one project across two vaults: the MCP server quietly created ~/logos, said

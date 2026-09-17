@@ -23,6 +23,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/selfupdate"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -92,6 +93,9 @@ func setupCmd(args []string) error {
 		fmt.Println("             would be recorded — the desktop app opens this vault too")
 	case rec == recordedHere && vault.Recorded() == dir:
 		fmt.Println("             recorded — the desktop app opens this vault too")
+	case rec == recordSkipMove:
+		fmt.Println("             not recorded — this machine's vault already holds work and was left where it is")
+		fmt.Println("             → pass --move-vault to move it here")
 	case rec == recordSkipTemp:
 		fmt.Println("             not recorded — a temporary directory is used for this run only")
 		fmt.Println("             → pass --record-temp to record it anyway, or --vault somewhere that lasts")
@@ -124,6 +128,12 @@ func setupCmd(args []string) error {
 	// refusing its hosts would only leave them on whatever they had before.
 	if rec == recordSkipTemp && vault.Recorded() != dir && !opts.dryRun && !opts.none {
 		return fmt.Errorf("no hosts were wired: %s was not recorded, and a host config would keep it after this run — pass --record-temp to record and wire it, or --vault somewhere that lasts", dir)
+	}
+	// Same rule for a vault that was left where it is: wiring the hosts to a
+	// vault the pointer does not name is the split that makes half a machine
+	// read one vault and half the other.
+	if rec == recordSkipMove && !opts.dryRun && !opts.none {
+		return fmt.Errorf("no hosts were wired: this machine's vault is still %s, and wiring them to %s would leave the two disagreeing — pass --move-vault to move it here", vault.Recorded(), dir)
 	}
 	if err := wireHosts(dir, opts); err != nil {
 		return err
@@ -191,6 +201,7 @@ const (
 	recordSkipEnv                       // LOGOS_VAULT chose it, so it is this process only
 	recordFailed                        // the write was attempted and failed; the error is already printed
 	recordSkipTemp                      // a temporary directory, and nobody said to record it anyway
+	recordSkipMove                      // this machine already has a vault holding work, and nobody said to move it
 )
 
 func chooseVault(args []string, dryRun bool) (dir string, created bool, rec recordOutcome, err error) {
@@ -252,6 +263,9 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		if temp {
 			return abs, created, recordSkipTemp, nil
 		}
+		if move, _ := movingLoadedVault(args, abs); move {
+			return abs, created, recordSkipMove, nil
+		}
 		return abs, created, recordedHere, nil
 	}
 	if fromEnv {
@@ -269,6 +283,21 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 			return abs, created, recordSkipTemp, nil
 		}
 	}
+	// Moving a vault that holds work is the one setup decision worth its own
+	// answer. The pointer is one file and `--vault B` rewrote it whether or not
+	// A held every checkpoint this machine has taken — announced afterwards, in
+	// the same receipt line as everything else. --yes does not answer this one
+	// either, for the reason above it.
+	if move, from := movingLoadedVault(args, abs); move {
+		fmt.Printf("             this machine's vault is %s, and it holds work\n", from)
+		if yes {
+			fmt.Println("             not moving it — pass --move-vault to move it anyway")
+			return abs, created, recordSkipMove, nil
+		}
+		if !confirmNo(fmt.Sprintf("             make %s this machine's vault instead?", abs)) {
+			return abs, created, recordSkipMove, nil
+		}
+	}
 	// Write the choice down where a front end with no shell can read it. The
 	// desktop app is launched from Finder and inherits no LOGOS_VAULT, so
 	// without this it can only ever find a vault at the default location.
@@ -277,6 +306,25 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		return abs, created, recordFailed, nil
 	}
 	return abs, created, recordedHere, nil
+}
+
+// movingLoadedVault reports whether this run would repoint the machine away
+// from a recorded vault that has checkpoints in it, and names that vault. An
+// empty vault, or the one already recorded, is not a decision anybody needs to
+// defend.
+func movingLoadedVault(args []string, abs string) (bool, string) {
+	if hasFlag(args, "--move-vault") {
+		return false, ""
+	}
+	prev := vault.Recorded()
+	if prev == "" || filepath.Clean(prev) == abs {
+		return false, ""
+	}
+	projects, err := session.Projects(prev)
+	if err != nil || len(projects) == 0 {
+		return false, ""
+	}
+	return true, prev
 }
 
 // goRunBinary reports a binary inside a go-build directory, where `go run`
@@ -1226,6 +1274,7 @@ const setupUsage = `usage:
   --dry-run       describe what would happen and change nothing
   --yes           accept every prompt, for scripts — including pulling a missing embedding model from Ollama
   --record-temp   record a vault under a temp directory as this machine's — --yes will not do it for you
+  --move-vault    move this machine's vault away from one that holds work — --yes will not do it for you
   --downgrade     under npx, replace a newer pinned logos with this older one
   --all-models    list every local model, not just the recommended ones
 `
@@ -1235,7 +1284,7 @@ const setupUsage = `usage:
 // `--vualt ~/notes` and a bare `--vault` each wired ~/logos into every host,
 // and `--host=cursor` wired all of them.
 var (
-	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade", "--record-temp"}
+	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade", "--record-temp", "--move-vault"}
 	setupValueFlags = []string{"--vault", "--host", "--config", "--format"}
 
 	uninstallBoolFlags  = []string{"--yes", "-y"}
