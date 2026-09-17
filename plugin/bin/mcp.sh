@@ -30,5 +30,12 @@ if [ -n "${LOGOS_REJECTED:-}" ]; then
 fi
 echo "logos: no working logos or brain binary found on PATH or in the usual install directories," >&2
 echo "logos: and @noeton/logos is not installable here." >&2
-echo "logos: install one — go install github.com/Coder8124/logos/cmd/logos@latest — then restart Claude Code." >&2
+# Homebrew and npm first, and go install last. The user who is here has no
+# working Logos and may well have no toolchain either — Claude Code's own
+# installer brings neither Node nor Go — so an answer that starts by requiring a
+# third one is an answer they cannot take.
+echo "logos: install one, then restart Claude Code:" >&2
+echo "logos:   brew install coder8124/tap/logos-mcp   (macOS, Linux)" >&2
+echo "logos:   npm i -g @noeton/logos                 (Windows, or anywhere with Node)" >&2
+echo "logos:   go install github.com/Coder8124/logos/cmd/logos@latest   (if you have Go)" >&2
 exit 1

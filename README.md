@@ -86,6 +86,10 @@ handoff in front of the model before it does anything:
 `logos setup` runs the same two commands for you when Claude Code's CLI is on
 your PATH, and updates the plugin when it is older than your logos.
 
+The plugin runs the `logos` binary; it does not carry one. Install it by either
+route below first — Claude Code's own installer brings neither Node nor Go, so
+on a fresh machine the plugin has nothing to launch.
+
 Anywhere else — no Go toolchain, no clone, no build:
 
 ```sh

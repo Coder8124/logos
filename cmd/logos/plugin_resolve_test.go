@@ -110,3 +110,39 @@ func TestThePluginKeepsTheBinarysAnswerOfNoProject(t *testing.T) {
 		t.Errorf("a binary without the verb gave %q, want the basename fallback %q", got, "someone")
 	}
 }
+
+// The only install the message offered needed a Go toolchain, which a user who
+// installed Claude Code from its own native installer is even less likely to
+// have than Node. A user with neither is told to fetch a third toolchain for a
+// binary that Homebrew or npm would have handed them directly.
+func TestThePluginOffersAnInstallThatNeedsNoToolchain(t *testing.T) {
+	// A copy of the script beside a resolver that finds nothing: the real one
+	// searches absolute directories, so on a machine with Logos installed the
+	// message under test is unreachable.
+	bin := t.TempDir()
+	real, err := os.ReadFile("../../plugin/bin/mcp.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "mcp.sh"), real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "resolve.sh"), []byte("logos_resolve() { return 1; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("/bin/bash", filepath.Join(bin, "mcp.sh"))
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	out, _ := cmd.CombinedOutput()
+	got := string(out)
+	if !strings.Contains(got, "brew install coder8124/tap/logos-mcp") {
+		t.Errorf("the message never offers Homebrew, the route that needs no toolchain:\n%s", got)
+	}
+	if !strings.Contains(got, "npm i -g @noeton/logos") {
+		t.Errorf("the message never offers npm, the route for Windows and for a machine with Node:\n%s", got)
+	}
+	// Go stays, last: it is the right answer for whoever already has it.
+	if brew, goInstall := strings.Index(got, "brew install"), strings.Index(got, "go install"); goInstall >= 0 && goInstall < brew {
+		t.Errorf("go install is offered before the routes that need no toolchain:\n%s", got)
+	}
+}
