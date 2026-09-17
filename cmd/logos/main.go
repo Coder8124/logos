@@ -80,8 +80,9 @@ GETTING THERE
                                       connect logos to the AI agents on this machine
     logos mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     logos mcp uninstall [--host NAME] take logos back out of the hosts; the vault is left alone
-    logos doctor [--verbose] [--probe] [--integration]
+    logos doctor [--verbose] [--probe] [--integration] [--report]
                                       health of vault, index, hosts; --integration proves reach
+                                      --report prints a paste-able bundle for a bug report
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
 
     LOGOS_VAULT points at the vault (default ~/logos)
@@ -176,7 +177,7 @@ SETUP AND DIAGNOSTICS
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this logos with the MCP hosts found
     logos mcp uninstall [--host NAME] remove logos from the MCP hosts found; never touches the vault
-    logos doctor [--verbose] [--probe] [--integration]
+    logos doctor [--verbose] [--probe] [--integration] [--report]
                                       health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it
     logos key set|rm <ref>            manage API keys in the macOS keychain
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
@@ -285,6 +286,10 @@ func main() {
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "uninstall":
 		err = mcpUninstallCmd(args)
 	case cmd == "doctor":
+		if hasFlag(args, "--report") {
+			err = doctorReport()
+			break
+		}
 		if hasFlag(args, "--integration") {
 			err = doctorIntegration()
 			break
