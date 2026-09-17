@@ -464,6 +464,12 @@ func runIngestStatus() error {
 func runIngestArchive(args []string) error {
 	dest := ""
 	for _, a := range positionals(args) {
+		// A flag is never the destination. `logos ingest archive --help` used
+		// to create a directory called "--help" and copy raw transcripts into
+		// it, and so did any typo.
+		if strings.HasPrefix(a, "-") {
+			return fmt.Errorf("%s is a flag, not a directory — logos ingest archive takes the directory to copy the transcripts into: logos ingest archive ~/transcripts-backup", a)
+		}
 		dest = a
 		break
 	}
@@ -484,7 +490,7 @@ func runIngestArchive(args []string) error {
 	// gone are the reason to run this, and burying them under a success line is
 	// the failure invariant 4 exists for.
 	if len(problems) > 0 {
-		fmt.Printf("%d transcript(s) could not be archived:\n", len(problems))
+		fmt.Printf("%d problem(s) archiving:\n", len(problems))
 		for _, p := range problems {
 			fmt.Printf("  %s\n", p)
 		}
@@ -499,6 +505,13 @@ func runIngestArchive(args []string) error {
 	if res.Missing > 0 {
 		fmt.Printf("\n%d transcript(s) were already gone, so those candidates can no longer be\n", res.Missing)
 		fmt.Println("distilled; they keep citing where the transcript used to be.")
+	}
+	if res.Failed > 0 {
+		// Told apart from the gone ones on purpose: these files are still
+		// there, so the answer is to fix what stopped the read and run this
+		// again, not to give the candidate up.
+		fmt.Printf("\n%d transcript(s) are still there but could not be read — fix the problem\n", res.Failed)
+		fmt.Println("named above and run this again; those candidates can still be distilled.")
 	}
 	if res.Copied > 0 {
 		fmt.Println("\nThese are raw transcripts: they can hold anything that was pasted into a")

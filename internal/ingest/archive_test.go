@@ -31,6 +31,19 @@ func putHarvest(t *testing.T, vault, id, name, body string) string {
 	return src
 }
 
+// markStatus puts a candidate where a human already decided about it, which is
+// what makes its transcript none of the archive's business.
+func markStatus(t *testing.T, vaultDir, id, status string) {
+	t.Helper()
+	c, abs, ok, err := ingest.Find(vaultDir, id)
+	if err != nil || !ok {
+		t.Fatalf("no candidate %s in the queue: %v", id, err)
+	}
+	if err := ingest.SetStatus(abs, c, status); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // sourceOf returns the source recorded on the one candidate whose session id
 // matches, so a test can assert what the queue will read after the archive.
 func sourceOf(t *testing.T, vault, id string) string {
@@ -202,5 +215,109 @@ func TestArchivingTwiceCopiesNothingTheSecondTime(t *testing.T) {
 	}
 	if got := sourceOf(t, vault, "sess-one"); got != first {
 		t.Errorf("the second run moved the candidate again: %q then %q", first, got)
+	}
+}
+
+// A rejected candidate is a session the user looked at and said no to. Its raw
+// transcript — which routinely holds pasted secrets, the reason logos never
+// copies these files into the vault — must not be copied into long-term storage
+// on the strength of that "no". Archiving exists to keep pending harvests
+// distillable, and a promoted one has already been distilled.
+func TestArchivingLeavesTranscriptsOfCandidatesNobodyCanStillDistil(t *testing.T) {
+	v := t.TempDir()
+	keep := putHarvest(t, v, "still-pending", "pending.jsonl", "a session waiting on a decision")
+	dropped := putHarvest(t, v, "turned-down", "rejected.jsonl", "secrets pasted into a session the user rejected")
+	markStatus(t, v, "turned-down", ingest.StatusRejected)
+
+	dest := filepath.Join(t.TempDir(), "archive")
+	res, problems, err := ingest.Archive(v, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) > 0 {
+		t.Fatalf("archiving reported problems: %v", problems)
+	}
+	if res.Copied != 1 {
+		t.Errorf("copied %d transcripts, want only the pending one", res.Copied)
+	}
+	if _, err := os.Stat(filepath.Join(dest, filepath.Base(dropped))); err == nil {
+		t.Error("the transcript of a rejected candidate was copied into the archive")
+	}
+	if got := sourceOf(t, v, "still-pending"); !strings.HasPrefix(got, dest) {
+		t.Errorf("the pending candidate cites %q, not a copy in %q", got, dest)
+	}
+	_ = keep
+}
+
+// A transcript that cannot be read is not the same thing as a transcript that
+// is gone: the run reports "already gone, so those candidates can no longer be
+// distilled", and a user told that stops looking for a file that is still
+// sitting there behind a permission error.
+func TestATranscriptThatCannotBeReadIsNotReportedAsAlreadyGone(t *testing.T) {
+	v := t.TempDir()
+	src := putHarvest(t, v, "locked", "locked.jsonl", "a session nobody can read")
+	if err := os.Chmod(src, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(src, 0o600) })
+
+	res, problems, err := ingest.Archive(v, filepath.Join(t.TempDir(), "archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Missing != 0 {
+		t.Errorf("an unreadable transcript was counted as %d already gone", res.Missing)
+	}
+	if res.Failed != 1 {
+		t.Errorf("Failed = %d, want the one transcript that could not be read", res.Failed)
+	}
+	if len(problems) != 1 {
+		t.Errorf("problems = %v, want the one unreadable transcript named once", problems)
+	}
+}
+
+// One transcript cited by three candidates is one problem, not three. The
+// failure was not remembered the way a success is, so a single missing file
+// printed the same line once per candidate citing it.
+func TestAMissingTranscriptCitedTwiceIsReportedOnce(t *testing.T) {
+	v := t.TempDir()
+	gone := filepath.Join(t.TempDir(), "deleted.jsonl")
+	for _, id := range []string{"first", "second"} {
+		if _, err := ingest.Put(v, ingest.Candidate{
+			Harness: "codex", SessionID: id, Source: gone,
+			Hash: "hash-" + id, Project: "gadgets", Tier: ingest.TierHarvest,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, problems, err := ingest.Archive(v, filepath.Join(t.TempDir(), "archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Missing != 1 {
+		t.Errorf("Missing = %d for one deleted transcript cited twice", res.Missing)
+	}
+	if len(problems) != 1 {
+		t.Errorf("problems = %v, want the deleted transcript named once", problems)
+	}
+}
+
+// A candidate with no source at all was skipped in silence: not copied, not
+// counted, not named. The run then printed a clean success while leaving work
+// behind, which is exactly the success-shaped failure invariant 4 forbids.
+func TestACandidateWithNoTranscriptToArchiveIsNamed(t *testing.T) {
+	v := t.TempDir()
+	if _, err := ingest.Put(v, ingest.Candidate{
+		Harness: "codex", SessionID: "sourceless", Source: "",
+		Hash: "hash-sourceless", Project: "gadgets", Tier: ingest.TierHarvest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, problems, err := ingest.Archive(v, filepath.Join(t.TempDir(), "archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 1 {
+		t.Errorf("a candidate citing no transcript went unmentioned: %v", problems)
 	}
 }

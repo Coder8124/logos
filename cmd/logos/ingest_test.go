@@ -368,3 +368,20 @@ func TestIngestArchiveRefusesToChooseTheDirectoryItself(t *testing.T) {
 		t.Errorf("the error does not say a directory is missing: %v", err)
 	}
 }
+
+// `logos ingest archive --help` created a directory literally called "--help"
+// in the working directory and copied raw transcripts into it, and so did any
+// typo'd flag. The destination is where secrets come to rest; it has to be a
+// path somebody meant.
+func TestIngestArchiveRefusesAFlagAsItsDestination(t *testing.T) {
+	for _, arg := range []string{"--help", "-n", "--dry-run"} {
+		err := runIngestArchive([]string{arg})
+		if err == nil {
+			t.Errorf("logos ingest archive %s was taken as a directory to copy transcripts into", arg)
+			continue
+		}
+		if !strings.Contains(err.Error(), arg) {
+			t.Errorf("the error for %s does not name it: %v", arg, err)
+		}
+	}
+}

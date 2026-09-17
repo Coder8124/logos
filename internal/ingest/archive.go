@@ -1,8 +1,10 @@
 package ingest
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +30,8 @@ type ArchiveResult struct {
 	Copied    int    // distinct transcripts copied by this run
 	Repointed int    // candidates now citing the archive
 	Already   int    // candidates already citing a transcript inside Dir
-	Missing   int    // candidates whose transcript was already gone
+	Missing   int    // distinct transcripts that were already gone
+	Failed    int    // distinct transcripts that are still there but could not be copied
 	Bytes     int64
 }
 
@@ -59,15 +62,32 @@ func Archive(vaultDir, destDir string) (ArchiveResult, []string, error) {
 	notes, problems := candidateFiles(vaultDir)
 	// One copy per distinct transcript, reused by every candidate citing it.
 	copied := map[string]string{}
+	// And one report per distinct transcript that could not be copied. Without
+	// this a single deleted file cited by three candidates printed the same
+	// line three times and counted as three losses.
+	failed := map[string]bool{}
 
 	for _, note := range notes {
 		c := Parse(note.raw, filepath.Base(note.path))
+		// Only what a human can still act on. A rejected candidate is a session
+		// the user said no to and a promoted one has already been distilled;
+		// copying either one's raw transcript into long-term storage moves
+		// pasted secrets somewhere new to keep a window open that is shut.
+		if c.Status != "" && c.Status != StatusPending {
+			continue
+		}
 		if c.Source == "" {
+			// Not copied, not counted — but said out loud, because a silent
+			// skip under a success line is the failure invariant 4 exists for.
+			problems = append(problems, fmt.Sprintf("%s: the candidate cites no transcript, so there is nothing to archive", note.path))
 			continue
 		}
 		file, frag := splitSourceFragment(c.Source)
 		if under(file, dest) {
 			res.Already++
+			continue
+		}
+		if failed[file] {
 			continue
 		}
 
@@ -76,7 +96,15 @@ func Archive(vaultDir, destDir string) (ArchiveResult, []string, error) {
 			var n int64
 			to, n, err = copyTranscript(file, dest, c.Harness)
 			if err != nil {
-				res.Missing++
+				failed[file] = true
+				// "Already gone" and "still there but unreadable" are opposite
+				// instructions to the user: one says stop looking, the other
+				// says fix a permission and run this again.
+				if errors.Is(err, fs.ErrNotExist) {
+					res.Missing++
+				} else {
+					res.Failed++
+				}
 				problems = append(problems, fmt.Sprintf("%s: %v", file, err))
 				continue
 			}
