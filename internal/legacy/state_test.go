@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 0.4 kept its index, model config and ingest consent in .brain/. Unmoved, an
@@ -29,6 +30,37 @@ func TestTheOldStateDirectoryIsMovedToItsNewName(t *testing.T) {
 	}
 	if !strings.Contains(notice, ".brain") || !strings.Contains(notice, ".logos") {
 		t.Errorf("start did not say it moved .brain to .logos: %q", notice)
+	}
+}
+
+// "Left over, delete it" is the wrong instruction when something is still
+// writing there: on the machine this was found on, .brain/index.db-shm was
+// touched today while .logos/ held the vault everything reads. That is an
+// older logos, or a plugin cache pinned to one, indexing into a cache nothing
+// reads — work landing somewhere it will never be found again, which is not a
+// stale directory but a live split.
+func TestAnOldStateDirectoryStillBeingWrittenSaysSomethingIsWritingIt(t *testing.T) {
+	v := t.TempDir()
+	for _, d := range []string{".logos", ".brain"} {
+		if err := os.Mkdir(filepath.Join(v, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(v, d, "index.db"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(filepath.Join(v, ".logos", "index.db"), old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	notice := StateDir(v)
+
+	if !strings.Contains(notice, "still being written") {
+		t.Errorf("a live writer into the old state directory was described as leftover: %q", notice)
+	}
+	if strings.Contains(notice, "delete") {
+		t.Errorf("deleting it is the wrong instruction while something is writing it: %q", notice)
 	}
 }
 
