@@ -157,6 +157,38 @@ func candidateFiles(vaultDir string) ([]candidateNote, []string) {
 	return out, problems
 }
 
+// copyFile streams one file to a new path, private from the first write.
+//
+// Streamed rather than read whole: a Cursor database runs to hundreds of
+// megabytes, and buffering it to write it back is that much resident memory
+// for no gain. The copy is written beside its destination and renamed, so an
+// interrupted run leaves no half-file that reads as an archived transcript.
+func copyFile(from, to string) (int64, error) {
+	in, err := os.Open(from)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+
+	tmp, err := os.OpenFile(to+".partial", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(tmp, in)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+		return 0, err
+	}
+	if err := os.Rename(tmp.Name(), to); err != nil {
+		os.Remove(tmp.Name())
+		return 0, err
+	}
+	return n, nil
+}
+
 // splitSourceFragment separates the file on disk from Cursor's "#<chat id>"
 // addressing, so a copy can carry the fragment onto its new path.
 func splitSourceFragment(source string) (file, fragment string) {
@@ -178,26 +210,34 @@ func under(path, dir string) bool {
 // replaced somebody's earlier copy would be the durable-state surprise this
 // codebase keeps being bitten by.
 func copyTranscript(file, dest, harness string) (string, int64, error) {
-	in, err := os.Open(file)
-	if err != nil {
-		return "", 0, err
-	}
-	defer in.Close()
-
 	dir := filepath.Join(dest, safeSegment(orDefault(harness, "unknown")))
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return "", 0, err
 	}
 	to := freeName(dir, filepath.Base(file))
 
-	buf, err := io.ReadAll(in)
+	n, err := copyFile(file, to)
 	if err != nil {
 		return "", 0, err
 	}
-	if err := vault.WriteAtomic(to, buf); err != nil {
-		return "", 0, err
+	// SQLite's sidecars, for Cursor's state.vscdb: in WAL mode the newest
+	// chats live in the "-wal" file until a checkpoint folds them into the
+	// database. Copying the main file alone archives a database missing
+	// exactly the sessions the user ran this to save. A sidecar that is not
+	// there is the normal case (a checkpointed or non-WAL database) and is not
+	// an error; one that is there and unreadable is, because a half-copied
+	// database that will not open is worse than a refusal.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(file + suffix); err != nil {
+			continue
+		}
+		m, err := copyFile(file+suffix, to+suffix)
+		if err != nil {
+			return "", 0, fmt.Errorf("copying %s beside the database: %w", filepath.Base(file+suffix), err)
+		}
+		n += m
 	}
-	return to, int64(len(buf)), nil
+	return to, n, nil
 }
 
 // freeName returns a path in dir that nothing occupies yet, numbering a taken

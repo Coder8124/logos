@@ -321,3 +321,27 @@ func TestACandidateWithNoTranscriptToArchiveIsNamed(t *testing.T) {
 		t.Errorf("a candidate citing no transcript went unmentioned: %v", problems)
 	}
 }
+
+// Cursor's transcript is a SQLite database the running Cursor is still writing
+// to, and SQLite in WAL mode keeps the most recent chats in a "-wal" sidecar
+// until a checkpoint folds them in. Copying only the main file archives a
+// database that is missing exactly the sessions the user ran this to save.
+func TestArchivingASqliteTranscriptTakesItsWriteAheadLogToo(t *testing.T) {
+	v := t.TempDir()
+	db := putHarvest(t, v, "cursor-chat", "state.vscdb", "the checkpointed pages")
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if err := os.WriteFile(db+suffix, []byte("the pages not folded in yet"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dest := filepath.Join(t.TempDir(), "archive")
+	if _, problems, err := ingest.Archive(v, dest); err != nil || len(problems) > 0 {
+		t.Fatalf("archiving: %v %v", err, problems)
+	}
+	to := sourceOf(t, v, "cursor-chat")
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(to + suffix); err != nil {
+			t.Errorf("the archived database has no %s beside it: %v", suffix, err)
+		}
+	}
+}
