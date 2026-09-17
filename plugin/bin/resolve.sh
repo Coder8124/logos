@@ -24,6 +24,15 @@
 # Dock. Every build answers --version with "logos …", or "brain …" before the
 # rename; both are kept so a plugin update does not strand an older binary.
 
+# Which host this is. #95: setup pins the vault into each host's MCP config as
+# LOGOS_VAULT, but hooks run with a bare environment and fell through to the
+# machine pointer instead — so a session restored from one vault and
+# checkpointed into another, each side consistent with itself and the user's
+# work apparently vanishing. Naming the host lets the binary read that host's
+# own pin. Not the vault itself: resolving it in bash would be the second
+# implementation of a rule that already has one.
+export LOGOS_HOST="${LOGOS_HOST:-claude-code}"
+
 logos_runs() {
   case "$("$@" --version 2>/dev/null)" in
     "logos "*|"brain "*) return 0 ;;
