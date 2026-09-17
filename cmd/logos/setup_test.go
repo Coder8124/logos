@@ -54,7 +54,9 @@ func TestARealSetupCreatesTheVaultAndRecordsIt(t *testing.T) {
 	t.Setenv("HOME", cfg)
 
 	scratch := filepath.Join(t.TempDir(), "for-real")
-	dir, created, _, err := chooseVault([]string{"--vault", scratch, "--yes"}, false)
+	// --record-temp because the scratch vault is under the test's temp directory:
+	// this test is about the recording path, not about the temp-vault guard.
+	dir, created, _, err := chooseVault([]string{"--vault", scratch, "--yes", "--record-temp"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

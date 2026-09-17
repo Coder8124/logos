@@ -94,7 +94,7 @@ func setupCmd(args []string) error {
 		fmt.Println("             recorded — the desktop app opens this vault too")
 	case rec == recordSkipTemp:
 		fmt.Println("             not recorded — a temporary directory is used for this run only")
-		fmt.Println("             → pass --yes to record it anyway, or --vault somewhere that lasts")
+		fmt.Println("             → pass --record-temp to record it anyway, or --vault somewhere that lasts")
 	case rec == recordFailed:
 		// The error itself is already on screen. What must not follow it is the
 		// environment's explanation, which would be a second, false reason.
@@ -123,7 +123,7 @@ func setupCmd(args []string) error {
 	// A temporary vault recorded by an earlier run is already permanent, and
 	// refusing its hosts would only leave them on whatever they had before.
 	if rec == recordSkipTemp && vault.Recorded() != dir && !opts.dryRun && !opts.none {
-		return fmt.Errorf("no hosts were wired: %s was not recorded, and a host config would keep it after this run — pass --yes to record and wire it, or --vault somewhere that lasts", dir)
+		return fmt.Errorf("no hosts were wired: %s was not recorded, and a host config would keep it after this run — pass --record-temp to record and wire it, or --vault somewhere that lasts", dir)
 	}
 	if err := wireHosts(dir, opts); err != nil {
 		return err
@@ -238,13 +238,18 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	// will be empty or gone. By then the pointer has already moved; setup is
 	// the one place the check can stop it, so a temporary directory is used
 	// for this run and recorded only when someone says so.
-	temp := !fromEnv && health.UnderTempDir(abs)
+	//
+	// --yes is not the answer to this one. It means "do not ask me questions",
+	// and a script that passed it was also silently repointing the whole machine
+	// at a scratch directory — the pointer is one file, and that is how it moved
+	// without anyone deciding to move it. Waiving the guard needs its own flag.
+	temp := !fromEnv && health.UnderTempDir(abs) && !hasFlag(args, "--record-temp")
 	yes := hasFlag(args, "--yes") || hasFlag(args, "-y")
 	if dryRun {
 		if fromEnv {
 			return abs, created, recordSkipEnv, nil
 		}
-		if temp && !yes {
+		if temp {
 			return abs, created, recordSkipTemp, nil
 		}
 		return abs, created, recordedHere, nil
@@ -252,8 +257,14 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	if fromEnv {
 		return abs, created, recordSkipEnv, nil
 	}
-	if temp && !yes {
+	if temp {
 		fmt.Printf("             %s is a temporary directory — it will be empty or gone\n", abs)
+		// No terminal to ask, so the safe answer is taken and named: a run that
+		// silently did the dangerous thing is the bug being fixed here.
+		if yes {
+			fmt.Println("             not recording it — pass --record-temp to record it anyway")
+			return abs, created, recordSkipTemp, nil
+		}
 		if !confirmNo("             record it as this machine's vault anyway?") {
 			return abs, created, recordSkipTemp, nil
 		}
@@ -1214,6 +1225,7 @@ const setupUsage = `usage:
   --no-hosts      create the vault but wire nothing
   --dry-run       describe what would happen and change nothing
   --yes           accept every prompt, for scripts — including pulling a missing embedding model from Ollama
+  --record-temp   record a vault under a temp directory as this machine's — --yes will not do it for you
   --downgrade     under npx, replace a newer pinned logos with this older one
   --all-models    list every local model, not just the recommended ones
 `
@@ -1223,7 +1235,7 @@ const setupUsage = `usage:
 // `--vualt ~/notes` and a bare `--vault` each wired ~/logos into every host,
 // and `--host=cursor` wired all of them.
 var (
-	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade"}
+	setupBoolFlags  = []string{"--print-config", "--no-hosts", "--dry-run", "--yes", "-y", "--all-models", "--downgrade", "--record-temp"}
 	setupValueFlags = []string{"--vault", "--host", "--config", "--format"}
 
 	uninstallBoolFlags  = []string{"--yes", "-y"}

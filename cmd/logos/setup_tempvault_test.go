@@ -37,9 +37,9 @@ func TestSetupDoesNotRecordATemporaryVaultWithoutBeingTold(t *testing.T) {
 	}
 }
 
-// Declining is the default, not the only answer: --yes records it, for the
-// person who really does want a throwaway vault to be the machine's.
-func TestSetupRecordsATemporaryVaultWithYes(t *testing.T) {
+// Declining is the default, not the only answer: --record-temp records it, for
+// the person who really does want a throwaway vault to be the machine's.
+func TestSetupRecordsATemporaryVaultWhenToldTo(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("HOME", cfg)
@@ -47,12 +47,41 @@ func TestSetupRecordsATemporaryVaultWithYes(t *testing.T) {
 
 	scratch := filepath.Join(t.TempDir(), "try-logos")
 	captureStdout(t, func() {
-		if _, _, _, err := chooseVault([]string{"--vault", scratch, "--yes"}, false); err != nil {
+		if _, _, _, err := chooseVault([]string{"--vault", scratch, "--record-temp"}, false); err != nil {
 			t.Fatal(err)
 		}
 	})
 	if got := vault.Recorded(); got != scratch {
-		t.Errorf("recorded vault = %q, want %q after --yes", got, scratch)
+		t.Errorf("recorded vault = %q, want %q after --record-temp", got, scratch)
+	}
+}
+
+// `--yes` means "do not ask me questions", and a user passing it in a script
+// got "record this scratch directory as the machine's permanent vault" as well.
+// The pointer is one file, and that is how it moved without anyone deciding to
+// move it. --yes answers questions; it does not waive the guard.
+func TestYesDoesNotRecordATemporaryVault(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("LOGOS_VAULT", "")
+
+	scratch := filepath.Join(t.TempDir(), "try-logos")
+	var rec recordOutcome
+	out := captureStdout(t, func() {
+		var err error
+		if _, _, rec, err = chooseVault([]string{"--vault", scratch, "--yes"}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := vault.Recorded(); got != "" {
+		t.Errorf("--yes recorded a temporary directory as this machine's vault: %q", got)
+	}
+	if rec != recordSkipTemp {
+		t.Errorf("record outcome = %v, want recordSkipTemp", rec)
+	}
+	if !strings.Contains(out, "--record-temp") {
+		t.Errorf("nothing said how to record it deliberately:\n%s", out)
 	}
 }
 
