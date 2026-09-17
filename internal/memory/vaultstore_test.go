@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The claim under test is the project's second principle, applied to the half
@@ -400,5 +401,44 @@ func TestAMemoryQuotingLogosOwnCommentIsNotTruncatedByTheNextWrite(t *testing.T)
 		if m.ID == first.ID && m.Text != quoted {
 			t.Errorf("rebuilt memory #%d as %q, want %q", m.ID, m.Text, quoted)
 		}
+	}
+}
+
+// Recall stamps last_used and raises uses, and only uses ever reached the file.
+// So `rm -rf .logos && logos index` rolled the ranking signal back to whatever
+// was last flushed and restarted decay from `created` — invariant 1 broken for
+// the signal ranking trusts, rather than for the text.
+func TestTheUsageSignalSurvivesDeletingTheIndex(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "the release train ships on Thursdays", Kind: Fact, Source: "manual"}
+	r, err := Store(db, nil, "", &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What a handful of recalls over the past few days leaves behind.
+	used := time.Now().Add(-36 * time.Hour).Unix()
+	if _, err := db.Exec("UPDATE memories SET last_used = ?, uses = 3 WHERE id = ?", used, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExportKind(db, dir, Fact); err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	if _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	all, err := All(wiped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("want 1 memory restored, got %d", len(all))
+	}
+	if all[0].Uses != 3 {
+		t.Errorf("use count came back as %d, not 3", all[0].Uses)
+	}
+	if all[0].LastUsed != used {
+		t.Errorf("last_used came back as %d, not %d — decay restarts from created", all[0].LastUsed, used)
 	}
 }
