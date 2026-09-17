@@ -133,11 +133,11 @@ const disclosedMarker = ".disclosed"
 // tool calls are being written down, and where, and how to stop — empty once it
 // has been said, or when there is nothing being recorded to disclose.
 //
-// The marker is written before the sentence is returned, so a crash between the
-// two loses the notice rather than repeating it. That is the right way round: a
-// disclosure that reappears every session is one the user learns to skip past,
-// and the next session discloses anyway if this one never got as far as
-// recording anything.
+// Asking is not saying. The caller prints it and then calls MarkDisclosed, so a
+// crash in between repeats the notice rather than losing it. The other order
+// reads tidier and is wrong: this is the one notice where a user who never sees
+// it has been recorded without being told, which no amount of care about the
+// redaction makes acceptable, and a disclosure shown twice costs only a line.
 func Disclose(vault string) (string, error) {
 	if !Recording(vault) {
 		return "", nil
@@ -146,13 +146,18 @@ func Disclose(vault string) (string, error) {
 	if _, err := os.Stat(filepath.Join(dir, disclosedMarker)); err == nil {
 		return "", nil
 	}
-	if err := vaultpkg.MkdirPrivate(dir); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(filepath.Join(dir, disclosedMarker), []byte("the user has been told what the activity log records\n"), vaultpkg.FileMode); err != nil {
-		return "", err
-	}
 	return fmt.Sprintf("logos writes a log of your prompts and tool calls to %s, on this machine only; `logos activity off` stops it and `logos activity` shows it.", dir), nil
+}
+
+// MarkDisclosed records that the sentence Disclose returned has actually been
+// delivered. Separate from Disclose so that the marking happens after the
+// saying, never before it.
+func MarkDisclosed(vault string) error {
+	dir := filepath.Join(vault, Dir)
+	if err := vaultpkg.MkdirPrivate(dir); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, disclosedMarker), []byte("the user has been told what the activity log records\n"), vaultpkg.FileMode)
 }
 
 func Append(vault string, e Event) error {

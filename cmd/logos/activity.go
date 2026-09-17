@@ -40,6 +40,9 @@ func runActivity(args []string) error {
 			return nil
 		}
 		fmt.Println(notice)
+		// Marked only now it has been said, so a crash on the way out offers it
+		// again next session rather than swallowing it for good.
+		_ = activity.MarkDisclosed(vault)
 		return nil
 	}
 	vault, err := requireVault()

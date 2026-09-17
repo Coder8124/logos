@@ -91,6 +91,9 @@ func TestTheLogDisclosesItselfOnceAndThenStopsSayingIt(t *testing.T) {
 		t.Errorf("the disclosure does not name where the log lands:\n%s", first)
 	}
 
+	if err := activity.MarkDisclosed(vault); err != nil {
+		t.Fatal(err)
+	}
 	again, err := activity.Disclose(vault)
 	if err != nil {
 		t.Fatal(err)
@@ -113,5 +116,40 @@ func TestATurnedOffLogHasNothingToDisclose(t *testing.T) {
 	}
 	if notice != "" {
 		t.Errorf("a log that is off announced that it is recording:\n%s", notice)
+	}
+}
+
+// A disclosure marked said before it has been said is a disclosure the user can
+// lose to one crashed session and never be offered again — and unlike the
+// update notice, "never saw it" is the whole failure here rather than a
+// cosmetic one. Asking is not saying: only MarkDisclosed ends it.
+func TestAskingForTheDisclosureDoesNotCountAsHavingSaidIt(t *testing.T) {
+	vault := t.TempDir()
+
+	first, err := activity.Disclose(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" {
+		t.Fatal("a fresh vault had nothing to disclose")
+	}
+
+	again, err := activity.Disclose(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != first {
+		t.Errorf("the notice was marked said by the act of asking for it, so a session that crashed before printing it would never offer it again:\n%q", again)
+	}
+
+	if err := activity.MarkDisclosed(vault); err != nil {
+		t.Fatal(err)
+	}
+	after, err := activity.Disclose(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != "" {
+		t.Errorf("the notice is still offered after it was marked said:\n%q", after)
 	}
 }
