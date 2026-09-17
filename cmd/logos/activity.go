@@ -22,6 +22,26 @@ func runActivity(args []string) error {
 	if len(args) > 0 && args[0] == "record" {
 		return recordActivity(args[1:])
 	}
+	// #88: the log recorded every prompt and tool call from the moment the
+	// plugin was installed, and uninstalling it was the only way to stop.
+	if len(args) > 0 && (args[0] == "off" || args[0] == "on") {
+		return setActivityRecording(args[0] == "on")
+	}
+	// Asked for by the session-start hook, which injects whatever comes back.
+	// Failure prints nothing rather than erroring: a vault that cannot be
+	// resolved yet has no log to disclose, and a hook is not a place to report.
+	if len(args) > 0 && args[0] == "notice" {
+		vault, err := requireVault()
+		if err != nil {
+			return nil
+		}
+		notice, err := activity.Disclose(vault)
+		if err != nil || notice == "" {
+			return nil
+		}
+		fmt.Println(notice)
+		return nil
+	}
 	vault, err := requireVault()
 	if err != nil {
 		return err
@@ -107,6 +127,14 @@ func emptyActivity(vault string, q activity.Query) error {
 		fmt.Println("  `logos activity --projects` lists what is being recorded.")
 		return nil
 	}
+	if !activity.Recording(vault) {
+		// An empty log that was switched off must not read as a log with
+		// nothing in it: that is the same healthy zero invariant 3 exists to
+		// stop.
+		fmt.Printf("activity recording is off for %s.\n\n", vault)
+		fmt.Println("      logos activity on")
+		return nil
+	}
 	fmt.Println("no activity recorded yet.")
 	fmt.Println()
 	fmt.Println("  Activity is written by the Claude Code hooks, so it starts filling in")
@@ -117,6 +145,24 @@ func emptyActivity(vault string, q activity.Query) error {
 	fmt.Println("  Unlike memories and checkpoints, nothing here depends on the model")
 	fmt.Println("  choosing to record it — the host reports every prompt, tool call and")
 	fmt.Println("  turn whether or not the agent would have thought to mention them.")
+	return nil
+}
+
+// setActivityRecording is `logos activity off` and `logos activity on`.
+func setActivityRecording(on bool) error {
+	vault, err := requireVault()
+	if err != nil {
+		return err
+	}
+	if err := activity.SetRecording(vault, on); err != nil {
+		return err
+	}
+	if on {
+		fmt.Printf("activity recording is on for %s — prompts, tool calls and turn ends are logged to %s\n", vault, filepath.Join(vault, activity.Dir))
+		return nil
+	}
+	fmt.Printf("activity recording is off for %s — nothing new is logged; what is already there is left alone\n", vault)
+	fmt.Println("  `logos activity on` resumes it. LOGOS_ACTIVITY=off turns it off for one process.")
 	return nil
 }
 

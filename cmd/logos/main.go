@@ -142,6 +142,7 @@ MEMORY
                                       every prompt, tool call and turn the host reported —
                                       recorded automatically, not by the model's choice
     logos activity --projects         which projects are being recorded
+    logos activity [off|on]           stop or resume recording it, for this vault
     logos announce [on|quiet|off]     how loudly Logos reports its own work
     logos prompt                      the instructions agents are given (LOGOSPROMPT.md)
     logos demo [--fast]               ninety seconds showing what this is for, in a scratch vault

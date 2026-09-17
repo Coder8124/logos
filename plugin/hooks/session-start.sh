@@ -42,16 +42,23 @@ logos_resolve || exit 0
 ( "${LOGOS[@]}" plugin autoupdate >/dev/null 2>&1 & ) >/dev/null 2>&1
 updated=$("${LOGOS[@]}" plugin autoupdate --notice 2>/dev/null) || updated=""
 
+# The activity log records every prompt and tool call this session makes, and
+# the same plugin install that placed this hook turned it on. A record the user
+# never agreed to and is never told about is surveillance however careful the
+# redaction, so logos says it once — the notice is empty every session after,
+# and empty always once recording is off.
+recording=$("${LOGOS[@]}" activity notice 2>/dev/null) || recording=""
+
 # A plugin that updated itself in silence is indistinguishable from one that
 # did nothing, so the notice is said even in the sessions that have no handoff
 # to fold it into — an empty vault, a project with no checkpoints.
 announce_update() {
-  if [ -n "$updated" ]; then
+  if [ -n "$updated$recording" ]; then
     cat <<EOF
-FIRST, in one short line before anything else, tell the user: $updated
+FIRST, in one short line before anything else, tell the user:${updated:+ $updated}${recording:+ $recording}
 
-They cannot see this block, and an update they never hear about reads to them
-as one that never happened. One line, then get on with the work.
+They cannot see this block, and something they never hear about reads to them
+as something that never happened. One line, then get on with the work.
 EOF
   fi
   exit 0
@@ -157,7 +164,7 @@ if a specific task later needs a narrower or fresher pack.
 
 FIRST, in one short line before anything else, tell the user that Logos restored
 context for "$project"${when:+ $when}, carrying $carried.${updated:+ In the same
-line, tell them: $updated} They cannot see this
+line, tell them: $updated}${recording:+ $recording} They cannot see this
 block, and a restore they never hear about reads to them as a restore that never
 happened. One line, then get on with the work.
 

@@ -89,7 +89,75 @@ type Event struct {
 // Errors are returned rather than swallowed, but callers on a hook path should
 // treat them as advisory: a log that fails to write must not break the session
 // it is recording. The hook decides that; this function only reports.
+// offMarker names the file that turns recording off. It sits in the vault, not
+// in .logos/, because deleting the index is documented as lossless and a log
+// that came back on after an index rebuild would be the loudest possible way
+// to break that promise.
+const offMarker = "recording-off"
+
+// Recording reports whether this vault accepts new activity events. A vault
+// that has never been told either way records: that is what every install has
+// done since the plugin shipped, and changing it silently would be its own
+// invariant-3 failure.
+func Recording(vault string) bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOGOS_ACTIVITY")), "off") {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(vault, Dir, offMarker))
+	return err != nil
+}
+
+// SetRecording turns the log on or off for this vault.
+func SetRecording(vault string, on bool) error {
+	dir := filepath.Join(vault, Dir)
+	if err := vaultpkg.MkdirPrivate(dir); err != nil {
+		return err
+	}
+	p := filepath.Join(dir, offMarker)
+	if on {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(p, []byte("logos activity is off for this vault; `logos activity on` resumes it\n"), vaultpkg.FileMode)
+}
+
+// disclosedMarker records that this vault has told its user what the log does.
+// Beside the log rather than in .logos/ for the same reason as offMarker, and
+// because a rebuilt index re-disclosing is a smaller failure than a rebuilt
+// index un-disclosing.
+const disclosedMarker = ".disclosed"
+
+// Disclose returns the one-time sentence telling the user their prompts and
+// tool calls are being written down, and where, and how to stop — empty once it
+// has been said, or when there is nothing being recorded to disclose. Saying it
+// is the caller's job; marking it said is this function's, so a crash between
+// the two repeats the notice rather than losing it.
+func Disclose(vault string) (string, error) {
+	if !Recording(vault) {
+		return "", nil
+	}
+	dir := filepath.Join(vault, Dir)
+	if _, err := os.Stat(filepath.Join(dir, disclosedMarker)); err == nil {
+		return "", nil
+	}
+	if err := vaultpkg.MkdirPrivate(dir); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, disclosedMarker), []byte("the user has been told what the activity log records\n"), vaultpkg.FileMode); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("logos writes a log of your prompts and tool calls to %s, on this machine only; `logos activity off` stops it and `logos activity` shows it.", dir), nil
+}
+
 func Append(vault string, e Event) error {
+	// Checked here rather than at each caller: the hooks, the CLI and the
+	// server all reach the log through this one door, and an off switch with a
+	// way around it is not one.
+	if !Recording(vault) {
+		return nil
+	}
 	if e.TS == 0 {
 		e.TS = time.Now().Unix()
 	}
