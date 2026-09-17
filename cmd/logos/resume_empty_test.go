@@ -60,6 +60,38 @@ func TestResumingAnUnknownProjectListsTheOnesThatExist(t *testing.T) {
 	}
 }
 
+// The failure this prevents is not an empty vault: it is two vaults. The MCP
+// server is pinned to one with LOGOS_VAULT in the host config, the SessionStart
+// hook inherits no such variable and falls to the recorded pointer, and a
+// session then restores from a vault that nothing has ever checkpointed into
+// while the real one fills up a directory away. "This vault has no checkpoints"
+// is true of whichever vault was read, and naming it is what makes the split
+// visible instead of reading as lost work.
+func TestResumingAnEmptyVaultNamesTheVaultItRead(t *testing.T) {
+	vaultDir := t.TempDir()
+
+	out := captureStdout(t, func() { printNothingToResume(vaultDir, "myproj") })
+
+	if !strings.Contains(out, vaultDir) {
+		t.Errorf("nothing said which vault was read, so a session restoring from the wrong one cannot tell:\n%s", out)
+	}
+}
+
+// Same reason on the other branch: a name that did not match is also the shape
+// a wrong vault takes, when that vault happens to hold somebody else's work.
+func TestResumingAnUnknownProjectNamesTheVaultItRead(t *testing.T) {
+	vaultDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(vaultDir, session.CheckpointDir, "kestrel"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() { printNothingToResume(vaultDir, "logus") })
+
+	if !strings.Contains(out, vaultDir) {
+		t.Errorf("nothing said which vault was searched:\n%s", out)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()

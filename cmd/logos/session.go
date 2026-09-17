@@ -253,6 +253,11 @@ func runResume(args []string) error {
 		return nil
 	}
 	fmt.Print(pack.Render())
+	// Which vault this came out of. A host config pins the MCP server with
+	// LOGOS_VAULT; the SessionStart hook inherits no such variable and falls to
+	// the recorded pointer, so the same session can restore from one vault and
+	// checkpoint into another, each side silently consistent with itself.
+	fmt.Printf("\n_Read from %s._\n", ix.Vault)
 	if pack.Checkpoint == nil {
 		fmt.Println("\n(no checkpoint yet for this project — this is context, not a handoff)")
 	}
@@ -300,12 +305,12 @@ func printNothingToResume(vaultDir, project string) {
 
 	known, _ := session.Projects(vaultDir)
 	if len(known) > 0 {
-		fmt.Printf("nothing recorded for %q.\n\n", project)
+		fmt.Printf("nothing recorded for %q in %s.\n\n", project, vaultDir)
 		fmt.Printf("projects with checkpoints: %s\n", strings.Join(known, ", "))
 		fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
 		return
 	}
-	fmt.Println("nothing recorded yet — this vault has no checkpoints.")
+	fmt.Printf("nothing recorded yet — %s has no checkpoints.\n", vaultDir)
 	fmt.Println("\nstart one, and the next agent picks it up from here:")
 	fmt.Printf("  logos note %s \"what you just did\"\n", project)
 	fmt.Printf("  logos checkpoint %s --next \"what comes next\"\n", project)
