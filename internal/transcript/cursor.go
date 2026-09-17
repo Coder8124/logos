@@ -219,3 +219,17 @@ func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && !fi.IsDir()
 }
+
+// SourceFile returns the file on disk that a recorded source path names.
+//
+// Cursor addresses a session as <storage file>#<chat id>, so a caller asking
+// the plain question "is this transcript still there?" cannot just stat the
+// string: every Cursor session would read as deleted while its database sat
+// untouched. The addressing scheme was invented here, so the answer lives here
+// too, rather than in each caller reinventing the split.
+func SourceFile(source string) string {
+	if file, _, ok := strings.Cut(source, cursorPathSep); ok {
+		return file
+	}
+	return source
+}

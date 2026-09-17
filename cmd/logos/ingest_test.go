@@ -266,3 +266,49 @@ func TestIngestSaysTheCandidatesAreHarvestsAndNamesWhatUpgradesThem(t *testing.T
 		t.Errorf("the receipt does not say distillation needs the source transcript to still exist:\n%s", out)
 	}
 }
+
+// #115: a candidate can only be distilled while its source transcript still
+// exists — EvidenceFor re-reads it — and a corp migration deletes transcripts on
+// a date the user knows in advance. Nothing told them which candidates were
+// still upgradable while they still had the choice. `logos ingest status` is
+// that "am I done?" check: by tier, and how many still have a readable source.
+func TestIngestStatusCountsCandidatesByTierAndWhetherTheirSourceSurvives(t *testing.T) {
+	vaultDir := scratchIngest(t)
+	if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runIngestStatus(); err != nil {
+			t.Fatalf("status: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "harvest") {
+		t.Errorf("status does not break the queue down by tier:\n%s", out)
+	}
+	if !strings.Contains(out, "3") {
+		t.Errorf("status does not count the candidates:\n%s", out)
+	}
+	if !strings.Contains(out, "source") {
+		t.Errorf("status never mentions the source transcripts, which is the thing that expires:\n%s", out)
+	}
+
+	// Delete the transcripts out from under the queue, as the migration will.
+	fixtures := absFixture(t, "claude-code")
+	moved := filepath.Join(t.TempDir(), "gone")
+	if err := os.Rename(fixtures, moved); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Rename(moved, fixtures) })
+
+	out = captureStdout(t, func() {
+		if err := runIngestStatus(); err != nil {
+			t.Fatalf("status after the transcripts went: %v", err)
+		}
+	})
+	if !strings.Contains(out, "can no longer be distilled") {
+		t.Errorf("status does not say the candidates whose transcripts are gone are stuck at harvest forever:\n%s", out)
+	}
+	_ = vaultDir
+}

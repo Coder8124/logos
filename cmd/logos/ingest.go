@@ -26,6 +26,9 @@ func runIngest(args []string) error {
 	if len(args) >= 1 && args[0] == "review" {
 		return runIngestReview(args[1:])
 	}
+	if len(args) >= 1 && args[0] == "status" {
+		return runIngestStatus()
+	}
 
 	dryRun := hasFlag(args, "--dry-run")
 	allProjects := hasFlag(args, "--all-projects")
@@ -374,4 +377,69 @@ func shortID(id string) string {
 func ingestPendingCount(vaultDir string) int {
 	pending, _ := ingest.Pending(vaultDir)
 	return len(pending)
+}
+
+// runIngestStatus answers "am I done?" before the transcripts go.
+//
+// #115: distillation re-reads the source transcript, which logos deliberately
+// does not own — it holds pasted secrets and dead-end reasoning the user never
+// meant to persist. That design is right and it means the window to upgrade a
+// harvest closes on a date somebody else picks. This is the only place that says
+// how much is still upgradable while the answer can still be acted on.
+func runIngestStatus() error {
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return missingVaultError(v)
+	}
+
+	all, skipped := ingest.All(v)
+	// Named with a count, never dropped in silence (invariants 3 and 4).
+	if len(skipped) > 0 {
+		fmt.Printf("%d candidate file(s) skipped:\n", len(skipped))
+		for _, s := range skipped {
+			fmt.Printf("  %s\n", s)
+		}
+		fmt.Println()
+	}
+	if len(all) == 0 {
+		fmt.Printf("no ingested candidates in %s\n", v)
+		return nil
+	}
+
+	harvest, distilled, stranded := 0, 0, 0
+	for _, c := range all {
+		if c.Tier == ingest.TierDistilled {
+			distilled++
+			continue
+		}
+		harvest++
+		// Only a harvest is waiting on its source; a distilled candidate has
+		// already taken what it needed.
+		if c.Source == "" {
+			stranded++
+			continue
+		}
+		// Not the raw string: Cursor names a session as <storage file>#<chat
+		// id>, and stat-ing that reported every Cursor candidate as deleted
+		// while its database sat untouched.
+		if _, err := os.Stat(transcript.SourceFile(c.Source)); err != nil {
+			stranded++
+		}
+	}
+
+	fmt.Printf("%d candidate(s) in %s\n", len(all), v)
+	fmt.Printf("  %d distilled  ·  %d harvest\n", distilled, harvest)
+	if harvest > 0 {
+		fmt.Printf("  %d of the %d harvests still have their source transcript on disk\n", harvest-stranded, harvest)
+	}
+	if stranded > 0 {
+		fmt.Printf("\n%d can no longer be distilled: the transcript they cite is gone, so the\n", stranded)
+		fmt.Println("judgement fields stay empty and the provenance line cites a file nobody")
+		fmt.Println("can produce. Promote or reject them on what they already record.")
+	}
+	if harvest-stranded > 0 {
+		fmt.Printf("\nDistil the remaining %d before anything deletes or rotates the transcripts:\n", harvest-stranded)
+		fmt.Println("ask an agent connected to logos to run ingest_distil.")
+	}
+	return nil
 }

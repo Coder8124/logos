@@ -114,6 +114,7 @@ CONTINUITY
                                       harvest other agents' transcripts into checkpoint candidates
     logos ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
+    logos ingest status               candidates by tier, and how many can still be distilled
     logos sessions [project]          checkpoint history for a project, and any abandoned ones
     logos plans [project]             plan-mode plans saved when ExitPlanMode is approved
     logos continuity                  vault-wide: which projects checkpoint, which have gone quiet
