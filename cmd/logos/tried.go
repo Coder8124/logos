@@ -72,11 +72,11 @@ func runTried(args []string) error {
 // the rest of the session's work rather than living somewhere only this command
 // knows about.
 func recordRuledOut(ix *index.Index, args []string, proposed string) error {
-	why := strings.TrimSpace(valueOf(args, "--ruled-out"))
+	why := strings.TrimSpace(flagStr(args, "--ruled-out", ""))
 	if why == "" {
 		return fmt.Errorf("--ruled-out needs what actually happened: logos tried %q --ruled-out \"the connection pool deadlocks above 40 workers\"", proposed)
 	}
-	project := strings.TrimSpace(valueOf(args, "--project"))
+	project := strings.TrimSpace(flagStr(args, "--project", ""))
 	if project == "" {
 		project = projectHere()
 	}
@@ -101,7 +101,7 @@ func recordRuledOut(ix *index.Index, args []string, proposed string) error {
 		{"--degree", "degree", "contradicted, partial, inconclusive, unstable"},
 		{"--action", "action", "retry, change-method, narrow-scope, abandon"},
 	} {
-		v := strings.TrimSpace(valueOf(args, opt.flag))
+		v := strings.TrimSpace(flagStr(args, opt.flag, ""))
 		if v == "" {
 			continue
 		}
@@ -110,7 +110,7 @@ func recordRuledOut(ix *index.Index, args []string, proposed string) error {
 		}
 		fields = append(fields, opt.key+": "+v)
 	}
-	if alt := strings.TrimSpace(valueOf(args, "--instead")); alt != "" {
+	if alt := strings.TrimSpace(flagStr(args, "--instead", "")); alt != "" {
 		fields = append(fields, "alternative: "+alt)
 	}
 
@@ -125,20 +125,6 @@ func recordRuledOut(ix *index.Index, args []string, proposed string) error {
 	fmt.Printf("  because: %s\n", why)
 	fmt.Printf("  the next `logos tried` or before_you_try on this approach will find it; it is folded into the next checkpoint.\n")
 	return nil
-}
-
-// valueOf reads a flag's value, treating the next flag as no value at all.
-//
-// flagStr takes whatever token follows, which for `--ruled-out --project x`
-// recorded the string "--project" as the reason an approach was abandoned. A
-// ruling whose stated reason is a flag name is worse than a refusal: it is a
-// veto the next agent cannot evaluate and has no way to tell is malformed.
-func valueOf(args []string, name string) string {
-	v := flagStr(args, name, "")
-	if strings.HasPrefix(v, "--") {
-		return ""
-	}
-	return v
 }
 
 // firstNonFlags returns the leading arguments before any flag, so the approach
