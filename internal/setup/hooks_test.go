@@ -72,7 +72,7 @@ func TestInstallingTheHookKeepsWhatTheUserAlreadyRunsAtSessionStart(t *testing.T
 		t.Fatal(err)
 	}
 
-	if _, err := installHook(path, "codex", "/usr/local/bin/logos"); err != nil {
+	if _, err := installHook(path, "codex", []string{"/usr/local/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,10 +97,10 @@ func TestRunningSetupTwiceLeavesOneHookPointingAtThisLogos(t *testing.T) {
 	home := fakeHome(t, ".cursor")
 	path := filepath.Join(home, ".cursor", "hooks.json")
 
-	if _, err := installHook(path, "cursor", "/old/bin/logos"); err != nil {
+	if _, err := installHook(path, "cursor", []string{"/old/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
-	outcome, err := installHook(path, "cursor", "/new/bin/logos")
+	outcome, err := installHook(path, "cursor", []string{"/new/bin/logos"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestAHookCommandQuotesABinaryPathWithASpaceInIt(t *testing.T) {
 	home := fakeHome(t, ".cursor")
 	path := filepath.Join(home, ".cursor", "hooks.json")
 
-	if _, err := installHook(path, "cursor", "/Users/a b/bin/logos"); err != nil {
+	if _, err := installHook(path, "cursor", []string{"/Users/a b/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestAHooksFileThatIsNotJSONIsLeftAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := installHook(path, "cursor", "/usr/local/bin/logos"); err == nil {
+	if _, err := installHook(path, "cursor", []string{"/usr/local/bin/logos"}); err == nil {
 		t.Fatal("a file logos cannot read was rewritten anyway")
 	}
 	raw, _ := os.ReadFile(path)
@@ -169,7 +169,7 @@ func TestUninstallTakesTheSessionStartHookOutToo(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"version":1,"hooks":{"sessionStart":[{"command":"theirs.sh"}]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := installHook(path, "cursor", "/usr/local/bin/logos"); err != nil {
+	if _, err := installHook(path, "cursor", []string{"/usr/local/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -211,7 +211,7 @@ func TestInstallingTheHookKeepsEveryFieldOfTheUsersOwnEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := installHook(path, "cursor", "/usr/local/bin/logos"); err != nil {
+	if _, err := installHook(path, "cursor", []string{"/usr/local/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
 	assertTheirEntryIsWhole(t, path)
@@ -233,5 +233,26 @@ func assertTheirEntryIsWhole(t *testing.T, path string) {
 		if e[field] != want {
 			t.Errorf("the user's own hook lost %s: have %v, want %v", field, e[field], want)
 		}
+	}
+}
+
+// An npx install whose copy to ~/.local/bin fails runs logos as `npx -y
+// @noeton/logos`, and the hook took only the first word of that: every Cursor
+// and Codex session start ran `npx hook cursor session-start`, which is not
+// Logos — it is npm being asked over the network for a package called "hook".
+func TestAHookRunsTheWholeCommandTheServerRunsNotJustItsFirstWord(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "hooks.json")
+
+	if _, err := installHook(path, "cursor", []string{"npx", "-y", "@noeton/logos"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := entryFields(t, path)
+	if len(got) != 1 {
+		t.Fatalf("want one entry, got %+v", got)
+	}
+	if cmd, _ := got[0]["command"].(string); cmd != "npx -y @noeton/logos hook cursor session-start" {
+		t.Errorf("hook command = %q; the package is missing, so the host runs npm's idea of `hook`", cmd)
 	}
 }

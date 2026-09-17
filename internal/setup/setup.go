@@ -136,7 +136,7 @@ type Host struct {
 	// Hooks installs this host's user-level session-start hook, so a session
 	// starts with the last checkpoint instead of waiting to be asked. Nil for a
 	// host with no hooks, and for Claude Code, whose plugin carries its own.
-	Hooks func(bin string) (Outcome, error)
+	Hooks func(s Server) (Outcome, error)
 	// Remove removes the entry registered under name when it runs logos, and
 	// reports whether there was one. Setup uses it for OldName, uninstall for
 	// both names. Nil for a host logos cannot take an entry back out of.
@@ -294,7 +294,7 @@ func Install(s Server, hosts []Host) []Result {
 		// that has no logos to call, and a hook installed beside a failed
 		// registration would run on every session for nothing.
 		if h.Hooks != nil {
-			r.Hooked, r.HookErr = h.Hooks(s.Bin)
+			r.Hooked, r.HookErr = h.Hooks(s)
 		}
 		// After registering, so a failed registration never leaves a host with
 		// neither entry; and before the comparison below, which must see it.

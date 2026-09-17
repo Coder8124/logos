@@ -62,8 +62,17 @@ func (e hookEntry) command() string {
 	return s
 }
 
-func logosEntryFor(host, bin string) hookEntry {
-	cmd, _ := json.Marshal(quoteForShell(bin) + " hook " + host + " session-start")
+// logosEntryFor builds the entry from the whole command line the server is
+// launched with, not just its first word. An npx install whose copy to
+// ~/.local/bin failed falls back to running logos through npx, and taking only
+// the binary wrote the hook as `npx hook cursor session-start` — which asks npm
+// for a package called "hook", at every session start, over the network.
+func logosEntryFor(host string, argv []string) hookEntry {
+	quoted := make([]string, 0, len(argv))
+	for _, a := range argv {
+		quoted = append(quoted, quoteForShell(a))
+	}
+	cmd, _ := json.Marshal(strings.Join(quoted, " ") + " hook " + host + " session-start")
 	return hookEntry{"command": cmd}
 }
 
@@ -74,7 +83,7 @@ func logosEntryFor(host, bin string) hookEntry {
 // would take out whatever else they run at session start. A logos entry already
 // there is replaced, not duplicated — otherwise re-running setup after moving
 // the binary leaves two entries, one of them pointing at a logos that is gone.
-func installHook(path, host, bin string) (Outcome, error) {
+func installHook(path, host string, argv []string) (Outcome, error) {
 	if path == "" {
 		return Failed, fmt.Errorf("logos does not know where %s keeps its hooks", host)
 	}
@@ -90,7 +99,7 @@ func installHook(path, host, bin string) (Outcome, error) {
 				path, err)
 		}
 	}
-	want := logosEntryFor(host, bin)
+	want := logosEntryFor(host, argv)
 	had := false
 	for i, e := range entries {
 		if strings.Contains(e.command(), " hook "+host+" session-start") {
