@@ -238,18 +238,18 @@ func Detected(hosts []Host) []Host {
 // the desktop app and the plugin's hooks no longer read.
 func OnOtherVault(hosts []Host, dir string) (names, vaults []string) {
 	for _, h := range hosts {
-		if h.List == nil || h.Detect == nil || !h.Detect() {
+		if h.Detect == nil || !h.Detect() {
 			continue
 		}
-		regs, err := h.List()
-		if err != nil {
-			continue
-		}
-		for _, r := range regs {
-			if isLogosServer(r.Command) && r.Vault != "" && filepath.Clean(r.Vault) != filepath.Clean(dir) {
-				names, vaults = append(names, h.Name), append(vaults, r.Vault)
-				break
-			}
+		// Through PinnedVault, so a host whose listing cannot report
+		// environment is read from its config file instead. Claude Code is
+		// that host and it is the one most people use: while this asked only
+		// `claude mcp list`, a Claude Code still wired to the vault the
+		// machine has moved off reported nothing, and the split doctor exists
+		// to catch was invisible on the host it happens on most.
+		v := PinnedVault([]Host{h}, h.Name)
+		if v != "" && filepath.Clean(v) != filepath.Clean(dir) {
+			names, vaults = append(names, h.Name), append(vaults, v)
 		}
 	}
 	return names, vaults

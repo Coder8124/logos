@@ -105,3 +105,28 @@ func TestTheHostNameIsMatchedHoweverItIsSpelled(t *testing.T) {
 		t.Errorf("the hook's spelling of its host did not match the host: %q", got)
 	}
 }
+
+// #90's other half: the split doctor was built to catch is invisible on the
+// one host most people use, because `claude mcp list` prints no environment.
+// A Claude Code wired to a vault the machine has since moved off must show up
+// as a host on another vault, not as a host with nothing to report.
+func TestAHostLeftOnAnotherVaultIsSeenEvenWhenItsListingHidesTheEnvironment(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "claude.json")
+	entry := `{"mcpServers":{"logos":{"command":"/opt/homebrew/bin/logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":"/Users/bob/old-vault"}}}}`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hosts := []setup.Host{{
+		Name:   "Claude Code",
+		Detect: func() bool { return true },
+		Where:  func() string { return "claude mcp add" },
+		Config: func() string { return cfg },
+		List: func() ([]setup.Registration, error) {
+			return []setup.Registration{{Name: "logos", Command: "/opt/homebrew/bin/logos mcp serve"}}, nil
+		},
+	}}
+	names, vaults := setup.OnOtherVault(hosts, "/Users/bob/brain")
+	if len(names) != 1 || names[0] != "Claude Code" || vaults[0] != "/Users/bob/old-vault" {
+		t.Errorf("Claude Code left on an old vault went unreported: %v %v", names, vaults)
+	}
+}
