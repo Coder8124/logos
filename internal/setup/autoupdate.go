@@ -57,6 +57,11 @@ const AutoUpdateBackoff = 7 * 24 * time.Hour
 // Stayed is set when an update ran and moved nothing: it holds the version this
 // binary wanted, with From still the version the plugin is on. That pair used to
 // be written as a completed update.
+// Off is the user having said no. It lives in the stamp rather than in the
+// vault for the same reason the rest of the record does: which plugin this
+// machine's Claude Code runs, and whether this machine is allowed to move it,
+// is a fact about the machine — a vault carried to a second machine must not
+// silently disable updates there too.
 type UpdateRecord struct {
 	Checked   time.Time `json:"checked"`
 	From      string    `json:"from,omitempty"`
@@ -64,6 +69,44 @@ type UpdateRecord struct {
 	Stayed    string    `json:"stayed,omitempty"`
 	Failed    string    `json:"failed,omitempty"`
 	Announced bool      `json:"announced,omitempty"`
+	Off       bool      `json:"off,omitempty"`
+}
+
+// AutoUpdateDisabled reports whether this machine has turned self-updating off.
+//
+// Two ways in, because the two populations asking for it are different. A
+// person who does not want their editor's plugins moving under them runs
+// `logos plugin autoupdate off` once; someone rolling Logos out across machines
+// they administer sets LOGOS_PLUGIN_AUTOUPDATE=off in the environment and needs
+// it to hold without a per-machine command. The environment wins either way,
+// including over a stored "on", so a managed setting cannot be locally undone.
+func AutoUpdateDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOGOS_PLUGIN_AUTOUPDATE"))) {
+	case "off", "0", "false", "no":
+		return true
+	case "on", "1", "true", "yes":
+		return false
+	}
+	rec, err := readUpdateRecord()
+	if err != nil {
+		// No stamp yet is not a refusal. Failing closed here would turn a first
+		// run — or an unreadable config directory — into a plugin that never
+		// updates and never says why.
+		return false
+	}
+	return rec.Off
+}
+
+// SetAutoUpdate records this machine's answer, under the lock, so it does not
+// land on top of a check writing its outcome at the same moment.
+func SetAutoUpdate(on bool) error {
+	unlock, err := lockUpdateStamp()
+	if err == nil {
+		defer unlock()
+	}
+	rec, _ := readUpdateRecord()
+	rec.Off = !on
+	return writeUpdateRecord(rec)
 }
 
 // updatePlugin is the side effect, in one variable, so the decision above it
@@ -85,6 +128,11 @@ var updatePlugin = func() error {
 // was attempted and the update itself failed — and that is recorded too, so the
 // next session says so out loud rather than retrying in silence forever.
 func AutoUpdatePlugin(version string, now time.Time) (updated bool, err error) {
+	// Checked before the lock and before any reading of Claude Code's files:
+	// "off" has to mean nothing happens, not that the work happens quietly.
+	if AutoUpdateDisabled() {
+		return false, nil
+	}
 	next, mine, err := claimUpdateCheck(version, now)
 	if err != nil || !mine {
 		return false, err
@@ -177,7 +225,11 @@ func UpdateNotice() string {
 	case rec.Failed != "":
 		return fmt.Sprintf("The Logos plugin is %s and this logos is %s, and updating it failed: %s. Run `claude plugin marketplace update logos && claude plugin update logos@logos` by hand.", rec.From, rec.To, rec.Failed)
 	case rec.To != "":
-		return fmt.Sprintf("Logos updated its own Claude Code plugin from %s to %s; restart Claude Code if its hooks look stale.", rec.From, rec.To)
+		// The off switch is named here rather than in a doc nobody opens. This
+		// is the one moment the user learns that software on their machine
+		// moves on its own, and telling them then — in the same line — is the
+		// difference between a feature and a thing done behind their back.
+		return fmt.Sprintf("Logos updated its own Claude Code plugin from %s to %s; restart Claude Code if its hooks look stale. To stop it updating itself: `logos plugin autoupdate off`.", rec.From, rec.To)
 	case rec.Stayed != "":
 		return fmt.Sprintf("The Logos plugin is %s and this logos is %s: the update ran and the marketplace had nothing newer, so the plugin stayed where it is. Logos looks again in a week.", rec.From, rec.Stayed)
 	}

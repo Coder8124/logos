@@ -284,3 +284,71 @@ func TestOnlyOneOfTheSessionsStartedTogetherRunsThePluginUpdate(t *testing.T) {
 		t.Errorf("%d of 8 sessions started together ran the update; want 1", n)
 	}
 }
+
+// A beta tester's objection, and a fair one: software that replaces itself on
+// someone else's machine needs a way to be told not to. "Off" has to mean the
+// check does not run at all — not that it runs and stays quiet.
+func TestPluginAutoUpdateStaysOffOnceTheUserTurnsItOff(t *testing.T) {
+	home := fakeHome(t)
+	installedPlugin(t, home, "0.4.1")
+	runs := stubUpdate(t, home, "0.4.4", nil)
+
+	if err := SetAutoUpdate(false); err != nil {
+		t.Fatal(err)
+	}
+	if !AutoUpdateDisabled() {
+		t.Fatal("turning auto-update off did not stick")
+	}
+
+	updated, err := AutoUpdatePlugin("v0.4.4", time.Now())
+	if err != nil || updated {
+		t.Fatalf("AutoUpdatePlugin = %v, %v; want no update while it is off", updated, err)
+	}
+	if *runs != 0 {
+		t.Errorf("the update ran %d times with auto-update off; want 0", *runs)
+	}
+
+	// And back on, because a switch that only goes one way is a trapdoor.
+	if err := SetAutoUpdate(true); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := AutoUpdatePlugin("v0.4.4", time.Now()); err != nil || !updated {
+		t.Fatalf("AutoUpdatePlugin = %v, %v after turning it back on; want an update", updated, err)
+	}
+}
+
+// The environment wins over the stored setting, in both directions, so a
+// machine administered centrally cannot have the policy turned off locally.
+func TestTheEnvironmentOverridesTheStoredAutoUpdateSetting(t *testing.T) {
+	home := fakeHome(t)
+	installedPlugin(t, home, "0.4.1")
+	runs := stubUpdate(t, home, "0.4.4", nil)
+
+	if err := SetAutoUpdate(true); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_PLUGIN_AUTOUPDATE", "off")
+	if !AutoUpdateDisabled() {
+		t.Fatal("LOGOS_PLUGIN_AUTOUPDATE=off should win over a stored on")
+	}
+	if updated, _ := AutoUpdatePlugin("v0.4.4", time.Now()); updated || *runs != 0 {
+		t.Errorf("the environment did not stop the update: updated=%v runs=%d", updated, *runs)
+	}
+
+	t.Setenv("LOGOS_PLUGIN_AUTOUPDATE", "on")
+	if err := SetAutoUpdate(false); err != nil {
+		t.Fatal(err)
+	}
+	if AutoUpdateDisabled() {
+		t.Error("LOGOS_PLUGIN_AUTOUPDATE=on should win over a stored off")
+	}
+}
+
+// A machine that has never run this before has no stamp to read, and an
+// unreadable one is not consent to stop updating either.
+func TestAutoUpdateIsOnBeforeAnybodyHasAnsweredTheQuestion(t *testing.T) {
+	fakeHome(t)
+	if AutoUpdateDisabled() {
+		t.Error("with no stamp written yet, auto-update should be on")
+	}
+}
