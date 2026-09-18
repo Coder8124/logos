@@ -33,7 +33,12 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	}
 	c.Auto = true
 	c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = nil, nil, nil, nil, nil, ""
-	c.State = "Built from the activity log when the session ended without a checkpoint."
+	// Kept when the caller set one: an auto checkpoint can be built from the
+	// activity log or from the host's own transcript, and which it was is the
+	// one thing a reader needs to weigh a record nobody reviewed.
+	if c.State == "" {
+		c.State = "Built from the activity log when the session ended without a checkpoint."
+	}
 	c.TS = time.Now().Unix()
 	if c.Git.Empty() {
 		c.Git = gitstate.Read(workingDir())

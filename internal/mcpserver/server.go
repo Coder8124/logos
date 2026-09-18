@@ -111,6 +111,9 @@ type Server struct {
 	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
 	// command use it; empty means `logos`.
 	Shell string
+	// startedAt is when Serve began, used at stdin close to tell this session's
+	// transcript from one a window closed hours ago left behind.
+	startedAt time.Time
 }
 
 // Session is one client's connection to the Server: the state that belongs to
@@ -275,8 +278,12 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			return err
 		}
 	}
+	s.startedAt = time.Now()
 	out := json.NewEncoder(w)
 	sess := &Session{Server: s}
+	// A host with no hooks never tells Logos a session ended, so stdin closing
+	// is the only notice there is. See recordUnsaved.
+	defer sess.recordUnsaved()
 	var sendMu sync.Mutex
 	send := func(r *response) {
 		if r != nil {
