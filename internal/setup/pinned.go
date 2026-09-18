@@ -54,15 +54,30 @@ func pinInConfig(path string) string {
 	if path == "" {
 		return ""
 	}
+	if strings.HasSuffix(path, ".toml") {
+		regs, err := readCodexServers(path)
+		if err != nil {
+			return ""
+		}
+		return logosPin(regs)
+	}
 	for _, root := range []string{"mcpServers", "servers"} {
 		regs, err := readServerBlock(path, root)
 		if err != nil {
 			continue
 		}
-		for _, r := range regs {
-			if isLogosServer(r.Command) && r.Vault != "" {
-				return r.Vault
-			}
+		if v := logosPin(regs); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// logosPin picks the vault off the logos entry among a host's registrations.
+func logosPin(regs []Registration) string {
+	for _, r := range regs {
+		if isLogosServer(r.Command) && r.Vault != "" {
+			return r.Vault
 		}
 	}
 	return ""
