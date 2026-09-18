@@ -134,6 +134,62 @@ type cursorHeader struct {
 type cursorBubble struct {
 	Type int    `json:"type"`
 	Text string `json:"text"`
+	// Tool is what Cursor did rather than said. Nearly half the bubbles in a
+	// real chat carry one of these and no text at all — they used to be skipped
+	// as empty, so every Cursor session harvested as one where nothing ran.
+	Tool *cursorTool `json:"toolFormerData"`
+}
+
+// cursorTool is one tool call as Cursor stores it. RawArgs and Params hold the
+// same call twice, in the model's spelling and the editor's; they disagree
+// often enough that both are read — Params is canonical where it exists, and
+// RawArgs is the only one that carries a shell command's full text.
+type cursorTool struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	RawArgs string `json:"rawArgs"`
+	Params  string `json:"params"`
+	Error   string `json:"error"`
+}
+
+// cursorToolArgs is the union of the argument shapes the tools we can attribute
+// use. Unknown tools leave every field empty and are recorded as a tool turn
+// with no input, which is still evidence that something ran.
+type cursorToolArgs struct {
+	Command      string `json:"command"`
+	TargetFile   string `json:"target_file"`
+	FilePath     string `json:"file_path"`
+	RelWorkspace string `json:"relativeWorkspacePath"`
+	RelPath      string `json:"relative_workspace_path"`
+	DirectoryDir string `json:"directoryPath"`
+	Query        string `json:"query"`
+}
+
+// turn renders one tool call as a Turn. Input is what the harvest reads to list
+// commands run and files touched, so it is the command for a shell tool and the
+// path for everything else — the same contract the Claude Code and Codex
+// readers fill.
+func (t *cursorTool) turn() Turn {
+	var a, p cursorToolArgs
+	// Errors ignored on purpose: a tool whose arguments this version spells
+	// differently still happened, and reporting it with an empty Input is more
+	// honest than dropping the turn.
+	_ = json.Unmarshal([]byte(t.RawArgs), &a)
+	_ = json.Unmarshal([]byte(t.Params), &p)
+
+	input := firstNonEmpty(
+		p.Command, a.Command,
+		p.RelWorkspace, a.TargetFile, a.FilePath, a.RelPath, p.DirectoryDir,
+		a.Query,
+	)
+	// Only "completed" is success. A cancelled or still-loading call did not
+	// finish, and reporting it as ok would put a command in the harvest's
+	// verified-looking list that never actually ran.
+	status := "error"
+	if t.Status == "completed" && t.Error == "" {
+		status = "ok"
+	}
+	return Turn{Role: "tool", Tool: t.Name, Status: status, Input: strings.TrimSpace(input)}
 }
 
 func (r cursorReader) read(path string) (*Session, error) {
@@ -185,16 +241,24 @@ func (r cursorReader) read(path string) (*Session, error) {
 			continue
 		}
 		text := strings.TrimSpace(bub.Text)
-		if text == "" {
-			continue // a bubble that only carried a diff or a tool card
-		}
-		role := "assistant"
-		if bub.Type == 1 || (bub.Type == 0 && h.Type == 1) {
-			role = "user"
+		if text == "" && bub.Tool == nil {
+			continue // a bubble that carried only a diff, with nothing to attribute
 		}
 		content = append(content, key...)
 		content = append(content, b...)
-		s.Turns = append(s.Turns, Turn{Role: role, Text: text})
+		if text != "" {
+			role := "assistant"
+			if bub.Type == 1 || (bub.Type == 0 && h.Type == 1) {
+				role = "user"
+			}
+			s.Turns = append(s.Turns, Turn{Role: role, Text: text})
+		}
+		// After the text, not instead of it: a bubble can both say what it is
+		// about to do and record the call, and the two are separate turns
+		// everywhere else.
+		if bub.Tool != nil {
+			s.Turns = append(s.Turns, bub.Tool.turn())
+		}
 	}
 	if len(s.Turns) == 0 {
 		return nil, fmt.Errorf("chat %s in %s has no readable messages", id, file)
