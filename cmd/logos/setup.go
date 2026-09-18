@@ -990,6 +990,12 @@ func wireHosts(vault string, opts wireOpts) error {
 					}
 				default:
 					pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, pv)
+					// The plugin's per-project off switch lives in that
+					// project's settings, which nothing in the user's files can
+					// see. Said flatly, this line told someone whose current
+					// project has the plugin disabled the opposite of the truth
+					// and gave them nothing to check (#82).
+					pluginNote += fmt.Sprintf("    %-*s    in every project, unless it is disabled in that project's own settings\n", hostColumn, "")
 					// Skipping Claude Code on an old plugin's say-so left its
 					// old hooks running against this server with nothing said;
 					// doctor's check is the one that knows how to compare.

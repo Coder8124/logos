@@ -121,3 +121,26 @@ func writeClaudeJSON(t *testing.T, home, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// The plugin can be turned off for one project, and that switch lives in that
+// project's own settings — nothing in the user's files can see it. Setup said
+// flatly "already connected by the Logos plugin; not registered again", so
+// someone whose Claude Code had no Logos in the project they were sitting in
+// was told the opposite, with nothing to check (#82).
+func TestSetupSaysAProjectCanStillHaveThePluginDisabled(t *testing.T) {
+	dir := setupInFakeHome(t)
+	home := os.Getenv("HOME")
+	writeClaudeJSON(t, home, "plugins/installed_plugins.json", `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.4.5"}]}}`)
+	withVersion(t, "0.4.5")
+	fakeHosts(t, "Claude Code")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "unless it is disabled in that project") {
+		t.Errorf("setup did not say a project can disable the plugin:\n%s", out)
+	}
+}
