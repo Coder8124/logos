@@ -110,3 +110,44 @@ func TestMovingAnEmptyRecordedVaultNeedsNoExtraFlag(t *testing.T) {
 		t.Errorf("recorded vault = %q, want %q — an empty vault moves without ceremony", got, elsewhere)
 	}
 }
+
+// "it holds work" is not enough to answer with. The question setup asks here is
+// whether to repoint every front end on the machine away from a vault, and the
+// only thing that makes it answerable is how much is in the one being left —
+// #90's direction asks for the count by name. A user who cannot see it either
+// declines a move they wanted or accepts one that strands months of sessions.
+func TestMovingALoadedVaultSaysHowMuchThatVaultHolds(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("LOGOS_VAULT", "")
+
+	old := t.TempDir()
+	for _, p := range []string{"kestrel", "app"} {
+		dir := filepath.Join(old, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"20260101-100000-cli.md", "20260102-100000-cli.md"} {
+			if err := os.WriteFile(filepath.Join(dir, n), []byte("# checkpoint\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+
+	// --record-temp throughout: every vault here is under the test's temp
+	// directory, and that guard is a different bug's (94).
+	elsewhere := filepath.Join(t.TempDir(), "second")
+	out := captureStdout(t, func() {
+		if _, _, _, err := chooseVault([]string{"--vault", elsewhere, "--yes", "--record-temp"}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(out, "4 checkpoints across 2 projects") {
+		t.Errorf("the vault being left was not described, so the move cannot be judged:\n%s", out)
+	}
+}

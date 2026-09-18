@@ -300,7 +300,7 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		if temp {
 			return abs, created, recordSkipTemp, nil
 		}
-		if move, _ := movingLoadedVault(args, abs); move {
+		if move, _, _ := movingLoadedVault(args, abs); move {
 			return abs, created, recordSkipMove, nil
 		}
 		return abs, created, recordedHere, nil
@@ -325,8 +325,8 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	// A held every checkpoint this machine has taken — announced afterwards, in
 	// the same receipt line as everything else. --yes does not answer this one
 	// either, for the reason above it.
-	if move, from := movingLoadedVault(args, abs); move {
-		fmt.Printf("             this machine's vault is %s, and it holds work\n", from)
+	if move, from, holds := movingLoadedVault(args, abs); move {
+		fmt.Printf("             this machine's vault is %s, and it holds %s\n", from, holds)
 		if yes {
 			fmt.Println("             not moving it — pass --move-vault to move it anyway")
 			return abs, created, recordSkipMove, nil
@@ -346,22 +346,48 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 }
 
 // movingLoadedVault reports whether this run would repoint the machine away
-// from a recorded vault that has checkpoints in it, and names that vault. An
-// empty vault, or the one already recorded, is not a decision anybody needs to
-// defend.
-func movingLoadedVault(args []string, abs string) (bool, string) {
+// from a recorded vault that has checkpoints in it, names that vault, and says
+// what is in it. An empty vault, or the one already recorded, is not a decision
+// anybody needs to defend.
+//
+// The description is the part that makes the question answerable (#90). "It
+// holds work" is true of a vault with one checkpoint and of a vault with a
+// year of them, and the two deserve opposite answers — so the count is said
+// before the prompt, not discovered afterwards by a resume that finds nothing.
+func movingLoadedVault(args []string, abs string) (bool, string, string) {
 	if hasFlag(args, "--move-vault") {
-		return false, ""
+		return false, "", ""
 	}
 	prev := vault.Recorded()
 	if prev == "" || filepath.Clean(prev) == abs {
-		return false, ""
+		return false, "", ""
 	}
 	projects, err := session.Projects(prev)
 	if err != nil || len(projects) == 0 {
-		return false, ""
+		return false, "", ""
 	}
-	return true, prev
+	return true, prev, vaultHolding(prev, projects)
+}
+
+// vaultHolding counts what would be left behind, in the terms the user names it
+// in: checkpoints, and the projects they are filed under. A project directory
+// that cannot be read counts as nothing rather than failing the move — this
+// sentence exists to inform a decision, and refusing to describe the vault is a
+// worse answer than describing the part of it that is readable.
+func vaultHolding(prev string, projects []string) string {
+	checkpoints := 0
+	for _, p := range projects {
+		entries, err := os.ReadDir(filepath.Join(prev, session.CheckpointDir, p))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				checkpoints++
+			}
+		}
+	}
+	return fmt.Sprintf("%d %s across %d %s", checkpoints, plural(checkpoints, "checkpoint"), len(projects), plural(len(projects), "project"))
 }
 
 // goRunBinary reports a binary inside a go-build directory, where `go run`
