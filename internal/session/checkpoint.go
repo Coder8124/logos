@@ -149,11 +149,18 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// the agent also wrote a state paragraph would silently lose everything
 	// note_progress collected.
 	//
-	// Every open session's notes, not only this agent's. When work passes from
-	// an agent that died mid-task, its findings are exactly what the next agent
-	// is building on, and they have to end up in the durable record or they are
-	// lost the moment anyone checkpoints.
-	notes, err := Uncommitted(db, c.Project)
+	// This agent's own session, plus any that has gone silent past
+	// ParallelGrace. When work passes from an agent that died mid-task, its
+	// findings are exactly what the next agent is building on, and they have to
+	// end up in the durable record or they are lost the moment anyone
+	// checkpoints. An agent that is still working is left alone — taking its
+	// notes here is what left every parallel agent but the first with a
+	// checkpoint that had no State at all.
+	folded, err := foldableSessions(db, c.Project, s.ID, ParallelGrace)
+	if err != nil {
+		return err
+	}
+	notes, err := notesIn(db, folded)
 	if err != nil {
 		return err
 	}
@@ -200,7 +207,7 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
-	if err := closeProject(db, c.Project, c.Slug); err != nil {
+	if err := closeSessions(db, folded, c.Slug); err != nil {
 		return err
 	}
 	// The notes are inside the checkpoint now, so the working-notes file has
