@@ -179,10 +179,13 @@ type Session struct {
 		at        time.Time
 	}
 
-	// notes counts progress recorded since the last checkpoint, and nudged
-	// whether the session has already been told about it. See nudge.go.
-	notes  int
-	nudged bool
+	// notes counts progress recorded per project since that project was last
+	// checkpointed, nudgedFor holds the projects already warned about, and
+	// offered is the project of a nudge composed but not yet known to have
+	// reached the host. See nudge.go.
+	notes     map[string]int
+	nudgedFor map[string]bool
+	offered   string
 }
 
 func checkpointOnDisk(vault, slug string) bool {
@@ -368,6 +371,9 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			cancelled = pending[key]
 			delete(pending, key)
 			pendingMu.Unlock()
+			// The nudge in this response is only spent if the response is
+			// actually sent; a cancelled call's reply is dropped unread.
+			sess.nudgeSent(!cancelled)
 			if !cancelled {
 				send(resp)
 			}
@@ -710,9 +716,10 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// A note since the last checkpoint is something the next one carries, so
 		// the same arguments again are no longer a retry.
 		s.lastCheckpoint.key = ""
-		out, err := s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
+		project := s.resolveScope(argStr(args, "project"))
+		out, err := s.noteProgress(project, s.agentFor(args), argStr(args, "text"))
 		if err == nil {
-			s.notedProgress()
+			s.notedProgress(project)
 		}
 		return out, err
 	case "checkpoint":
@@ -1251,7 +1258,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		return "", err
 	}
 	s.lastCheckpoint.key, s.lastCheckpoint.slug, s.lastCheckpoint.at = string(key), c.Slug, time.Now()
-	s.checkpointed()
+	s.checkpointed(c.Project)
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
