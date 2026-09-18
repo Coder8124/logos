@@ -47,8 +47,8 @@ func readCodexServers(path string) ([]Registration, error) {
 
 	name, env := "", false
 	for _, line := range strings.Split(string(raw), "\n") {
-		t := strings.TrimSpace(line)
-		if i := strings.Index(t, "#"); i == 0 {
+		t := strings.TrimSpace(stripComment(line))
+		if t == "" {
 			continue
 		}
 		if strings.HasPrefix(t, "[") {
@@ -137,4 +137,26 @@ func tomlUnquote(s string) string {
 		return s[1 : len(s)-1] // literal string: no escapes by definition
 	}
 	return s
+}
+
+// stripComment drops a TOML comment, which runs from an unquoted # to the end
+// of the line. Quotes are tracked because a path may contain a #, and cutting
+// there would hand a host half a binary path — and because a comment after a
+// value used to be read as part of it, producing a command no host could
+// launch and a header no reader recognised as a server.
+func stripComment(line string) string {
+	quote := byte(0)
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return line[:i]
+		}
+	}
+	return line
 }

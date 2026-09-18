@@ -382,7 +382,10 @@ func vaultHolding(prev string, projects []string) string {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			// The same predicate session.Read and doctor count with: a
+			// session directory also holds the project's working notes, and
+			// calling those a checkpoint overstates what the vault holds.
+			if !e.IsDir() && session.IsCheckpointFile(e.Name()) {
 				checkpoints++
 			}
 		}

@@ -151,3 +151,41 @@ func TestMovingALoadedVaultSaysHowMuchThatVaultHolds(t *testing.T) {
 		t.Errorf("the vault being left was not described, so the move cannot be judged:\n%s", out)
 	}
 }
+
+// A session directory holds the project's working notes (uncommitted.md) as
+// well as its checkpoints. Counting every .md in it told someone with no
+// checkpoints at all that they were about to leave "2 checkpoints" behind —
+// the number in this sentence is the whole reason it is printed.
+func TestWorkingNotesAreNotCountedAsCheckpointsInTheMoveQuestion(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("LOGOS_VAULT", "")
+
+	old := t.TempDir()
+	for _, p := range []string{"kestrel", "app"} {
+		dir := filepath.Join(old, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, session.NotesFile), []byte("# notes\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+
+	// --record-temp throughout: every vault here is under the test's temp
+	// directory, and that guard is a different bug's (94).
+	elsewhere := filepath.Join(t.TempDir(), "second")
+	out := captureStdout(t, func() {
+		if _, _, _, err := chooseVault([]string{"--vault", elsewhere, "--yes", "--record-temp"}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(out, "0 checkpoints across 2 projects") {
+		t.Errorf("working notes were counted as checkpoints:\n%s", out)
+	}
+}

@@ -59,3 +59,44 @@ func TestACodexWithNoConfigFileListsNothingAndDoesNotFail(t *testing.T) {
 		t.Errorf("an unconfigured Codex reported %d servers, err %v", len(regs), err)
 	}
 }
+
+// TOML comments run to end of line, and a value or a table header may carry
+// one. Stopping only at whole-line comments left the comment inside the value:
+// the command became `"/usr/local/bin/logos" # moved here mcp serve`, which
+// doctor then probed and reported a correctly wired Codex as broken, and a
+// commented table header was not recognised as a server at all, so the pin
+// vanished.
+func TestACommentAfterAValueIsNotPartOfIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `model = "gpt-5"
+
+[mcp_servers.logos]   # the one that matters
+command = "/usr/local/bin/logos"   # moved here
+args = ["mcp", "serve"]
+
+[mcp_servers.logos.env]
+LOGOS_VAULT = "/Users/bob/brain"   # the good one
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	regs, err := readCodexServers(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) != 1 {
+		t.Fatalf("read %d servers, want the one Codex has: %+v", len(regs), regs)
+	}
+	if regs[0].Command != "/usr/local/bin/logos mcp serve" {
+		t.Errorf("command = %q, want the command without the comment", regs[0].Command)
+	}
+	if regs[0].Vault != "/Users/bob/brain" {
+		t.Errorf("vault = %q, want the pin without the comment", regs[0].Vault)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -140,5 +141,85 @@ func TestIntegrationProbesTheCommandTheHostsHaveRegistered(t *testing.T) {
 	}
 	if !strings.Contains(out, "Fakey Desktop") {
 		t.Errorf("the host whose command was probed was not named:\n%s", out)
+	}
+}
+
+// Two hosts commonly register the identical command with different vaults —
+// that split is the reason this check exists. Deduping on the command alone
+// dropped the second host's probe, so the wrong vault was never launched and
+// doctor closed with "Working".
+func TestIntegrationProbesTwoHostsOnTheSameCommandWithDifferentVaults(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake binary is a shell script")
+	}
+	dir := setupInFakeHome(t)
+	home := os.Getenv("HOME")
+	t.Setenv("LOGOS_VAULT", dir)
+	elsewhere := filepath.Join(home, "other-vault")
+
+	wired := filepath.Join(home, "wired", "logos")
+	host := func(name, vault string) setup.Host {
+		return setup.Host{
+			Name:   name,
+			Detect: func() bool { return true },
+			Where:  func() string { return "/nowhere/config.json" },
+			List: func() ([]setup.Registration, error) {
+				return []setup.Registration{{Name: "logos", Command: wired + " mcp serve", Vault: vault}}, nil
+			},
+		}
+	}
+	var probed []string
+	oldHosts, oldCheck := detectHosts, integrationChecks
+	detectHosts = func() []setup.Host { return []setup.Host{host("Fakey Desktop", dir), host("Fakey Code", elsewhere)} }
+	integrationChecks = func(_ string, _ []string, vault string) []health.Check {
+		probed = append(probed, vault)
+		return []health.Check{{Name: "handshake", State: health.OK, Detail: "faked"}}
+	}
+	t.Cleanup(func() { detectHosts, integrationChecks = oldHosts, oldCheck })
+
+	out := captureStdout(t, func() {
+		if err := doctorIntegration(); err != nil {
+			t.Fatalf("doctor --integration: %v", err)
+		}
+	})
+
+	if len(probed) != 2 || probed[1] != elsewhere {
+		t.Errorf("probed %v, want both vaults including %s:\n%s", probed, elsewhere, out)
+	}
+}
+
+// A host that cannot say what it has registered is not a host with nothing
+// registered. Dropping the error left doctor probing the command setup would
+// write and closing with "Working" — a success-shaped result for a question
+// nobody managed to ask (invariant 4).
+func TestIntegrationSaysWhichHostsRegistrationsItCouldNotRead(t *testing.T) {
+	dir := setupInFakeHome(t)
+	t.Setenv("LOGOS_VAULT", dir)
+
+	oldHosts, oldCheck := detectHosts, integrationChecks
+	detectHosts = func() []setup.Host {
+		return []setup.Host{{
+			Name:   "Fakey Desktop",
+			Detect: func() bool { return true },
+			Where:  func() string { return "/nowhere/config.json" },
+			List:   func() ([]setup.Registration, error) { return nil, errors.New("config.json is not readable") },
+		}}
+	}
+	integrationChecks = func(string, []string, string) []health.Check {
+		return []health.Check{{Name: "handshake", State: health.OK, Detail: "faked"}}
+	}
+	t.Cleanup(func() { detectHosts, integrationChecks = oldHosts, oldCheck })
+
+	var out string
+	err := func() error {
+		var e error
+		out = captureStdout(t, func() { e = doctorIntegration() })
+		return e
+	}()
+	if err == nil {
+		t.Errorf("doctor reported success having failed to read the only host's registrations:\n%s", out)
+	}
+	if !strings.Contains(out, "config.json is not readable") || !strings.Contains(out, "Fakey Desktop") {
+		t.Errorf("the host whose registrations could not be read was not named:\n%s", out)
 	}
 }

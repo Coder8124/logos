@@ -817,8 +817,11 @@ func doctorIntegration() error {
 	// and this check said "Working", because it rebuilt the command from the
 	// binary it found itself in. The question being asked is whether the
 	// agents can reach the vault, and only their own entries can answer it.
-	targets := registeredTargets(vault, srv)
-	failed := 0
+	targets, unreadable := registeredTargets(vault, srv)
+	failed := len(unreadable)
+	for _, u := range unreadable {
+		fmt.Printf("─── integration ───\n  host    %s\n  its registrations could not be read, so nothing here says whether it reaches this vault\n\n", u)
+	}
 	for i, t := range targets {
 		if i > 0 {
 			fmt.Println()
@@ -844,6 +847,9 @@ func doctorIntegration() error {
 		}
 	}
 	if failed > 0 {
+		if len(targets) == 0 {
+			return fmt.Errorf("no host's registrations could be read")
+		}
 		return fmt.Errorf("integration is not working")
 	}
 	fmt.Println("\n  Working. The hosts launching these commands reach this vault.")
@@ -866,8 +872,9 @@ type probe struct {
 // on a machine with no host registered yet: without it, `doctor --integration`
 // on a fresh install would have nothing to probe and would report success by
 // having asked nothing.
-func registeredTargets(vault string, srv setup.Server) []probe {
+func registeredTargets(vault string, srv setup.Server) ([]probe, []string) {
 	var out []probe
+	var unreadable []string
 	seen := map[string]bool{}
 	for _, h := range detectHosts() {
 		if h.List == nil || (h.Detect != nil && !h.Detect()) {
@@ -875,6 +882,11 @@ func registeredTargets(vault string, srv setup.Server) []probe {
 		}
 		regs, err := h.List()
 		if err != nil {
+			// A host that cannot say what it has registered is not a host with
+			// nothing registered. Swallowing this left the fallback probing
+			// the command setup would write and the check closing "Working",
+			// having failed to ask the only question it exists to ask.
+			unreadable = append(unreadable, fmt.Sprintf("%s: %v", h.Name, err))
 			continue
 		}
 		for _, r := range regs {
@@ -885,21 +897,26 @@ func registeredTargets(vault string, srv setup.Server) []probe {
 			// path with a space in it is not reconstructed, and lands as a
 			// command that fails to launch — visibly, which is the point.
 			fields := strings.Fields(r.Command)
-			if len(fields) == 0 || seen[r.Command] {
-				continue
-			}
-			seen[r.Command] = true
 			v := r.Vault
 			if v == "" {
 				v = vault
 			}
+			// Keyed by the vault as well as the command: two hosts commonly
+			// register the same binary against different vaults, and that
+			// split is the thing this check exists to catch. Keyed by command
+			// alone, the second host's vault was never probed.
+			key := r.Command + "\x00" + v
+			if len(fields) == 0 || seen[key] {
+				continue
+			}
+			seen[key] = true
 			out = append(out, probe{h.Name, setup.Server{Bin: fields[0], Args: fields[1:]}, v})
 		}
 	}
-	if len(out) == 0 {
-		return []probe{{"none registered — probing what setup would write", srv, vault}}
+	if len(out) == 0 && len(unreadable) == 0 {
+		return []probe{{"none registered — probing what setup would write", srv, vault}}, nil
 	}
-	return out
+	return out, unreadable
 }
 
 // gatherHealth assembles what the checks need, tolerating every piece of it
