@@ -237,3 +237,30 @@ func TestACursorToolCallIsReadAsAToolTurn(t *testing.T) {
 		t.Errorf("a bubble with text and a call should keep its text too: %+v", s.Turns)
 	}
 }
+
+// Cursor stamps its chats in milliseconds and every other reader produces
+// seconds. Passing the raw value through made a Cursor session's clock run a
+// thousand times fast: unsaved.go's "did this transcript run while the server
+// was alive" guard compared 1.7e12 against 1.7e9 and was always true, so a chat
+// from months ago would be harvested as this session's work, and a promoted
+// checkpoint's TS sorted above every real one forever.
+func TestACursorChatsTimestampsAreInSecondsLikeEveryOtherReader(t *testing.T) {
+	t.Setenv(transcript.LogosCursorStorageEnv, cursorStorage(t))
+
+	paths, err := transcript.Sessions("cursor")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	s, err := transcript.ReadFile("cursor", paths[0])
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	const want = 1775961496 // the fixture's createdAt, 1775961496534ms, in seconds
+	if s.Started != want {
+		t.Errorf("Started = %d, want %d", s.Started, want)
+	}
+	if s.Ended != want {
+		t.Errorf("Ended = %d, want %d", s.Ended, want)
+	}
+}

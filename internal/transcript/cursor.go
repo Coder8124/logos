@@ -119,6 +119,26 @@ func (r cursorReader) discover() ([]string, error) {
 	return out, nil
 }
 
+// cursorSeconds converts Cursor's createdAt to the seconds every other reader
+// produces. Cursor stores milliseconds, and passing them through made a Cursor
+// session's clock run a thousand times fast wherever a caller compared it with
+// anything else: the guard on whether a transcript ran while this server was
+// alive was always true, and a checkpoint promoted from a Cursor chat sorted
+// above every real one forever.
+//
+// Detected by magnitude rather than assumed, so a row an older Cursor wrote in
+// seconds is not divided into 1970.
+func cursorSeconds(stamp int64) int64 {
+	if stamp > cursorNotSeconds {
+		return stamp / 1000
+	}
+	return stamp
+}
+
+// cursorNotSeconds is past any Unix second this code will see (year 5138), so a
+// stamp above it is milliseconds.
+const cursorNotSeconds = 1e11
+
 type cursorComposer struct {
 	ComposerID string         `json:"composerId"`
 	Name       string         `json:"name"`
@@ -216,8 +236,8 @@ func (r cursorReader) read(path string) (*Session, error) {
 		Harness: "cursor",
 		ID:      id,
 		Path:    path,
-		Started: c.CreatedAt,
-		Ended:   c.CreatedAt,
+		Started: cursorSeconds(c.CreatedAt),
+		Ended:   cursorSeconds(c.CreatedAt),
 		// Project stays empty on purpose: a composer record carries no working
 		// directory, and guessing one from the files a chat happened to mention
 		// would attribute someone's history to the wrong repository. Review
