@@ -178,6 +178,11 @@ type Session struct {
 		key, slug string
 		at        time.Time
 	}
+
+	// notes counts progress recorded since the last checkpoint, and nudged
+	// whether the session has already been told about it. See nudge.go.
+	notes  int
+	nudged bool
 }
 
 func checkpointOnDisk(vault, slug string) bool {
@@ -628,6 +633,9 @@ func (s *Session) callTool(req request) *response {
 			"isError": true,
 		})
 	}
+	// Only on a result that worked: a failing call is already asking the model
+	// to deal with something, and a second thing to attend to competes with it.
+	text += s.unsavedNudge()
 	return reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	})
@@ -702,7 +710,11 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// A note since the last checkpoint is something the next one carries, so
 		// the same arguments again are no longer a retry.
 		s.lastCheckpoint.key = ""
-		return s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
+		out, err := s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
+		if err == nil {
+			s.notedProgress()
+		}
+		return out, err
 	case "checkpoint":
 		return s.checkpoint(args, "")
 	case "handoff":
@@ -1239,6 +1251,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		return "", err
 	}
 	s.lastCheckpoint.key, s.lastCheckpoint.slug, s.lastCheckpoint.at = string(key), c.Slug, time.Now()
+	s.checkpointed()
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
