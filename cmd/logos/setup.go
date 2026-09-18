@@ -397,6 +397,13 @@ func goRunBinary(bin string) bool {
 	if strings.HasSuffix(bin, ".test") || strings.HasSuffix(bin, ".test.exe") {
 		return false
 	}
+	return inGoBuildDir(bin)
+}
+
+// inGoBuildDir reports a binary Go built into its own temp tree, `go run`'s and
+// the test binary's alike. Neither is an install, so neither is something to
+// copy onto a PATH and wire hosts to.
+func inGoBuildDir(bin string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(bin), "/") {
 		if strings.HasPrefix(part, "go-build") {
 			return true
@@ -885,6 +892,17 @@ func wireHosts(vault string, opts wireOpts) error {
 	pin := ""
 	if self, err := selfPath(); err == nil && selfupdate.DetectInstall(self) == selfupdate.NPX {
 		if p, err := pinnedBinary(); err == nil {
+			pin = p
+			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
+		}
+	}
+	// A release archive unpacks wherever the browser left it, and setup wired
+	// the hosts to that path and then told the user to move the file onto their
+	// PATH so they could type `logos` — which broke every host it had just
+	// wired (#89). The offer comes first, so what the hosts are given is the
+	// path that will still be there once the user has done as they were told.
+	if pin == "" && !opts.dryRun {
+		if p := offerPathCopy(opts.yes); p != "" {
 			pin = p
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
@@ -1582,6 +1600,40 @@ func otherLogosEntries(h setup.Host) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// offerPathCopy offers to copy a logos that cannot be typed into ~/.local/bin,
+// and returns the copy for the hosts to be wired to. "" means wire this binary
+// where it stands — the offer was declined, refused, or never needed.
+//
+// Only asked when the binary is not reachable as `logos`: an install that is
+// already on PATH has nothing to move. npx is excluded because the caller has
+// its own copy to make, on a different reason, and `go run` because Go deletes
+// that file on exit and setup refuses it a few lines further down anyway.
+func offerPathCopy(yes bool) string {
+	self, err := selfPath()
+	if err != nil || inGoBuildDir(self) || selfupdate.DetectInstall(self) == selfupdate.NPX {
+		return ""
+	}
+	if _, hint := terminalCommand(self); hint == "" {
+		return ""
+	}
+	dst, err := pinnedBinary()
+	if err != nil {
+		return ""
+	}
+	fmt.Printf("\n  logos      %s is not on your PATH, so `logos` is not a command yet\n", self)
+	if !yes && !confirm(fmt.Sprintf("             copy it to %s and wire the hosts to the copy?", dst)) {
+		return ""
+	}
+	if err := pinBinary(self, dst); err != nil {
+		// Said, not swallowed: the hosts are about to be wired to the original,
+		// which is the outcome the hint at the end of setup already covers.
+		fmt.Printf("             could not copy it to %s: %v\n", dst, err)
+		return ""
+	}
+	fmt.Printf("             copied to %s\n", dst)
+	return dst
 }
 
 // pinnedBinary is where an npx setup keeps its copy of logos.

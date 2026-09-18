@@ -1,0 +1,144 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/Coder8124/logos/internal/health"
+	"github.com/Coder8124/logos/internal/setup"
+)
+
+// downloadsSetup runs setup as a release binary still sitting where its archive
+// unpacked, with nothing called logos on PATH, and returns what setup printed
+// and the server it registered.
+func downloadsSetup(t *testing.T, answers string, args ...string) (home, out string, got setup.Server) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake binary is a shell script")
+	}
+	dir := setupInFakeHome(t)
+	home = os.Getenv("HOME")
+	// An empty PATH: the whole condition is that this binary cannot be typed,
+	// and a logos installed on the machine running the tests would hide it.
+	empty := filepath.Join(home, "empty-path")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", empty)
+
+	unpacked := filepath.Join(home, "Downloads", "logos_v0.4.5_darwin_arm64")
+	fakeProgram(t, unpacked, "logos", `echo "logos 0.4.5 darwin/arm64 go1.26"`)
+	withAnswers(t, answers)
+
+	oldExe, oldHosts, oldCheck := executable, detectHosts, integrationChecks
+	executable = func() (string, error) { return filepath.Join(unpacked, "logos"), nil }
+	detectHosts = func() []setup.Host {
+		return []setup.Host{{
+			Name:   "Fakey Desktop",
+			Detect: func() bool { return true },
+			Where:  func() string { return "/nowhere/config.json" },
+			Register: func(s setup.Server) (setup.Outcome, error) {
+				got = s
+				return setup.Registered, nil
+			},
+		}}
+	}
+	integrationChecks = func(string, []string, string) []health.Check {
+		return []health.Check{{Name: "handshake", State: health.OK, Detail: "faked"}}
+	}
+	t.Cleanup(func() { executable, detectHosts, integrationChecks = oldExe, oldHosts, oldCheck })
+
+	out = captureStdout(t, func() {
+		if err := setupCmd(append([]string{"--vault", dir}, args...)); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+	return home, out, got
+}
+
+// #89: setup wired every host to ~/Downloads/logos_v0.4.5_darwin_arm64/logos
+// and then told the user to move that file onto their PATH so they could type
+// `logos`. Doing as they were told broke every host setup had just wired, and
+// the hosts named a path that no longer existed. The offer has to come first,
+// so what gets wired is the copy that is going to stay where it is.
+func TestSetupOffersToCopyABinaryThatIsNotOnPathAndWiresTheCopy(t *testing.T) {
+	home, out, got := downloadsSetup(t, "y\ny\ny\n")
+
+	pin := filepath.Join(home, ".local", "bin", "logos")
+	if got.Bin != pin {
+		t.Fatalf("registered %q, want the copy at %s:\n%s", got.Bin, pin, out)
+	}
+	if !runsAsLogos(pin) {
+		t.Errorf("the registered copy at %s does not run as logos", pin)
+	}
+	if !strings.Contains(out, "copied to "+pin) {
+		t.Errorf("setup did not say it copied logos:\n%s", out)
+	}
+}
+
+// Declining leaves the binary where it is, and what setup says next has to be
+// the instruction that does not break the wiring it just did.
+func TestDecliningTheCopyLeavesTheHostsOnTheBinaryWhereItIs(t *testing.T) {
+	home, out, got := downloadsSetup(t, "n\ny\ny\n")
+
+	unpacked := filepath.Join(home, "Downloads", "logos_v0.4.5_darwin_arm64", "logos")
+	if got.Bin != unpacked {
+		t.Errorf("registered %q, want %q — nothing was copied:\n%s", got.Bin, unpacked, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "logos")); err == nil {
+		t.Errorf("a copy was made after the offer was declined")
+	}
+	if !strings.Contains(out, "run `logos setup` again") {
+		t.Errorf("setup did not say the hosts must be rewired if the file moves:\n%s", out)
+	}
+}
+
+// #89's other half. After the user moved the binary onto their PATH, the hosts
+// still named the old path — and `logos doctor --integration` answered
+// "Working. A host launching this binary reaches this vault", because it built
+// the command from the binary it was running rather than reading the one the
+// hosts were given. The check exists to answer "can my agents reach this
+// vault", so it has to probe what the agents actually launch.
+func TestIntegrationProbesTheCommandTheHostsHaveRegistered(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake binary is a shell script")
+	}
+	dir := setupInFakeHome(t)
+	home := os.Getenv("HOME")
+	t.Setenv("LOGOS_VAULT", dir)
+
+	wired := filepath.Join(home, "wired", "logos")
+	var probed string
+	oldHosts, oldCheck := detectHosts, integrationChecks
+	detectHosts = func() []setup.Host {
+		return []setup.Host{{
+			Name:   "Fakey Desktop",
+			Detect: func() bool { return true },
+			Where:  func() string { return "/nowhere/config.json" },
+			List: func() ([]setup.Registration, error) {
+				return []setup.Registration{{Name: "logos", Command: wired + " mcp serve", Vault: dir}}, nil
+			},
+		}}
+	}
+	integrationChecks = func(bin string, _ []string, _ string) []health.Check {
+		probed = bin
+		return []health.Check{{Name: "handshake", State: health.OK, Detail: "faked"}}
+	}
+	t.Cleanup(func() { detectHosts, integrationChecks = oldHosts, oldCheck })
+
+	out := captureStdout(t, func() {
+		if err := doctorIntegration(); err != nil {
+			t.Fatalf("doctor --integration: %v", err)
+		}
+	})
+
+	if probed != wired {
+		t.Errorf("probed %q, but Fakey Desktop launches %q:\n%s", probed, wired, out)
+	}
+	if !strings.Contains(out, "Fakey Desktop") {
+		t.Errorf("the host whose command was probed was not named:\n%s", out)
+	}
+}

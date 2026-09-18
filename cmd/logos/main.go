@@ -810,32 +810,96 @@ func doctorIntegration() error {
 	if err != nil {
 		return err
 	}
-	probeBin, probeArgs, note := probeTarget(self, srv)
 
-	fmt.Printf("─── integration ───\n  binary  %s %s\n  vault   %s\n", srv.Bin, strings.Join(srv.Args, " "), vault)
-	if note != "" {
-		fmt.Printf("  note    %s\n", note)
-	}
-	fmt.Println()
-	checks := health.Integration(probeBin, probeArgs, vault)
+	// What the hosts have registered, not what this process happens to be
+	// running from (#89). Someone who moved the binary onto their PATH, as the
+	// end of setup told them to, left every host naming a file that is gone —
+	// and this check said "Working", because it rebuilt the command from the
+	// binary it found itself in. The question being asked is whether the
+	// agents can reach the vault, and only their own entries can answer it.
+	targets := registeredTargets(vault, srv)
 	failed := 0
-	for _, c := range checks {
-		fmt.Printf("  %-12s %s\n", c.Name, renderState(c.State))
-		if c.Detail != "" {
-			fmt.Printf("  %-12s   %s\n", "", c.Detail)
+	for i, t := range targets {
+		if i > 0 {
+			fmt.Println()
 		}
-		if c.Fix != "" {
-			fmt.Printf("  %-12s   → %s\n", "", c.Fix)
+		fmt.Printf("─── integration ───\n  host    %s\n  binary  %s %s\n  vault   %s\n",
+			t.host, t.srv.Bin, strings.Join(t.srv.Args, " "), t.vault)
+		probeBin, probeArgs, note := probeTarget(self, t.srv)
+		if note != "" {
+			fmt.Printf("  note    %s\n", note)
 		}
-		if c.State == health.Failed {
-			failed++
+		fmt.Println()
+		for _, c := range integrationChecks(probeBin, probeArgs, t.vault) {
+			fmt.Printf("  %-12s %s\n", c.Name, renderState(c.State))
+			if c.Detail != "" {
+				fmt.Printf("  %-12s   %s\n", "", c.Detail)
+			}
+			if c.Fix != "" {
+				fmt.Printf("  %-12s   → %s\n", "", c.Fix)
+			}
+			if c.State == health.Failed {
+				failed++
+			}
 		}
 	}
 	if failed > 0 {
 		return fmt.Errorf("integration is not working")
 	}
-	fmt.Println("\n  Working. A host launching this binary reaches this vault.")
+	fmt.Println("\n  Working. The hosts launching these commands reach this vault.")
 	return nil
+}
+
+// probe is one command to launch and the vault it is expected to reach, named
+// by whoever registered it.
+type probe struct {
+	host  string
+	srv   setup.Server
+	vault string
+}
+
+// registeredTargets is the logos entry each detected host actually holds. A
+// host whose config cannot be read, or which has no logos in it, contributes
+// nothing — it is not wired, so there is no wiring to check.
+//
+// Falling back to the command setup would write is what makes this check usable
+// on a machine with no host registered yet: without it, `doctor --integration`
+// on a fresh install would have nothing to probe and would report success by
+// having asked nothing.
+func registeredTargets(vault string, srv setup.Server) []probe {
+	var out []probe
+	seen := map[string]bool{}
+	for _, h := range detectHosts() {
+		if h.List == nil || (h.Detect != nil && !h.Detect()) {
+			continue
+		}
+		regs, err := h.List()
+		if err != nil {
+			continue
+		}
+		for _, r := range regs {
+			if !strings.Contains(r.Command, "mcp serve") {
+				continue
+			}
+			// Split on spaces, which is how the command was joined. A binary
+			// path with a space in it is not reconstructed, and lands as a
+			// command that fails to launch — visibly, which is the point.
+			fields := strings.Fields(r.Command)
+			if len(fields) == 0 || seen[r.Command] {
+				continue
+			}
+			seen[r.Command] = true
+			v := r.Vault
+			if v == "" {
+				v = vault
+			}
+			out = append(out, probe{h.Name, setup.Server{Bin: fields[0], Args: fields[1:]}, v})
+		}
+	}
+	if len(out) == 0 {
+		return []probe{{"none registered — probing what setup would write", srv, vault}}
+	}
+	return out
 }
 
 // gatherHealth assembles what the checks need, tolerating every piece of it
