@@ -896,6 +896,20 @@ func wireHosts(vault string, opts wireOpts) error {
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
 	}
+	// Someone who started on npx has setup's copy in ~/.local/bin, which Claude
+	// Code's installer puts ahead of Homebrew on PATH — so after `brew install`
+	// it is still the copy that `logos setup` runs, and wiring the hosts to it
+	// pins them to the one install `brew upgrade` can never reach (#83). The
+	// receipt is what makes this safe to decide: the copy is setup's own.
+	if pin == "" {
+		if self, err := selfPath(); err == nil && ourPin(self) {
+			if opt, v := health.HomebrewInstall(self); opt != "" {
+				fmt.Printf("\n  logos      Homebrew's logos %s is installed at %s\n", v, opt)
+				fmt.Printf("             wiring the hosts to it, not to this copy at %s, which `brew upgrade` never reaches\n", self)
+				srv.Bin, srv.Args = opt, []string{"mcp", "serve"}
+			}
+		}
+	}
 	// A release archive unpacks wherever the browser left it, and setup wired
 	// the hosts to that path and then told the user to move the file onto their
 	// PATH so they could type `logos` — which broke every host it had just
@@ -1279,6 +1293,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("\n  %s\n  → %s\n", c.Detail, c.Fix)
 			hint = ""
 		}
+		offerPinRemoval(self)
 	}
 	tryTheHandoff(os.Stdout, wiredHosts, cmd, hint)
 	return nil
@@ -1673,7 +1688,70 @@ func pinBinary(self, dst string) error {
 		os.Remove(tmp)
 		return err
 	}
-	return nil
+	return writePinReceipt(dst)
+}
+
+// The receipt beside the copy, naming it. Nothing on disk used to say that the
+// logos in ~/.local/bin was setup's own doing, so a later setup could neither
+// prefer the install that replaced it nor offer to clear it away — it could
+// only tell the user about a file and leave them to judge whose it was (#83).
+func pinReceipt() (string, error) {
+	dst, err := pinnedBinary()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(dst), ".logos-pin"), nil
+}
+
+func writePinReceipt(pin string) error {
+	path, err := pinReceipt()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(pin+"\n"), 0o644)
+}
+
+// ourPin reports whether the logos at path is the copy setup made. A logos
+// somebody else put in that directory has no receipt, and is not setup's to
+// prefer against, replace or remove.
+func ourPin(path string) bool {
+	receipt, err := pinReceipt()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(receipt)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == path
+}
+
+// offerPinRemoval offers to take back the copy setup pinned into ~/.local/bin,
+// once a managed install — Homebrew's or npm's — is the one running setup.
+// That copy is ahead of both on PATH, so leaving it there is what makes `brew
+// upgrade` and `logos update` reach an install no host launches. Only offered,
+// never assumed: --yes is not an answer to a question about deleting a file.
+func offerPinRemoval(self string) {
+	switch selfupdate.DetectInstall(self) {
+	case selfupdate.Homebrew, selfupdate.NPMManaged:
+	default:
+		return
+	}
+	dst, err := pinnedBinary()
+	if err != nil || dst == self || !ourPin(dst) {
+		return
+	}
+	if !confirm(fmt.Sprintf("  → remove %s, the copy setup pinned there?", dst)) {
+		return
+	}
+	if err := os.Remove(dst); err != nil {
+		fmt.Printf("  could not remove %s: %v\n", dst, err)
+		return
+	}
+	if receipt, err := pinReceipt(); err == nil {
+		os.Remove(receipt)
+	}
+	fmt.Printf("  removed %s\n", dst)
 }
 
 // runsAsLogos is the resolver's test in plugin/bin/resolve.sh: every logos
