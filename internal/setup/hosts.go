@@ -158,10 +158,14 @@ func codex() Host {
 // codexHasEntry looks for the [mcp_servers.<name>] table and checks it runs
 // mcp serve. Read as lines rather than parsed: this is the only TOML logos
 // reads, and a table is all it needs to find.
+//
+// Comments are stripped first, for the same reason the value parser strips
+// them: `[mcp_servers.logos] # logos` is that table, and a commented-out
+// `# args = ["mcp", "serve"]` is not its contents.
 func codexHasEntry(toml, name string) bool {
 	in, body := false, ""
 	for _, line := range strings.Split(toml, "\n") {
-		t := strings.TrimSpace(line)
+		t := strings.TrimSpace(stripComment(line))
 		if strings.HasPrefix(t, "[") {
 			in = t == "[mcp_servers."+name+"]"
 			continue

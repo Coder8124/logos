@@ -100,3 +100,28 @@ LOGOS_VAULT = "/Users/bob/brain"   # the good one
 		t.Errorf("vault = %q, want the pin without the comment", regs[0].Vault)
 	}
 }
+
+// Remove reads config.toml to decide whether there is anything to remove, and
+// compared the table header literally: `[mcp_servers.logos] # logos` made it
+// answer "nothing was removed" about an entry plainly there. The same comment
+// bug the value parser was fixed for, on the same file.
+func TestACodexEntryIsFoundWhenItsTableHeaderCarriesAComment(t *testing.T) {
+	const cfg = `[mcp_servers.logos]  # logos
+command = "logos"
+args = ["mcp", "serve"]
+`
+	if !codexHasEntry(cfg, "logos") {
+		t.Errorf("the logos entry was not found behind a comment on its header")
+	}
+}
+
+// The mirror of it: a commented-out args line is not the table's contents, and
+// reading it as such claimed an entry existed in an empty table.
+func TestACommentedOutArgsLineIsNotACodexEntry(t *testing.T) {
+	const cfg = `[mcp_servers.logos]
+# args = ["mcp", "serve"]
+`
+	if codexHasEntry(cfg, "logos") {
+		t.Errorf("a commented-out args line was read as a registered entry")
+	}
+}
