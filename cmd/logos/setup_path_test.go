@@ -17,6 +17,13 @@ import (
 // and the server it registered.
 func downloadsSetup(t *testing.T, answers string, args ...string) (home, out string, got setup.Server) {
 	t.Helper()
+	return downloadsSetupWith(t, func(string) string { return "" }, answers, args...)
+}
+
+// downloadsSetupWith is downloadsSetup with the home prepared first. prepare
+// returns the binary setup is running as, or "" for the unpacked one.
+func downloadsSetupWith(t *testing.T, prepare func(home string) string, answers string, args ...string) (home, out string, got setup.Server) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake binary is a shell script")
 	}
@@ -32,10 +39,14 @@ func downloadsSetup(t *testing.T, answers string, args ...string) (home, out str
 
 	unpacked := filepath.Join(home, "Downloads", "logos_v0.4.5_darwin_arm64")
 	fakeProgram(t, unpacked, "logos", `echo "logos 0.4.5 darwin/arm64 go1.26"`)
+	self := prepare(home)
+	if self == "" {
+		self = filepath.Join(unpacked, "logos")
+	}
 	withAnswers(t, answers)
 
 	oldExe, oldHosts, oldCheck := executable, detectHosts, integrationChecks
-	executable = func() (string, error) { return filepath.Join(unpacked, "logos"), nil }
+	executable = func() (string, error) { return self, nil }
 	detectHosts = func() []setup.Host {
 		return []setup.Host{{
 			Name:   "Fakey Desktop",
@@ -221,5 +232,84 @@ func TestIntegrationSaysWhichHostsRegistrationsItCouldNotRead(t *testing.T) {
 	}
 	if !strings.Contains(out, "config.json is not readable") || !strings.Contains(out, "Fakey Desktop") {
 		t.Errorf("the host whose registrations could not be read was not named:\n%s", out)
+	}
+}
+
+// A logos already in ~/.local/bin may be newer than the one being set up — a
+// release archive from before an upgrade, run once more out of Downloads. The
+// copy was made before anything compared versions, so it overwrote the newer
+// install and every host was quietly downgraded. Under --yes there is nobody
+// to ask, so the newer one stays and is the one the hosts are wired to.
+func TestSetupDoesNotReplaceANewerLogosInLocalBinUnderYes(t *testing.T) {
+	withVersion(t, "0.4.5")
+	home, out, got := downloadsSetupWith(t, func(home string) string {
+		fakeProgram(t, filepath.Join(home, ".local", "bin"), "logos", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+		return ""
+	}, "", "--yes")
+
+	pin := filepath.Join(home, ".local", "bin", "logos")
+	raw, err := os.ReadFile(pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "logos 0.4.9") {
+		t.Fatalf("the newer logos at %s was replaced by this 0.4.5:\n%s", pin, out)
+	}
+	if got.Bin != pin {
+		t.Errorf("registered %q, want the kept copy at %s:\n%s", got.Bin, pin, out)
+	}
+	if !strings.Contains(out, "--downgrade") {
+		t.Errorf("setup did not say how to replace it:\n%s", out)
+	}
+}
+
+// Homebrew's logos updates itself. Copying it into ~/.local/bin freezes it at
+// today's version and puts that copy ahead of Homebrew on PATH, so the hosts
+// launch the one install `brew upgrade` can never reach — the same trap #83 is
+// about. A managed install is wired where it stands.
+func TestSetupDoesNotCopyAManagedInstallIntoLocalBin(t *testing.T) {
+	var cellar string
+	home, out, got := downloadsSetupWith(t, func(home string) string {
+		cellar = filepath.Join(home, "homebrew", "Cellar", "logos-mcp", "0.4.5", "bin")
+		fakeProgram(t, cellar, "logos", `echo "logos 0.4.5 darwin/arm64 go1.26"`)
+		return filepath.Join(cellar, "logos")
+	}, "y\ny\ny\n", "--yes")
+
+	if got.Bin != filepath.Join(cellar, "logos") {
+		t.Errorf("registered %q, want Homebrew's own %s:\n%s", got.Bin, cellar, out)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".local", "bin", "logos")); err == nil {
+		t.Errorf("Homebrew's logos was copied into ~/.local/bin:\n%s", out)
+	}
+}
+
+// Having copied logos into ~/.local/bin, setup closed by telling the user to
+// move it onto their PATH and re-run setup — the very instruction #89 exists
+// about, and this time pointed at the copy the hosts had just been wired to.
+// The directory is what needs to be on PATH, not the file somewhere else.
+func TestAfterTheCopyTheClosingHintDoesNotSayToMoveIt(t *testing.T) {
+	home, out, _ := downloadsSetup(t, "y\ny\ny\n")
+
+	if strings.Contains(out, "run `logos setup` again") {
+		t.Errorf("setup told the user to move the copy it just wired the hosts to:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join(home, ".local", "bin")+" to your PATH") {
+		t.Errorf("setup did not say which directory to put on PATH:\n%s", out)
+	}
+}
+
+// --dry-run skipped the offer entirely, so the roster showed the hosts being
+// pointed at ~/Downloads and nothing said that a real run writes a binary into
+// ~/.local/bin and wires them there instead. A plan that omits the one file the
+// run creates is not the plan.
+func TestDryRunSaysARealRunWouldCopyLogosOntoThePath(t *testing.T) {
+	home, out, _ := downloadsSetup(t, "", "--dry-run")
+
+	pin := filepath.Join(home, ".local", "bin", "logos")
+	if !strings.Contains(out, pin) {
+		t.Errorf("--dry-run never mentioned the copy at %s:\n%s", pin, out)
+	}
+	if _, err := os.Stat(pin); err == nil {
+		t.Errorf("--dry-run wrote %s", pin)
 	}
 }

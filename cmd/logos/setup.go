@@ -753,6 +753,12 @@ func terminalCommand(self string) (cmd, hint string) {
 			}
 		}
 	}
+	// setup's own copy is where it is on purpose: the hosts are wired to it and
+	// the plugin's resolver searches that directory. Telling the user to move
+	// it would break both, so the fix is to put the directory on PATH.
+	if ourPin(self) {
+		return self, fmt.Sprintf("add %s to your PATH to type `logos`", filepath.Dir(self))
+	}
 	if strings.ContainsAny(self, " '\"$\\") {
 		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
 	}
@@ -892,10 +898,10 @@ func wireHosts(vault string, opts wireOpts) error {
 	// binary npx is running is the whole server, so keep a copy of it outside
 	// npm's cache and register that. ~/.local/bin is also a directory the
 	// plugin's resolver searches, so its hooks find the copy instead of npx.
-	pin := ""
+	pin, npxPin := "", false
 	if self, err := selfPath(); err == nil && selfupdate.DetectInstall(self) == selfupdate.NPX {
 		if p, err := pinnedBinary(); err == nil {
-			pin = p
+			pin, npxPin = p, true
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
 	}
@@ -918,8 +924,8 @@ func wireHosts(vault string, opts wireOpts) error {
 	// PATH so they could type `logos` — which broke every host it had just
 	// wired (#89). The offer comes first, so what the hosts are given is the
 	// path that will still be there once the user has done as they were told.
-	if pin == "" && !opts.dryRun {
-		if p := offerPathCopy(opts.yes); p != "" {
+	if pin == "" {
+		if p := offerPathCopy(opts.yes, opts.dryRun); p != "" {
 			pin = p
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
@@ -1132,12 +1138,20 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("    %-*s —  kept logos %s at %s, newer than this %s (--downgrade replaces it)\n", hostColumn, "binary", theirs, pin, version)
 		} else if err := pinBinary(self, pin); err != nil {
 			// Registering a path that was never written would be a host that
-			// cannot start. npx still works while online, so fall back to it
-			// and say what that costs.
-			srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
-			bin = srv.Bin
+			// cannot start. Under npx there is nothing else on disk to launch,
+			// so fall back to npx and say what that costs; on every other route
+			// this binary is still here, and wiring it where it stands is what
+			// declining the offer would have done anyway.
 			fmt.Printf("    %-*s ✗  could not copy logos to %s: %v\n", hostColumn, "binary", pin, err)
-			fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
+			if npxPin {
+				srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
+				fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
+			} else {
+				srv.Bin, srv.Args = self, []string{"mcp", "serve"}
+				pin = ""
+				fmt.Printf("    %-*s    hosts launch %s where it is instead\n", hostColumn, "", self)
+			}
+			bin = srv.Bin
 		} else {
 			fmt.Printf("    %-*s ✓  copied to %s\n", hostColumn, "binary", pin)
 		}
@@ -1288,7 +1302,15 @@ func wireHosts(vault string, opts wireOpts) error {
 	// and watch survive across two different agents.
 	cmd, hint := "logos", ""
 	if self, err := selfPath(); err == nil {
-		cmd, hint = terminalCommand(self)
+		// The hosts were wired to the copy, so the shell command is the copy's
+		// too. Describing the original here closed setup with the instruction
+		// #89 exists about, now aimed at the file the hosts had just been
+		// pointed at.
+		shell := self
+		if pin != "" {
+			shell = pin
+		}
+		cmd, hint = terminalCommand(shell)
 		// The hosts were just wired to this copy while another logos is the
 		// one that upgrades, or the one the shell runs; "not on your PATH"
 		// would misname that.
@@ -1621,16 +1643,26 @@ func otherLogosEntries(h setup.Host) []string {
 }
 
 // offerPathCopy offers to copy a logos that cannot be typed into ~/.local/bin,
-// and returns the copy for the hosts to be wired to. "" means wire this binary
-// where it stands — the offer was declined, refused, or never needed.
+// and returns where the copy goes for the hosts to be wired to. "" means wire
+// this binary where it stands — the offer was declined, refused, or never
+// needed. The copy itself is made at the one place that makes it, alongside
+// npx's, so the version guard there covers this route too.
 //
 // Only asked when the binary is not reachable as `logos`: an install that is
-// already on PATH has nothing to move. npx is excluded because the caller has
-// its own copy to make, on a different reason, and `go run` because Go deletes
-// that file on exit and setup refuses it a few lines further down anyway.
-func offerPathCopy(yes bool) string {
+// already on PATH has nothing to move. Excluded are npx, because the caller has
+// its own copy to make on a different reason; `go run`, because Go deletes that
+// file on exit and setup refuses it a few lines further down anyway; and
+// Homebrew's and npm's own installs, because a copy of a managed install is
+// frozen at today's version and sits ahead of its manager on PATH, so the hosts
+// launch the one logos `brew upgrade` and `npm update -g` can never reach —
+// the trap #83 is about.
+func offerPathCopy(yes, dryRun bool) string {
 	self, err := selfPath()
-	if err != nil || inGoBuildDir(self) || selfupdate.DetectInstall(self) == selfupdate.NPX {
+	if err != nil || inGoBuildDir(self) {
+		return ""
+	}
+	switch selfupdate.DetectInstall(self) {
+	case selfupdate.NPX, selfupdate.Homebrew, selfupdate.NPMManaged:
 		return ""
 	}
 	if _, hint := terminalCommand(self); hint == "" {
@@ -1641,16 +1673,16 @@ func offerPathCopy(yes bool) string {
 		return ""
 	}
 	fmt.Printf("\n  logos      %s is not on your PATH, so `logos` is not a command yet\n", self)
+	// A plan that leaves out the one file the run creates is not the plan: the
+	// roster used to show the hosts pointed at ~/Downloads with nothing saying
+	// a real run writes a binary into ~/.local/bin and wires them there.
+	if dryRun {
+		fmt.Printf("             a real run offers to copy it to %s and wire the hosts to the copy\n", dst)
+		return ""
+	}
 	if !yes && !confirm(fmt.Sprintf("             copy it to %s and wire the hosts to the copy?", dst)) {
 		return ""
 	}
-	if err := pinBinary(self, dst); err != nil {
-		// Said, not swallowed: the hosts are about to be wired to the original,
-		// which is the outcome the hint at the end of setup already covers.
-		fmt.Printf("             could not copy it to %s: %v\n", dst, err)
-		return ""
-	}
-	fmt.Printf("             copied to %s\n", dst)
 	return dst
 }
 
