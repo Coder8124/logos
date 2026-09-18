@@ -363,10 +363,17 @@ func movingLoadedVault(args []string, abs string) (bool, string, string) {
 		return false, "", ""
 	}
 	projects, err := session.Projects(prev)
-	if err != nil || len(projects) == 0 {
+	if err != nil {
 		return false, "", ""
 	}
-	return true, prev, vaultHolding(prev, projects)
+	// A directory under sessions/ is not by itself work worth defending: it
+	// also exists for a project that has only working notes. Asking about one
+	// produced a warning whose own sentence said there was nothing to lose.
+	holding, checkpoints := vaultHolding(prev, projects)
+	if checkpoints == 0 {
+		return false, "", ""
+	}
+	return true, prev, holding
 }
 
 // vaultHolding counts what would be left behind, in the terms the user names it
@@ -374,13 +381,14 @@ func movingLoadedVault(args []string, abs string) (bool, string, string) {
 // that cannot be read counts as nothing rather than failing the move — this
 // sentence exists to inform a decision, and refusing to describe the vault is a
 // worse answer than describing the part of it that is readable.
-func vaultHolding(prev string, projects []string) string {
-	checkpoints := 0
+func vaultHolding(prev string, projects []string) (string, int) {
+	checkpoints, held := 0, 0
 	for _, p := range projects {
 		entries, err := os.ReadDir(filepath.Join(prev, session.CheckpointDir, p))
 		if err != nil {
 			continue
 		}
+		before := checkpoints
 		for _, e := range entries {
 			// The same predicate session.Read and doctor count with: a
 			// session directory also holds the project's working notes, and
@@ -389,8 +397,14 @@ func vaultHolding(prev string, projects []string) string {
 				checkpoints++
 			}
 		}
+		// Counted the same way as the checkpoints, for the same reason: a
+		// project the user would be leaving nothing of is not one of the
+		// projects this sentence is warning them about.
+		if checkpoints > before {
+			held++
+		}
 	}
-	return fmt.Sprintf("%d %s across %d %s", checkpoints, plural(checkpoints, "checkpoint"), len(projects), plural(len(projects), "project"))
+	return fmt.Sprintf("%d %s across %d %s", checkpoints, plural(checkpoints, "checkpoint"), held, plural(held, "project")), checkpoints
 }
 
 // goRunBinary reports a binary inside a go-build directory, where `go run`
@@ -753,14 +767,18 @@ func terminalCommand(self string) (cmd, hint string) {
 			}
 		}
 	}
+	// Asked of the real path, before the quoting below rewrites it.
+	pinned, dir := ourPin(self), filepath.Dir(self)
+	// Quoted for both hints, not just the last one: a home directory with a
+	// space in it is exactly where a command gets pasted and splits in two.
+	if strings.ContainsAny(self, " '\"$\\") {
+		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
+	}
 	// setup's own copy is where it is on purpose: the hosts are wired to it and
 	// the plugin's resolver searches that directory. Telling the user to move
 	// it would break both, so the fix is to put the directory on PATH.
-	if ourPin(self) {
-		return self, fmt.Sprintf("add %s to your PATH to type `logos`", filepath.Dir(self))
-	}
-	if strings.ContainsAny(self, " '\"$\\") {
-		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
+	if pinned {
+		return self, fmt.Sprintf("add %s to your PATH to type `logos`", dir)
 	}
 	// The hosts setup just wired launch this exact path, so moving the file
 	// breaks every one of them unless setup rewires them to where it went.
@@ -898,10 +916,14 @@ func wireHosts(vault string, opts wireOpts) error {
 	// binary npx is running is the whole server, so keep a copy of it outside
 	// npm's cache and register that. ~/.local/bin is also a directory the
 	// plugin's resolver searches, so its hooks find the copy instead of npx.
-	pin, npxPin := "", false
+	// pinSrc is the binary the copy is made from, kept from the moment the pin
+	// is decided. Resolving it again at the copy could hand an empty path to
+	// pinBinary, and the failure branch would then register every host with an
+	// empty command — a failure wired up as a success (invariant 4).
+	pin, pinSrc, npxPin := "", "", false
 	if self, err := selfPath(); err == nil && selfupdate.DetectInstall(self) == selfupdate.NPX {
 		if p, err := pinnedBinary(); err == nil {
-			pin, npxPin = p, true
+			pin, pinSrc, npxPin = p, self, true
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
 	}
@@ -925,8 +947,8 @@ func wireHosts(vault string, opts wireOpts) error {
 	// wired (#89). The offer comes first, so what the hosts are given is the
 	// path that will still be there once the user has done as they were told.
 	if pin == "" {
-		if p := offerPathCopy(opts.yes, opts.dryRun); p != "" {
-			pin = p
+		if p, src := offerPathCopy(opts.yes, opts.dryRun); p != "" {
+			pin, pinSrc = p, src
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
 	}
@@ -1132,8 +1154,8 @@ func wireHosts(vault string, opts wireOpts) error {
 	if showPlan {
 		fmt.Println() // separate the roster above from the outcomes below
 	}
-	if pin != "" {
-		self, _ := selfPath()
+	if pin != "" && !opts.dryRun {
+		self := pinSrc
 		// An older `npx @noeton/logos@x setup` used to overwrite a newer copy,
 		// quietly downgrading every host that launches it. Replacing newer with
 		// older is a choice: asked with no as the default, and under --yes only
@@ -1149,12 +1171,15 @@ func wireHosts(vault string, opts wireOpts) error {
 			// this binary is still here, and wiring it where it stands is what
 			// declining the offer would have done anyway.
 			fmt.Printf("    %-*s ✗  could not copy logos to %s: %v\n", hostColumn, "binary", pin, err)
+			// pin is cleared either way: the closing line names the command
+			// the run actually wired, and naming a file setup has just said it
+			// could not write ends the run by pointing at nothing.
+			pin = ""
 			if npxPin {
 				srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
 				fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
 			} else {
 				srv.Bin, srv.Args = self, []string{"mcp", "serve"}
-				pin = ""
 				fmt.Printf("    %-*s    hosts launch %s where it is instead\n", hostColumn, "", self)
 			}
 			bin = srv.Bin
@@ -1662,34 +1687,44 @@ func otherLogosEntries(h setup.Host) []string {
 // frozen at today's version and sits ahead of its manager on PATH, so the hosts
 // launch the one logos `brew upgrade` and `npm update -g` can never reach —
 // the trap #83 is about.
-func offerPathCopy(yes, dryRun bool) string {
+func offerPathCopy(yes, dryRun bool) (dst, src string) {
 	self, err := selfPath()
 	if err != nil || inGoBuildDir(self) {
-		return ""
+		return "", ""
 	}
 	switch selfupdate.DetectInstall(self) {
 	case selfupdate.NPX, selfupdate.Homebrew, selfupdate.NPMManaged:
-		return ""
+		return "", ""
 	}
 	if _, hint := terminalCommand(self); hint == "" {
-		return ""
+		return "", ""
 	}
-	dst, err := pinnedBinary()
+	dst, err = pinnedBinary()
 	if err != nil {
-		return ""
+		return "", ""
+	}
+	// Setup run from the copy it made earlier, with that directory still not on
+	// PATH, reaches here about the file it is already running as — and offered
+	// to copy it onto itself. The hint terminalCommand gave is the right one;
+	// there is simply nothing to copy.
+	if dst == self {
+		return "", ""
 	}
 	fmt.Printf("\n  logos      %s is not on your PATH, so `logos` is not a command yet\n", self)
 	// A plan that leaves out the one file the run creates is not the plan: the
 	// roster used to show the hosts pointed at ~/Downloads with nothing saying
-	// a real run writes a binary into ~/.local/bin and wires them there.
+	// a real run writes a binary into ~/.local/bin and wires them there. The
+	// destination is returned under --dry-run too, so the roster names the
+	// binary a real run would wire; the copy itself is behind the dry-run
+	// return further up, and is not made.
 	if dryRun {
 		fmt.Printf("             a real run offers to copy it to %s and wire the hosts to the copy\n", dst)
-		return ""
+		return dst, self
 	}
 	if !yes && !confirm(fmt.Sprintf("             copy it to %s and wire the hosts to the copy?", dst)) {
-		return ""
+		return "", ""
 	}
-	return dst
+	return dst, self
 }
 
 // pinnedBinary is where an npx setup keeps its copy of logos.

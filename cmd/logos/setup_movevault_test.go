@@ -15,7 +15,13 @@ import (
 func recordedVaultWithWork(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, session.CheckpointDir, "kestrel"), 0o700); err != nil {
+	p := filepath.Join(dir, session.CheckpointDir, "kestrel")
+	if err := os.MkdirAll(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A real checkpoint, not an empty directory: what makes the move expensive
+	// is the work in the vault, and that is what this helper has to stand for.
+	if err := os.WriteFile(filepath.Join(p, "20260101-100000-cli.md"), []byte("# checkpoint\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := vault.Record(dir); err != nil {
@@ -154,9 +160,11 @@ func TestMovingALoadedVaultSaysHowMuchThatVaultHolds(t *testing.T) {
 
 // A session directory holds the project's working notes (uncommitted.md) as
 // well as its checkpoints. Counting every .md in it told someone with no
-// checkpoints at all that they were about to leave "2 checkpoints" behind —
-// the number in this sentence is the whole reason it is printed.
-func TestWorkingNotesAreNotCountedAsCheckpointsInTheMoveQuestion(t *testing.T) {
+// checkpoints at all that they were about to leave "2 checkpoints" behind.
+// Counting them correctly is only half of it: a vault holding no checkpoints
+// has nothing to strand, so it moves like any other empty one rather than
+// asking a question whose own sentence says there is nothing to lose.
+func TestAVaultHoldingOnlyWorkingNotesMovesWithoutCeremony(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("HOME", cfg)
@@ -185,7 +193,10 @@ func TestWorkingNotesAreNotCountedAsCheckpointsInTheMoveQuestion(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(out, "0 checkpoints across 2 projects") {
-		t.Errorf("working notes were counted as checkpoints:\n%s", out)
+	if got := vault.Recorded(); got != elsewhere {
+		t.Errorf("recorded vault = %q, want %q — a vault with no checkpoints moves without ceremony:\n%s", got, elsewhere, out)
+	}
+	if strings.Contains(out, "0 checkpoints") {
+		t.Errorf("setup asked about leaving behind nothing at all:\n%s", out)
 	}
 }

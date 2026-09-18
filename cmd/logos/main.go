@@ -847,8 +847,11 @@ func doctorIntegration() error {
 		}
 	}
 	if failed > 0 {
-		if len(targets) == 0 {
-			return fmt.Errorf("no host's registrations could be read")
+		// Named by count, not by "no host": one unreadable config among several
+		// that read perfectly well sent the user to look for a permission
+		// problem that was not there.
+		if len(unreadable) > 0 {
+			return fmt.Errorf("%d host(s) could not say what they have registered", len(unreadable))
 		}
 		return fmt.Errorf("integration is not working")
 	}
@@ -864,9 +867,11 @@ type probe struct {
 	vault string
 }
 
-// registeredTargets is the logos entry each detected host actually holds. A
-// host whose config cannot be read, or which has no logos in it, contributes
-// nothing — it is not wired, so there is no wiring to check.
+// registeredTargets is the logos entry each detected host actually holds, and
+// separately the hosts that could not be asked. A host with no logos in its
+// config contributes nothing — it is not wired, so there is no wiring to check.
+// A host whose config cannot be read is not that: it is the question going
+// unanswered, so it is returned to be reported rather than dropped.
 //
 // Falling back to the command setup would write is what makes this check usable
 // on a machine with no host registered yet: without it, `doctor --integration`
