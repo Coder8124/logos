@@ -159,6 +159,8 @@ func cursorStorageWithTools(t *testing.T) string {
 			{"bubbleId": "b3", "type": 2},
 			{"bubbleId": "b4", "type": 2},
 			{"bubbleId": "b5", "type": 2},
+			{"bubbleId": "b6", "type": 2},
+			{"bubbleId": "b7", "type": 2},
 		},
 	})
 	put(fmt.Sprintf("bubbleId:%s:b1", id), map[string]any{"type": 1, "text": "move fleetbuilder out of .venv"})
@@ -189,13 +191,33 @@ func cursorStorageWithTools(t *testing.T) string {
 			"rawArgs": `{"command": "rm -rf build"}`,
 		},
 	})
-	// No status, no result, no error — 27% of the calls in a real database.
-	// Nothing recorded what became of it, so nothing may be claimed about it.
+	// Nothing recorded at all: no status, no additionalData, no error. Nothing
+	// may be claimed about it in either direction.
 	put(fmt.Sprintf("bubbleId:%s:b5", id), map[string]any{
 		"type": 2,
 		"toolFormerData": map[string]any{
 			"name":    "run_terminal_cmd",
 			"rawArgs": `{"command": "go test ./..."}`,
+		},
+	})
+	// No top-level status, outcome only in additionalData — the shape a quarter
+	// of the calls in a real database have.
+	put(fmt.Sprintf("bubbleId:%s:b6", id), map[string]any{
+		"type": 2,
+		"toolFormerData": map[string]any{
+			"name":           "run_terminal_cmd",
+			"rawArgs":        `{"command": "cargo build --release"}`,
+			"additionalData": map[string]any{"status": "error"},
+		},
+	})
+	// Finished the call, failed the work. The disagreement resolves to error.
+	put(fmt.Sprintf("bubbleId:%s:b7", id), map[string]any{
+		"type": 2,
+		"toolFormerData": map[string]any{
+			"name":           "run_terminal_cmd",
+			"status":         "completed",
+			"rawArgs":        `{"command": "npm run lint"}`,
+			"additionalData": map[string]any{"status": "error"},
 		},
 	})
 	return dir
@@ -223,8 +245,8 @@ func TestACursorToolCallIsReadAsAToolTurn(t *testing.T) {
 			tools = append(tools, turn)
 		}
 	}
-	if len(tools) != 4 {
-		t.Fatalf("tool turns = %d, want 4: %+v", len(tools), s.Turns)
+	if len(tools) != 6 {
+		t.Fatalf("tool turns = %d, want 6: %+v", len(tools), s.Turns)
 	}
 	// The command comes from params where both spellings carry it.
 	if tools[0].Tool != "run_terminal_cmd" || tools[0].Input != "mv .venv/lib/fleetbuilder.py ." {
@@ -300,4 +322,38 @@ func TestACursorToolCallWithNoRecordedOutcomeIsNotReportedAsFailed(t *testing.T)
 		}
 	}
 	t.Fatal("the status-less tool call was not read at all")
+}
+
+// Cursor records a tool call's outcome in two places and neither is complete:
+// on a real machine 1585 calls have no top-level status and an additionalData
+// of "error", while 3189 have "completed" and no additionalData at all. Reading
+// one field alone loses a quarter of the history to "unknown" or reports work
+// that failed as work that succeeded.
+func TestACursorToolCallsOutcomeIsReadFromBothPlacesCursorRecordsIt(t *testing.T) {
+	t.Setenv(transcript.LogosCursorStorageEnv, cursorStorageWithTools(t))
+
+	paths, err := transcript.Sessions("cursor")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	s, err := transcript.ReadFile("cursor", paths[0])
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := map[string]string{}
+	for _, turn := range s.Turns {
+		if turn.Role == "tool" {
+			got[turn.Input] = turn.Status
+		}
+	}
+	for _, c := range []struct{ input, want, why string }{
+		{"cargo build --release", "error", "the outcome was only in additionalData"},
+		{"npm run lint", "error", "the call completed but the work in it failed"},
+		{"go test ./...", "", "nothing anywhere recorded an outcome"},
+		{"mv .venv/lib/fleetbuilder.py .", "ok", "a plain completed call still reads ok"},
+	} {
+		if got[c.input] != c.want {
+			t.Errorf("%q: status %q, want %q — %s", c.input, got[c.input], c.want, c.why)
+		}
+	}
 }

@@ -170,6 +170,13 @@ type cursorTool struct {
 	RawArgs string `json:"rawArgs"`
 	Params  string `json:"params"`
 	Error   string `json:"error"`
+	// Additional carries the outcome for every call that has no top-level
+	// status — a quarter of them. See outcome.
+	Additional *cursorToolExtra `json:"additionalData"`
+}
+
+type cursorToolExtra struct {
+	Status string `json:"status"`
 }
 
 // cursorToolArgs is the union of the argument shapes the tools we can attribute
@@ -209,27 +216,43 @@ func (t *cursorTool) turn() Turn {
 // reads: "ok", "error", and "" for genuinely unknown — the same three
 // codexStatus produces.
 //
-// The empty case is the one that matters. 1585 of the 5827 tool calls in a real
-// chat database carry no status, no result and no error field at all, and
-// nothing records what became of them. Calling that "error" is not a
-// conservative default: harvest marks an errored command "— failed", and
-// "failed" is the field the next agent trusts most, so it would file 27% of
-// this machine's Cursor history as approaches that were tried and ruled out
-// when they were never even observed. Unknown has to stay unknown.
+// Cursor records the outcome in two places and neither is complete. Counted
+// over a real chat database: 1585 calls carry no top-level status at all and
+// every one of them has additionalData.status "error", while 3189 have a
+// top-level "completed" and no additionalData. Reading only the top-level field
+// loses 27% of the history to "unknown"; reading only additionalData loses more
+// than half.
+//
+// A failure recorded in either field wins, which is what the disagreements
+// need: 92 calls are top-level "completed" with additionalData "error" — the
+// call finished, the work in it did not. Treating those as successes would put
+// them in front of the next agent as things that worked.
+//
+// Unknown stays unknown rather than defaulting to error. harvest marks an
+// errored command "— failed", and failed is the field the next agent trusts
+// most, so guessing there files approaches as ruled out that nothing ever
+// observed.
 func (t *cursorTool) outcome() string {
-	if t.Error != "" {
+	extra := ""
+	if t.Additional != nil {
+		extra = t.Additional.Status
+	}
+	if t.Error != "" || isCursorFailure(t.Status) || isCursorFailure(extra) {
 		return "error"
 	}
-	switch t.Status {
-	case "completed":
+	if t.Status == "completed" || extra == "success" {
 		return "ok"
-	// Cancelled is a real negative outcome — the user stopped it — and matches
-	// the "incomplete" codexStatus already treats as an error. "loading" is a
-	// call still in flight when the chat was written, which is not an outcome.
-	case "error", "cancelled":
-		return "error"
 	}
+	// "loading" and "pending" are calls still in flight when the chat was
+	// written, which is not an outcome.
 	return ""
+}
+
+// isCursorFailure names the statuses that mean the work did not land. Cancelled
+// counts: the user stopped it, so it is the "incomplete" codexStatus already
+// reads as an error rather than something that ran.
+func isCursorFailure(status string) bool {
+	return status == "error" || status == "cancelled"
 }
 
 func (r cursorReader) read(path string) (*Session, error) {
