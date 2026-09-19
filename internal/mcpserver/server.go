@@ -183,7 +183,7 @@ type Session struct {
 	// checkpointed, nudgedFor holds the projects already warned about, and
 	// offered is the project of a nudge composed but not yet known to have
 	// reached the host. See nudge.go.
-	notes     map[string]int
+	work      map[string]int
 	nudgedFor map[string]bool
 	offered   string
 
@@ -676,8 +676,15 @@ func (s *Session) readResourceCall(req request) *response {
 func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	switch name {
 	case "remember":
-		return s.remember(argStr(args, "text"), argStr(args, "kind"),
+		out, err := s.remember(argStr(args, "text"), argStr(args, "kind"),
 			argStr(args, "project"), argBool(args, "global", false))
+		// A fact written down is work happening here, and it counts towards the
+		// unsaved-work line the same way a note does. Only on success: a
+		// refused memory recorded nothing.
+		if err == nil {
+			s.recordedWork(s.resolveScope(argStr(args, "project")))
+		}
+		return out, err
 	case "recall":
 		return s.recall(argStr(args, "query"), argInt(args, "limit", 5),
 			argStr(args, "project"), argBool(args, "all_projects", false))
@@ -713,7 +720,15 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// the vault on purpose, and the project only labels which rulings came
 		// from elsewhere. Scoping it to the current folder would suppress the
 		// cross-project warnings that are the whole reason it exists.
-		return s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+		// Counted under the current folder even though the search above is
+		// deliberately unscoped: what is being counted is that this agent is
+		// about to change something here, which is the point a session starts
+		// being worth saving.
+		if err == nil {
+			s.recordedWork(s.resolveScope(argStr(args, "project")))
+		}
+		return out, err
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
@@ -723,7 +738,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		project := s.resolveScope(argStr(args, "project"))
 		out, err := s.noteProgress(project, s.agentFor(args), argStr(args, "text"))
 		if err == nil {
-			s.notedProgress(project)
+			s.recordedWork(project)
 		}
 		return out, err
 	case "checkpoint":
