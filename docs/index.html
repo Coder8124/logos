@@ -3,44 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Logos</title>
+<title>Logos &mdash; Your memory. Any agent.</title>
 <meta name="description" content="Continuity for AI coding agents. One vault of markdown you own; Claude Code, Cursor and Codex are all clients of it.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400&display=swap">
 <style>
 /* ── Tokens ────────────────────────────────────────────────────────────────
-   Patina on stone, in OKLCH.
+   Five fixed colours, at the share of the page each is meant to carry:
+   burgundy 45%, parchment 30%, brass 10%, charcoal 10%, muted burgundy 5%.
 
-   OKLCH rather than hex because the dark theme is the same palette at a
-   different lightness — chroma and hue are held, only L moves. In hex that is
-   guesswork that drifts; here it is one number per token, and the accent keeps
-   the same identity on both grounds instead of becoming a different green.
+   Burgundy is a surface here, not an accent. It grounds the masthead, the
+   hero, the handoff, the install band and the close; parchment carries the
+   sections you read at length. That alternation is what produces the ratio.
 
-   Every ink/accent below clears WCAG AA (4.5:1) against both the ground and the
-   raised surface, in both themes. The tightest is --ink-3 on light at 4.67.
+   The contrast floors decide the rest, and two of them are strict:
+   brass on parchment is 2.40:1, so gold is never a word you have to read on
+   a light band; charcoal on burgundy is 1.04:1, so those two never touch.
+   Brass reads at 5.40 on burgundy and 5.64 on charcoal, which is where all
+   gold type lives. On parchment, muted burgundy does that job at 9.00.
 
-   Verdigris is the one cool note and marks the live thing — a link, a package
-   name, the current answer. Brass is the one warm note and marks the record —
-   the vault, the checkpoint, the thing that survives. They are never used for
-   decoration and never mixed in the same element. */
+   One committed look. The palette is fixed hex, and a dark variant would be
+   five more values nobody has chosen yet. */
 :root {
-  --stone:   oklch(96.5% 0.006 150);
-  --paper:   oklch(99%   0.004 150);
-  --sunk:    oklch(93.5% 0.009 150);
-  --ink:     oklch(21%   0.015 175);
-  --ink-2:   oklch(47.5% 0.015 175);
-  --ink-3:   oklch(51.3% 0.013 175);
-  --rule:    oklch(87.5% 0.011 160);
-  --rule-2:  oklch(92.5% 0.008 160);
-  --patina:  oklch(47.5% 0.095 180);
-  --brass:   oklch(51.5% 0.098 75);
-  --wash:    oklch(47.5% 0.095 180 / .07);
-  --wash-2:  oklch(51.5% 0.098 75 / .09);
-  --on-ink:  oklch(99%   0.004 150);
+  --burgundy:  #4A0E1A;
+  --parchment: #F3EBDD;
+  --brass:     #B89452;
+  --charcoal:  #24211F;
+  --muted:     #6B2737;
 
-  --lift-1: 0 1px 0 var(--rule-2);
-  --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px oklch(21% .015 175 / .5);
+  /* Derived only by lightening or darkening a named colour. No sixth hue. */
+  --burgundy-lift: #5C1826;   /* raised edges and bars on burgundy */
+  --paper:         #FBF6EE;   /* cards on parchment */
+  --parchment-sunk:#E7DCCA;   /* wells, table heads, inert bars */
+  --rule-light:    #D5C7B2;
+  --charcoal-deep: #1A1816;   /* window title bars */
+
+  /* Inks. Dim tones are the ground mixed toward its own type colour. */
+  --on-burgundy:    #F3EBDD;
+  --on-burgundy-2:  #D9C9B4;
+  --on-burgundy-3:  #B79E86;
+  --on-parchment:   #24211F;
+  --on-parchment-2: #4E4741;
+  --on-parchment-3: #6E6459;
+  --on-charcoal-2:  #C7BFB5;
+  --on-charcoal-3:  #9C948A;
 
   --f-display: "IBM Plex Sans Condensed", "Helvetica Neue Condensed", Impact, sans-serif;
   --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
@@ -48,46 +55,7 @@
   --f-voice: "Newsreader", "Iowan Old Style", Georgia, serif;
 
   --radius: 8px;
-  --measure: 60ch;
   --ease: cubic-bezier(.2, .8, .2, 1);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --stone:   oklch(17.5% 0.011 175);
-    --paper:   oklch(21.5% 0.011 175);
-    --sunk:    oklch(24.5% 0.011 175);
-    --ink:     oklch(94.5% 0.008 160);
-    --ink-2:   oklch(71.5% 0.017 170);
-    --ink-3:   oklch(64.5% 0.016 170);
-    --rule:    oklch(32.5% 0.014 175);
-    --rule-2:  oklch(27.5% 0.013 175);
-    --patina:  oklch(79%   0.120 180);
-    --brass:   oklch(80%   0.100 80);
-    --wash:    oklch(79% 0.12 180 / .10);
-    --wash-2:  oklch(80% 0.10 80 / .12);
-    --on-ink:  oklch(17.5% 0.011 175);
-    --lift-1: 0 1px 0 var(--rule-2);
-    --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px #000;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --stone:   oklch(17.5% 0.011 175);
-  --paper:   oklch(21.5% 0.011 175);
-  --sunk:    oklch(24.5% 0.011 175);
-  --ink:     oklch(94.5% 0.008 160);
-  --ink-2:   oklch(71.5% 0.017 170);
-  --ink-3:   oklch(64.5% 0.016 170);
-  --rule:    oklch(32.5% 0.014 175);
-  --rule-2:  oklch(27.5% 0.013 175);
-  --patina:  oklch(79%   0.120 180);
-  --brass:   oklch(80%   0.100 80);
-  --wash:    oklch(79% 0.12 180 / .10);
-  --wash-2:  oklch(80% 0.10 80 / .12);
-  --on-ink:  oklch(17.5% 0.011 175);
-  --lift-1: 0 1px 0 var(--rule-2);
-  --lift-2: 0 1px 0 var(--rule-2), 0 18px 40px -28px #000;
   color-scheme: dark;
 }
 
@@ -95,409 +63,322 @@
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 4.5rem; }
 body {
   margin: 0;
-  background: var(--stone);
-  color: var(--ink);
+  background: var(--burgundy);
+  color: var(--on-burgundy);
   font-family: var(--f-body);
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 img { max-width: 100%; }
-a { color: var(--patina); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:focus-visible, button:focus-visible {
-  outline: 2px solid var(--patina);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-::selection { background: var(--wash); }
-
 h1, h2, h3 { text-wrap: balance; margin: 0; }
-p { margin: 0 0 .9rem; color: var(--ink-2); }
+p { margin: 0 0 .9rem; }
 p:last-child { margin-bottom: 0; }
-strong { color: var(--ink); font-weight: 600; }
 code { font-family: var(--f-mono); font-size: .86em; }
-p code, li code, td code {
-  white-space: nowrap;
-  background: var(--wash);
-  color: var(--ink);
-  padding: .1em .36em;
-  border-radius: 3px;
-}
 
-/* ── Frame ─────────────────────────────────────────────────────────────────
-   Sections are short and centred on their heading, and each says one thing.
-   The long-form argument lives in the docs the page links to; a landing page
-   that tries to be the whole manual gets skimmed as neither. */
+/* ── Bands ─────────────────────────────────────────────────────────────────
+   Every section declares which of the two grounds it is on, and every colour
+   inside it comes from that ground's ink set. Nothing takes a colour that
+   only resolves on the other band. */
+.band { padding-block: 4.5rem; }
+.band.light { background: var(--parchment); color: var(--on-parchment); }
+.band.dark  { background: var(--burgundy);  color: var(--on-burgundy); }
 .wrap { max-width: 68rem; margin: 0 auto; padding-inline: 1.5rem; }
-section { padding-block: 4.5rem 0; }
-.head { text-align: center; max-width: 40rem; margin: 0 auto 2.25rem; }
+
+.light p { color: var(--on-parchment-2); }
+.dark  p { color: var(--on-burgundy-2); }
+.light strong { color: var(--on-parchment); font-weight: 600; }
+.dark  strong { color: var(--on-burgundy); font-weight: 600; }
+.light a { color: var(--muted); text-underline-offset: 3px; }
+.dark  a { color: var(--brass); text-underline-offset: 3px; }
+
+.head { text-align: center; max-width: 42rem; margin: 0 auto 2.25rem; }
 .eyebrow {
-  display: inline-block;
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  font-weight: 500;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  margin-bottom: .7rem;
+  display: inline-block; font-family: var(--f-mono); font-size: .6875rem;
+  font-weight: 500; letter-spacing: .14em; text-transform: uppercase; margin-bottom: .7rem;
 }
+/* Gold labels only where gold is readable. On parchment the label is muted
+   burgundy, which clears 9:1 where brass would sit at 2.40. */
+.dark .eyebrow  { color: var(--brass); }
+.light .eyebrow { color: var(--muted); }
 h2 {
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: clamp(1.7rem, 3.4vw, 2.35rem);
-  line-height: 1.1;
-  letter-spacing: -.01em;
-  margin-bottom: .7rem;
+  font-family: var(--f-display); font-weight: 600;
+  font-size: clamp(1.7rem, 3.4vw, 2.35rem); line-height: 1.1;
+  letter-spacing: -.01em; margin-bottom: .7rem;
 }
 h3 { font-size: .9375rem; font-weight: 600; margin-bottom: .3rem; }
 .head p { font-size: 1rem; }
+.note { font-size: .8125rem; max-width: 62ch; margin-top: .8rem; }
+.light .note { color: var(--on-parchment-3); }
+.dark  .note { color: var(--on-burgundy-3); }
+.note code { white-space: nowrap; }
+.dark .note code { color: var(--brass); }
+.light .note code { color: var(--muted); }
+
+a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 3px; }
+::selection { background: var(--muted); color: var(--parchment); }
 
 /* ── Masthead ──────────────────────────────────────────────────────────── */
 .masthead {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: color-mix(in oklch, var(--stone) 86%, transparent);
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(74, 14, 26, .88);
   backdrop-filter: saturate(1.4) blur(10px);
   -webkit-backdrop-filter: saturate(1.4) blur(10px);
-  border-bottom: 1px solid var(--rule-2);
+  border-bottom: 1px solid var(--burgundy-lift);
+  box-shadow: inset 0 2px 0 var(--brass);
 }
-.masthead .wrap {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  height: 3.5rem;
-}
+.masthead .wrap { display: flex; align-items: center; gap: 1.5rem; height: 3.5rem; }
 .wordmark {
-  font-family: var(--f-display);
-  font-weight: 700;
-  font-size: 1.3rem;
-  letter-spacing: .01em;
-  line-height: 1;
-  color: var(--ink);
-  text-decoration: none;
-  margin-right: auto;
+  font-family: var(--f-display); font-weight: 700; font-size: 1.3rem;
+  letter-spacing: .01em; line-height: 1; color: var(--on-burgundy);
+  text-decoration: none; margin-right: auto;
 }
+/* The mark itself is the 10%: one gold dot, the only logo element there is. */
 .wordmark::after {
-  content: "";
-  display: inline-block;
-  width: .3rem; height: .3rem;
-  margin-left: .35rem;
-  border-radius: 50%;
-  background: var(--brass);
-  vertical-align: .1em;
+  content: ""; display: inline-block; width: .32rem; height: .32rem;
+  margin-left: .35rem; border-radius: 50%; background: var(--brass); vertical-align: .12em;
 }
 .masthead nav { display: flex; align-items: center; gap: 1.4rem; font-size: .875rem; }
-.masthead nav a { color: var(--ink-2); text-decoration: none; transition: color .16s var(--ease); }
-.masthead nav a:hover { color: var(--ink); }
+.masthead nav a { color: var(--on-burgundy-2); text-decoration: none; transition: color .16s var(--ease); }
+.masthead nav a:hover { color: var(--brass); }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 .btns { display: flex; flex-wrap: wrap; gap: .6rem; }
 .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: .45rem;
-  padding: .55rem 1rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink);
-  font-size: .875rem;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: border-color .16s var(--ease), background .16s var(--ease), transform .16s var(--ease);
+  display: inline-flex; align-items: center; gap: .45rem;
+  padding: .55rem 1.05rem; border-radius: 999px; border: 1px solid transparent;
+  font-size: .875rem; font-weight: 500; text-decoration: none; white-space: nowrap;
+  transition: background .16s var(--ease), color .16s var(--ease), border-color .16s var(--ease), transform .16s var(--ease);
 }
-.btn:hover { border-color: var(--ink-3); transform: translateY(-1px); }
-.btn.solid { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
-.btn.solid:hover { background: var(--patina); border-color: var(--patina); }
+.btn:hover { transform: translateY(-1px); }
+/* On burgundy the solid button is brass — the one place gold is a surface. */
+.dark .btn.solid { background: var(--brass); color: var(--burgundy); font-weight: 600; }
+.dark .btn.solid:hover { background: #C9A765; }
+.dark .btn.ghost { color: var(--brass); border-color: var(--brass); }
+.dark .btn.ghost:hover { background: var(--muted); border-color: var(--muted); color: var(--parchment); }
+.light .btn.solid { background: var(--burgundy); color: var(--parchment); font-weight: 600; }
+.light .btn.solid:hover { background: var(--muted); }
+.light .btn.ghost { color: var(--on-parchment); border-color: var(--rule-light); background: var(--paper); }
+.light .btn.ghost:hover { border-color: var(--muted); color: var(--muted); }
 .masthead .btn { padding: .38rem .85rem; font-size: .8125rem; }
 
 /* ── Hero ──────────────────────────────────────────────────────────────────
    Two words at the largest size the page ever uses, and the one italic serif
    word is the only warm voice on the page — spent once. */
-.hero { text-align: center; padding-block: 5rem 0; }
-.hero .eyebrow a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--rule); }
+.hero { text-align: center; padding-block: 5rem 4.5rem; }
+.hero .eyebrow { color: var(--on-burgundy-3); }
+.hero .eyebrow a { color: var(--brass); text-decoration: none; border-bottom: 1px solid var(--burgundy-lift); }
 .hero h1 {
-  font-family: var(--f-display);
-  font-weight: 700;
-  font-size: clamp(2.9rem, 8.5vw, 5.4rem);
-  line-height: .95;
-  letter-spacing: -.025em;
-  margin: 0 auto 1.25rem;
+  font-family: var(--f-display); font-weight: 700;
+  font-size: clamp(2.9rem, 8.5vw, 5.4rem); line-height: .95;
+  letter-spacing: -.025em; margin: 0 auto 1.25rem; color: var(--on-burgundy);
 }
 .hero h1 em {
-  font-family: var(--f-voice);
-  font-weight: 400;
-  font-style: italic;
-  letter-spacing: -.01em;
-  color: var(--patina);
+  font-family: var(--f-voice); font-weight: 400; font-style: italic;
+  letter-spacing: -.01em; color: var(--brass);
 }
-.hero .sub { max-width: 46ch; margin: 0 auto 2rem; font-size: 1.0625rem; }
+.hero .sub { max-width: 46ch; margin: 0 auto 2rem; font-size: 1.0625rem; color: var(--on-burgundy-2); }
 .hero .cmd { max-width: 32rem; margin: 0 auto; text-align: left; }
-.hero .btns { justify-content: center; margin-top: 1rem; }
-.hero .note { margin: .9rem auto 0; text-align: center; }
-
-/* ── Command blocks ────────────────────────────────────────────────────── */
-.cmd {
-  display: flex;
-  align-items: stretch;
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  box-shadow: var(--lift-1);
-  overflow: hidden;
-}
-.cmd pre {
-  margin: 0;
-  padding: .8rem 1rem;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  font-family: var(--f-mono);
-  font-size: .8125rem;
-  line-height: 1.7;
-  color: var(--ink);
-}
-.cmd.primary pre { font-size: .9375rem; padding: .95rem 1.15rem; }
-.cmd .prompt { color: var(--ink-3); user-select: none; }
-.cmd .flag { color: var(--ink-2); }
-.cmd .pkg { color: var(--patina); font-weight: 500; }
-.copy {
-  flex: none;
-  border: 0;
-  border-left: 1px solid var(--rule);
-  background: transparent;
-  color: var(--ink-2);
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  font-weight: 500;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  padding: 0 1rem;
-  cursor: pointer;
-  transition: background .16s var(--ease), color .16s var(--ease);
-}
-.copy:hover { background: var(--wash); color: var(--patina); }
-.copy[data-state="done"] { color: var(--patina); }
-.note { font-size: .8125rem; color: var(--ink-3); margin-top: .8rem; max-width: 62ch; }
-.note strong { color: var(--ink-2); }
-
-/* ── Window ────────────────────────────────────────────────────────────────
-   Terminal output copied from a real run, not retyped: a page that mocks up its
-   own product's output is advertising, and this project's argument is the
-   difference between measured and claimed. */
-.window {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  background: var(--paper);
-  box-shadow: var(--lift-2);
-  overflow: hidden;
-  min-width: 0;
-  text-align: left;
-}
-.window .bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .3rem 1rem;
-  padding: .55rem .95rem;
-  background: var(--sunk);
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.window .bar b { color: var(--ink-2); font-weight: 500; }
-.window .bar .side { margin-left: auto; letter-spacing: .03em; text-transform: none; }
-.window.record .bar { background: var(--wash-2); }
-.window pre {
-  margin: 0;
-  padding: .95rem 1.1rem 1.05rem;
-  overflow-x: auto;
-  font-family: var(--f-mono);
-  font-size: .78rem;
-  line-height: 1.7;
-  color: var(--ink);
-}
-.window .g   { color: var(--ink-3); }
-.window .ok  { color: var(--patina); font-weight: 500; }
-.window .br  { color: var(--brass); }
-.window .say { color: var(--ink-2); }
-.window .del { color: var(--ink-3); text-decoration: line-through; }
+.hero .btns { justify-content: center; margin-top: 1.1rem; }
+.hero .note { margin-inline: auto; text-align: center; }
 .hero .window { max-width: 52rem; margin: 3.5rem auto 0; }
 
-/* ── Hosts ─────────────────────────────────────────────────────────────── */
-.hosts { text-align: center; padding-block: 3rem 0; }
-.hosts ul {
-  list-style: none;
-  margin: .9rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: .5rem 2.2rem;
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: 1.15rem;
-  color: var(--ink-2);
+/* ── Command blocks ────────────────────────────────────────────────────────
+   Charcoal, on both grounds. It is the one neutral surface in the system, and
+   a terminal that changes colour with the band behind it stops reading as a
+   terminal. On burgundy it needs the brass hairline to have an edge at all. */
+.cmd {
+  display: flex; align-items: stretch; background: var(--charcoal);
+  border-radius: var(--radius); overflow: hidden;
 }
-.hosts li.open { color: var(--ink-3); font-weight: 500; font-style: italic; }
+.dark .cmd { box-shadow: 0 0 0 1px var(--burgundy-lift); }
+.light .cmd { box-shadow: 0 0 0 1px var(--rule-light); }
+.cmd.primary { box-shadow: 0 0 0 1px var(--brass); }
+.cmd pre {
+  margin: 0; padding: .8rem 1rem; flex: 1; min-width: 0; overflow-x: auto;
+  font-family: var(--f-mono); font-size: .8125rem; line-height: 1.7; color: var(--parchment);
+}
+.cmd.primary pre { font-size: .9375rem; padding: .95rem 1.15rem; }
+.cmd .prompt { color: var(--brass); user-select: none; }
+.cmd .flag { color: var(--on-charcoal-3); }
+.cmd .pkg { color: var(--brass); font-weight: 500; }
+.copy {
+  flex: none; border: 0; border-left: 1px solid #3A3532; background: transparent;
+  color: var(--on-charcoal-3); font-family: var(--f-mono); font-size: .6875rem;
+  font-weight: 500; letter-spacing: .1em; text-transform: uppercase;
+  padding: 0 1rem; cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.copy:hover { background: var(--muted); color: var(--parchment); }
+.copy[data-state="done"] { color: var(--brass); }
+
+/* ── Window ────────────────────────────────────────────────────────────────
+   Terminal output copied from a real run, not retyped: a page that mocks up
+   its own product's output is advertising, and this project's argument is the
+   difference between measured and claimed. */
+.window {
+  border-radius: var(--radius); background: var(--charcoal);
+  overflow: hidden; min-width: 0; text-align: left;
+}
+.dark .window { box-shadow: 0 0 0 1px var(--burgundy-lift), 0 22px 44px -30px #000; }
+.light .window { box-shadow: 0 0 0 1px var(--rule-light), 0 22px 44px -30px rgba(36,33,31,.55); }
+.window .bar {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem 1rem;
+  padding: .55rem .95rem; background: var(--charcoal-deep);
+  border-bottom: 1px solid #3A3532;
+  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--on-charcoal-3);
+}
+.window .bar b { color: var(--on-charcoal-2); font-weight: 500; }
+.window .bar .side { margin-left: auto; letter-spacing: .03em; text-transform: none; }
+/* The record — a checkpoint, the vault — wears the gold edge. The live thing
+   does not; that distinction is the only thing gold is asked to carry. */
+.window.record .bar { border-bottom-color: var(--brass); color: var(--brass); }
+.window.record .bar b { color: var(--brass); }
+.window pre {
+  margin: 0; padding: .95rem 1.1rem 1.05rem; overflow-x: auto;
+  font-family: var(--f-mono); font-size: .78rem; line-height: 1.7; color: var(--parchment);
+}
+.window .g   { color: var(--on-charcoal-3); }
+.window .ok  { color: var(--brass); font-weight: 500; }
+.window .br  { color: var(--brass); }
+.window .say { color: var(--on-charcoal-2); }
+.window .del { color: var(--on-charcoal-3); text-decoration: line-through; }
+
+/* ── Hosts ─────────────────────────────────────────────────────────────── */
+.hosts { text-align: center; padding-block: 0 4.5rem; }
+.hosts ul {
+  list-style: none; margin: .9rem 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 2.2rem;
+  font-family: var(--f-display); font-weight: 600; font-size: 1.15rem; color: var(--on-burgundy-2);
+}
+.hosts li.open { color: var(--on-burgundy-3); font-weight: 500; font-style: italic; }
 .hosts .note { margin-inline: auto; }
 
 /* ── Cards ─────────────────────────────────────────────────────────────── */
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .card {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  background: var(--paper);
-  padding: 1.3rem 1.3rem 1.2rem;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+  border: 1px solid var(--rule-light); border-radius: var(--radius);
+  background: var(--paper); padding: 1.3rem; min-width: 0;
+  display: flex; flex-direction: column;
 }
 .card .k {
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--patina);
-  margin-bottom: .55rem;
+  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: .55rem;
 }
-.card.record .k { color: var(--brass); }
+/* Two of the six are about the record rather than the live thing, and they
+   are the two the gold edge marks. */
+.card.record { border-top: 2px solid var(--brass); }
 .card p { font-size: .875rem; margin-bottom: .8rem; }
 .card code.line {
-  display: block;
-  margin-top: auto;
-  padding: .5rem .7rem;
-  background: var(--sunk);
-  border-radius: 5px;
-  font-size: .75rem;
-  color: var(--ink-2);
-  overflow-x: auto;
-  white-space: nowrap;
+  display: block; margin-top: auto; padding: .5rem .7rem;
+  background: var(--parchment-sunk); border-radius: 5px; font-size: .75rem;
+  color: var(--on-parchment-2); overflow-x: auto; white-space: nowrap;
 }
 
-/* ── Split ─────────────────────────────────────────────────────────────── */
+/* ── Split and pull ────────────────────────────────────────────────────── */
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .pull {
-  font-family: var(--f-voice);
-  font-style: italic;
-  font-size: 1.2rem;
-  line-height: 1.45;
-  color: var(--ink);
-  max-width: 48ch;
-  margin: 1.8rem auto 0;
-  text-align: center;
+  font-family: var(--f-voice); font-style: italic; font-size: 1.2rem; line-height: 1.45;
+  color: var(--on-burgundy); max-width: 48ch; margin: 2.4rem auto 0;
+  text-align: center; padding-top: 1.6rem; position: relative;
+}
+.pull::before {
+  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 3.5rem; height: 2px; background: var(--brass);
 }
 
-/* ── Tables ────────────────────────────────────────────────────────────── */
-.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); }
+/* ── Benchmark ─────────────────────────────────────────────────────────── */
+.proof-run { max-width: 36rem; margin: 0 auto; text-align: left; }
+.proof-run-note { max-width: 36rem; margin-inline: auto; text-align: center; margin-bottom: 1.8rem; }
+.stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem;
+  max-width: 50rem; margin: 0 auto 1.25rem; text-align: center;
+}
+/* The three figures are the measured record, so they are gold — but gold is
+   unreadable on parchment, so the tile goes charcoal to carry them. */
+.stats div { background: var(--charcoal); border-radius: var(--radius); padding: 1.05rem .75rem; }
+.stats b {
+  display: block; font-family: var(--f-display); font-size: 1.9rem; font-weight: 600;
+  line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--brass);
+}
+.stats span { font-size: .8125rem; color: var(--on-charcoal-2); }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule-light); border-radius: var(--radius); background: var(--paper); }
 table { border-collapse: collapse; width: 100%; font-size: .8125rem; }
-th, td { text-align: left; padding: .5rem .85rem; border-bottom: 1px solid var(--rule-2); }
+th, td { text-align: left; padding: .5rem .85rem; border-bottom: 1px solid #E2D6C2; color: var(--on-parchment-2); }
 thead th {
-  font-family: var(--f-mono);
-  font-size: .6875rem;
-  font-weight: 500;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  background: var(--sunk);
-  border-bottom-color: var(--rule);
+  font-family: var(--f-mono); font-size: .6875rem; font-weight: 500; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--on-parchment-3);
+  background: var(--parchment-sunk); border-bottom: 2px solid var(--brass);
 }
 tbody tr:last-child td { border-bottom: 0; }
-td { color: var(--ink-2); }
-td:first-child { color: var(--ink); }
+td:first-child { color: var(--on-parchment); }
 .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* A bar per row, because the interesting number is a gap and a gap is easier to
-   see than to read. Patina marks the live thing everywhere else on this page,
-   so here it marks this project's row, not "wins". */
+/* A bar per row, because the interesting number is a gap and a gap is easier
+   to see than to read. Burgundy marks this project's row: on parchment it is
+   the colour that reads as live, where brass would be ornament at 2.40. */
 .bench { max-width: 50rem; margin: 0 auto; }
 .bench td.bar { width: 42%; padding-right: 1.2rem; }
-.bench .track { display: block; height: .45rem; background: var(--sunk); border-radius: 99px; overflow: hidden; }
-.bench .fill { display: block; height: 100%; background: var(--ink-3); border-radius: 99px; }
-.bench tr.us td { color: var(--ink); }
+.bench .track { display: block; height: .45rem; background: var(--parchment-sunk); border-radius: 99px; overflow: hidden; }
+.bench .fill { display: block; height: 100%; background: #BCAE9B; border-radius: 99px; }
+.bench tr.us td { color: var(--on-parchment); }
 .bench tr.us td:first-child { font-weight: 600; }
-.bench tr.us .fill { background: var(--patina); }
-.bench tr.us .track { background: var(--wash); }
-.bench-notes { max-width: 50rem; margin: .9rem auto 0; }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  max-width: 50rem;
-  margin: 0 auto 1.25rem;
-  text-align: center;
-}
-.stats div { border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); padding: 1rem .75rem; }
-.stats b {
-  display: block;
-  font-family: var(--f-display);
-  font-size: 1.9rem;
-  font-weight: 600;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-.stats span { font-size: .8125rem; color: var(--ink-3); }
+.bench tr.us .fill { background: var(--burgundy); }
+.bench-notes { max-width: 50rem; margin-inline: auto; }
 
-/* ── Install tabs ──────────────────────────────────────────────────────────
+/* ── Install ───────────────────────────────────────────────────────────────
    Six ways to install one thing are alternatives, not steps, so they share one
    box and a person sees only the one they picked. Without script every panel
    stays visible, stacked, which is still a complete install page. */
-.install { max-width: 50rem; margin: 0 auto; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); box-shadow: var(--lift-2); overflow: hidden; }
-.tabs {
-  display: flex;
-  overflow-x: auto;
-  background: var(--sunk);
-  border-bottom: 1px solid var(--rule);
-  scrollbar-width: none;
+.install {
+  max-width: 50rem; margin: 0 auto; border-radius: var(--radius);
+  background: var(--paper); color: var(--on-parchment);
+  box-shadow: 0 0 0 1px var(--brass), 0 24px 50px -34px #000; overflow: hidden;
 }
+.install p { color: var(--on-parchment-2); }
+.install .note { color: var(--on-parchment-3); }
+.install .note code, .install p code { color: var(--muted); white-space: nowrap; }
+.install a { color: var(--muted); }
+.tabs { display: flex; overflow-x: auto; background: var(--parchment-sunk); border-bottom: 1px solid var(--rule-light); scrollbar-width: none; }
 .tabs button {
-  flex: none;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  padding: .7rem 1rem .6rem;
-  font: 500 .8125rem var(--f-body);
-  color: var(--ink-3);
-  cursor: pointer;
-  white-space: nowrap;
+  flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent;
+  padding: .7rem 1rem .6rem; font: 500 .8125rem var(--f-body);
+  color: var(--on-parchment-3); cursor: pointer; white-space: nowrap;
 }
-.tabs button:hover { color: var(--ink); }
-.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--patina); background: var(--paper); }
+.tabs button:hover { color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--on-parchment); border-bottom-color: var(--burgundy); background: var(--paper); }
 .no-js .tabs { display: none; }
 .panel { padding: 1.3rem 1.3rem 1.4rem; }
-.no-js .panel + .panel { border-top: 1px solid var(--rule); }
-.panel > p { font-size: .875rem; max-width: var(--measure); }
+.no-js .panel + .panel { border-top: 1px solid var(--rule-light); }
+.panel > p { font-size: .875rem; max-width: 60ch; }
 .panel .steps { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .55rem; }
 .panel .steps > li { min-width: 0; }
 .panel .tablewrap { margin-top: .9rem; }
-.panel .cmd { margin-top: .9rem; }
+.panel .cmd { margin-top: .9rem; box-shadow: 0 0 0 1px var(--rule-light); }
 .panel .steps .cmd { margin-top: 0; }
+.panel .btns { margin-top: .9rem; }
 
 /* ── Facts ─────────────────────────────────────────────────────────────── */
 .facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.4rem 2rem; }
-.facts li { font-size: .875rem; color: var(--ink-2); padding-top: .9rem; border-top: 1px solid var(--rule); }
-.facts strong { display: block; margin-bottom: .2rem; font-size: .9375rem; }
+.facts li { font-size: .875rem; color: var(--on-parchment-2); padding-top: .9rem; border-top: 2px solid var(--brass); }
+.facts strong { display: block; margin-bottom: .2rem; font-size: .9375rem; color: var(--on-parchment); }
+.facts code { color: var(--muted); }
 
 /* ── Closing ───────────────────────────────────────────────────────────── */
-.closing { text-align: center; padding-block: 5.5rem 1rem; }
-.closing .cmd { max-width: 32rem; margin: 1.4rem auto 0; text-align: left; }
+.closing { text-align: center; padding-block: 5.5rem; }
+.closing h2 { color: var(--on-burgundy); }
+.closing .cmd { max-width: 32rem; margin: 1.6rem auto 0; text-align: left; }
 
 footer {
-  margin-top: 4rem;
-  border-top: 1px solid var(--rule);
+  border-top: 2px solid var(--brass);
   padding-block: 1.4rem 2.5rem;
-  font-family: var(--f-mono);
-  font-size: .75rem;
-  color: var(--ink-3);
+  font-family: var(--f-mono); font-size: .75rem; color: var(--on-burgundy-3);
 }
 footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; }
-footer a { color: var(--ink-3); text-decoration-color: var(--rule); }
-footer a:hover { color: var(--patina); }
+footer a { color: var(--on-burgundy-3); text-decoration-color: var(--burgundy-lift); }
+footer a:hover { color: var(--brass); }
 footer .sp { margin-left: auto; }
 
 /* ── Motion ────────────────────────────────────────────────────────────────
@@ -509,10 +390,7 @@ footer .sp { margin-left: auto; }
 .hero .sub     { animation-delay: .12s; }
 .hero .cmd     { animation-delay: .19s; }
 .hero .window  { animation-delay: .28s; }
-@keyframes rise {
-  from { opacity: 0; transform: translateY(9px); }
-  to   { opacity: 1; transform: none; }
-}
+@keyframes rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .fade { animation: none; }
@@ -530,8 +408,8 @@ footer .sp { margin-left: auto; }
   .grid, .facts, .stats { grid-template-columns: minmax(0, 1fr); }
   .bench td.bar, .bench th.bar { display: none; }
   footer .sp { margin-left: 0; }
-  section { padding-block: 3.5rem 0; }
-  .hero { padding-block: 3.5rem 0; }
+  .band { padding-block: 3.5rem; }
+  .hero { padding-block: 3.5rem; }
   /* The brew command is the longest line a phone has to show without scrolling. */
   .cmd.primary pre { font-size: .75rem; padding: .8rem .75rem; }
   .copy { padding: 0 .7rem; }
@@ -554,33 +432,28 @@ footer .sp { margin-left: auto; }
 </header>
 
 <main>
-  <div class="wrap hero">
-    <span class="eyebrow fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.6">v0.4.6</a> &middot; Apache 2.0 &middot; local-first</span>
-    <h1 class="fade">The handoff between <em>agents</em>.</h1>
-    <p class="sub fade">
-      For two situations: you use more than one coding agent, or you work one project
-      long enough that sessions start forgetting. Claude Code writes to a vault of markdown
-      on your disk, Cursor reads from it, Codex picks up where both stopped &mdash; and none
-      of them owns it.
-    </p>
-    <p class="note fade">
-      If you use a single agent on short tasks, its own built-in memory is probably enough
-      and this will not earn its install.
-    </p>
+  <div class="band dark" style="padding-block:0">
+    <div class="wrap hero">
+      <span class="eyebrow fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.6">v0.4.6</a> &middot; Apache 2.0 &middot; local-first</span>
+      <h1 class="fade">Your memory. <em>Any</em> agent.</h1>
+      <p class="sub fade">
+        One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
+        from it, Codex picks up where both stopped &mdash; and none of them owns it.
+      </p>
 
-    <div class="cmd primary fade">
-      <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
+      <div class="cmd primary fade">
+        <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
 <span class="prompt">$ </span>logos setup</pre>
-      <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
-    </div>
-    <p class="note">macOS and Linux. Setup finds your agents, shows what it would write to each, and writes nothing until you say yes.<br>On Windows: <code>npx -y @noeton/logos setup</code></p>
-    <div class="btns">
-      <a class="btn" href="#install">Other ways to install</a>
-      <a class="btn" href="https://github.com/Coder8124/logos">View on GitHub &rarr;</a>
-    </div>
+        <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
+      </div>
+      <p class="note">macOS and Linux. Setup shows what it would write to each agent and changes nothing until you say yes.<br>Windows: <code>npx -y @noeton/logos setup</code></p>
+      <div class="btns">
+        <a class="btn ghost" href="#install">Other ways to install</a>
+        <a class="btn ghost" href="https://github.com/Coder8124/logos">View on GitHub &rarr;</a>
+      </div>
 
-    <div class="window fade">
-      <div class="bar"><b>logos demo</b> <span class="side">three agents, one vault &mdash; lines from a real run</span></div>
+      <div class="window fade">
+        <div class="bar"><b>logos demo</b> <span class="side">three agents, one vault &mdash; lines from a real run</span></div>
 <pre><span class="g">claude code</span>
   <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
   <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #1</span>
@@ -596,29 +469,27 @@ footer .sp { margin-left: auto; }
 
 <span class="g">logos memory log</span>
   <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
+      </div>
+      <p class="note">Run it against a scratch vault, nothing of yours touched: <code>npx -y @noeton/logos demo</code></p>
     </div>
-    <p class="note">Run it yourself against a scratch vault &mdash; nothing of yours is touched: <code>npx -y @noeton/logos demo</code></p>
+
+    <div class="wrap hosts">
+      <span class="eyebrow">Works with the agents you already use</span>
+      <ul>
+        <li>Claude Code</li>
+        <li>Cursor</li>
+        <li>Codex</li>
+        <li>Claude Desktop</li>
+        <li>VS&nbsp;Code</li>
+        <li>Zed</li>
+        <li>Cline</li>
+        <li class="open">your own agent</li>
+      </ul>
+      <p class="note">Setup wires the first four and proves each one with a real store-then-recall. The rest take one block of JSON.</p>
+    </div>
   </div>
 
-  <div class="wrap hosts">
-    <span class="eyebrow">Works with the agents you already use</span>
-    <ul>
-      <li>Claude Code</li>
-      <li>Cursor</li>
-      <li>Codex</li>
-      <li>Claude Desktop</li>
-      <li>VS&nbsp;Code</li>
-      <li>Zed</li>
-      <li>Cline</li>
-      <li class="open">your own agent</li>
-    </ul>
-    <p class="note">
-      Setup wires Claude Code, Codex, Cursor and Claude Desktop and verifies each with a real
-      store-then-recall. The rest take one block of JSON.
-    </p>
-  </div>
-
-  <section id="features">
+  <section class="band light" id="features">
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Features</span>
@@ -629,19 +500,19 @@ footer .sp { margin-left: auto; }
         <div class="card">
           <span class="k">Consolidation</span>
           <h3>Old values are withheld, not ranked lower</h3>
-          <p>When a fact changes, the stale one stops coming back &mdash; and why it was superseded goes on the record.</p>
+          <p>When a fact changes, the stale one stops coming back, and why it was superseded goes on the record.</p>
           <code class="line">logos memory log</code>
         </div>
         <div class="card record">
           <span class="k">Handoff</span>
           <h3>Dead ends travel between agents</h3>
-          <p>A checkpoint carries what was verified, what failed and what is next, so the next agent does not pay for it again.</p>
+          <p>A checkpoint carries what was verified, what failed and what is next.</p>
           <code class="line">/handoff &middot; resume</code>
         </div>
         <div class="card">
           <span class="k">Cold start</span>
           <h3>Useful before you teach it anything</h3>
-          <p>Reads your git history and proposes what it can defend, each with the command behind it. Writes nothing on a dry run.</p>
+          <p>Reads your git history and proposes what it can defend, each with the command behind it.</p>
           <code class="line">logos bootstrap --dry-run</code>
         </div>
         <div class="card record">
@@ -659,14 +530,14 @@ footer .sp { margin-left: auto; }
         <div class="card">
           <span class="k">Scope</span>
           <h3>One vault, one project per folder</h3>
-          <p>The project comes from the directory the agent works in, so two repositories never write into each other&rsquo;s memory.</p>
+          <p>The project comes from the directory the agent works in, so two repositories never cross.</p>
           <code class="line">~/code/kestrel &rarr; project "kestrel"</code>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="handoff">
+  <section class="band dark" id="handoff">
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Handoff</span>
@@ -715,23 +586,19 @@ a5e72a2 &middot; 2 files uncommitted
     </div>
   </section>
 
-  <section id="proof">
+  <section class="band light" id="proof">
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Benchmark</span>
-        <h2>Numbers I ran on my own harness</h2>
-        <p>
-          Stated up front, because it decides what these are worth: <strong>I wrote the benchmark,
-          I wrote the system it scores best, and I wrote the ~100-line adapters that drive the other
-          systems through their own APIs.</strong> That is not independent evaluation and should not be
-          read as one. It is published because the problem it measures &mdash; handoff, not recall &mdash;
-          is one no existing suite tests, and because you can run the whole thing yourself in one command.
-        </p>
-        <p>
-          32 hand-authored handoff scenarios on one machine, the same embedding model throughout. A scenario
-          passes only if the next agent gets the current fact, without the stale one beside it, inside a token budget it did not choose.
-        </p>
+        <h2>Don&rsquo;t take my numbers for it</h2>
+        <p>I wrote the benchmark and the system that wins it. It runs on your machine in one command, so check it yourself first.</p>
       </div>
+      <div class="cmd primary proof-run">
+        <pre><span class="prompt">$ </span>go run ./cmd/logos <span class="pkg">bench continuity</span> <span class="flag">--logos-only</span></pre>
+        <button class="copy" type="button" data-copy="go run ./cmd/logos bench continuity --logos-only">Copy</button>
+      </div>
+      <p class="note proof-run-note">32 handoff scenarios. One passes only if the next agent gets the current fact, without the stale one beside it, in a token budget it did not choose. Here is what it printed for me:</p>
+
       <div class="stats">
         <div><b>84.4%</b><span>handoff pass rate &middot; next best 46.9%</span></div>
         <div><b>16.7%</b><span>stale facts leaked &middot; next best 58.3%</span></div>
@@ -756,24 +623,18 @@ a5e72a2 &middot; 2 files uncommitted
         </table>
       </div>
       <p class="note bench-notes">
-        <strong>Carry</strong> is required facts retrieved; <strong>Leak</strong> is superseded facts
-        returned anyway, lower is better; <strong>Signal</strong> is telling the next agent something
-        was already tried or has changed. It loses too, and those numbers stay in: arithmetic,
-        recency-conflict and multi-hop are all 0%.
+        <strong>Carry</strong> is required facts retrieved; <strong>Leak</strong> is superseded facts returned anyway, lower is better;
+        <strong>Signal</strong> is telling the next agent something was already tried. It loses too, and those rows stay in:
+        arithmetic, recency-conflict and multi-hop are all 0%.
       </p>
       <p class="note bench-notes">
-        Run it against your own scenarios rather than taking these:
-        <code>go run ./cmd/logos bench continuity</code> reproduces the whole table, and
-        <code>--logos-only</code> needs nothing but Ollama. The scenarios, the scoring and the
-        adapters are all in the repository, and every one of mem0's and Letta's settings is argued
-        for in the write-up &mdash; including the two that were run both ways because the choice
-        was arguable.
-        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Read the write-up, caveats first</a>.
+        Drop <code>--logos-only</code> to run every rival too; that one needs their API keys, this one needs only Ollama.
+        <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Scenarios, scoring and every adapter setting</a>.
       </p>
     </div>
   </section>
 
-  <section id="install">
+  <section class="band dark" id="install">
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Install</span>
@@ -792,7 +653,7 @@ a5e72a2 &middot; 2 files uncommitted
         </div>
 
         <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
-          <p>macOS and Linux. Setup finds your agents, shows the plan, and writes nothing until you say yes. The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
+          <p>macOS and Linux. The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
           <ol class="steps">
             <li>
               <div class="cmd">
@@ -807,11 +668,11 @@ a5e72a2 &middot; 2 files uncommitted
               </div>
             </li>
           </ol>
-          <p class="note">Update with <code>brew upgrade logos-mcp</code>, not <code>logos update</code> &mdash; hosts are wired to brew's <code>opt</code> path, which survives the upgrade.</p>
+          <p class="note">Update with <code>brew upgrade logos-mcp</code>, not <code>logos update</code> &mdash; hosts are wired to brew&rsquo;s <code>opt</code> path, which survives the upgrade.</p>
         </div>
 
         <div class="panel" role="tabpanel" id="p-npx" aria-labelledby="t-npx">
-          <p>Windows, or anywhere without Homebrew. Needs only Node: <code>npx</code> fetches the binary and runs setup, which shows the plan and writes nothing until you say yes; <code>--dry-run</code> prints the plan and exits.</p>
+          <p>Windows, or anywhere without Homebrew. Needs only Node. <code>--dry-run</code> prints the plan and exits.</p>
           <div class="cmd">
             <pre><span class="prompt">$ </span>npx <span class="flag">-y</span> <span class="pkg">@noeton/logos</span> setup</pre>
             <button class="copy" type="button" data-copy="npx -y @noeton/logos setup">Copy</button>
@@ -838,7 +699,7 @@ a5e72a2 &middot; 2 files uncommitted
 
         <div class="panel" role="tabpanel" id="p-click" aria-labelledby="t-click">
           <p>Deep links that hand the host a finished config. Nothing else to edit.</p>
-          <div class="btns" style="margin-top:.9rem">
+          <div class="btns">
             <a class="btn solid" href="cursor://anysphere.cursor-deeplink/mcp/install?name=logos&amp;config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==">Add to Cursor</a>
             <a class="btn solid" href="vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D">Add to VS&nbsp;Code</a>
           </div>
@@ -885,7 +746,6 @@ a5e72a2 &middot; 2 files uncommitted
           </div>
           <p class="note">
             Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.4.6/SHA256SUMS">SHA256SUMS</a>
-            &middot; releases before v0.4.3 name the executable <code>brain</code>
             &middot; with Go: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>
           </p>
         </div>
@@ -893,7 +753,7 @@ a5e72a2 &middot; 2 files uncommitted
     </div>
   </section>
 
-  <section id="private">
+  <section class="band light" id="private">
     <div class="wrap">
       <div class="head">
         <span class="eyebrow">Private by design</span>
@@ -904,18 +764,20 @@ a5e72a2 &middot; 2 files uncommitted
         <li><strong>Nothing wired without a yes</strong>Setup lists the agents it found and what it would write to each before touching anything.</li>
         <li><strong>Agents propose, you accept</strong>A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it.</li>
         <li><strong>No account, server or telemetry</strong>Nothing leaves the machine. <code>.logos/index.db</code> is a cache that rebuilds from the files.</li>
-        <li><strong>No AI runtime required</strong>Checkpoint, resume and dead ends are markdown and SQL. Search falls back to lexical; a 274&nbsp;MB model adds semantic recall, and Ollama, LM Studio, Jan and Msty are auto-discovered.</li>
+        <li><strong>No AI runtime required</strong>Checkpoint, resume and dead ends are markdown and SQL. A 274&nbsp;MB model adds semantic recall if you want it.</li>
         <li><strong>No <code>postinstall</code> script</strong>The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs work.</li>
       </ul>
     </div>
   </section>
 
-  <div class="wrap closing">
-    <h2>Give your next agent a memory.</h2>
-    <div class="cmd primary">
-      <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
+  <div class="band dark closing">
+    <div class="wrap">
+      <h2>Give your next agent a memory.</h2>
+      <div class="cmd primary">
+        <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
 <span class="prompt">$ </span>logos setup</pre>
-      <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
+        <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
+      </div>
     </div>
   </div>
 </main>
@@ -963,10 +825,7 @@ document.querySelectorAll(".copy").forEach(function (btn) {
     var done = function (ok) {
       btn.textContent = ok ? "Copied" : "Select it";
       btn.dataset.state = ok ? "done" : "";
-      setTimeout(function () {
-        btn.textContent = "Copy";
-        btn.dataset.state = "";
-      }, 1600);
+      setTimeout(function () { btn.textContent = "Copy"; btn.dataset.state = ""; }, 1600);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { done(true); }, function () { legacy(); });
@@ -989,5 +848,4 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   });
 });
 </script>
-</body>
 </html>
