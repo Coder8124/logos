@@ -76,8 +76,12 @@ type Memory struct {
 	// Quarantined means a machine proposed this and nobody has looked at it yet.
 	// A quarantined memory is a real row — same table, same shape — it is just
 	// invisible to Recall/All until a human accepts it. See quarantine.go.
-	Quarantined bool    `json:"quarantined,omitempty"`
-	Score       float64 `json:"score"` // set on recall: relevance to the query
+	Quarantined bool `json:"quarantined,omitempty"`
+	// ReviewIfContested queues this memory only when it contradicts something
+	// already stored, instead of queueing it unconditionally. Set on the way
+	// in; Quarantined is the answer on the way out. See contestedMemory.
+	ReviewIfContested bool    `json:"-"`
+	Score             float64 `json:"score"` // set on recall: relevance to the query
 	// Pin overrides ranking entirely: PinAlways forces inclusion in a context
 	// pack regardless of relevance score, PinNever removes a memory from
 	// recall while leaving it on record. See PinAlways and PinNever.
@@ -200,6 +204,12 @@ type Receipt struct {
 	// quarantine. Dedup matches queued rows too, and "already knew that" about
 	// a fact recall will not return is a receipt contradicted one call later.
 	StillQueued bool `json:"still_queued,omitempty"`
+	// Contested names the memory this one contradicts, when that is why it
+	// queued. "Queued for review" with no reason is the receipt that trains a
+	// user to stop reading receipts; the one fact that makes the queue worth
+	// opening is which existing memory is now in dispute.
+	Contested     int64  `json:"contested,omitempty"`
+	ContestedText string `json:"contested_text,omitempty"`
 }
 
 // OutcomeNoop means nothing was stored — there was nothing to store.
@@ -284,6 +294,32 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		}
 	}
 
+	// Review only what is actually in dispute.
+	//
+	// Quarantining every agent write was the safe default and the wrong one:
+	// the MCP path is the only path an agent has, so "review everything" meant
+	// nothing the agent learned reached the next agent until a person sat down
+	// and typed `logos review`. Nobody does that, and a memory system whose
+	// contents are all waiting in a queue has no memory — it has lost the facts
+	// just as thoroughly as one that never stored them, only more quietly.
+	//
+	// A contradiction is the one case a human is genuinely needed for. The
+	// agent can say "staging runs on 9090"; it cannot know whether that
+	// replaces "staging runs on 8080" or one of the two is simply wrong. Every
+	// other write — a new fact, a restatement, a fact about a different thing —
+	// is something the agent was told and has no reason to doubt.
+	//
+	// Detected with or without an embedding runtime — see contestedMemory for
+	// the lexical arm and why it is not optional.
+	var contested int64
+	var contestedText string
+	if m.ReviewIfContested && !m.Quarantined {
+		if id, text, ok := contestedMemory(db, qvec, m.Text); ok {
+			m.Quarantined = true
+			contested, contestedText = id, text
+		}
+	}
+
 	dup, err := insertMemory(db, m, vec)
 	if err != nil {
 		return Receipt{}, err
@@ -309,7 +345,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		// that would defeat quarantine — but into the queue file, so a
 		// review the user has not got to yet survives deleting the cache.
 		// See internal/memory/pendingstore.go.
-		return Receipt{Outcome: EvQuarantined, ID: m.ID}, flushPending(db)
+		return Receipt{Outcome: EvQuarantined, ID: m.ID, Contested: contested, ContestedText: contestedText}, flushPending(db)
 	}
 	logEvent(db, m.ID, EvCreated, m.Text, 0)
 	return Receipt{Outcome: EvCreated, ID: m.ID}, flushLocked(db, m.Kind)
@@ -441,6 +477,77 @@ func nearestMemory(db *sql.DB, query []float32, text string, threshold float64) 
 		bestID = id
 	}
 	return bestID, bestID != 0
+}
+
+// contestedMemory returns the stored memory this text contradicts — same claim,
+// different value — if there is one.
+//
+// It is nearestMemory's mirror image, and deliberately built from the same two
+// conditions. nearestMemory wants a neighbour that clears the threshold *and*
+// says the same thing, so it can fold the two together. This wants a neighbour
+// that clears the same threshold and asserts a *different value*, because that
+// is the pair a machine must not silently pick between: "staging runs on 8080"
+// and "staging runs on 9090" are one question, not two facts, and only the
+// person knows which is current.
+//
+// DifferingFactValues, not !sameFact: sameFact is also false for two parallel
+// facts about different subjects (see DifferentSubjects), and those are not in
+// dispute at all — they are exactly the ordinary new fact this rule exists to
+// let through. Using !sameFact here would queue half the writes and put us back
+// where we started.
+//
+// Quarantined rows are candidates too, matching nearestMemory. A proposal that
+// contradicts a proposal is still an open question, and answering it against
+// only half the record would let the second one through unremarked.
+//
+// There is a lexical arm because there has to be one. Half this project's pitch
+// is that it needs no model at all, and an install with no embedding runtime has
+// no vectors to compare — so a vector-only rule would mean the guard silently
+// never fires for exactly the users the "0 MB of model required" line brings in,
+// and every contradiction would auto-accept. The fallback is the same shape as
+// internal/contextpack's disagree: about the same thing, asserting different
+// values. It differs in one deliberate way — DifferingFactValues rather than
+// DifferingValues, so zero counts as a value. "retries at 0" against "retries
+// at 3" is a decision reversed, and the reviewer is the only one who knows
+// which way it went.
+func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, bool) {
+	rows, err := db.Query(`SELECT id, text, vec FROM memories WHERE superseded = 0`)
+	if err != nil {
+		return 0, "", false
+	}
+	defer rows.Close()
+	subject := textmatch.Subject(text)
+	var bestID int64
+	var bestText string
+	best := DedupThreshold
+	for rows.Next() {
+		var id int64
+		var candidate string
+		var vec []byte
+		if rows.Scan(&id, &candidate, &vec) != nil {
+			continue
+		}
+		// A contradiction asserts a different value for the same claim. Check
+		// that first: it is the cheap half, and no amount of similarity makes
+		// two statements that agree on their values a dispute.
+		if !textmatch.DifferingFactValues(text, candidate) {
+			continue
+		}
+		if query != nil && len(vec) > 0 {
+			if sim := cosine(query, blobToFloats(vec)); sim >= best {
+				best, bestID, bestText = sim, id, candidate
+			}
+			continue
+		}
+		// No vector on one side or the other. First lexical match wins rather
+		// than ranking: without a vector there is no score to rank by, and the
+		// answer this produces — one memory the user is asked to settle — does
+		// not get better by picking a different one of several disputes.
+		if bestID == 0 && textmatch.Overlap(subject, textmatch.Subject(candidate)) >= textmatch.Related {
+			bestID, bestText = id, candidate
+		}
+	}
+	return bestID, bestText, bestID != 0
 }
 
 // sameFact is the second opinion the embedding cannot give.

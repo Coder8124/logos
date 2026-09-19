@@ -104,8 +104,11 @@ func (r cursorReader) discover() ([]string, error) {
 			continue
 		}
 		chats = append(chats, chat{
-			path:    filepath.Join(root, cursorStorageFile) + cursorPathSep + strings.TrimPrefix(key, "composerData:"),
-			created: c.CreatedAt,
+			path: filepath.Join(root, cursorStorageFile) + cursorPathSep + strings.TrimPrefix(key, "composerData:"),
+			// Normalized here too: discover sorts newest first and unsaved.go
+			// takes the first as this session's chat, so comparing a seconds row
+			// against millisecond ones would sort the newest chat last.
+			created: cursorSeconds(c.CreatedAt),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -118,6 +121,26 @@ func (r cursorReader) discover() ([]string, error) {
 	}
 	return out, nil
 }
+
+// cursorSeconds converts Cursor's createdAt to the seconds every other reader
+// produces. Cursor stores milliseconds, and passing them through made a Cursor
+// session's clock run a thousand times fast wherever a caller compared it with
+// anything else: the guard on whether a transcript ran while this server was
+// alive was always true, and a checkpoint promoted from a Cursor chat sorted
+// above every real one forever.
+//
+// Detected by magnitude rather than assumed, so a row an older Cursor wrote in
+// seconds is not divided into 1970.
+func cursorSeconds(stamp int64) int64 {
+	if stamp > cursorNotSeconds {
+		return stamp / 1000
+	}
+	return stamp
+}
+
+// cursorNotSeconds is past any Unix second this code will see (year 5138), so a
+// stamp above it is milliseconds.
+const cursorNotSeconds = 1e11
 
 type cursorComposer struct {
 	ComposerID string         `json:"composerId"`
@@ -134,6 +157,105 @@ type cursorHeader struct {
 type cursorBubble struct {
 	Type int    `json:"type"`
 	Text string `json:"text"`
+	// Tool is what Cursor did rather than said. Nearly half the bubbles in a
+	// real chat carry one of these and no text at all — they used to be skipped
+	// as empty, so every Cursor session harvested as one where nothing ran.
+	Tool *cursorTool `json:"toolFormerData"`
+}
+
+// cursorTool is one tool call as Cursor stores it. RawArgs and Params hold the
+// same call twice, in the model's spelling and the editor's; they disagree
+// often enough that both are read — Params is canonical where it exists, and
+// RawArgs is the only one that carries a shell command's full text.
+type cursorTool struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	RawArgs string `json:"rawArgs"`
+	Params  string `json:"params"`
+	Error   string `json:"error"`
+	// Additional carries the outcome for every call that has no top-level
+	// status — a quarter of them. See outcome.
+	Additional *cursorToolExtra `json:"additionalData"`
+}
+
+type cursorToolExtra struct {
+	Status string `json:"status"`
+}
+
+// cursorToolArgs is the union of the argument shapes the tools we can attribute
+// use. Unknown tools leave every field empty and are recorded as a tool turn
+// with no input, which is still evidence that something ran.
+type cursorToolArgs struct {
+	Command      string `json:"command"`
+	TargetFile   string `json:"target_file"`
+	FilePath     string `json:"file_path"`
+	RelWorkspace string `json:"relativeWorkspacePath"`
+	RelPath      string `json:"relative_workspace_path"`
+	DirectoryDir string `json:"directoryPath"`
+	Query        string `json:"query"`
+}
+
+// turn renders one tool call as a Turn. Input is what the harvest reads to list
+// commands run and files touched, so it is the command for a shell tool and the
+// path for everything else — the same contract the Claude Code and Codex
+// readers fill.
+func (t *cursorTool) turn() Turn {
+	var a, p cursorToolArgs
+	// Errors ignored on purpose: a tool whose arguments this version spells
+	// differently still happened, and reporting it with an empty Input is more
+	// honest than dropping the turn.
+	_ = json.Unmarshal([]byte(t.RawArgs), &a)
+	_ = json.Unmarshal([]byte(t.Params), &p)
+
+	input := firstNonEmpty(
+		p.Command, a.Command,
+		p.RelWorkspace, a.TargetFile, a.FilePath, a.RelPath, p.DirectoryDir,
+		a.Query,
+	)
+	return Turn{Role: "tool", Tool: t.Name, Status: t.outcome(), Input: strings.TrimSpace(input)}
+}
+
+// outcome maps Cursor's status onto the three values the rest of the pipeline
+// reads: "ok", "error", and "" for genuinely unknown — the same three
+// codexStatus produces.
+//
+// Cursor records the outcome in two places and neither is complete. Counted
+// over a real chat database: 1585 calls carry no top-level status at all and
+// every one of them has additionalData.status "error", while 3189 have a
+// top-level "completed" and no additionalData. Reading only the top-level field
+// loses 27% of the history to "unknown"; reading only additionalData loses more
+// than half.
+//
+// A failure recorded in either field wins, which is what the disagreements
+// need: 92 calls are top-level "completed" with additionalData "error" — the
+// call finished, the work in it did not. Treating those as successes would put
+// them in front of the next agent as things that worked.
+//
+// Unknown stays unknown rather than defaulting to error. harvest marks an
+// errored command "— failed", and failed is the field the next agent trusts
+// most, so guessing there files approaches as ruled out that nothing ever
+// observed.
+func (t *cursorTool) outcome() string {
+	extra := ""
+	if t.Additional != nil {
+		extra = t.Additional.Status
+	}
+	if t.Error != "" || isCursorFailure(t.Status) || isCursorFailure(extra) {
+		return "error"
+	}
+	if t.Status == "completed" || extra == "success" {
+		return "ok"
+	}
+	// "loading" and "pending" are calls still in flight when the chat was
+	// written, which is not an outcome.
+	return ""
+}
+
+// isCursorFailure names the statuses that mean the work did not land. Cancelled
+// counts: the user stopped it, so it is the "incomplete" codexStatus already
+// reads as an error rather than something that ran.
+func isCursorFailure(status string) bool {
+	return status == "error" || status == "cancelled"
 }
 
 func (r cursorReader) read(path string) (*Session, error) {
@@ -160,8 +282,8 @@ func (r cursorReader) read(path string) (*Session, error) {
 		Harness: "cursor",
 		ID:      id,
 		Path:    path,
-		Started: c.CreatedAt,
-		Ended:   c.CreatedAt,
+		Started: cursorSeconds(c.CreatedAt),
+		Ended:   cursorSeconds(c.CreatedAt),
 		// Project stays empty on purpose: a composer record carries no working
 		// directory, and guessing one from the files a chat happened to mention
 		// would attribute someone's history to the wrong repository. Review
@@ -185,16 +307,24 @@ func (r cursorReader) read(path string) (*Session, error) {
 			continue
 		}
 		text := strings.TrimSpace(bub.Text)
-		if text == "" {
-			continue // a bubble that only carried a diff or a tool card
-		}
-		role := "assistant"
-		if bub.Type == 1 || (bub.Type == 0 && h.Type == 1) {
-			role = "user"
+		if text == "" && bub.Tool == nil {
+			continue // a bubble that carried only a diff, with nothing to attribute
 		}
 		content = append(content, key...)
 		content = append(content, b...)
-		s.Turns = append(s.Turns, Turn{Role: role, Text: text})
+		if text != "" {
+			role := "assistant"
+			if bub.Type == 1 || (bub.Type == 0 && h.Type == 1) {
+				role = "user"
+			}
+			s.Turns = append(s.Turns, Turn{Role: role, Text: text})
+		}
+		// After the text, not instead of it: a bubble can both say what it is
+		// about to do and record the call, and the two are separate turns
+		// everywhere else.
+		if bub.Tool != nil {
+			s.Turns = append(s.Turns, bub.Tool.turn())
+		}
 	}
 	if len(s.Turns) == 0 {
 		return nil, fmt.Errorf("chat %s in %s has no readable messages", id, file)

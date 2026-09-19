@@ -14,6 +14,10 @@ import (
 // is clientInfoFromInitialize doing its job.
 
 func TestRememberRecordsClientAgentFromHandshake(t *testing.T) {
+	// Queueing is no longer what an ordinary write does — only a fact that
+	// disputes a stored one waits. This exercises the queue itself, so it
+	// asks for the queue explicitly.
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, db, _ := startServer(t)
 	c.req("initialize", map[string]any{
 		"protocolVersion": protocolVersion,
@@ -28,8 +32,8 @@ func TestRememberRecordsClientAgentFromHandshake(t *testing.T) {
 		t.Fatalf("remember reported error: %s", out)
 	}
 
-	// Read the review queue, not active memory: an MCP client's remember is
-	// quarantined by default (quarantineMCP in server.go), and attribution has
+	// Read the review queue, not active memory: this write is
+	// queued under LOGOS_REVIEW_ALL, and attribution has
 	// to survive the wait — knowing which agent proposed a fact is part of
 	// deciding whether to accept it.
 	mems, err := memory.Pending(db)
@@ -48,6 +52,10 @@ func TestRememberRecordsClientAgentFromHandshake(t *testing.T) {
 // the handshake, and the resulting memory just carries no agent. Silence is a
 // legitimate answer; a guessed name would not be.
 func TestRememberToleratesMissingClientInfo(t *testing.T) {
+	// Queueing is no longer what an ordinary write does — only a fact that
+	// disputes a stored one waits. This exercises the queue itself, so it
+	// asks for the queue explicitly.
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, db, _ := startServer(t)
 	c.req("initialize", map[string]any{
 		"protocolVersion": protocolVersion,

@@ -177,3 +177,88 @@ func TestThePinIsReadWithoutRunningTheHostsOwnCommand(t *testing.T) {
 		t.Error("PinnedVault ran the host's own listing command to answer a question the config file already answers")
 	}
 }
+
+// #90's last half: Codex keeps its servers in config.toml, and readServerBlock
+// parses JSON only — so a Codex wired to a vault the machine has since moved
+// off reported nothing, and doctor could not see the split on that host. The
+// pin lives in the same place for Codex as for everyone else; only the syntax
+// around it differs.
+func TestCodexPinIsReadFromItsTomlConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	entry := `[mcp_servers.logos]
+command = "/opt/homebrew/bin/logos"
+args = ["mcp", "serve"]
+
+[mcp_servers.logos.env]
+LOGOS_VAULT = "/Users/bob/brain"
+`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hosts := []setup.Host{{
+		Name:   "Codex",
+		Detect: func() bool { return true },
+		Where:  func() string { return "codex mcp add" },
+		Config: func() string { return cfg },
+	}}
+	if got := setup.PinnedVault(hosts, "codex"); got != "/Users/bob/brain" {
+		t.Errorf("Codex's pin was not read out of its config.toml: %q", got)
+	}
+}
+
+// Another server's TOML table pins directories of its own, and taking one for
+// the vault would point logos at somebody else's data — the same rule the JSON
+// hosts already follow.
+func TestANonLogosTomlTableIsNotReadAsAVaultPin(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	entry := `[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem"]
+
+[mcp_servers.filesystem.env]
+LOGOS_VAULT = "/Users/bob/notes"
+`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hosts := []setup.Host{{
+		Name:   "Codex",
+		Detect: func() bool { return true },
+		Config: func() string { return cfg },
+	}}
+	if got := setup.PinnedVault(hosts, "codex"); got != "" {
+		t.Errorf("a non-logos TOML table was read as the vault pin: %q", got)
+	}
+}
+
+// Codex's config.toml is its whole configuration, not just its MCP servers:
+// model settings, approval policy and the user's own tables share the file.
+// Nothing outside an [mcp_servers.*] table may be mistaken for a server.
+func TestSettingsElsewhereInCodexsConfigAreNotReadAsServers(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	entry := `model = "gpt-5"
+approval_policy = "on-request"
+
+[shell_environment_policy]
+command = "logos"
+LOGOS_VAULT = "/Users/bob/not-a-vault"
+
+[mcp_servers.logos]
+command = "logos"
+args = ["mcp", "serve"]
+
+[mcp_servers.logos.env]
+LOGOS_VAULT = "/Users/bob/brain"
+`
+	if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hosts := []setup.Host{{
+		Name:   "Codex",
+		Detect: func() bool { return true },
+		Config: func() string { return cfg },
+	}}
+	if got := setup.PinnedVault(hosts, "codex"); got != "/Users/bob/brain" {
+		t.Errorf("Codex's pin was read as %q", got)
+	}
+}

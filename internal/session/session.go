@@ -280,19 +280,94 @@ func scanNotes(rows *sql.Rows, err error) ([]Note, error) {
 	return out, rows.Err()
 }
 
-// closeProject marks every open session on a project as committed and points
-// them at the checkpoint that captured them.
+// ParallelGrace is how long another agent's open session may sit silent before
+// a checkpoint treats it as dead and takes its notes.
 //
-// All of them, not just the committing agent's: a checkpoint commits the
-// project's working tree. Leaving another agent's open session behind would
-// mean its notes are folded into the checkpoint *and* still reported as
-// uncommitted, so every future resume would replay work that has already been
-// written down.
-func closeProject(db *sql.DB, project, slug string) error {
-	_, err := db.Exec(
-		`UPDATE sessions SET ended = ?, slug = ? WHERE project = ? AND ended = 0`,
-		time.Now().Unix(), slug, safeScope(project))
-	return err
+// A checkpoint used to fold in and close *every* open session on the project.
+// That is right for the agent that died mid-task — its findings are exactly
+// what the next agent is building on, and they reach the durable record only if
+// somebody else's checkpoint carries them. It is wrong for an agent that is
+// still working: with four agents on one project, whichever checkpointed first
+// took all four sets of notes, and the other three checkpoints had no State
+// section at all. The handoff of everyone who finished second was filed under
+// someone else's task.
+//
+// The two cases look identical only if the index is assumed to have no
+// liveness signal. It has one already: session_notes carries a timestamp, so
+// "has said nothing for half an hour" is recorded without adding a heartbeat.
+// An agent mid-task writes notes; an agent that is gone does not.
+//
+// Shorter than AbandonAfter because they answer different questions. That one
+// asks when a human should be *told* a session was dropped, and is deliberately
+// long enough to sit through a lunch break. This one asks whether a parallel
+// agent is still coming back for its own notes, and six hours of silence is far
+// past the point where the answer is yes.
+const ParallelGrace = 30 * time.Minute
+
+// foldableSessions returns the open sessions on a project whose notes a
+// checkpoint by ownSession should take: its own, plus any that has gone silent
+// past grace. A session someone is actively working is left out, so its notes
+// stay where its own agent's checkpoint will find them.
+//
+// Silence is measured from the last note, falling back to the session's start
+// time, so a session that opened and never recorded anything still ages out
+// rather than pinning itself open forever.
+func foldableSessions(db *sql.DB, project, ownSession string, grace time.Duration) ([]string, error) {
+	cutoff := time.Now().Add(-grace).Unix()
+	rows, err := db.Query(`
+SELECT s.id
+FROM sessions s LEFT JOIN session_notes n ON n.session = s.id
+WHERE s.ended = 0 AND s.project = ?
+GROUP BY s.id
+HAVING s.id = ? OR COALESCE(MAX(n.ts), s.started) < ?
+ORDER BY s.id`, safeScope(project), ownSession, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// notesIn returns the working notes held by the given sessions, oldest first,
+// as one stream — the order they were written in matters more than which
+// session each came from, because the reader is reconstructing what happened.
+func notesIn(db *sql.DB, ids []string) ([]Note, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	q := `SELECT n.id, n.session, s.agent, n.text, n.ts
+	      FROM session_notes n JOIN sessions s ON s.id = n.session
+	      WHERE n.session IN (?` + strings.Repeat(",?", len(ids)-1) + `)
+	      ORDER BY n.ts, n.id`
+	return scanNotes(db.Query(q, args...))
+}
+
+// closeSessions marks the given sessions committed and points them at the
+// checkpoint that captured them. Only the ones whose notes that checkpoint
+// actually took: a session left open by foldableSessions still holds its notes,
+// and closing it here would strand them exactly as if they had been folded in.
+func closeSessions(db *sql.DB, ids []string, slug string) error {
+	now := time.Now().Unix()
+	for _, id := range ids {
+		if _, err := db.Exec(
+			`UPDATE sessions SET ended = ?, slug = ? WHERE id = ?`, now, slug, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // safe reduces a name to something usable as a path segment and a session id.
@@ -337,6 +412,13 @@ func safe(s string) string {
 // "kestrel-feature-x" rather than as a folder inside kestrel's. Each segment is
 // still run through safe, so `..` and separators cannot survive and a scope
 // cannot climb out of the vault however it was spelled.
+// SafeScope is safeScope for callers outside this package that have to key
+// something by the same project a checkpoint will be filed under. The MCP
+// server counts unsaved progress per project and clears it when that project is
+// checkpointed; keyed on the agent's raw spelling, the two halves used
+// different keys and a checkpoint never cleared its own notes.
+func SafeScope(s string) string { return safeScope(s) }
+
 func safeScope(s string) string {
 	parts := strings.Split(s, "/")
 	kept := parts[:0]

@@ -62,6 +62,10 @@ func TestListingActivityWithTheLogOffSaysItIsOff(t *testing.T) {
 func TestTheActivityNoticeIsPrintedOnceAndThenNothing(t *testing.T) {
 	vault := t.TempDir()
 	t.Setenv("LOGOS_VAULT", vault)
+	// Recording is opt-in; this test is about what an opted-in vault does.
+	if err := activity.SetRecording(vault, true); err != nil {
+		t.Fatal(err)
+	}
 
 	first := captureStdout(t, func() {
 		if err := runActivity([]string{"notice"}); err != nil {

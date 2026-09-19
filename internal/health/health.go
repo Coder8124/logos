@@ -973,21 +973,30 @@ func CheckOtherInstall(self, version string) Check {
 		c.Fix = fmt.Sprintf("remove %s if it is an old copy, then run `%s setup` again", found, brew)
 		return c
 	case selfupdate.Standalone:
-		for _, prefix := range HomebrewPrefixes() {
-			opt := filepath.Join(prefix, "opt", selfupdate.HomebrewFormula, "bin", "logos")
-			if resolved, err := filepath.EvalSymlinks(opt); err != nil || resolved == self {
-				continue
-			}
-			theirs, ok := logosVersion(opt)
-			if !ok {
-				continue
-			}
+		if opt, theirs := HomebrewInstall(self); opt != "" {
 			c.Detail = fmt.Sprintf("Homebrew's logos %s is installed at %s, but this is %s (logos %s) — hosts wired by setup from here launch this copy, which `brew upgrade` never reaches", theirs, opt, self, version)
 			c.Fix = fmt.Sprintf("remove %s if it is an old copy, then run `%s setup` again", self, opt)
 			return c
 		}
 	}
 	return Check{}
+}
+
+// HomebrewInstall is the logos Homebrew has installed, and its version, or ""
+// when there is none other than self. The opt path is returned rather than the
+// Cellar one it links to: that link is what survives an upgrade, so it is the
+// path a host config should name.
+func HomebrewInstall(self string) (path, version string) {
+	for _, prefix := range HomebrewPrefixes() {
+		opt := filepath.Join(prefix, "opt", selfupdate.HomebrewFormula, "bin", "logos")
+		if resolved, err := filepath.EvalSymlinks(opt); err != nil || resolved == self {
+			continue
+		}
+		if v, ok := logosVersion(opt); ok {
+			return opt, v
+		}
+	}
+	return "", ""
 }
 
 // logosVersion is what a logos at path answers to --version. Bounded, because

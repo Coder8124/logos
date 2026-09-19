@@ -121,6 +121,12 @@ func logField(s string) string {
 	return r.Replace(s)
 }
 
+// EscapeField and UnescapeField are the same encoding for code outside this
+// package that rewrites these files — a project rename — so it matches the
+// name as written rather than as typed.
+func EscapeField(s string) string   { return logField(s) }
+func UnescapeField(s string) string { return unLogField(s) }
+
 func unLogField(s string) string {
 	r := strings.NewReplacer("%20", " ", "%3E", ">", "%09", "\t", "%25", "%")
 	return r.Replace(s)

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/vault"
 
@@ -399,9 +400,12 @@ func TestCheckpointAfterAnotherAgentDiedIsAttributedCorrectly(t *testing.T) {
 	db := testDB(t)
 	dir := t.TempDir()
 
-	// Agent A works and dies. No checkpoint.
-	AddNote(db, "ota-firmware", "claude", "no flash size anywhere in the vault")
-	AddNote(db, "ota-firmware", "claude", "certification is not the real objection")
+	// Agent A works and dies. No checkpoint, and — this is what makes it dead
+	// rather than merely parallel — no activity since. A checkpoint adopts a
+	// silent agent's notes and leaves a working one's alone; see ParallelGrace.
+	gone := time.Now().Add(-2 * ParallelGrace).Unix()
+	AddNoteAt(db, "ota-firmware", "claude", "no flash size anywhere in the vault", gone)
+	AddNoteAt(db, "ota-firmware", "claude", "certification is not the real objection", gone+1)
 
 	// Agent B picks it up, adds its own finding, and checkpoints.
 	AddNote(db, "ota-firmware", "cursor", "the eMMC is 64GB — A/B slots cost nothing")
@@ -520,6 +524,45 @@ func TestACheckpointSaysWhenNextReadsAsMoreThanOneStep(t *testing.T) {
 	for _, next := range oneStep {
 		if NextReadsAsMoreThanOneStep(next) {
 			t.Errorf("a single step was second-guessed: %q", next)
+		}
+	}
+}
+
+// #79: four agents on one project, each recording progress and then
+// checkpointing. Every one of them must get its own work into its own
+// checkpoint. The first checkpoint used to take all four sets of notes and
+// close everybody's session, so the other three handoffs were empty — the
+// failure is silent, and it lands on exactly the multi-agent case the product
+// is sold on.
+func TestEachParallelAgentsCheckpointCarriesItsOwnNotes(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	agents := []string{"agent0", "agent1", "agent2", "agent3"}
+	for _, a := range agents {
+		if _, err := AddNote(db, "radio", a, a+" measured the return loss"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, a := range agents {
+		c := &Checkpoint{Project: "radio", Agent: a, Task: "tune the antenna", Next: "sweep again"}
+		if err := Commit(db, dir, c); err != nil {
+			t.Fatalf("%s could not checkpoint: %v", a, err)
+		}
+		if !strings.Contains(c.State, a+" measured the return loss") {
+			t.Errorf("%s's checkpoint is missing its own note:\n%s", a, c.State)
+		}
+		// Its own work only. Another live agent's notes belong in that agent's
+		// checkpoint, and duplicating them here is how the same finding ends up
+		// filed under two different tasks.
+		for _, other := range agents {
+			if other == a {
+				continue
+			}
+			if strings.Contains(c.State, other+" measured") {
+				t.Errorf("%s's checkpoint took %s's note:\n%s", a, other, c.State)
+			}
 		}
 	}
 }

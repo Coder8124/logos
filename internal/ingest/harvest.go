@@ -89,7 +89,11 @@ func isShellTool(name string) bool {
 
 func isFileTool(name string) bool {
 	switch strings.ToLower(name) {
-	case "edit", "write", "multiedit", "notebookedit", "str_replace_editor", "apply_patch", "create_file", "update_file":
+	// Cursor's names cost it the same thing Codex's exec_command cost above:
+	// search_replace and edit_file are its two commonest edits by a wide margin,
+	// and neither was recognised, so its file lists came back empty.
+	case "edit", "write", "multiedit", "notebookedit", "str_replace_editor", "apply_patch", "create_file", "update_file",
+		"edit_file", "search_replace", "delete_file", "read_file":
 		return true
 	}
 	return false

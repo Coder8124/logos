@@ -191,6 +191,21 @@ func secretReason(tok string) string {
 	if strings.HasPrefix(tok, "//") {
 		return ""
 	}
+	// A filesystem path is not a credential, and no provider's token starts
+	// with a path separator. Without this, `cd /Users/me/IdeaProjects/Thing`
+	// harvested as `cd [REDACTED]`: on a real machine's Cursor history every
+	// one of the 99 redactions was a path or a Java class name and none was a
+	// secret. That is worse than useless twice over — it throws away the one
+	// fact that says where a command ran, and it reports secrets to a user who
+	// has none, which is what teaches them to ignore the report that matters.
+	//
+	// Entropy cannot make this call: measured, paths score 4.05-4.16 while a
+	// 32-char hex key scores 3.93 and a JWT 4.36, so the ranges interleave and
+	// no threshold separates them. The leading separator is structural, so it
+	// can.
+	if isPathPrefixed(tok) {
+		return ""
+	}
 	if looksHighEntropy(tok) {
 		return "high-entropy token"
 	}
@@ -204,6 +219,22 @@ func secretReason(tok string) string {
 // mixed with lower case or digits, the shape almost every real token API key
 // actually has) on top of the entropy bar, which a lowercase hex hash or a
 // v4 UUID never clears.
+// isPathPrefixed reports whether a token opens with something only a
+// filesystem path opens with. Deliberately narrow: it asks about the start of
+// the token, not its shape, because a bare relative path and a base64 secret
+// are genuinely hard to tell apart — an AWS secret access key such as
+// wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY splits into short word-shaped
+// segments exactly as src/main/java/com does. Those stay flagged; missing a
+// path is cheap, missing a key is not.
+func isPathPrefixed(tok string) bool {
+	for _, p := range []string{"/", "./", "../", "~/"} {
+		if strings.HasPrefix(tok, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func looksHighEntropy(tok string) bool {
 	if len(tok) < 20 || len(tok) > 4096 {
 		return false

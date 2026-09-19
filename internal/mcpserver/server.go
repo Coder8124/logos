@@ -111,6 +111,9 @@ type Server struct {
 	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
 	// command use it; empty means `logos`.
 	Shell string
+	// startedAt is when Serve began, used at stdin close to tell this session's
+	// transcript from one a window closed hours ago left behind.
+	startedAt time.Time
 }
 
 // Session is one client's connection to the Server: the state that belongs to
@@ -175,6 +178,18 @@ type Session struct {
 		key, slug string
 		at        time.Time
 	}
+
+	// notes counts progress recorded per project since that project was last
+	// checkpointed, nudgedFor holds the projects already warned about, and
+	// offered is the project of a nudge composed but not yet known to have
+	// reached the host. See nudge.go.
+	work      map[string]int
+	nudgedFor map[string]bool
+	offered   string
+
+	// saved holds the projects this session checkpointed itself, which the
+	// close path uses to leave those alone. See unsaved.go.
+	saved map[string]bool
 }
 
 func checkpointOnDisk(vault, slug string) bool {
@@ -275,8 +290,12 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			return err
 		}
 	}
+	s.startedAt = time.Now()
 	out := json.NewEncoder(w)
 	sess := &Session{Server: s}
+	// A host with no hooks never tells Logos a session ended, so stdin closing
+	// is the only notice there is. See recordUnsaved.
+	defer sess.recordUnsaved()
 	var sendMu sync.Mutex
 	send := func(r *response) {
 		if r != nil {
@@ -356,6 +375,9 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			cancelled = pending[key]
 			delete(pending, key)
 			pendingMu.Unlock()
+			// The nudge in this response is only spent if the response is
+			// actually sent; a cancelled call's reply is dropped unread.
+			sess.nudgeSent(!cancelled)
 			if !cancelled {
 				send(resp)
 			}
@@ -621,6 +643,9 @@ func (s *Session) callTool(req request) *response {
 			"isError": true,
 		})
 	}
+	// Only on a result that worked: a failing call is already asking the model
+	// to deal with something, and a second thing to attend to competes with it.
+	text += s.unsavedNudge()
 	return reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	})
@@ -651,8 +676,15 @@ func (s *Session) readResourceCall(req request) *response {
 func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	switch name {
 	case "remember":
-		return s.remember(argStr(args, "text"), argStr(args, "kind"),
+		out, err := s.remember(argStr(args, "text"), argStr(args, "kind"),
 			argStr(args, "project"), argBool(args, "global", false))
+		// A fact written down is work happening here, and it counts towards the
+		// unsaved-work line the same way a note does. Only on success: a
+		// refused memory recorded nothing.
+		if err == nil {
+			s.recordedWork(s.resolveScope(argStr(args, "project")))
+		}
+		return out, err
 	case "recall":
 		return s.recall(argStr(args, "query"), argInt(args, "limit", 5),
 			argStr(args, "project"), argBool(args, "all_projects", false))
@@ -688,14 +720,27 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// the vault on purpose, and the project only labels which rulings came
 		// from elsewhere. Scoping it to the current folder would suppress the
 		// cross-project warnings that are the whole reason it exists.
-		return s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+		// Counted under the current folder even though the search above is
+		// deliberately unscoped: what is being counted is that this agent is
+		// about to change something here, which is the point a session starts
+		// being worth saving.
+		if err == nil {
+			s.recordedWork(s.resolveScope(argStr(args, "project")))
+		}
+		return out, err
 	case "why":
 		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
 	case "note_progress":
 		// A note since the last checkpoint is something the next one carries, so
 		// the same arguments again are no longer a retry.
 		s.lastCheckpoint.key = ""
-		return s.noteProgress(s.resolveScope(argStr(args, "project")), s.agentFor(args), argStr(args, "text"))
+		project := s.resolveScope(argStr(args, "project"))
+		out, err := s.noteProgress(project, s.agentFor(args), argStr(args, "text"))
+		if err == nil {
+			s.recordedWork(project)
+		}
+		return out, err
 	case "checkpoint":
 		return s.checkpoint(args, "")
 	case "handoff":
@@ -749,7 +794,8 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	}
 	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
 		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
-		Quarantined: quarantineMCP(),
+		Quarantined:       reviewEverythingMCP(),
+		ReviewIfContested: !trustMCP(),
 	})
 	if err != nil {
 		return "", err
@@ -770,42 +816,42 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 		}
 		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
 	case memory.EvQuarantined:
-		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where)), nil
+		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where, r)), nil
 	case memory.EvCreated:
 		return s.receipt(fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where)), nil
 	}
 	return "Nothing stored.", nil
 }
 
-// quarantineMCP decides whether a `remember` call from an MCP client lands in
-// active memory immediately or waits in the review queue.
+// trustMCP and reviewEverythingMCP are the two ends of how much scrutiny a
+// `remember` from an MCP client gets before it counts as known.
 //
-// Default: quarantined. This is the exact tool the "any agent that calls
-// remember mutates the user's vault with no review" problem is about — an MCP
-// client is, by construction, a different process than this one, and the user
-// is not necessarily watching when it writes. Defaulting to quarantine here is
-// the same call logos already made for rollup's proposals
-// (internal/rollup): a machine's inference waits for a human before it counts
-// as settled truth.
+// The middle — the default — is that a write goes active unless it contradicts
+// something already stored, and only the contradiction waits for a person. See
+// the Review-only-what-is-in-dispute comment in memory.Store for why.
 //
-// It is deliberately not the default for every memory write — internal/memory
-// Store's Quarantined field is opt-in per call, and this is the only caller
-// that sets it. A fact typed by hand (source=manual) or learned from a
-// conversation the user just had and explicitly allowed (see
-// internal/consent) never passes through here, because quarantining those
-// would recreate the exact failure this stage exists to prevent: an agent
-// whose every write silently queues has lost its memory just as thoroughly as
-// one that writes with no oversight at all, only slower and quieter about it.
-// Scoping the gate to the one path that is genuinely unattended keeps the fix
-// proportional to the actual problem.
+// This used to quarantine everything, on the reasoning that an MCP client is a
+// different process and the user is not necessarily watching when it writes.
+// The reasoning was right about the risk and wrong about the remedy, and the
+// old comment here said so without following it: an agent whose every write
+// silently queues has lost its memory just as thoroughly as one that writes
+// with no oversight at all. MCP is not one path among several — it is the only
+// path an agent has, so "review everything" meant nothing an agent learned ever
+// reached the next agent unless the user personally typed `logos review`. What
+// people install this for is continuity. A queue that has to be drained by hand
+// before continuity happens is a bill most users will simply not pay, and the
+// facts sit unreviewed while both agents behave as though nothing was stored.
 //
-// LOGOS_TRUST_MCP opts back into the old direct-write behaviour, for someone
-// who has decided, deliberately, that their MCP clients do not need a human in
-// the loop. This matches the codebase's existing LOGOS_* environment escape
-// hatches rather than adding a config file surface for a one-bit decision.
-func quarantineMCP() bool {
-	return os.Getenv("LOGOS_TRUST_MCP") == ""
-}
+// Both escape hatches stay, because the old default was right for someone:
+//
+//	LOGOS_TRUST_MCP=1    never queue, not even a contradiction
+//	LOGOS_REVIEW_ALL=1   queue every agent write, as before
+//
+// LOGOS_* environment variables rather than a config file, matching every other
+// one-bit decision in this codebase.
+func trustMCP() bool { return os.Getenv("LOGOS_TRUST_MCP") != "" }
+
+func reviewEverythingMCP() bool { return os.Getenv("LOGOS_REVIEW_ALL") != "" }
 
 // recall searches this project's memories plus the global ones. allProjects
 // widens it to everything, which is the "unless explicitly asked" half — an
@@ -1232,6 +1278,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		return "", err
 	}
 	s.lastCheckpoint.key, s.lastCheckpoint.slug, s.lastCheckpoint.at = string(key), c.Slug, time.Now()
+	s.checkpointed(c.Project)
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
@@ -1453,7 +1500,16 @@ func argList(args map[string]any, k string) []string {
 // quarantineReceipt names the review command this install answers to. Under
 // npx or the plugin alone there is no logos on PATH, and "run `logos review`"
 // left the memory queued behind a command the user could not run.
-func (s *Server) quarantineReceipt(id int64, kind, where string) string {
+func (s *Server) quarantineReceipt(id int64, kind, where string, r memory.Receipt) string {
+	// Why it queued, not just that it did. A memory only waits for review when
+	// it disputes one already stored, so the receipt quotes the memory in
+	// dispute — that is what lets the agent raise it in the conversation the
+	// user is already having, rather than leaving it for a queue they open
+	// some other day.
+	if r.Contested != 0 {
+		return fmt.Sprintf("queued memory #%d (%s, %s) — it contradicts memory #%d, %q. The user runs `%s review` to settle which is current; until then neither answer changes",
+			id, kind, where, r.Contested, r.ContestedText, s.shell())
+	}
 	return fmt.Sprintf("queued memory #%d (%s, %s) for review — the user runs `%s review` to accept or reject it before it becomes active", id, kind, where, s.shell())
 }
 

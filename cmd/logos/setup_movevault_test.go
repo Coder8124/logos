@@ -15,7 +15,13 @@ import (
 func recordedVaultWithWork(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, session.CheckpointDir, "kestrel"), 0o700); err != nil {
+	p := filepath.Join(dir, session.CheckpointDir, "kestrel")
+	if err := os.MkdirAll(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A real checkpoint, not an empty directory: what makes the move expensive
+	// is the work in the vault, and that is what this helper has to stand for.
+	if err := os.WriteFile(filepath.Join(p, "20260101-100000-cli.md"), []byte("# checkpoint\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := vault.Record(dir); err != nil {
@@ -108,5 +114,89 @@ func TestMovingAnEmptyRecordedVaultNeedsNoExtraFlag(t *testing.T) {
 
 	if got := vault.Recorded(); got != elsewhere {
 		t.Errorf("recorded vault = %q, want %q — an empty vault moves without ceremony", got, elsewhere)
+	}
+}
+
+// "it holds work" is not enough to answer with. The question setup asks here is
+// whether to repoint every front end on the machine away from a vault, and the
+// only thing that makes it answerable is how much is in the one being left —
+// #90's direction asks for the count by name. A user who cannot see it either
+// declines a move they wanted or accepts one that strands months of sessions.
+func TestMovingALoadedVaultSaysHowMuchThatVaultHolds(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("LOGOS_VAULT", "")
+
+	old := t.TempDir()
+	for _, p := range []string{"kestrel", "app"} {
+		dir := filepath.Join(old, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"20260101-100000-cli.md", "20260102-100000-cli.md"} {
+			if err := os.WriteFile(filepath.Join(dir, n), []byte("# checkpoint\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+
+	// --record-temp throughout: every vault here is under the test's temp
+	// directory, and that guard is a different bug's (94).
+	elsewhere := filepath.Join(t.TempDir(), "second")
+	out := captureStdout(t, func() {
+		if _, _, _, err := chooseVault([]string{"--vault", elsewhere, "--yes", "--record-temp"}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if !strings.Contains(out, "4 checkpoints across 2 projects") {
+		t.Errorf("the vault being left was not described, so the move cannot be judged:\n%s", out)
+	}
+}
+
+// A session directory holds the project's working notes (uncommitted.md) as
+// well as its checkpoints. Counting every .md in it told someone with no
+// checkpoints at all that they were about to leave "2 checkpoints" behind.
+// Counting them correctly is only half of it: a vault holding no checkpoints
+// has nothing to strand, so it moves like any other empty one rather than
+// asking a question whose own sentence says there is nothing to lose.
+func TestAVaultHoldingOnlyWorkingNotesMovesWithoutCeremony(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("LOGOS_VAULT", "")
+
+	old := t.TempDir()
+	for _, p := range []string{"kestrel", "app"} {
+		dir := filepath.Join(old, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, session.NotesFile), []byte("# notes\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := vault.Record(old); err != nil {
+		t.Fatal(err)
+	}
+
+	// --record-temp throughout: every vault here is under the test's temp
+	// directory, and that guard is a different bug's (94).
+	elsewhere := filepath.Join(t.TempDir(), "second")
+	out := captureStdout(t, func() {
+		if _, _, _, err := chooseVault([]string{"--vault", elsewhere, "--yes", "--record-temp"}, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if got := vault.Recorded(); got != elsewhere {
+		t.Errorf("recorded vault = %q, want %q — a vault with no checkpoints moves without ceremony:\n%s", got, elsewhere, out)
+	}
+	if strings.Contains(out, "0 checkpoints") {
+		t.Errorf("setup asked about leaving behind nothing at all:\n%s", out)
 	}
 }

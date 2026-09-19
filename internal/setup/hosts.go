@@ -120,6 +120,12 @@ func codex() Host {
 		Detect: func() bool { return codexCLI() != "" },
 		Where:  func() string { return "codex mcp add" },
 		Config: func() string { return inHome(".codex", "config.toml") },
+		// Read off the file, not `codex mcp list`: the file is where the
+		// environment is written down, and asking a host's own CLI at doctor
+		// time starts a process per host. Without this Codex was the one host
+		// whose registrations nothing could see, so a Codex wired to a deleted
+		// binary or an npx cache path passed every check (#90).
+		List: func() ([]Registration, error) { return readCodexServers(inHome(".codex", "config.toml")) },
 		Register: func(s Server) (Outcome, error) {
 			args := []string{"mcp", "add", Name}
 			for k, v := range s.Env {
@@ -152,10 +158,14 @@ func codex() Host {
 // codexHasEntry looks for the [mcp_servers.<name>] table and checks it runs
 // mcp serve. Read as lines rather than parsed: this is the only TOML logos
 // reads, and a table is all it needs to find.
+//
+// Comments are stripped first, for the same reason the value parser strips
+// them: `[mcp_servers.logos] # logos` is that table, and a commented-out
+// `# args = ["mcp", "serve"]` is not its contents.
 func codexHasEntry(toml, name string) bool {
 	in, body := false, ""
 	for _, line := range strings.Split(toml, "\n") {
-		t := strings.TrimSpace(line)
+		t := strings.TrimSpace(stripComment(line))
 		if strings.HasPrefix(t, "[") {
 			in = t == "[mcp_servers."+name+"]"
 			continue

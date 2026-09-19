@@ -128,12 +128,15 @@ func memoryCmd(args []string) error {
 		if err != nil {
 			return err
 		}
-		d, _ := memory.Decay(ix.DB, time.Now().Unix())
+		faded, err := memory.Faded(ix.DB, time.Now().Unix())
+		if err != nil {
+			return err
+		}
 		m, s, err := memory.Consolidate(ix.DB, rt)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("decayed %d · merged %d duplicates · superseded %d outdated\n", d, m, s)
+		fmt.Printf("merged %d duplicates · superseded %d outdated · %d faded from disuse (ranked lower, not removed)\n", m, s, faded)
 		return nil
 	case "forget":
 		// --source undoes a whole arrival at once, which is what a bulk seeding

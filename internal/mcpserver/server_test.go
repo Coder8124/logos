@@ -493,9 +493,11 @@ func TestResumeWithoutACheckpointSaysSo(t *testing.T) {
 
 // remember returns a receipt, so the host can tell the user whether it learned
 // something new or confirmed something it already had.
-// An MCP client's remember is quarantined by default — see quarantineMCP in
-// server.go. The receipt has to say so, not claim the fact is already
-// remembered when it is really just waiting for `logos review`.
+//
+// An MCP client's remember goes active unless it disputes a stored fact — see
+// trustMCP in server.go. A fact nobody contradicts must be remembered outright:
+// saying "queued for review" here is what left every memory sitting behind a
+// command the user never ran.
 func TestRememberReturnsAReceipt(t *testing.T) {
 	c, _, _ := startServer(t)
 	handshake(t, c)
@@ -503,14 +505,53 @@ func TestRememberReturnsAReceipt(t *testing.T) {
 	first, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(first, "queued memory #") {
-		t.Errorf("first store from an MCP client should be quarantined, got %q", first)
+	if !strings.Contains(first, "stored in") {
+		t.Errorf("an uncontested fact should be stored active, got %q", first)
 	}
 	second, _ := c.callText(t, "remember", map[string]any{
 		"text": "The BOM target is $118.", "kind": "fact",
 	})
-	if !strings.Contains(second, "still queued — memory #") {
-		t.Errorf("restating a fact still pending review should say it is still queued, got %q", second)
+	if !strings.Contains(second, "already knew that") {
+		t.Errorf("restating a stored fact should read as corroboration, got %q", second)
+	}
+}
+
+// The queue still exists, for the one thing it is good at. An agent that
+// reports a different value for a fact already on record cannot know which is
+// current, and the receipt has to name the memory in dispute rather than
+// leaving the user to find it.
+func TestARememberedFactThatDisputesAStoredOneIsQueuedAndSaysWhich(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	if out, isErr := c.callText(t, "remember", map[string]any{
+		"text": "Staging runs on port 8080.", "kind": "fact",
+	}); isErr {
+		t.Fatalf("storing the first fact failed: %q", out)
+	}
+	out, _ := c.callText(t, "remember", map[string]any{
+		"text": "Staging runs on port 9090.", "kind": "fact",
+	})
+	if !strings.Contains(out, "queued memory #") {
+		t.Fatalf("a fact disputing a stored one should be queued, got %q", out)
+	}
+	if !strings.Contains(out, "8080") {
+		t.Errorf("the receipt should quote the memory in dispute, got %q", out)
+	}
+}
+
+// LOGOS_REVIEW_ALL is the way back to reviewing every agent write, for someone
+// who wants it. Removing the old default must not remove the old behaviour.
+func TestReviewAllQueuesEvenAnUncontestedFact(t *testing.T) {
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	out, _ := c.callText(t, "remember", map[string]any{
+		"text": "The BOM target is $118.", "kind": "fact",
+	})
+	if !strings.Contains(out, "queued memory #") {
+		t.Errorf("LOGOS_REVIEW_ALL should queue every write, got %q", out)
 	}
 }
 

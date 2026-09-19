@@ -351,3 +351,77 @@ func TestCodexExecCommandCountsAsAShellCommand(t *testing.T) {
 		t.Fatalf("files = %v, want the apply_patch path", c.Files)
 	}
 }
+
+// The harvest recognises a tool by name, so a name it does not know costs a
+// session its entire file list while still reporting success — the failure the
+// isShellTool comment records for Codex's exec_command. Cursor's two commonest
+// edits, search_replace and edit_file, were unknown the same way.
+func TestAHarvestKnowsCursorsNamesForEditingAFile(t *testing.T) {
+	s := &transcript.Session{
+		Harness: "cursor", ID: "c1", Path: "state.vscdb#c1",
+		Turns: []transcript.Turn{
+			{Role: "user", Text: "fix the recursion"},
+			{Role: "tool", Tool: "search_replace", Status: "ok", Input: "src/com/company/Recur.java"},
+			// No slash and no extension, so the looksLikePath fallback cannot
+			// rescue it: this one is found only by knowing the tool's name.
+			{Role: "tool", Tool: "edit_file", Status: "ok", Input: "Makefile"},
+			{Role: "tool", Tool: "run_terminal_cmd", Status: "error", Input: "javac src/main/Game.java"},
+		},
+	}
+	c := ingest.Harvest(s)
+
+	want := []string{"src/com/company/Recur.java", "Makefile"}
+	for _, f := range want {
+		if !slicesContains(c.Files, f) {
+			t.Errorf("harvest lost %q — files were %v", f, c.Files)
+		}
+	}
+	// A failed command stays in the list and stays marked failed: what did not
+	// work is the field the next agent trusts most.
+	if len(c.Commands) != 1 || !strings.Contains(c.Commands[0], "— failed") {
+		t.Errorf("commands = %v, want the javac run marked failed", c.Commands)
+	}
+}
+
+func slicesContains(hay []string, need string) bool {
+	for _, h := range hay {
+		if h == need {
+			return true
+		}
+	}
+	return false
+}
+
+// Cursor's timestamps were milliseconds until the reader was fixed, so
+// candidate.go wrote them through time.Unix as a five-digit year that RFC3339
+// cannot parse. Those candidates are still queued. parseTS turned the
+// unreadable line into a zero indistinguishable from "no start time recorded",
+// and promote dates its checkpoint from Ended — so a chat from months ago is
+// filed as work that happened today, which is the stale-answer failure ingest
+// exists to prevent. The damage is done; being silent about it is the bug.
+func TestACandidateWhoseTimestampCannotBeReadSaysSoInsteadOfLookingHealthy(t *testing.T) {
+	raw := "---\n" +
+		"type: ingest_candidate\n" +
+		"harness: cursor\n" +
+		"session: abc123\n" +
+		"status: pending\n" +
+		// What time.Unix(1788411890656, 0) formats to: year 56655.
+		"started: 56655-09-02T11:24:16Z\n" +
+		"ended: 56655-09-02T11:24:16Z\n" +
+		"turns: 40\n" +
+		"---\n\n## State\n\ncursor session abc123, 40 turns\n"
+
+	c := ingest.Parse(raw, "cursor-abc123.md")
+	if !c.TimestampUnreadable {
+		t.Error("an unreadable timestamp was not recorded, so nothing can report it")
+	}
+	if c.Started != 0 || c.Ended != 0 {
+		t.Errorf("an unreadable stamp should not be guessed at: started=%d ended=%d", c.Started, c.Ended)
+	}
+	// A candidate that simply has no timestamps is not damaged — the two must
+	// stay distinguishable or the warning fires on every healthy queue.
+	none := ingest.Parse("---\ntype: ingest_candidate\nharness: cursor\nsession: d\nturns: 1\n---\n", "cursor-d.md")
+	if none.TimestampUnreadable {
+		t.Error("a candidate with no timestamps at all was reported as damaged")
+	}
+}

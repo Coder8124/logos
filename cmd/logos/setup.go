@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
@@ -119,8 +120,15 @@ func setupCmd(args []string) error {
 	checkRuntime(yes, opts.dryRun)
 	if opts.dryRun {
 		fmt.Println("  index      would be built from the markdown in this vault")
-	} else {
-		indexVault(dir)
+	} else if err := indexVault(dir); err != nil {
+		fmt.Printf("  index      failed: %v\n", err)
+		// The pointer was written before the index was tried; a directory that
+		// exists but cannot be written gets that far. Named, so nobody finds out
+		// from the desktop app opening an empty vault.
+		if rec == recordedHere && vault.Recorded() == dir {
+			return fmt.Errorf("no hosts were wired: the index could not be built in %s, which is now recorded as this machine's vault — fix the error above and run setup again, or pass --vault somewhere else", dir)
+		}
+		return fmt.Errorf("no hosts were wired: the index could not be built in %s", dir)
 	}
 	// "This run only" has to be true of the hosts too: a host config outlives
 	// the run, so wiring them to a vault nobody recorded made it permanent.
@@ -255,6 +263,14 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	if err != nil {
 		return "", false, recordFailed, err
 	}
+	// Before anything is recorded: the pointer is machine-wide and outlives the
+	// run, and a file there left every host wired to a path that cannot hold a
+	// vault, with the only failure printed ten lines above a table of ticks.
+	// Usually a shell's doing — a tab-completion onto a neighbouring file, or an
+	// empty $VAR that made the next word the path — not anybody's choice.
+	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+		return "", false, recordFailed, fmt.Errorf("%s is a file, not a directory — pass --vault <dir>; nothing was changed", abs)
+	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) && flagStr(args, "--vault", "") == "" && !fromEnv && abs == vault.Pointer() {
 		// Nobody asked for this directory in this run; it is the recorded vault,
 		// and it is missing — usually an unmounted drive. Creating it makes an
@@ -300,7 +316,7 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 		if temp {
 			return abs, created, recordSkipTemp, nil
 		}
-		if move, _ := movingLoadedVault(args, abs); move {
+		if move, _, _ := movingLoadedVault(args, abs); move {
 			return abs, created, recordSkipMove, nil
 		}
 		return abs, created, recordedHere, nil
@@ -325,8 +341,8 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	// A held every checkpoint this machine has taken — announced afterwards, in
 	// the same receipt line as everything else. --yes does not answer this one
 	// either, for the reason above it.
-	if move, from := movingLoadedVault(args, abs); move {
-		fmt.Printf("             this machine's vault is %s, and it holds work\n", from)
+	if move, from, holds := movingLoadedVault(args, abs); move {
+		fmt.Printf("             this machine's vault is %s, and it holds %s\n", from, holds)
 		if yes {
 			fmt.Println("             not moving it — pass --move-vault to move it anyway")
 			return abs, created, recordSkipMove, nil
@@ -346,22 +362,65 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 }
 
 // movingLoadedVault reports whether this run would repoint the machine away
-// from a recorded vault that has checkpoints in it, and names that vault. An
-// empty vault, or the one already recorded, is not a decision anybody needs to
-// defend.
-func movingLoadedVault(args []string, abs string) (bool, string) {
+// from a recorded vault that has checkpoints in it, names that vault, and says
+// what is in it. An empty vault, or the one already recorded, is not a decision
+// anybody needs to defend.
+//
+// The description is the part that makes the question answerable (#90). "It
+// holds work" is true of a vault with one checkpoint and of a vault with a
+// year of them, and the two deserve opposite answers — so the count is said
+// before the prompt, not discovered afterwards by a resume that finds nothing.
+func movingLoadedVault(args []string, abs string) (bool, string, string) {
 	if hasFlag(args, "--move-vault") {
-		return false, ""
+		return false, "", ""
 	}
 	prev := vault.Recorded()
 	if prev == "" || filepath.Clean(prev) == abs {
-		return false, ""
+		return false, "", ""
 	}
 	projects, err := session.Projects(prev)
-	if err != nil || len(projects) == 0 {
-		return false, ""
+	if err != nil {
+		return false, "", ""
 	}
-	return true, prev
+	// A directory under sessions/ is not by itself work worth defending: it
+	// also exists for a project that has only working notes. Asking about one
+	// produced a warning whose own sentence said there was nothing to lose.
+	holding, checkpoints := vaultHolding(prev, projects)
+	if checkpoints == 0 {
+		return false, "", ""
+	}
+	return true, prev, holding
+}
+
+// vaultHolding counts what would be left behind, in the terms the user names it
+// in: checkpoints, and the projects they are filed under. A project directory
+// that cannot be read counts as nothing rather than failing the move — this
+// sentence exists to inform a decision, and refusing to describe the vault is a
+// worse answer than describing the part of it that is readable.
+func vaultHolding(prev string, projects []string) (string, int) {
+	checkpoints, held := 0, 0
+	for _, p := range projects {
+		entries, err := os.ReadDir(filepath.Join(prev, session.CheckpointDir, p))
+		if err != nil {
+			continue
+		}
+		before := checkpoints
+		for _, e := range entries {
+			// The same predicate session.Read and doctor count with: a
+			// session directory also holds the project's working notes, and
+			// calling those a checkpoint overstates what the vault holds.
+			if !e.IsDir() && session.IsCheckpointFile(e.Name()) {
+				checkpoints++
+			}
+		}
+		// Counted the same way as the checkpoints, for the same reason: a
+		// project the user would be leaving nothing of is not one of the
+		// projects this sentence is warning them about.
+		if checkpoints > before {
+			held++
+		}
+	}
+	return fmt.Sprintf("%d %s across %d %s", checkpoints, plural(checkpoints, "checkpoint"), held, plural(held, "project")), checkpoints
 }
 
 // goRunBinary reports a binary inside a go-build directory, where `go run`
@@ -371,6 +430,13 @@ func goRunBinary(bin string) bool {
 	if strings.HasSuffix(bin, ".test") || strings.HasSuffix(bin, ".test.exe") {
 		return false
 	}
+	return inGoBuildDir(bin)
+}
+
+// inGoBuildDir reports a binary Go built into its own temp tree, `go run`'s and
+// the test binary's alike. Neither is an install, so neither is something to
+// copy onto a PATH and wire hosts to.
+func inGoBuildDir(bin string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(bin), "/") {
 		if strings.HasPrefix(part, "go-build") {
 			return true
@@ -608,18 +674,28 @@ func pullModel(baseURL, model string, progress func(pct int)) error {
 }
 
 // indexVault runs the first index so the vault is queryable immediately.
-func indexVault(vault string) {
-	ix, err := index.Open(vault)
+func indexVault(dir string) error {
+	// The same guard `logos index` runs, and the one that matters most here:
+	// setup is the path every user takes on day one, and `git init && git add
+	// -A` in a vault without it commits index.db and #88's activity log — every
+	// command and file path a host reported.
+	if wrote, err := vault.EnsureGitignore(dir); err != nil {
+		fmt.Printf("  index      could not write .gitignore: %v\n", err)
+	} else if wrote {
+		fmt.Println("  index      .gitignore now keeps .logos/ and activity/ out of git")
+	}
+
+	// Returned, not printed and dropped: the caller goes on to wire every host
+	// to this vault, and a vault it could not index is not one to wire them to.
+	ix, err := index.Open(dir)
 	if err != nil {
-		fmt.Printf("  index      failed: %v\n", err)
-		return
+		return err
 	}
 	defer ix.Close()
 
 	rep, err := ix.Sync()
 	if err != nil {
-		fmt.Printf("  index      failed: %v\n", err)
-		return
+		return err
 	}
 	// provider.Discover rather than findProvider: the latter prints a banner of
 	// its own, which would interrupt this report mid-table.
@@ -645,6 +721,7 @@ func indexVault(vault string) {
 		fmt.Printf(" (%d skipped)", rep.Skipped)
 	}
 	fmt.Println()
+	return nil
 }
 
 // wireHosts registers this binary with every MCP host on the machine.
@@ -717,8 +794,18 @@ func terminalCommand(self string) (cmd, hint string) {
 			}
 		}
 	}
+	// Asked of the real path, before the quoting below rewrites it.
+	pinned, dir := ourPin(self), filepath.Dir(self)
+	// Quoted for both hints, not just the last one: a home directory with a
+	// space in it is exactly where a command gets pasted and splits in two.
 	if strings.ContainsAny(self, " '\"$\\") {
 		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
+	}
+	// setup's own copy is where it is on purpose: the hosts are wired to it and
+	// the plugin's resolver searches that directory. Telling the user to move
+	// it would break both, so the fix is to put the directory on PATH.
+	if pinned {
+		return self, fmt.Sprintf("add %s to your PATH to type `logos`", dir)
 	}
 	// The hosts setup just wired launch this exact path, so moving the file
 	// breaks every one of them unless setup rewires them to where it went.
@@ -856,10 +943,39 @@ func wireHosts(vault string, opts wireOpts) error {
 	// binary npx is running is the whole server, so keep a copy of it outside
 	// npm's cache and register that. ~/.local/bin is also a directory the
 	// plugin's resolver searches, so its hooks find the copy instead of npx.
-	pin := ""
+	// pinSrc is the binary the copy is made from, kept from the moment the pin
+	// is decided. Resolving it again at the copy could hand an empty path to
+	// pinBinary, and the failure branch would then register every host with an
+	// empty command — a failure wired up as a success (invariant 4).
+	pin, pinSrc, npxPin := "", "", false
 	if self, err := selfPath(); err == nil && selfupdate.DetectInstall(self) == selfupdate.NPX {
 		if p, err := pinnedBinary(); err == nil {
-			pin = p
+			pin, pinSrc, npxPin = p, self, true
+			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
+		}
+	}
+	// Someone who started on npx has setup's copy in ~/.local/bin, which Claude
+	// Code's installer puts ahead of Homebrew on PATH — so after `brew install`
+	// it is still the copy that `logos setup` runs, and wiring the hosts to it
+	// pins them to the one install `brew upgrade` can never reach (#83). The
+	// receipt is what makes this safe to decide: the copy is setup's own.
+	if pin == "" {
+		if self, err := selfPath(); err == nil && ourPin(self) {
+			if opt, v := health.HomebrewInstall(self); opt != "" {
+				fmt.Printf("\n  logos      Homebrew's logos %s is installed at %s\n", v, opt)
+				fmt.Printf("             wiring the hosts to it, not to this copy at %s, which `brew upgrade` never reaches\n", self)
+				srv.Bin, srv.Args = opt, []string{"mcp", "serve"}
+			}
+		}
+	}
+	// A release archive unpacks wherever the browser left it, and setup wired
+	// the hosts to that path and then told the user to move the file onto their
+	// PATH so they could type `logos` — which broke every host it had just
+	// wired (#89). The offer comes first, so what the hosts are given is the
+	// path that will still be there once the user has done as they were told.
+	if pin == "" {
+		if p, src := offerPathCopy(opts.yes, opts.dryRun); p != "" {
+			pin, pinSrc = p, src
 			srv.Bin, srv.Args = p, []string{"mcp", "serve"}
 		}
 	}
@@ -923,6 +1039,12 @@ func wireHosts(vault string, opts wireOpts) error {
 					}
 				default:
 					pluginNote = fmt.Sprintf("    %-*s —  already connected by the Logos plugin%s; not registered again\n", hostColumn, h.Name, pv)
+					// The plugin's per-project off switch lives in that
+					// project's settings, which nothing in the user's files can
+					// see. Said flatly, this line told someone whose current
+					// project has the plugin disabled the opposite of the truth
+					// and gave them nothing to check (#82).
+					pluginNote += fmt.Sprintf("    %-*s    in every project, unless it is disabled in that project's own settings\n", hostColumn, "")
 					// Skipping Claude Code on an old plugin's say-so left its
 					// old hooks running against this server with nothing said;
 					// doctor's check is the one that knows how to compare.
@@ -1059,8 +1181,8 @@ func wireHosts(vault string, opts wireOpts) error {
 	if showPlan {
 		fmt.Println() // separate the roster above from the outcomes below
 	}
-	if pin != "" {
-		self, _ := selfPath()
+	if pin != "" && !opts.dryRun {
+		self := pinSrc
 		// An older `npx @noeton/logos@x setup` used to overwrite a newer copy,
 		// quietly downgrading every host that launches it. Replacing newer with
 		// older is a choice: asked with no as the default, and under --yes only
@@ -1071,12 +1193,23 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("    %-*s —  kept logos %s at %s, newer than this %s (--downgrade replaces it)\n", hostColumn, "binary", theirs, pin, version)
 		} else if err := pinBinary(self, pin); err != nil {
 			// Registering a path that was never written would be a host that
-			// cannot start. npx still works while online, so fall back to it
-			// and say what that costs.
-			srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
-			bin = srv.Bin
+			// cannot start. Under npx there is nothing else on disk to launch,
+			// so fall back to npx and say what that costs; on every other route
+			// this binary is still here, and wiring it where it stands is what
+			// declining the offer would have done anyway.
 			fmt.Printf("    %-*s ✗  could not copy logos to %s: %v\n", hostColumn, "binary", pin, err)
-			fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
+			// pin is cleared either way: the closing line names the command
+			// the run actually wired, and naming a file setup has just said it
+			// could not write ends the run by pointing at nothing.
+			pin = ""
+			if npxPin {
+				srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
+				fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
+			} else {
+				srv.Bin, srv.Args = self, []string{"mcp", "serve"}
+				fmt.Printf("    %-*s    hosts launch %s where it is instead\n", hostColumn, "", self)
+			}
+			bin = srv.Bin
 		} else {
 			fmt.Printf("    %-*s ✓  copied to %s\n", hostColumn, "binary", pin)
 		}
@@ -1217,6 +1350,8 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Println("  and re-run `logos mcp install`.")
 		return nil
 	}
+	offerActivityRecording(vault, opts.yes)
+
 	// The first thing a new user sees logos do decides what they think it is.
 	// "What do you remember about me?" on a fresh vault correctly answers
 	// "nothing", which demonstrates an empty database rather than the product.
@@ -1227,7 +1362,15 @@ func wireHosts(vault string, opts wireOpts) error {
 	// and watch survive across two different agents.
 	cmd, hint := "logos", ""
 	if self, err := selfPath(); err == nil {
-		cmd, hint = terminalCommand(self)
+		// The hosts were wired to the copy, so the shell command is the copy's
+		// too. Describing the original here closed setup with the instruction
+		// #89 exists about, now aimed at the file the hosts had just been
+		// pointed at.
+		shell := self
+		if pin != "" {
+			shell = pin
+		}
+		cmd, hint = terminalCommand(shell)
 		// The hosts were just wired to this copy while another logos is the
 		// one that upgrades, or the one the shell runs; "not on your PATH"
 		// would misname that.
@@ -1235,6 +1378,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("\n  %s\n  → %s\n", c.Detail, c.Fix)
 			hint = ""
 		}
+		offerPinRemoval(self)
 	}
 	tryTheHandoff(os.Stdout, wiredHosts, cmd, hint)
 	return nil
@@ -1481,6 +1625,48 @@ func mcpUninstallCmd(args []string) error {
 	return nil
 }
 
+// offerActivityRecording asks, once, whether this vault should keep the
+// activity log — and asks it here because here is where the hooks that write it
+// have just been installed. The question is meaningless before that and
+// too late anywhere after.
+//
+// Three rules it does not get to break:
+//
+// A vault that has already answered is not asked again. Setup is re-run often —
+// after a host upgrade, a vault move, a `logos mcp install` — and a switch that
+// re-offers itself every time is one a user eventually flips by accident.
+//
+// --yes does not answer this one. The flag means "do not stop to ask me", which
+// is a statement about prompts, not consent to record every prompt typed from
+// now on. The same reasoning already governs the vault-path question above.
+// Under --yes, and anywhere there is no terminal, the log stays off and the
+// line says how to turn it on.
+//
+// The default is no. Invariant 5 is that nothing leaves the machine, and this
+// log does not — but a record of every prompt and tool call is the one thing in
+// the vault the user did not write a word of, and the version that switched it
+// on by itself is the bug this is fixing.
+func offerActivityRecording(vault string, yes bool) {
+	if activity.Decided(vault) {
+		return
+	}
+	fmt.Println("\n  activity log")
+	fmt.Println("    The hooks just installed can also write a local log of your prompts, tool")
+	fmt.Printf("    calls and turn ends to %s. Nothing is sent anywhere and no\n", filepath.Join(vault, activity.Dir))
+	fmt.Printf("    model reads it; `logos activity` shows it and entries older than %d days are\n", int(activity.Retention.Hours()/24))
+	fmt.Println("    deleted. It is off unless you want it.")
+	if yes || !confirmNo("    record activity for this vault?") {
+		fmt.Println("    —  off; `logos activity on` turns it on later")
+		return
+	}
+	if err := activity.SetRecording(vault, true); err != nil {
+		// Invariant 4: a yes that did not take must not look like a yes.
+		fmt.Printf("    ✗  could not turn it on: %v\n", err)
+		return
+	}
+	fmt.Println("    ✓  on; `logos activity off` stops it")
+}
+
 // confirm asks a yes/no question. An interactive user pressing return accepts;
 // nobody being there declines.
 //
@@ -1558,6 +1744,60 @@ func otherLogosEntries(h setup.Host) []string {
 	return names
 }
 
+// offerPathCopy offers to copy a logos that cannot be typed into ~/.local/bin,
+// and returns where the copy goes for the hosts to be wired to. "" means wire
+// this binary where it stands — the offer was declined, refused, or never
+// needed. The copy itself is made at the one place that makes it, alongside
+// npx's, so the version guard there covers this route too.
+//
+// Only asked when the binary is not reachable as `logos`: an install that is
+// already on PATH has nothing to move. Excluded are npx, because the caller has
+// its own copy to make on a different reason; `go run`, because Go deletes that
+// file on exit and setup refuses it a few lines further down anyway; and
+// Homebrew's and npm's own installs, because a copy of a managed install is
+// frozen at today's version and sits ahead of its manager on PATH, so the hosts
+// launch the one logos `brew upgrade` and `npm update -g` can never reach —
+// the trap #83 is about.
+func offerPathCopy(yes, dryRun bool) (dst, src string) {
+	self, err := selfPath()
+	if err != nil || inGoBuildDir(self) {
+		return "", ""
+	}
+	switch selfupdate.DetectInstall(self) {
+	case selfupdate.NPX, selfupdate.Homebrew, selfupdate.NPMManaged:
+		return "", ""
+	}
+	if _, hint := terminalCommand(self); hint == "" {
+		return "", ""
+	}
+	dst, err = pinnedBinary()
+	if err != nil {
+		return "", ""
+	}
+	// Setup run from the copy it made earlier, with that directory still not on
+	// PATH, reaches here about the file it is already running as — and offered
+	// to copy it onto itself. The hint terminalCommand gave is the right one;
+	// there is simply nothing to copy.
+	if dst == self {
+		return "", ""
+	}
+	fmt.Printf("\n  logos      %s is not on your PATH, so `logos` is not a command yet\n", self)
+	// A plan that leaves out the one file the run creates is not the plan: the
+	// roster used to show the hosts pointed at ~/Downloads with nothing saying
+	// a real run writes a binary into ~/.local/bin and wires them there. The
+	// destination is returned under --dry-run too, so the roster names the
+	// binary a real run would wire; the copy itself is behind the dry-run
+	// return further up, and is not made.
+	if dryRun {
+		fmt.Printf("             a real run offers to copy it to %s and wire the hosts to the copy\n", dst)
+		return dst, self
+	}
+	if !yes && !confirm(fmt.Sprintf("             copy it to %s and wire the hosts to the copy?", dst)) {
+		return "", ""
+	}
+	return dst, self
+}
+
 // pinnedBinary is where an npx setup keeps its copy of logos.
 func pinnedBinary() (string, error) {
 	home, err := os.UserHomeDir()
@@ -1595,7 +1835,70 @@ func pinBinary(self, dst string) error {
 		os.Remove(tmp)
 		return err
 	}
-	return nil
+	return writePinReceipt(dst)
+}
+
+// The receipt beside the copy, naming it. Nothing on disk used to say that the
+// logos in ~/.local/bin was setup's own doing, so a later setup could neither
+// prefer the install that replaced it nor offer to clear it away — it could
+// only tell the user about a file and leave them to judge whose it was (#83).
+func pinReceipt() (string, error) {
+	dst, err := pinnedBinary()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(dst), ".logos-pin"), nil
+}
+
+func writePinReceipt(pin string) error {
+	path, err := pinReceipt()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(pin+"\n"), 0o644)
+}
+
+// ourPin reports whether the logos at path is the copy setup made. A logos
+// somebody else put in that directory has no receipt, and is not setup's to
+// prefer against, replace or remove.
+func ourPin(path string) bool {
+	receipt, err := pinReceipt()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(receipt)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == path
+}
+
+// offerPinRemoval offers to take back the copy setup pinned into ~/.local/bin,
+// once a managed install — Homebrew's or npm's — is the one running setup.
+// That copy is ahead of both on PATH, so leaving it there is what makes `brew
+// upgrade` and `logos update` reach an install no host launches. Only offered,
+// never assumed: --yes is not an answer to a question about deleting a file.
+func offerPinRemoval(self string) {
+	switch selfupdate.DetectInstall(self) {
+	case selfupdate.Homebrew, selfupdate.NPMManaged:
+	default:
+		return
+	}
+	dst, err := pinnedBinary()
+	if err != nil || dst == self || !ourPin(dst) {
+		return
+	}
+	if !confirm(fmt.Sprintf("  → remove %s, the copy setup pinned there?", dst)) {
+		return
+	}
+	if err := os.Remove(dst); err != nil {
+		fmt.Printf("  could not remove %s: %v\n", dst, err)
+		return
+	}
+	if receipt, err := pinReceipt(); err == nil {
+		os.Remove(receipt)
+	}
+	fmt.Printf("  removed %s\n", dst)
 }
 
 // runsAsLogos is the resolver's test in plugin/bin/resolve.sh: every logos

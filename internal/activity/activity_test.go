@@ -11,7 +11,7 @@ import (
 )
 
 func TestAppendAndReadRoundTrip(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	if err := Append(v, Event{Kind: KindPrompt, Project: "kestrel", Summary: "fix the retry budget"}); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestAppendAndReadRoundTrip(t *testing.T) {
 }
 
 func TestEventsAreOneJSONLineEach(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	// A summary that would break the file if newlines survived into it.
 	Append(v, Event{Kind: KindTool, Summary: "line one\nline two"})
 	Append(v, Event{Kind: KindTool, Summary: "second event"})
@@ -53,7 +53,7 @@ func TestEventsAreOneJSONLineEach(t *testing.T) {
 // The claim on the box is "pipe it to jq". Two agents in two terminals must not
 // be able to produce a half-written line between them.
 func TestConcurrentAppendsNeverTearALine(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	var wg sync.WaitGroup
 	for i := 0; i < 40; i++ {
 		wg.Add(1)
@@ -79,7 +79,7 @@ func TestConcurrentAppendsNeverTearALine(t *testing.T) {
 }
 
 func TestReadIsNewestFirstAndLimitKeepsTheNewest(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	now := time.Now().Unix()
 	for i := 0; i < 5; i++ {
 		Append(v, Event{Kind: KindTool, TS: now + int64(i), Summary: string(rune('a' + i))})
@@ -97,7 +97,7 @@ func TestReadIsNewestFirstAndLimitKeepsTheNewest(t *testing.T) {
 }
 
 func TestFiltersNarrow(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	Append(v, Event{Kind: KindTool, Project: "kestrel", Tool: "Edit"})
 	Append(v, Event{Kind: KindTool, Project: "harrier", Tool: "Bash"})
 	Append(v, Event{Kind: KindPrompt, Project: "kestrel"})
@@ -125,7 +125,7 @@ func TestFiltersNarrow(t *testing.T) {
 
 // One bad line must cost one line, not the rest of the month.
 func TestAMalformedLineDoesNotEndTheFile(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	Append(v, Event{Kind: KindTool, Summary: "before"})
 	files, _ := filepath.Glob(filepath.Join(v, Dir, "*.jsonl"))
 	f, _ := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, 0o644)
@@ -143,13 +143,13 @@ func TestAMalformedLineDoesNotEndTheFile(t *testing.T) {
 }
 
 func TestAnEventNeedsAKind(t *testing.T) {
-	if err := Append(t.TempDir(), Event{Summary: "orphan"}); err == nil {
+	if err := Append(recordingVault(t), Event{Summary: "orphan"}); err == nil {
 		t.Error("a kindless event should be refused, not written")
 	}
 }
 
 func TestMonthlyFiles(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	jan := time.Date(2026, 1, 15, 0, 0, 0, 0, time.Local).Unix()
 	feb := time.Date(2026, 2, 15, 0, 0, 0, 0, time.Local).Unix()
 	Append(v, Event{Kind: KindTool, TS: jan})
@@ -167,7 +167,7 @@ func TestMonthlyFiles(t *testing.T) {
 }
 
 func TestProjectsAreBusiestFirst(t *testing.T) {
-	v := t.TempDir()
+	v := recordingVault(t)
 	for i := 0; i < 3; i++ {
 		Append(v, Event{Kind: KindTool, Project: "busy"})
 	}
@@ -179,4 +179,16 @@ func TestProjectsAreBusiestFirst(t *testing.T) {
 	if len(got) != 2 || got[0] != "busy" {
 		t.Fatalf("want busy first, got %v", got)
 	}
+}
+
+// recordingVault is a vault whose owner has said yes to the log. Recording is
+// opt-in, so a test about how the log behaves has to opt in first; the tests
+// about the default itself live in optin_test.go.
+func recordingVault(t *testing.T) string {
+	t.Helper()
+	v := t.TempDir()
+	if err := SetRecording(v, true); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }

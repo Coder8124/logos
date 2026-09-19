@@ -140,8 +140,8 @@ func emptyActivity(vault string, q activity.Query) error {
 	}
 	fmt.Println("no activity recorded yet.")
 	fmt.Println()
-	fmt.Println("  Activity is written by the Claude Code hooks, so it starts filling in")
-	fmt.Println("  the moment the plugin is installed and you begin a session:")
+	fmt.Println("  Recording is on for this vault, and activity is written by the Claude Code")
+	fmt.Println("  hooks — so it fills in once the plugin is installed and you begin a session:")
 	fmt.Println()
 	fmt.Println("      logos mcp install")
 	fmt.Println()

@@ -122,7 +122,7 @@ func renderPending(pend []Memory) string {
 			oneLine(m.Text), m.ID, m.Kind, m.Confidence, m.Salience, orDash(m.Source),
 			time.Unix(m.Created, 0).UTC().Format(time.RFC3339), m.Uses)
 		if m.Project != "" {
-			fmt.Fprintf(&b, " project=%s", m.Project)
+			fmt.Fprintf(&b, " project=%s", logField(m.Project))
 		}
 		if m.Agent != "" {
 			fmt.Fprintf(&b, " agent=%s", strings.ReplaceAll(m.Agent, " ", "-"))
