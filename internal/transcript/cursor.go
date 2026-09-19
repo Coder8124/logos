@@ -202,14 +202,34 @@ func (t *cursorTool) turn() Turn {
 		p.RelWorkspace, a.TargetFile, a.FilePath, a.RelPath, p.DirectoryDir,
 		a.Query,
 	)
-	// Only "completed" is success. A cancelled or still-loading call did not
-	// finish, and reporting it as ok would put a command in the harvest's
-	// verified-looking list that never actually ran.
-	status := "error"
-	if t.Status == "completed" && t.Error == "" {
-		status = "ok"
+	return Turn{Role: "tool", Tool: t.Name, Status: t.outcome(), Input: strings.TrimSpace(input)}
+}
+
+// outcome maps Cursor's status onto the three values the rest of the pipeline
+// reads: "ok", "error", and "" for genuinely unknown — the same three
+// codexStatus produces.
+//
+// The empty case is the one that matters. 1585 of the 5827 tool calls in a real
+// chat database carry no status, no result and no error field at all, and
+// nothing records what became of them. Calling that "error" is not a
+// conservative default: harvest marks an errored command "— failed", and
+// "failed" is the field the next agent trusts most, so it would file 27% of
+// this machine's Cursor history as approaches that were tried and ruled out
+// when they were never even observed. Unknown has to stay unknown.
+func (t *cursorTool) outcome() string {
+	if t.Error != "" {
+		return "error"
 	}
-	return Turn{Role: "tool", Tool: t.Name, Status: status, Input: strings.TrimSpace(input)}
+	switch t.Status {
+	case "completed":
+		return "ok"
+	// Cancelled is a real negative outcome — the user stopped it — and matches
+	// the "incomplete" codexStatus already treats as an error. "loading" is a
+	// call still in flight when the chat was written, which is not an outcome.
+	case "error", "cancelled":
+		return "error"
+	}
+	return ""
 }
 
 func (r cursorReader) read(path string) (*Session, error) {

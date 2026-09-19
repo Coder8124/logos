@@ -158,6 +158,7 @@ func cursorStorageWithTools(t *testing.T) string {
 			{"bubbleId": "b2", "type": 2},
 			{"bubbleId": "b3", "type": 2},
 			{"bubbleId": "b4", "type": 2},
+			{"bubbleId": "b5", "type": 2},
 		},
 	})
 	put(fmt.Sprintf("bubbleId:%s:b1", id), map[string]any{"type": 1, "text": "move fleetbuilder out of .venv"})
@@ -188,6 +189,15 @@ func cursorStorageWithTools(t *testing.T) string {
 			"rawArgs": `{"command": "rm -rf build"}`,
 		},
 	})
+	// No status, no result, no error — 27% of the calls in a real database.
+	// Nothing recorded what became of it, so nothing may be claimed about it.
+	put(fmt.Sprintf("bubbleId:%s:b5", id), map[string]any{
+		"type": 2,
+		"toolFormerData": map[string]any{
+			"name":    "run_terminal_cmd",
+			"rawArgs": `{"command": "go test ./..."}`,
+		},
+	})
 	return dir
 }
 
@@ -213,8 +223,8 @@ func TestACursorToolCallIsReadAsAToolTurn(t *testing.T) {
 			tools = append(tools, turn)
 		}
 	}
-	if len(tools) != 3 {
-		t.Fatalf("tool turns = %d, want 3: %+v", len(tools), s.Turns)
+	if len(tools) != 4 {
+		t.Fatalf("tool turns = %d, want 4: %+v", len(tools), s.Turns)
 	}
 	// The command comes from params where both spellings carry it.
 	if tools[0].Tool != "run_terminal_cmd" || tools[0].Input != "mv .venv/lib/fleetbuilder.py ." {
@@ -263,4 +273,31 @@ func TestACursorChatsTimestampsAreInSecondsLikeEveryOtherReader(t *testing.T) {
 	if s.Ended != want {
 		t.Errorf("Ended = %d, want %d", s.Ended, want)
 	}
+}
+
+// A tool call Cursor recorded no outcome for must not be reported as one that
+// failed. harvest marks an errored command "— failed", and failed is the field
+// the next agent trusts most: defaulting unknown to error would file a quarter
+// of this machine's Cursor history as approaches that were tried and ruled out
+// when nothing ever observed them. "" is the same unknown codexStatus returns.
+func TestACursorToolCallWithNoRecordedOutcomeIsNotReportedAsFailed(t *testing.T) {
+	t.Setenv(transcript.LogosCursorStorageEnv, cursorStorageWithTools(t))
+
+	paths, err := transcript.Sessions("cursor")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	s, err := transcript.ReadFile("cursor", paths[0])
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	for _, turn := range s.Turns {
+		if turn.Input == "go test ./..." {
+			if turn.Status != "" {
+				t.Fatalf("a call with no recorded outcome reported status %q, want unknown", turn.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("the status-less tool call was not read at all")
 }
