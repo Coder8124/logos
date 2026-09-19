@@ -7,12 +7,15 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 )
 
-// The Stage 4 claim end to end: an MCP client's remember lands in quarantine,
-// stays invisible to recall and list_memories until a human reviews it, and
-// only becomes real memory once accepted through the same path `logos review`
-// uses. This is the seam that used to be "any agent that calls remember
-// mutates the user's vault with no review".
-func TestRememberIsQuarantinedByDefault(t *testing.T) {
+// The queue end to end: a memory that waits for review stays invisible to
+// recall and list_memories until a human accepts it, and only then becomes
+// real memory, through the same path `logos review` uses. What changed is when
+// a memory waits — a dispute, not every write — not what waiting means.
+func TestAQueuedMemoryIsInvisibleUntilItIsAccepted(t *testing.T) {
+	// Queueing is no longer what an ordinary write does — only a fact that
+	// disputes a stored one waits. This exercises the queue itself, so it
+	// asks for the queue explicitly.
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, db, _ := startServer(t)
 	handshake(t, c)
 
@@ -80,6 +83,10 @@ func TestRememberIsQuarantinedByDefault(t *testing.T) {
 // Rejecting a queued memory discards it for good — it must not resurface on a
 // later recall, and it must not still count against the pending total.
 func TestRememberRejectedNeverSurfaces(t *testing.T) {
+	// Queueing is no longer what an ordinary write does — only a fact that
+	// disputes a stored one waits. This exercises the queue itself, so it
+	// asks for the queue explicitly.
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, db, _ := startServer(t)
 	handshake(t, c)
 
@@ -120,11 +127,11 @@ func TestRememberRejectedNeverSurfaces(t *testing.T) {
 // exist, and the memory sat in quarantine for good.
 func TestTheReviewReceiptNamesTheCommandThisInstallAnswersTo(t *testing.T) {
 	s := &Server{Shell: "npx @noeton/logos"}
-	if got := s.quarantineReceipt(7, "fact", "everywhere"); !strings.Contains(got, "`npx @noeton/logos review`") {
+	if got := s.quarantineReceipt(7, "fact", "everywhere", memory.Receipt{}); !strings.Contains(got, "`npx @noeton/logos review`") {
 		t.Errorf("an npx install's receipt must name npx, got %q", got)
 	}
 	s = &Server{}
-	if got := s.quarantineReceipt(7, "fact", "everywhere"); !strings.Contains(got, "`logos review`") {
+	if got := s.quarantineReceipt(7, "fact", "everywhere", memory.Receipt{}); !strings.Contains(got, "`logos review`") {
 		t.Errorf("with nothing known about the install the receipt stays `logos review`, got %q", got)
 	}
 }
@@ -134,6 +141,10 @@ func TestTheReviewReceiptNamesTheCommandThisInstallAnswersTo(t *testing.T) {
 // as memory being broken or the fact never stored, and the user never learns
 // there is something to review. Every read an agent makes has to say so.
 func TestRecallResumeAndContextSayMemoriesAreWaitingForReview(t *testing.T) {
+	// Queueing is no longer what an ordinary write does — only a fact that
+	// disputes a stored one waits. This exercises the queue itself, so it
+	// asks for the queue explicitly.
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 	if _, isErr := c.callText(t, "remember", map[string]any{
@@ -164,6 +175,7 @@ func TestRecallResumeAndContextSayMemoriesAreWaitingForReview(t *testing.T) {
 // #1" while #1 was still in quarantine, and the same session's recall then
 // said it was not known. The receipt has to say the fact is still waiting.
 func TestRememberingAQueuedFactAgainSaysItIsStillQueued(t *testing.T) {
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
 	for i := 0; i < 2; i++ {
