@@ -412,6 +412,13 @@ func safe(s string) string {
 // "kestrel-feature-x" rather than as a folder inside kestrel's. Each segment is
 // still run through safe, so `..` and separators cannot survive and a scope
 // cannot climb out of the vault however it was spelled.
+// SafeScope is safeScope for callers outside this package that have to key
+// something by the same project a checkpoint will be filed under. The MCP
+// server counts unsaved progress per project and clears it when that project is
+// checkpointed; keyed on the agent's raw spelling, the two halves used
+// different keys and a checkpoint never cleared its own notes.
+func SafeScope(s string) string { return safeScope(s) }
+
 func safeScope(s string) string {
 	parts := strings.Split(s, "/")
 	kept := parts[:0]

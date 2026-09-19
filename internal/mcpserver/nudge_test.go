@@ -142,3 +142,35 @@ func TestProgressRecordedAfterACheckpointNudgesAgain(t *testing.T) {
 		t.Error("work done after a checkpoint was never flagged as unsaved")
 	}
 }
+
+// A checkpoint files itself under the project's safe scope — Commit lowercases
+// and dash-collapses the name — while the notes were counted under whatever the
+// agent typed. Keyed on the raw spelling, a checkpoint on FleetBuilder never
+// cleared FleetBuilder's notes: the agent was told its work was unsaved on the
+// very call that saved it, and the warning was spent, so the next genuine
+// stretch of unsaved work on that project went unwarned.
+func TestAProjectIsCountedAndClearedUnderTheSameNameHoweverItWasSpelled(t *testing.T) {
+	s := noted("FleetBuilder", notesBeforeNudge)
+
+	s.checkpointed("fleetbuilder") // as session.Commit files it
+
+	if nudge := said(s); nudge != "" {
+		t.Errorf("a checkpointed project was still said to be unsaved: %q", nudge)
+	}
+}
+
+// The same mistake seen from the other side: one project the agent spelled
+// inconsistently is one project's worth of unsaved work, not three sessions of
+// too little to mention. Only spellings that file to the same scope count as
+// the same project — "Fleet Builder" is a different scope by the same rule that
+// gives it a different checkpoint path, and is meant to be.
+func TestSpellingsOfOneProjectThatFileTogetherAreNotCountedAsSeparateProjects(t *testing.T) {
+	s := &Session{}
+	s.notedProgress("FleetBuilder")
+	s.notedProgress("fleetbuilder")
+	s.notedProgress("  FleetBuilder  ")
+
+	if said(s) == "" {
+		t.Error("three notes on one project were counted as separate projects with one note each")
+	}
+}

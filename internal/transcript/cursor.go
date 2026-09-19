@@ -104,8 +104,11 @@ func (r cursorReader) discover() ([]string, error) {
 			continue
 		}
 		chats = append(chats, chat{
-			path:    filepath.Join(root, cursorStorageFile) + cursorPathSep + strings.TrimPrefix(key, "composerData:"),
-			created: c.CreatedAt,
+			path: filepath.Join(root, cursorStorageFile) + cursorPathSep + strings.TrimPrefix(key, "composerData:"),
+			// Normalized here too: discover sorts newest first and unsaved.go
+			// takes the first as this session's chat, so comparing a seconds row
+			// against millisecond ones would sort the newest chat last.
+			created: cursorSeconds(c.CreatedAt),
 		})
 	}
 	if err := rows.Err(); err != nil {

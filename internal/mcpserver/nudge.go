@@ -1,6 +1,10 @@
 package mcpserver
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Coder8124/logos/internal/session"
+)
 
 // notesBeforeNudge is how much unsaved progress it takes to be worth a line.
 // One note is already answered by note_progress's own receipt — "uncommitted
@@ -65,7 +69,14 @@ func (s *Session) nudgeSent(delivered bool) {
 }
 
 // notedProgress counts a note on project towards its nudge.
+//
+// Keyed by the scope a checkpoint will be filed under rather than by what the
+// agent typed. Commit lowercases and dash-collapses the name, so counting the
+// raw spelling meant a checkpoint on FleetBuilder cleared nothing and two
+// spellings of one project were two projects, each with too few notes to
+// mention.
 func (s *Session) notedProgress(project string) {
+	project = session.SafeScope(project)
 	if project == "" {
 		return
 	}
@@ -80,6 +91,7 @@ func (s *Session) notedProgress(project string) {
 // checkpoints in the middle and keeps working has as much unsaved again as it
 // had the first time.
 func (s *Session) checkpointed(project string) {
+	project = session.SafeScope(project)
 	delete(s.notes, project)
 	delete(s.nudgedFor, project)
 	if s.offered == project {

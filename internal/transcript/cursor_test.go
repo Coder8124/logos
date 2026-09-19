@@ -55,6 +55,45 @@ func cursorStorage(t *testing.T) string {
 	return dir
 }
 
+// cursorStorageMixedUnits holds the case cursorSeconds exists for: one chat
+// stamped in milliseconds, and an older Cursor's row in seconds that is
+// nonetheless the more recent of the two.
+func cursorStorageMixedUnits(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "state.vscdb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	chat := func(id string, created int64) {
+		t.Helper()
+		b, err := json.Marshal(map[string]any{
+			"composerId": id,
+			"createdAt":  created,
+			"fullConversationHeadersOnly": []map[string]any{
+				{"bubbleId": "b1", "type": 1},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`, "composerData:"+id, string(b)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`,
+			fmt.Sprintf("bubbleId:%s:b1", id), `{"type":1,"text":"hello"}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chat("older-in-millis", 1775961496534) // 2026-04-12
+	chat("newer-in-seconds", 1788411890)   // 2026-09-04, written in seconds
+	return dir
+}
+
 // The migration this exists for is Claude Code → Cursor, in either direction,
 // and it was the one ingest could not serve: there was no Cursor reader, and
 // the interchange path skipped with "install txcript", a binary a migrating
@@ -355,5 +394,28 @@ func TestACursorToolCallsOutcomeIsReadFromBothPlacesCursorRecordsIt(t *testing.T
 		if got[c.input] != c.want {
 			t.Errorf("%q: status %q, want %q — %s", c.input, got[c.input], c.want, c.why)
 		}
+	}
+}
+
+// discover sorts newest first, and unsaved.go takes the first chat as this
+// session's. Sorting on the raw stamp while read normalized it meant a chat an
+// older Cursor wrote in seconds sorted below every millisecond one however
+// recent it was — so "the newest chat" could be the oldest.
+func TestTheNewestCursorChatIsFirstWhenStampsAreWrittenInDifferentUnits(t *testing.T) {
+	t.Setenv(transcript.LogosCursorStorageEnv, cursorStorageMixedUnits(t))
+
+	paths, err := transcript.Sessions("cursor")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("discovered %d chats, want 2: %v", len(paths), paths)
+	}
+	s, err := transcript.ReadFile("cursor", paths[0])
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if s.ID != "newer-in-seconds" {
+		t.Errorf("newest chat = %q, want newer-in-seconds", s.ID)
 	}
 }
