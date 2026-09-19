@@ -400,19 +400,8 @@ func movingLoadedVault(args []string, abs string) (bool, string, string) {
 func vaultHolding(prev string, projects []string) (string, int) {
 	checkpoints, held := 0, 0
 	for _, p := range projects {
-		entries, err := os.ReadDir(filepath.Join(prev, session.CheckpointDir, p))
-		if err != nil {
-			continue
-		}
 		before := checkpoints
-		for _, e := range entries {
-			// The same predicate session.Read and doctor count with: a
-			// session directory also holds the project's working notes, and
-			// calling those a checkpoint overstates what the vault holds.
-			if !e.IsDir() && session.IsCheckpointFile(e.Name()) {
-				checkpoints++
-			}
-		}
+		checkpoints += checkpointsUnder(filepath.Join(prev, session.CheckpointDir, p))
 		// Counted the same way as the checkpoints, for the same reason: a
 		// project the user would be leaving nothing of is not one of the
 		// projects this sentence is warning them about.
@@ -421,6 +410,56 @@ func vaultHolding(prev string, projects []string) (string, int) {
 		}
 	}
 	return fmt.Sprintf("%d %s across %d %s", checkpoints, plural(checkpoints, "checkpoint"), held, plural(held, "project")), checkpoints
+}
+
+// checkpointsUnder counts a project's checkpoints, including the ones a
+// worktree keeps in its own subdirectory.
+//
+// One level down, not a full walk. A worktree scope is spelled
+// "project/worktree" and session.Projects returns only the top level, so a
+// vault whose work is all on branches counted zero and the "this vault holds
+// work" prompt never appeared — setup repointed the machine away from it in
+// silence. Two levels is the whole of the layout; recursing further would only
+// find whatever else a user has put in their own directory.
+func checkpointsUnder(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// A project directory that cannot be read counts as nothing rather
+		// than failing the move: this sentence exists to inform a decision,
+		// and refusing to describe the vault is worse than describing the
+		// part of it that is readable.
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			n += worktreeCheckpoints(filepath.Join(dir, e.Name()))
+			continue
+		}
+		// The same predicate session.Read and doctor count with: a session
+		// directory also holds the project's working notes, and calling those
+		// a checkpoint overstates what the vault holds.
+		if session.IsCheckpointFile(e.Name()) {
+			n++
+		}
+	}
+	return n
+}
+
+// worktreeCheckpoints counts the checkpoint files directly inside one
+// worktree's directory, and does not descend again.
+func worktreeCheckpoints(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && session.IsCheckpointFile(e.Name()) {
+			n++
+		}
+	}
+	return n
 }
 
 // goRunBinary reports a binary inside a go-build directory, where `go run`
@@ -798,9 +837,9 @@ func terminalCommand(self string) (cmd, hint string) {
 	pinned, dir := ourPin(self), filepath.Dir(self)
 	// Quoted for both hints, not just the last one: a home directory with a
 	// space in it is exactly where a command gets pasted and splits in two.
-	if strings.ContainsAny(self, " '\"$\\") {
-		self = "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
-	}
+	// The directory needs it as much as the binary — it is the argument of the
+	// other hint, and it is the half that carries the user's name.
+	self, dir = shellQuote(self), shellQuote(dir)
 	// setup's own copy is where it is on purpose: the hosts are wired to it and
 	// the plugin's resolver searches that directory. Telling the user to move
 	// it would break both, so the fix is to put the directory on PATH.
@@ -1653,8 +1692,8 @@ func offerActivityRecording(vault string, yes bool) {
 	fmt.Println("\n  activity log")
 	fmt.Println("    The hooks just installed can also write a local log of your prompts, tool")
 	fmt.Printf("    calls and turn ends to %s. Nothing is sent anywhere and no\n", filepath.Join(vault, activity.Dir))
-	fmt.Printf("    model reads it; `logos activity` shows it and entries older than %d days are\n", int(activity.Retention.Hours()/24))
-	fmt.Println("    deleted. It is off unless you want it.")
+	fmt.Printf("    model reads it; `logos activity` shows it, and a month's entries are deleted\n")
+	fmt.Printf("    %d days after that month ends. It is off unless you want it.\n", int(activity.Retention.Hours()/24))
 	if yes || !confirmNo("    record activity for this vault?") {
 		fmt.Println("    —  off; `logos activity on` turns it on later")
 		return
@@ -1970,4 +2009,15 @@ func hasHost(hosts []setup.Host, name string) bool {
 		}
 	}
 	return false
+}
+
+// shellQuote wraps a path in single quotes when pasting it unquoted would
+// split it into two arguments, and leaves an ordinary path alone — quotes
+// around a path that does not need them are noise in a line meant to be
+// pasted.
+func shellQuote(s string) string {
+	if !strings.ContainsAny(s, " '\"$\\") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

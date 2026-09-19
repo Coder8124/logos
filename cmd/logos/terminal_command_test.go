@@ -84,3 +84,55 @@ func TestSetupDoesNotSuggestLogosWhenLogosIsNotOnPath(t *testing.T) {
 		t.Errorf("setup should say logos is not on PATH:\n%s", out)
 	}
 }
+
+// pinnedAt makes path look like the copy setup pinned into ~/.local/bin, which
+// is the branch that prints the "add … to your PATH" hint.
+func pinnedAt(t *testing.T, dir string) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	self := filepath.Join(dir, "logos")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, ".logos-pin"), []byte(self+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return self
+}
+
+// The comment above the quoting in terminalCommand says a home directory with
+// a space in it is exactly where a command gets pasted and splits in two — and
+// then the PATH hint interpolated the directory raw. For a user under
+// "/Users/Jane Doe/.local/bin" the hint was the un-pasteable path the comment
+// promises to prevent.
+func TestThePathHintQuotesADirectoryWithASpaceInIt(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Jane Doe", "bin")
+	self := pinnedAt(t, dir)
+
+	_, hint := terminalCommand(self)
+
+	if !strings.Contains(hint, "PATH") {
+		t.Fatalf("expected the pinned-copy PATH hint, got %q", hint)
+	}
+	if strings.Contains(hint, dir) && !strings.Contains(hint, "'"+dir+"'") {
+		t.Errorf("the hint names a directory with a space unquoted:\n%s", hint)
+	}
+}
+
+// Nothing to escape, nothing added: quotes around an ordinary path are noise
+// in a line the user is meant to paste.
+func TestAnOrdinaryPathIsNotQuotedInTheHint(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "bin")
+	self := pinnedAt(t, dir)
+
+	_, hint := terminalCommand(self)
+
+	if strings.Contains(hint, "'") {
+		t.Errorf("an ordinary path was quoted for no reason:\n%s", hint)
+	}
+}

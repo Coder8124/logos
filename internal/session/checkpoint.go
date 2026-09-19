@@ -210,11 +210,18 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if err := closeSessions(db, folded, c.Slug); err != nil {
 		return err
 	}
-	// The notes are inside the checkpoint now, so the working-notes file has
-	// done its job and its contents would otherwise be claimed as still
-	// outstanding. Removed after the markdown is written, never before: a
-	// failure above this line must leave the notes where they were.
-	return removeNotes(vaultDir, c.Project)
+	// Rewritten from the sessions still open, not deleted outright. The folded
+	// notes are inside the checkpoint now and would otherwise be claimed as
+	// still outstanding — but a parallel agent's notes were deliberately not
+	// folded, and this file is the only place they live in the vault. Deleting
+	// it left them in session_notes and nowhere else, so the next `logos index`
+	// on a fresh database dropped work the product had promised to keep.
+	// flushNotesIn removes the file when nothing is left, which is the common
+	// case of a single agent checkpointing.
+	//
+	// Written after the markdown, never before: a failure above this line must
+	// leave the notes where they were.
+	return flushNotesIn(db, vaultDir, c.Project)
 }
 
 // claimCheckpoint reserves a checkpoint filename and returns the id that goes

@@ -207,10 +207,15 @@ func (t *cursorTool) turn() Turn {
 	_ = json.Unmarshal([]byte(t.RawArgs), &a)
 	_ = json.Unmarshal([]byte(t.Params), &p)
 
+	// Query is deliberately not in this list. Input's contract is a command or
+	// a path, and the harvest reads it as one: looksLikePath accepts any
+	// space-free token with a dot in it, so a codebase_search for "activity.Dir"
+	// was recorded as a file the session edited. The Files list is what the next
+	// agent reads as "what changed", and a wrong entry there costs more than a
+	// missing one — the turn itself is still reported, with no input.
 	input := firstNonEmpty(
 		p.Command, a.Command,
 		p.RelWorkspace, a.TargetFile, a.FilePath, a.RelPath, p.DirectoryDir,
-		a.Query,
 	)
 	return Turn{Role: "tool", Tool: t.Name, Status: t.outcome(), Input: strings.TrimSpace(input)}
 }

@@ -60,6 +60,12 @@ func runActivity(args []string) error {
 		q.Since = time.Now().AddDate(0, 0, -d)
 	}
 
+	// Ages the log out here as well as on append, so a vault nobody writes to
+	// any more still honours the retention its user was promised. Advisory: a
+	// month that could not be deleted is not a reason to refuse to show the
+	// log.
+	_ = activity.Prune(vault, time.Now())
+
 	if hasFlag(args, "--projects") {
 		return listActivityProjects(vault)
 	}
