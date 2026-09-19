@@ -1379,7 +1379,7 @@ func (s *Server) projectExists(name string) bool {
 	if ok, err := memory.HasProject(s.DB, name); err == nil && ok {
 		return true
 	}
-	names, err := session.Projects(s.vault)
+	names, err := session.Scopes(s.vault)
 	if err != nil {
 		return false
 	}
@@ -1411,7 +1411,10 @@ type knownProject struct {
 // checkpointedProjects lists the projects that have a checkpoint, most recent
 // first.
 func (s *Server) checkpointedProjects() []knownProject {
-	names, err := session.Projects(s.vault)
+	// Scopes, not Projects: a scope this returns is one an agent will pass
+	// straight back to resume, and a worktree scope was the single thing none
+	// of these surfaces could name.
+	names, err := session.Scopes(s.vault)
 	if err != nil {
 		return nil
 	}
@@ -1437,9 +1440,9 @@ func (s *Server) listProjects() (string, error) {
 		// for a name to resume was told there were none while sessions/ held
 		// them, and reported an empty memory. `logos projects` falls back the
 		// same way.
-		if names, err := session.Projects(s.vault); err == nil && len(names) > 0 {
+		if names, err := session.Scopes(s.vault); err == nil && len(names) > 0 {
 			var b strings.Builder
-			b.WriteString("No activity rollup yet, but these projects have checkpoints — call resume with one:\n")
+			b.WriteString("No activity rollup yet, but these scopes have checkpoints — call resume with one:\n")
 			for _, n := range names {
 				word := "checkpoints"
 				h, _ := session.History(s.vault, n, 0)

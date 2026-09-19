@@ -46,7 +46,10 @@ func projectsCmd(args []string) error {
 		// close the tool — their projects are right there on disk. Say what
 		// is actually in the vault, with the number (invariant 3).
 		vault := vaultPath()
-		if names, err := session.Projects(vault); err == nil && len(names) > 0 {
+		// Scopes, not Projects: a vault whose every checkpoint was written
+		// from a worktree reported fewer checkpoints than it holds, and the
+		// scope carrying the work was not among the names offered.
+		if names, err := session.Scopes(vault); err == nil && len(names) > 0 {
 			checkpoints := 0
 			for _, n := range names {
 				h, err := session.History(vault, n, 0)

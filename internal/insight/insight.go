@@ -152,7 +152,9 @@ func Generate(db *sql.DB, vaultDir, project string) ([]Insight, []Drop, Scan, er
 func recurringBlockers(vaultDir, project string) (found []Insight, checkpoints, scanned int, err error) {
 	projects := []string{project}
 	if project == "" {
-		all, err := session.Projects(vaultDir)
+		// Scopes, not Projects: a standing blocker recorded from a worktree
+		// is a standing blocker.
+		all, err := session.Scopes(vaultDir)
 		if err != nil {
 			return nil, 0, 0, err
 		}

@@ -289,7 +289,9 @@ func populatedVaultElsewhere(dir string) (string, int) {
 // invocation over two vaults, and parsing a user's entire history to answer a
 // yes/no question makes the command slower the longer they have used it.
 func checkpointCount(dir string, stopAt int) int {
-	projects, err := session.Projects(dir)
+	// Scopes, so doctor's "is there any work here" answer is not no on a vault
+	// whose every checkpoint was written from a git worktree.
+	projects, err := session.Scopes(dir)
 	if err != nil {
 		return 0
 	}

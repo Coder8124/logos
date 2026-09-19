@@ -50,6 +50,10 @@ func (a *App) ContextPreview(hint, task string) (ContextPreviewView, error) {
 // Projects lists the project scopes that have at least one checkpoint, for the
 // context view's project picker. Read from the vault, like Checkpoints — a
 // project only shows up once work has actually been recorded under it.
+//
+// Scopes rather than Projects, because the picker's entries are passed back as
+// the scope to read, and a checkpoint written from a git worktree is nested a
+// level below what Projects can see.
 func (a *App) Projects() ([]string, error) {
-	return session.Projects(a.vault)
+	return session.Scopes(a.vault)
 }

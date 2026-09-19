@@ -121,7 +121,10 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 	projects := []string{project}
 	if strings.TrimSpace(project) == "" {
 		var err error
-		if projects, err = session.Projects(vaultDir); err != nil {
+		// Scopes, not Projects: a ruling recorded from a git worktree is
+		// nested one level down, and this package exists to surface exactly
+		// the approach somebody already paid to rule out.
+		if projects, err = session.Scopes(vaultDir); err != nil {
 			return nil, err
 		}
 	}

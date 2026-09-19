@@ -374,6 +374,77 @@ func Projects(vaultDir string) ([]string, error) {
 	return out, nil
 }
 
+// Scopes lists every scope that actually holds a checkpoint, worktree scopes
+// included and spelled the way resume takes them back ("shop/fix-auth").
+//
+// Projects deliberately returns only the top level, which is correct for
+// "which projects exist" and wrong for every caller that wants something it
+// can look history up under. safeScope preserves "/" on the way in, so a
+// checkpoint written from a linked git worktree — including the worktrees
+// Claude Code creates for its own agents — lands one level down, where a
+// single ReadDir cannot see it. Everything that enumerated through Projects
+// skipped that work while reporting a number as though it were complete:
+// `logos projects` undercounted, list_projects named a parent with "(0
+// checkpoints)", and internal/deadend never reached a ruling recorded from a
+// worktree — the one thing that package exists to surface.
+//
+// Two levels, because two levels is the whole of the scope layout; descending
+// further would only find files that are not ours.
+func Scopes(vaultDir string) ([]string, error) {
+	root := filepath.Join(vaultDir, CheckpointDir)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if holdsRecord(filepath.Join(root, e.Name())) {
+			out = append(out, e.Name())
+		}
+		nested, err := os.ReadDir(filepath.Join(root, e.Name()))
+		if err != nil {
+			continue // one unreadable project must not hide the others
+		}
+		for _, n := range nested {
+			if n.IsDir() && holdsRecord(filepath.Join(root, e.Name(), n.Name())) {
+				out = append(out, e.Name()+"/"+n.Name())
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// holdsRecord reports whether a directory holds a session record of its own:
+// a checkpoint, or the working-notes file.
+//
+// The notes file counts because `logos tried --ruled-out` writes a ruling as a
+// note, deliberately, so a dead end can be recorded an hour into a session
+// rather than only at its end — internal/deadend reads both. A scope with
+// notes and no checkpoint yet is exactly the session still in progress, and
+// dropping it would make the checker blind in its freshest case.
+func holdsRecord(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if IsCheckpointFile(e.Name()) || e.Name() == NotesFile {
+			return true
+		}
+	}
+	return false
+}
+
 // workingDir is where the agent is standing. A coding agent's cwd is the repo it
 // is working in — that is the assumption the whole product makes — and an MCP
 // server inherits it from the host that launched it.

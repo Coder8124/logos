@@ -39,7 +39,8 @@ func (b *Logos) History(project string, n int) ([]Checkpoint, error) {
 	return session.History(b.ix.Vault, project, n)
 }
 
-// Projects lists the projects that have at least one checkpoint.
+// Projects lists every scope that has at least one checkpoint, worktree
+// scopes included — each one spelled the way History takes it back.
 func (b *Logos) Projects() ([]string, error) {
-	return session.Projects(b.ix.Vault)
+	return session.Scopes(b.ix.Vault)
 }

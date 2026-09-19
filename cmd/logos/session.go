@@ -303,7 +303,9 @@ func printNothingToResume(vaultDir, project string) {
 		}
 	}()
 
-	known, _ := session.Projects(vaultDir)
+	// Scopes: the names printed here are the ones the user is about to type
+	// back, so a scope written from a worktree has to be among them.
+	known, _ := session.Scopes(vaultDir)
 	if len(known) > 0 {
 		fmt.Printf("nothing recorded for %q in %s.\n\n", project, vaultDir)
 		fmt.Printf("projects with checkpoints: %s\n", strings.Join(known, ", "))

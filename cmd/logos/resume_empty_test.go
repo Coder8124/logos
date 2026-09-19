@@ -42,8 +42,15 @@ func TestResumingAnEmptyVaultSaysWhatToTypeNext(t *testing.T) {
 // the fix is the list of names that would have worked.
 func TestResumingAnUnknownProjectListsTheOnesThatExist(t *testing.T) {
 	vaultDir := t.TempDir()
+	// Real checkpoint files, not bare directories: an empty directory is not a
+	// project that holds work, and a fixture that says otherwise stops
+	// testing the thing it names.
 	for _, p := range []string{"logos", "kestrel"} {
-		if err := os.MkdirAll(filepath.Join(vaultDir, session.CheckpointDir, p), 0o700); err != nil {
+		dir := filepath.Join(vaultDir, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "20260919-120000-claude.md"), []byte("# checkpoint\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

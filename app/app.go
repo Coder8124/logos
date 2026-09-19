@@ -211,7 +211,9 @@ func (a *App) Overview() (OverviewView, error) {
 	if v.OpenSessions, err = session.OpenCount(ix.DB); err != nil {
 		return v, fmt.Errorf("counting open sessions: %w", err)
 	}
-	projects, err := session.Projects(a.vault)
+	// Scopes, so a vault whose work is all in worktrees does not report zero
+	// projects beside a non-zero checkpoint count.
+	projects, err := session.Scopes(a.vault)
 	if err != nil {
 		return v, fmt.Errorf("listing projects: %w", err)
 	}
