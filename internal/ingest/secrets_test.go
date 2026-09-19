@@ -104,3 +104,43 @@ func TestRedactCandidateTextCoversEveryFreeTextField(t *testing.T) {
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
+
+// On a real machine's Cursor history every one of the 99 redactions was a
+// filesystem path or a Java class name, and not one was a secret. `cd
+// /Users/me/IdeaProjects/Thing && ./gradlew build` reached the vault as `cd
+// [REDACTED] && ./gradlew build`, which loses the one fact saying where the
+// command ran and tells a user with no secrets that secrets were found — the
+// report that teaches them to ignore the report that matters.
+func TestAFilesystemPathIsNotRedactedAsASecret(t *testing.T) {
+	for _, path := range []string{
+		"/Users/pragun/IdeaProjects/MinecraftMod",
+		"/Users/pragun/PycharmProjects/stellarius",
+		"./src/main/java/com/kingdomgame/model",
+		"../SiblingProject/BuildOutput",
+		"~/GoProjects/SomeLongDirectoryName",
+	} {
+		cmd := "cd " + path + " && ./gradlew build"
+		if got := Redact(cmd); got != cmd {
+			t.Errorf("a path was masked as a credential:\n  in:  %s\n  out: %s", cmd, got)
+		}
+	}
+}
+
+// The other half of the same change: relaxing the path case must not cost the
+// credentials the entropy check is there for. An AWS secret access key splits
+// into short word-shaped segments exactly as a relative path does, so it stays
+// flagged on purpose — missing a path is cheap, missing a key is not.
+func TestRelaxingThePathCaseStillMasksRealCredentials(t *testing.T) {
+	for _, secret := range []string{
+		"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+		"ghp_abcdefghijklmnopqrstuvwxyz0123",
+		"sk-live-abcdefghijklmnopqrstuvwxyz",
+	} {
+		line := "export TOKEN=" + secret
+		got := Redact(line)
+		if strings.Contains(got, secret) {
+			t.Errorf("a credential survived redaction:\n  in:  %s\n  out: %s", line, got)
+		}
+	}
+}
