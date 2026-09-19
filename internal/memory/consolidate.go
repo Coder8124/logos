@@ -110,8 +110,18 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 // model's say-so alone, and running that against something nobody has
 // reviewed yet would let the model adjudicate its own unreviewed proposal —
 // exactly the unsupervised write this whole stage exists to prevent.
+//
+// project and confidence are read here rather than left at their zero values
+// because every caller downstream behaves as though they were loaded and none
+// of them were. The context pack only admits a global preference — `m.Project
+// == ""` — and every memory arrived with an empty project, so one repository's
+// preferences were presented as the user's standing preferences in every other
+// repository, unlabelled. That is the cross-project leak the README promises
+// against. Consolidate read the same rows, so it could also pair kestrel's
+// "deploys on Tuesdays" with heron's "deploys on Fridays" and call one an
+// update of the other.
 func activeMemories(db *sql.DB) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, source, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +130,23 @@ func activeMemories(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// consolidatable reports whether two memories may be compared for merging at
+// all. Two projects can hold the same sentence about different things:
+// kestrel's "deploys on Tuesdays" does not supersede heron's "deploys on
+// Fridays", and superseding is not reversible from the vault. A global memory
+// is the exception — it is about the user rather than about one repository, so
+// it may still be consolidated against either.
+func consolidatable(a, b Memory) bool {
+	return a.Project == b.Project || a.Project == "" || b.Project == ""
 }
 
 var updateSchema = map[string]any{
@@ -179,6 +199,9 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 				continue
 			}
 			if len(mems[i].vec) == 0 || len(mems[j].vec) == 0 {
+				continue
+			}
+			if !consolidatable(mems[i], mems[j]) {
 				continue
 			}
 			if cosine(blobToFloats(mems[i].vec), blobToFloats(mems[j].vec)) < gate {
