@@ -412,7 +412,7 @@ func renderKind(kind Kind, mems []Memory) string {
 			fmt.Fprintf(&b, " used=%s", time.Unix(m.LastUsed, 0).UTC().Format(time.RFC3339))
 		}
 		if m.Project != "" {
-			fmt.Fprintf(&b, " project=%s", m.Project)
+			fmt.Fprintf(&b, " project=%s", logField(m.Project))
 		}
 		if m.Agent != "" {
 			fmt.Fprintf(&b, " agent=%s", strings.ReplaceAll(m.Agent, " ", "-"))
@@ -763,7 +763,11 @@ func applyMeta(m *Memory, meta string) {
 				}
 			}
 		case "project":
-			m.Project = value
+			// Escaped as log.md escapes it. Written bare, "billing api" came
+			// back as "billing" at the space, and the reconcile before the next
+			// write moved the memory into that other project. A bare name from
+			// an older file unescapes to itself.
+			m.Project = unLogField(value)
 		case "agent":
 			m.Agent = value
 		case "pin":
