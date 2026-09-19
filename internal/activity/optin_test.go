@@ -121,3 +121,49 @@ func TestPruningLeavesFilesThatAreNotMonthLogsAlone(t *testing.T) {
 		t.Errorf("a file that is not a month log was deleted: %v", err)
 	}
 }
+
+// Pruning only when a new month's file is created means a vault that stops
+// being written to — the user moved on, or turned recording off — keeps every
+// old month forever, while `logos activity` and setup have both told them the
+// entries are deleted. Reading the log ages it out too.
+func TestReadingTheLogAgesOutAMonthPastTheWindow(t *testing.T) {
+	vault := t.TempDir()
+	dir := filepath.Join(vault, activity.Dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "2026-01.jsonl")
+	if err := os.WriteFile(stale, []byte(`{"ts":1768480000,"kind":"prompt","summary":"long ago"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := activity.Prune(vault, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("a month past the window survived a read (%v)", err)
+	}
+}
+
+// Pruning is deletion, so it must not reach past the window on the strength of
+// a clock that is merely close.
+func TestPruningKeepsAMonthThatIsStillInsideTheWindow(t *testing.T) {
+	vault := t.TempDir()
+	dir := filepath.Join(vault, activity.Dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	recent := filepath.Join(dir, "2026-05.jsonl")
+	if err := os.WriteFile(recent, []byte(`{"ts":1746000000,"kind":"prompt","summary":"recent"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := activity.Prune(vault, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("a month inside the window was deleted by a read: %v", err)
+	}
+}

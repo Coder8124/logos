@@ -286,6 +286,17 @@ func Append(vault string, e Event) error {
 // evidence.
 const Retention = 30 * 24 * time.Hour
 
+// Prune deletes every month of the log that is past Retention.
+//
+// Exported so reading the log ages it out as well as writing to it. Pruning
+// only on append meant a vault that stopped being written to — the user moved
+// on, or turned recording off — kept every old month forever, while setup and
+// `logos activity` had both told its user the entries are deleted. A promise
+// about deletion that only holds for active vaults is not one.
+func Prune(vault string, now time.Time) error {
+	return prune(filepath.Join(vault, Dir), now)
+}
+
 func prune(dir string, now time.Time) error {
 	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	if err != nil {
