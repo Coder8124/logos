@@ -92,6 +92,13 @@ func (s *Session) notedProgress(project string) {
 // had the first time.
 func (s *Session) checkpointed(project string) {
 	project = session.SafeScope(project)
+	if s.saved == nil {
+		s.saved = map[string]bool{}
+	}
+	// Kept for the whole session rather than cleared by later notes: what it
+	// answers at shutdown is "did the agent write its own account of this
+	// project", and more work afterwards does not make that account go away.
+	s.saved[project] = true
 	delete(s.notes, project)
 	delete(s.nudgedFor, project)
 	if s.offered == project {

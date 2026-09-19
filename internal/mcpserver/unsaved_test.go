@@ -80,7 +80,7 @@ func TestASessionThatNeverCheckpointedIsRecordedWhenTheHostCloses(t *testing.T) 
 func TestAnAgentsOwnCheckpointIsNotOverwrittenWhenTheHostCloses(t *testing.T) {
 	srv, vault := testServer(t)
 	sess := &Session{Server: srv, clientAgent: "cursor"}
-	sess.lastCheckpoint.slug = "sessions/shop/20260101-100000-cursor"
+	sess.checkpointed("shop")
 	fakeTranscripts(t, workedIn("cursor", "shop"))
 
 	sess.recordUnsaved()
@@ -133,5 +133,27 @@ func TestATranscriptThatEndedBeforeThisServerStartedIsNotRecorded(t *testing.T) 
 	}
 	if c != nil {
 		t.Errorf("a transcript that closed before this server started was recorded as its session: %s", c.Slug)
+	}
+}
+
+// The same per-project mistake the nudge had, on the shutdown gate. An agent
+// works on two projects, checkpoints one, keeps working on the other, and the
+// host exits: bailing on "this session checkpointed something" meant the second
+// project was recorded by neither half of #31 — not by the nudge, which is
+// spent and silent at shutdown anyway, and not here.
+func TestAProjectWorkedOnAfterCheckpointingAnotherIsStillRecorded(t *testing.T) {
+	srv, vault := testServer(t)
+	sess := &Session{Server: srv, clientAgent: "cursor"}
+	sess.checkpointed("shop")
+	fakeTranscripts(t, workedIn("cursor", "billing"))
+
+	sess.recordUnsaved()
+
+	c, err := session.Latest(vault, "billing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Fatal("a project worked on after checkpointing a different one was not recorded")
 	}
 }

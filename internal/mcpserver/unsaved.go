@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
 
@@ -35,12 +36,6 @@ var newestSession = func(harness string) (*transcript.Session, error) {
 // Every failure here is reported on stderr and none of them is fatal: the host
 // is already gone, and a shutdown that fails loudly is still a shutdown.
 func (s *Session) recordUnsaved() {
-	// The agent saved its own, which says what it verified and what it ruled
-	// out. A mechanical record written after it would outrank it by being
-	// newer, and replace a reviewed handoff with a list of files.
-	if s.lastCheckpoint.slug != "" {
-		return
-	}
 	if s.vault == "" || s.unavailable != nil {
 		return
 	}
@@ -59,6 +54,19 @@ func (s *Session) recordUnsaved() {
 	}
 
 	project := s.resolveScope(ts.Project)
+	// The agent saved its own account of this project, which says what it
+	// verified and what it ruled out. A mechanical record written after it
+	// would outrank it by being newer and replace a reviewed handoff with a
+	// list of files.
+	//
+	// Asked per project, not per session. An agent that checkpoints one project
+	// and keeps working on another has said nothing about the second, and
+	// treating any checkpoint as covering the whole session left that work
+	// recorded by neither half of this: the nudge is spent and silent by
+	// shutdown, and this returned early.
+	if s.saved[session.SafeScope(project)] {
+		return
+	}
 	if project == "" {
 		fmt.Fprintf(os.Stderr, "logos: this session did work and saved no checkpoint, and no project could be inferred to record it under\n")
 		return

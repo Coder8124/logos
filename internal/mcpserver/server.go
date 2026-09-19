@@ -186,6 +186,10 @@ type Session struct {
 	notes     map[string]int
 	nudgedFor map[string]bool
 	offered   string
+
+	// saved holds the projects this session checkpointed itself, which the
+	// close path uses to leave those alone. See unsaved.go.
+	saved map[string]bool
 }
 
 func checkpointOnDisk(vault, slug string) bool {
