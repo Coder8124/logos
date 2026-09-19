@@ -410,7 +410,16 @@ func runIngestStatus() error {
 	}
 
 	harvest, distilled, stranded := 0, 0, 0
+	damaged := 0
 	for _, c := range all {
+		// A candidate whose frontmatter or timestamps would not read back is
+		// kept in the queue rather than dropped, which is right — but it then
+		// looks exactly like a healthy one, and promote dates its checkpoint
+		// from an unreadable stamp as though the session happened today. Said
+		// with a count (invariant 3).
+		if c.FrontmatterUnreadable || c.TimestampUnreadable {
+			damaged++
+		}
 		if c.Tier == ingest.TierDistilled {
 			distilled++
 			continue
@@ -434,6 +443,12 @@ func runIngestStatus() error {
 	fmt.Printf("  %d distilled  ·  %d harvest\n", distilled, harvest)
 	if harvest > 0 {
 		fmt.Printf("  %d of the %d harvests still have their source transcript on disk\n", harvest-stranded, harvest)
+	}
+	if damaged > 0 {
+		fmt.Printf("\n%d candidate(s) have frontmatter or a timestamp that cannot be read back.\n", damaged)
+		fmt.Println("They are still in the queue, but a session date logos cannot read is a date")
+		fmt.Println("it will not carry: promoting one files a chat from months ago as though the")
+		fmt.Println("work happened today. Re-run `logos ingest` for those sessions to rewrite them.")
 	}
 	if stranded > 0 {
 		fmt.Printf("\n%d can no longer be distilled: the transcript they cite is gone, so the\n", stranded)

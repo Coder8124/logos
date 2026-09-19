@@ -391,3 +391,37 @@ func slicesContains(hay []string, need string) bool {
 	}
 	return false
 }
+
+// Cursor's timestamps were milliseconds until the reader was fixed, so
+// candidate.go wrote them through time.Unix as a five-digit year that RFC3339
+// cannot parse. Those candidates are still queued. parseTS turned the
+// unreadable line into a zero indistinguishable from "no start time recorded",
+// and promote dates its checkpoint from Ended — so a chat from months ago is
+// filed as work that happened today, which is the stale-answer failure ingest
+// exists to prevent. The damage is done; being silent about it is the bug.
+func TestACandidateWhoseTimestampCannotBeReadSaysSoInsteadOfLookingHealthy(t *testing.T) {
+	raw := "---\n" +
+		"type: ingest_candidate\n" +
+		"harness: cursor\n" +
+		"session: abc123\n" +
+		"status: pending\n" +
+		// What time.Unix(1788411890656, 0) formats to: year 56655.
+		"started: 56655-09-02T11:24:16Z\n" +
+		"ended: 56655-09-02T11:24:16Z\n" +
+		"turns: 40\n" +
+		"---\n\n## State\n\ncursor session abc123, 40 turns\n"
+
+	c := ingest.Parse(raw, "cursor-abc123.md")
+	if !c.TimestampUnreadable {
+		t.Error("an unreadable timestamp was not recorded, so nothing can report it")
+	}
+	if c.Started != 0 || c.Ended != 0 {
+		t.Errorf("an unreadable stamp should not be guessed at: started=%d ended=%d", c.Started, c.Ended)
+	}
+	// A candidate that simply has no timestamps is not damaged — the two must
+	// stay distinguishable or the warning fires on every healthy queue.
+	none := ingest.Parse("---\ntype: ingest_candidate\nharness: cursor\nsession: d\nturns: 1\n---\n", "cursor-d.md")
+	if none.TimestampUnreadable {
+		t.Error("a candidate with no timestamps at all was reported as damaged")
+	}
+}

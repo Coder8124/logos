@@ -75,6 +75,19 @@ type Candidate struct {
 	// a dropped candidate used to — but review must flag it rather than trust
 	// stale-looking zero fields.
 	FrontmatterUnreadable bool
+
+	// TimestampUnreadable is set when a started/ended/harvested line was
+	// present but could not be read back, which parseTS otherwise turns into a
+	// silent zero.
+	//
+	// It has happened: Cursor's stamps were milliseconds until the reader was
+	// fixed, so candidate.go wrote them through time.Unix as a five-digit year
+	// that RFC3339 cannot parse. Those candidates are still queued, and
+	// promote uses Ended to date the checkpoint it writes — so a zero there
+	// silently dates a chat from months ago as today, which is exactly the
+	// stale-answer failure ingest exists to prevent. Recorded here so the queue
+	// can say so instead of looking healthy (invariants 3 and 4).
+	TimestampUnreadable bool
 }
 
 const projectUnattributed = "unattributed"
@@ -217,9 +230,13 @@ func Parse(raw, filename string) Candidate {
 		c.SessionID = sessionIDFromStem(filename, c.Harness)
 	}
 	c.FrontmatterUnreadable = fmUnreadable
-	c.Started = parseTS(fm.Started)
-	c.Ended = parseTS(fm.Ended)
-	c.Harvested = parseTS(fm.Harvested)
+	var tsBad bool
+	c.Started, tsBad = parseTSChecked(fm.Started)
+	c.TimestampUnreadable = tsBad
+	c.Ended, tsBad = parseTSChecked(fm.Ended)
+	c.TimestampUnreadable = c.TimestampUnreadable || tsBad
+	c.Harvested, tsBad = parseTSChecked(fm.Harvested)
+	c.TimestampUnreadable = c.TimestampUnreadable || tsBad
 	for _, s := range sections(body) {
 		switch s.Heading {
 		case "Verified":
@@ -240,11 +257,20 @@ func Parse(raw, filename string) Candidate {
 }
 
 func parseTS(s string) int64 {
+	ts, _ := parseTSChecked(s)
+	return ts
+}
+
+// parseTSChecked is parseTS with the distinction parseTS throws away: a line
+// that was absent is not the same as a line that was there and unreadable. The
+// second returns true so the caller can report it rather than carry a zero that
+// reads as "this session has no start time".
+func parseTSChecked(s string) (int64, bool) {
 	if s == "" {
-		return 0
+		return 0, false
 	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.Unix()
+		return t.Unix(), false
 	}
-	return 0
+	return 0, true
 }
