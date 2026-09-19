@@ -40,39 +40,35 @@ func EffectiveSalience(m Memory, now int64) float64 {
 	return math.Min(1, m.Salience*decay*boost)
 }
 
-// Decay lowers the stored salience of memories that have gone unused, so the
-// store's own sense of importance drifts toward what is actually exercised.
-// Idempotent enough to run periodically; the floor stops anything vanishing.
-func Decay(db *sql.DB, now int64) (int, error) {
+// Faded counts the memories that disuse has pushed well below their stored
+// salience. It only counts: decay is applied where salience is read, by
+// EffectiveSalience, and nowhere else.
+//
+// It used to write the decayed value back as the stored salience. Every run
+// then re-applied all the decay since last_used to a number that already had
+// it, so `logos memory consolidate` run twice in a row halved an unused fact
+// twice, and every ranking site decayed the result a third time. The write
+// also never reached the kind file, so a rebuild quietly undid it, and ranking
+// depended on whether the cache had survived.
+func Faded(db *sql.DB, now int64) (int, error) {
 	// quarantined = 0: nothing waiting for review has earned an opinion about
-	// its own importance yet — that is a judgement Accept hands it, not one it
-	// should drift into on its own while sitting in the queue.
-	rows, err := db.Query(`SELECT id, salience, created, last_used, uses FROM memories WHERE superseded = 0 AND quarantined = 0`)
+	// its own importance yet.
+	rows, err := db.Query(`SELECT salience, created, last_used, uses FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return 0, err
 	}
-	type upd struct {
-		id  int64
-		sal float64
-	}
-	var updates []upd
+	defer rows.Close()
+	var n int
 	for rows.Next() {
-		var id int64
 		var m Memory
-		if err := rows.Scan(&id, &m.Salience, &m.Created, &m.LastUsed, &m.Uses); err != nil {
-			rows.Close()
+		if err := rows.Scan(&m.Salience, &m.Created, &m.LastUsed, &m.Uses); err != nil {
 			return 0, err
 		}
-		eff := EffectiveSalience(m, now)
-		if eff < m.Salience-0.01 {
-			updates = append(updates, upd{id, math.Max(0.05, eff)})
+		if EffectiveSalience(m, now) < m.Salience-0.01 {
+			n++
 		}
 	}
-	rows.Close()
-	for _, u := range updates {
-		db.Exec("UPDATE memories SET salience = ? WHERE id = ?", u.sal, u.id)
-	}
-	return len(updates), nil
+	return n, rows.Err()
 }
 
 // Surface returns the top non-superseded memories of the given kinds by
