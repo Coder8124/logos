@@ -119,8 +119,15 @@ func setupCmd(args []string) error {
 	checkRuntime(yes, opts.dryRun)
 	if opts.dryRun {
 		fmt.Println("  index      would be built from the markdown in this vault")
-	} else {
-		indexVault(dir)
+	} else if err := indexVault(dir); err != nil {
+		fmt.Printf("  index      failed: %v\n", err)
+		// The pointer was written before the index was tried; a directory that
+		// exists but cannot be written gets that far. Named, so nobody finds out
+		// from the desktop app opening an empty vault.
+		if rec == recordedHere && vault.Recorded() == dir {
+			return fmt.Errorf("no hosts were wired: the index could not be built in %s, which is now recorded as this machine's vault — fix the error above and run setup again, or pass --vault somewhere else", dir)
+		}
+		return fmt.Errorf("no hosts were wired: the index could not be built in %s", dir)
 	}
 	// "This run only" has to be true of the hosts too: a host config outlives
 	// the run, so wiring them to a vault nobody recorded made it permanent.
@@ -254,6 +261,14 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 	abs, err := filepath.Abs(expandHome(dir))
 	if err != nil {
 		return "", false, recordFailed, err
+	}
+	// Before anything is recorded: the pointer is machine-wide and outlives the
+	// run, and a file there left every host wired to a path that cannot hold a
+	// vault, with the only failure printed ten lines above a table of ticks.
+	// Usually a shell's doing — a tab-completion onto a neighbouring file, or an
+	// empty $VAR that made the next word the path — not anybody's choice.
+	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+		return "", false, recordFailed, fmt.Errorf("%s is a file, not a directory — pass --vault <dir>; nothing was changed", abs)
 	}
 	if _, err := os.Stat(abs); os.IsNotExist(err) && flagStr(args, "--vault", "") == "" && !fromEnv && abs == vault.Pointer() {
 		// Nobody asked for this directory in this run; it is the recorded vault,
@@ -658,18 +673,28 @@ func pullModel(baseURL, model string, progress func(pct int)) error {
 }
 
 // indexVault runs the first index so the vault is queryable immediately.
-func indexVault(vault string) {
-	ix, err := index.Open(vault)
+func indexVault(dir string) error {
+	// The same guard `logos index` runs, and the one that matters most here:
+	// setup is the path every user takes on day one, and `git init && git add
+	// -A` in a vault without it commits index.db and #88's activity log — every
+	// command and file path a host reported.
+	if wrote, err := vault.EnsureGitignore(dir); err != nil {
+		fmt.Printf("  index      could not write .gitignore: %v\n", err)
+	} else if wrote {
+		fmt.Println("  index      .gitignore now keeps .logos/ and activity/ out of git")
+	}
+
+	// Returned, not printed and dropped: the caller goes on to wire every host
+	// to this vault, and a vault it could not index is not one to wire them to.
+	ix, err := index.Open(dir)
 	if err != nil {
-		fmt.Printf("  index      failed: %v\n", err)
-		return
+		return err
 	}
 	defer ix.Close()
 
 	rep, err := ix.Sync()
 	if err != nil {
-		fmt.Printf("  index      failed: %v\n", err)
-		return
+		return err
 	}
 	// provider.Discover rather than findProvider: the latter prints a banner of
 	// its own, which would interrupt this report mid-table.
@@ -695,6 +720,7 @@ func indexVault(vault string) {
 		fmt.Printf(" (%d skipped)", rep.Skipped)
 	}
 	fmt.Println()
+	return nil
 }
 
 // wireHosts registers this binary with every MCP host on the machine.
