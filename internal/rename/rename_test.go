@@ -355,3 +355,97 @@ func TestRenameSucceedsOnAnIndexWithNoTablesYet(t *testing.T) {
 		t.Error("the vault half of the rename did not happen")
 	}
 }
+
+// replaceField took the first "project=" on the line, and a memory's text comes
+// before its bookkeeping comment. Prose that happened to say project=billing
+// was rewritten, and the real field after it was left on the old name.
+func TestRenameRewritesTheMemoryFieldNotTheMemorysWords(t *testing.T) {
+	v := t.TempDir()
+	mem := filepath.Join(v, "memories")
+	if err := os.MkdirAll(mem, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := "- set project=billing in the env <!-- logos id=2 conf=0.90 sal=0.70 src=test created=2026-01-01T00:00:00Z uses=0 project=billing -->\n"
+	if err := os.WriteFile(filepath.Join(mem, "fact.md"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(nil, v, "billing", "invoicing", false, false); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(mem, "fact.md"))
+	if !strings.Contains(got, "set project=billing in the env") {
+		t.Errorf("the memory's own words were rewritten:\n%s", got)
+	}
+	if !strings.Contains(got, "project=invoicing -->") {
+		t.Errorf("the memory's project field was left on the old name:\n%s", got)
+	}
+}
+
+// The memory files escape the project as log.md always has, so a name with a
+// space is written billing%20api, and a rename comparing against the bare name
+// never matched it — the index moved and the vault stayed behind.
+func TestRenameMovesAProjectWhoseNameHasASpace(t *testing.T) {
+	v := t.TempDir()
+	mem := filepath.Join(v, "memories")
+	if err := os.MkdirAll(mem, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"fact.md": "- billing uses stripe <!-- logos id=1 conf=0.90 sal=0.70 src=test created=2026-01-01T00:00:00Z uses=0 project=billing%20api -->\n",
+		"log.md":  "- billing uses stripe <!-- logos ts=2026-01-01T00:00:00Z id=1 ev=created project=billing%20api -->\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(mem, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Run(nil, v, "billing api", "payments", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name := range files {
+		if got := read(t, filepath.Join(mem, name)); !strings.Contains(got, "project=payments -->") {
+			t.Errorf("%s kept the old project:\n%s", name, got)
+		}
+	}
+	// One memory. The timeline's line is history about it, not a second one.
+	if res.Memories != 1 {
+		t.Errorf("reported %d memory lines renamed, want 1", res.Memories)
+	}
+}
+
+// The worktree suffix was cut at len(from)+1, a byte count, by SQLite's substr,
+// which counts characters. For any name that is not ASCII — which checkName
+// deliberately allows — the cut landed inside the suffix.
+func TestRenamingANonASCIIProjectKeepsItsWorktreeScopeIntact(t *testing.T) {
+	db := seedDB(t)
+	if _, err := db.Exec(`INSERT INTO sessions (id, project) VALUES ('k','κέδρος/feature-x')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(db, t.TempDir(), "κέδρος", "cedar", false, false); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := db.QueryRow(`SELECT project FROM sessions WHERE id = 'k'`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "cedar/feature-x" {
+		t.Errorf("worktree scope renamed to %q, want %q", got, "cedar/feature-x")
+	}
+}
+
+// LIKE ignores ASCII case, so renaming "Brain" moved brain's worktree scopes
+// while brain itself, matched exactly, stayed where it was.
+func TestRenamingADifferentlyCasedNameLeavesAnotherProjectsWorktreesAlone(t *testing.T) {
+	db := seedDB(t)
+	if _, err := Run(db, t.TempDir(), "Brain", "cedar", false, false); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := db.QueryRow(`SELECT project FROM sessions WHERE id = 'wt'`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "brain/feature-x" {
+		t.Errorf("brain's worktree scope became %q under a rename of Brain", got)
+	}
+}

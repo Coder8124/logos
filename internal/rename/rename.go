@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -380,7 +381,10 @@ func quoteIfNeeded(s string) string {
 }
 
 // rewriteMemories updates the project= field in the trailing HTML comment on
-// each memory line (see internal/memory/vaultstore.go, which writes it).
+// each line of the memory files (see internal/memory/vaultstore.go, which
+// writes it), the review queue and the timeline. Only kind files and the queue
+// are memories; log.md is history about them, so its lines are rewritten but
+// not counted, or a rename would report every memory twice.
 //
 // Field-scoped for the same reason retitle is: a memory's text is prose, and a
 // memory whose text mentions the old name is a fact about the old name, not a
@@ -409,7 +413,9 @@ func rewriteMemories(dir, from, to string, dryRun bool) (int, error) {
 			out, ok := replaceField(line, "project=", from, to)
 			if ok {
 				lines[i] = out
-				count++
+				if e.Name() != memory.LogFile {
+					count++
+				}
 				fileChanged = true
 			}
 		}
@@ -423,28 +429,41 @@ func rewriteMemories(dir, from, to string, dryRun bool) (int, error) {
 	return count, nil
 }
 
-// replaceField swaps `key=from` for `key=to` in one line, matching the whole
-// value rather than a prefix of it. Prefix matching would rename "logos" and
-// "logos-www" together, which is the class of bug that makes people distrust a
-// bulk edit.
+// replaceField swaps `key=from` for `key=to` inside a line's trailing
+// bookkeeping comment, matching the whole value rather than a prefix
+// of it. Prefix matching would rename "logos" and "logos-www" together, which
+// is the class of bug that makes people distrust a bulk edit.
+//
+// Only inside the comment: the memory's text comes first on the line, and prose
+// that says "set project=billing" is not a field. Searching the whole line
+// rewrote those words and left the real field behind. The value is compared
+// and written in the files' escaped form, so "billing api" — billing%20api on
+// disk — is found at all.
 func replaceField(line, key, from, to string) (string, bool) {
-	i := strings.Index(line, key)
-	if i < 0 {
+	// The last "<!--", as the memory parser finds it: the text may quote one.
+	c := strings.LastIndex(line, "<!--")
+	if c < 0 {
 		return line, false
 	}
-	rest := line[i+len(key):]
-	end := strings.IndexAny(rest, " \t")
-	if end < 0 {
-		end = len(rest)
+	for off := c; ; {
+		j := strings.Index(line[off:], " "+key)
+		if j < 0 {
+			return line, false
+		}
+		i := off + j + 1 + len(key)
+		end := strings.IndexAny(line[i:], " \t")
+		if end < 0 {
+			end = len(line) - i
+		}
+		// A trailing --> closes the comment and is not part of the value.
+		if k := strings.Index(line[i:i+end], "-->"); k >= 0 {
+			end = k
+		}
+		if memory.UnescapeField(line[i:i+end]) == from {
+			return line[:i] + memory.EscapeField(to) + line[i+end:], true
+		}
+		off = i
 	}
-	// A trailing --> closes the comment and is not part of the value.
-	if j := strings.Index(rest[:end], "-->"); j >= 0 {
-		end = j
-	}
-	if rest[:end] != from {
-		return line, false
-	}
-	return line[:i] + key + to + rest[end:], true
 }
 
 // rewriteActivity updates the project field on each JSONL event. Parsed and
@@ -545,9 +564,15 @@ func rewriteIndex(db *sql.DB, from, to string, dryRun bool) (int, error) {
 		}
 	}
 
+	// The prefix is compared and cut in characters, by SQLite on both sides.
+	// substr at len(from)+1 — Go's byte count — cut a non-ASCII name's worktree
+	// suffix mid-word ("κέδρος/feature-x" became "cedarre-x"), and LIKE, which
+	// ignores ASCII case, moved "brain/feature-x" under a rename of "Brain"
+	// while "brain" itself stayed behind.
+	const scoped = `project = ? OR substr(project, 1, length(?) + 1) = ? || '/'`
 	var n int
 	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM sessions WHERE project = ? OR project LIKE ? || '/%'`, from, from).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM sessions WHERE `+scoped, from, from, from).Scan(&n); err != nil {
 		if missingTable(err) {
 			return total, nil
 		}
@@ -556,8 +581,8 @@ func rewriteIndex(db *sql.DB, from, to string, dryRun bool) (int, error) {
 	total += n
 	if n > 0 && !dryRun {
 		if _, err := db.Exec(
-			`UPDATE sessions SET project = ? || substr(project, ?) WHERE project = ? OR project LIKE ? || '/%'`,
-			to, len(from)+1, from, from); err != nil {
+			`UPDATE sessions SET project = ? || substr(project, length(?) + 1) WHERE `+scoped,
+			to, from, from, from, from); err != nil {
 			return total, err
 		}
 	}
