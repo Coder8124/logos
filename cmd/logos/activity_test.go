@@ -20,6 +20,10 @@ import (
 func TestFailedPlanSaveIsReportedInActivityLog(t *testing.T) {
 	vault := t.TempDir()
 	t.Setenv("LOGOS_VAULT", vault)
+	// Recording is opt-in; this test is about what an opted-in vault does.
+	if err := activity.SetRecording(vault, true); err != nil {
+		t.Fatal(err)
+	}
 
 	// Force SavePlan to fail: put a plain file where its plans/ directory
 	// needs to go, so MkdirPrivate's os.MkdirAll errors on "not a directory".

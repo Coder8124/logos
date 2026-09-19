@@ -62,20 +62,16 @@ func TestTheRecordingSettingSurvivesDeletingTheIndex(t *testing.T) {
 	}
 }
 
-// A vault that has never been told either way records, because that is what
-// every install has done since the plugin shipped.
-func TestTheLogRecordsUntilSomebodyTurnsItOff(t *testing.T) {
-	if !activity.Recording(t.TempDir()) {
-		t.Error("a vault with no setting reports the log off")
-	}
-}
-
 // Nobody consented to the log: the plugin install that starts recording is the
 // same one that installs the hooks, and the user is told about neither. So the
 // first session after an install has to say it, once — silence here is the
 // difference between a feature and surveillance.
 func TestTheLogDisclosesItselfOnceAndThenStopsSayingIt(t *testing.T) {
 	vault := t.TempDir()
+	// There is only something to disclose once the log is actually running.
+	if err := activity.SetRecording(vault, true); err != nil {
+		t.Fatal(err)
+	}
 
 	first, err := activity.Disclose(vault)
 	if err != nil {
@@ -125,6 +121,10 @@ func TestATurnedOffLogHasNothingToDisclose(t *testing.T) {
 // cosmetic one. Asking is not saying: only MarkDisclosed ends it.
 func TestAskingForTheDisclosureDoesNotCountAsHavingSaidIt(t *testing.T) {
 	vault := t.TempDir()
+	// There is only something to disclose once the log is actually running.
+	if err := activity.SetRecording(vault, true); err != nil {
+		t.Fatal(err)
+	}
 
 	first, err := activity.Disclose(vault)
 	if err != nil {

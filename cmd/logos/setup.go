@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
@@ -1349,6 +1350,8 @@ func wireHosts(vault string, opts wireOpts) error {
 		fmt.Println("  and re-run `logos mcp install`.")
 		return nil
 	}
+	offerActivityRecording(vault, opts.yes)
+
 	// The first thing a new user sees logos do decides what they think it is.
 	// "What do you remember about me?" on a fresh vault correctly answers
 	// "nothing", which demonstrates an empty database rather than the product.
@@ -1620,6 +1623,48 @@ func mcpUninstallCmd(args []string) error {
 		return fmt.Errorf("%d host(s) could not be cleaned — see above", failed)
 	}
 	return nil
+}
+
+// offerActivityRecording asks, once, whether this vault should keep the
+// activity log — and asks it here because here is where the hooks that write it
+// have just been installed. The question is meaningless before that and
+// too late anywhere after.
+//
+// Three rules it does not get to break:
+//
+// A vault that has already answered is not asked again. Setup is re-run often —
+// after a host upgrade, a vault move, a `logos mcp install` — and a switch that
+// re-offers itself every time is one a user eventually flips by accident.
+//
+// --yes does not answer this one. The flag means "do not stop to ask me", which
+// is a statement about prompts, not consent to record every prompt typed from
+// now on. The same reasoning already governs the vault-path question above.
+// Under --yes, and anywhere there is no terminal, the log stays off and the
+// line says how to turn it on.
+//
+// The default is no. Invariant 5 is that nothing leaves the machine, and this
+// log does not — but a record of every prompt and tool call is the one thing in
+// the vault the user did not write a word of, and the version that switched it
+// on by itself is the bug this is fixing.
+func offerActivityRecording(vault string, yes bool) {
+	if activity.Decided(vault) {
+		return
+	}
+	fmt.Println("\n  activity log")
+	fmt.Println("    The hooks just installed can also write a local log of your prompts, tool")
+	fmt.Printf("    calls and turn ends to %s. Nothing is sent anywhere and no\n", filepath.Join(vault, activity.Dir))
+	fmt.Printf("    model reads it; `logos activity` shows it and entries older than %d days are\n", int(activity.Retention.Hours()/24))
+	fmt.Println("    deleted. It is off unless you want it.")
+	if yes || !confirmNo("    record activity for this vault?") {
+		fmt.Println("    —  off; `logos activity on` turns it on later")
+		return
+	}
+	if err := activity.SetRecording(vault, true); err != nil {
+		// Invariant 4: a yes that did not take must not look like a yes.
+		fmt.Printf("    ✗  could not turn it on: %v\n", err)
+		return
+	}
+	fmt.Println("    ✓  on; `logos activity off` stops it")
 }
 
 // confirm asks a yes/no question. An interactive user pressing return accepts;

@@ -83,44 +83,102 @@ type Event struct {
 	Extra map[string]any `json:"extra,omitempty"`
 }
 
-// Append writes one event. It creates the month's file if needed and never
-// rewrites what is already there.
-//
-// Errors are returned rather than swallowed, but callers on a hook path should
-// treat them as advisory: a log that fails to write must not break the session
-// it is recording. The hook decides that; this function only reports.
 // offMarker names the file that turns recording off. It sits in the vault, not
 // in .logos/, because deleting the index is documented as lossless and a log
 // that came back on after an index rebuild would be the loudest possible way
 // to break that promise.
 const offMarker = "recording-off"
 
-// Recording reports whether this vault accepts new activity events. A vault
-// that has never been told either way records: that is what every install has
-// done since the plugin shipped, and changing it silently would be its own
-// invariant-3 failure.
+// onMarker records that someone said yes to this. Recording the log is the one
+// thing in the vault the user did not write a line of, so it is the one thing
+// that has to be asked for rather than assumed.
+const onMarker = "recording-on"
+
+// Recording reports whether this vault accepts new activity events.
+//
+// Three states, not two, because there are three genuinely different vaults.
+//
+//	off marker  — the user said no. Never record.
+//	on marker   — the user said yes, at setup or with `logos activity on`.
+//	neither     — nobody was ever asked.
+//
+// The last is the interesting one. Defaulting it to "record" is what #88 was
+// about: every prompt and tool call written down forever, disclosed nowhere,
+// while the README said "nothing is observed". Defaulting it to "don't" would
+// silently switch off the installs that have been recording since the plugin
+// shipped, and a user who has been relying on `logos activity` for a fortnight
+// should not find it empty because we changed our minds.
+//
+// So an un-asked vault is grandfathered on the evidence: if the log already has
+// events, this install was recording before the question existed and keeps
+// doing it. If it does not, nobody has anything invested and the answer is no
+// until someone says otherwise. New installs are opt-in; existing ones are
+// undisturbed; neither is decided silently against the user.
 func Recording(vault string) bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOGOS_ACTIVITY")), "off") {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(vault, Dir, offMarker))
-	return err != nil
+	dir := filepath.Join(vault, Dir)
+	if _, err := os.Stat(filepath.Join(dir, offMarker)); err == nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, onMarker)); err == nil {
+		return true
+	}
+	return hasEvents(dir)
+}
+
+// hasEvents reports whether this log was already being written before anyone
+// was asked about it. See Recording.
+func hasEvents(dir string) bool {
+	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return false
+	}
+	for _, f := range files {
+		if st, err := os.Stat(f); err == nil && st.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Decided reports whether this vault has an answer of its own, so setup can ask
+// once and never again. A vault grandfathered on its existing log counts as
+// decided: it has been recording for weeks, and re-offering the switch every
+// time setup is re-run is how a user flips it by accident.
+func Decided(vault string) bool {
+	dir := filepath.Join(vault, Dir)
+	for _, m := range []string{offMarker, onMarker} {
+		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+			return true
+		}
+	}
+	return hasEvents(dir)
 }
 
 // SetRecording turns the log on or off for this vault.
+//
+// Either answer leaves a marker, because the third state is "nobody has been
+// asked" and an explicit yes has to be distinguishable from it — otherwise
+// saying yes on an empty vault would record nothing and read as a broken
+// switch.
 func SetRecording(vault string, on bool) error {
 	dir := filepath.Join(vault, Dir)
 	if err := vaultpkg.MkdirPrivate(dir); err != nil {
 		return err
 	}
-	p := filepath.Join(dir, offMarker)
+	off := filepath.Join(dir, offMarker)
 	if on {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(off); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return nil
+		return os.WriteFile(filepath.Join(dir, onMarker), []byte("logos activity is on for this vault; `logos activity off` stops it\n"), vaultpkg.FileMode)
 	}
-	return os.WriteFile(p, []byte("logos activity is off for this vault; `logos activity on` resumes it\n"), vaultpkg.FileMode)
+	if err := os.Remove(filepath.Join(dir, onMarker)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(off, []byte("logos activity is off for this vault; `logos activity on` resumes it\n"), vaultpkg.FileMode)
 }
 
 // disclosedMarker records that this vault has told its user what the log does.
@@ -160,6 +218,12 @@ func MarkDisclosed(vault string) error {
 	return os.WriteFile(filepath.Join(dir, disclosedMarker), []byte("the user has been told what the activity log records\n"), vaultpkg.FileMode)
 }
 
+// Append writes one event. It creates the month's file if needed and never
+// rewrites what is already there.
+//
+// Errors are returned rather than swallowed, but callers on a hook path should
+// treat them as advisory: a log that fails to write must not break the session
+// it is recording. The hook decides that; this function only reports.
 func Append(vault string, e Event) error {
 	// Checked here rather than at each caller: the hooks, the CLI and the
 	// server all reach the log through this one door, and an off switch with a
@@ -185,13 +249,63 @@ func Append(vault string, e Event) error {
 	// enough for concurrent hooks: two agents in two terminals will interleave
 	// whole lines, never half of one. That is the property that matters — a
 	// torn line would poison every reader of the file, including jq.
-	f, err := os.OpenFile(monthFile(dir, e.TS), os.O_APPEND|os.O_CREATE|os.O_WRONLY, vaultpkg.FileMode)
+	path := monthFile(dir, e.TS)
+	// A new month's file is the one moment worth spending a directory scan on,
+	// and it is the moment the oldest month has just aged out. Doing it here
+	// rather than on a timer means retention needs no daemon and no `logos
+	// prune` nobody runs — the log prunes itself by being written to.
+	_, statErr := os.Stat(path)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, vaultpkg.FileMode)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = f.Write(append(line, '\n'))
-	return err
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return err
+	}
+	if os.IsNotExist(statErr) {
+		// Advisory: failing to delete an old month is not a reason to fail the
+		// event that was just written.
+		_ = prune(dir, time.Unix(e.TS, 0))
+	}
+	return nil
+}
+
+// Retention is how long a month's log is kept.
+//
+// The log records every prompt and every tool call a host reported, which is
+// the most sensitive thing in the vault and the one part of it the user never
+// chose line by line. Keeping it forever was never a decision anyone made — it
+// was the absence of one, and `logos activity` said the log "rolls off under
+// capture retention" while nothing pruned anything.
+//
+// Thirty days measured from the end of the month a file covers, so a file is
+// deleted only once everything in it is past the window. Whole files, never
+// lines: rewriting a month to drop its first week would make the log something
+// that edits itself, and an append-only record is the only kind that is
+// evidence.
+const Retention = 30 * 24 * time.Hour
+
+func prune(dir string, now time.Time) error {
+	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return err
+	}
+	var last error
+	for _, f := range files {
+		month, err := time.Parse("2006-01", strings.TrimSuffix(filepath.Base(f), ".jsonl"))
+		if err != nil {
+			continue // not a month file; not ours to delete
+		}
+		// The instant after the last second the file can hold.
+		end := month.AddDate(0, 1, 0)
+		if now.Sub(end) > Retention {
+			if err := os.Remove(f); err != nil {
+				last = err
+			}
+		}
+	}
+	return last
 }
 
 func monthFile(dir string, ts int64) string {
