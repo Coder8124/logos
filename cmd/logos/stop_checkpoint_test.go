@@ -5,12 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Coder8124/logos/internal/activity"
 )
 
 // hookEvent feeds one Claude Code hook payload through `logos activity record`
 // as the plugin does, and returns what it printed on stdout.
 func hookEvent(t *testing.T, event, payload string, extra ...string) string {
 	t.Helper()
+	// Recording is opt-in, and these tests are about what a vault that opted in
+	// does with the events. Whether an un-asked vault records is optin_test.go's
+	// subject, in internal/activity.
+	if err := activity.SetRecording(vaultPath(), true); err != nil {
+		t.Fatal(err)
+	}
 	restore := setStdin(t, []byte(payload))
 	defer restore()
 	return captureStdout(t, func() {

@@ -24,11 +24,13 @@ the markdown. If this project dies, you keep a vault.
 **Nothing is observed.** Logos does not watch your screen, your browser
 history, your files or your calendar. The only things in your vault are things
 an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
-remember and you approved. The exception is the Claude Code plugin's activity
-log, in `activity/`: the first 160 characters of each prompt and of each tool
-call's path or shell command, with anything secret-shaped masked, which `logos
-activity` shows and `logos index` keeps out of the vault's git. Nothing prunes
-it yet, and removing the plugin stops it. The one network call Logos ever makes
+remember and you approved. The one exception is off unless you ask for it: the
+Claude Code plugin's activity log, in `activity/`, which records the first 160
+characters of each prompt and of each tool call's path or shell command, with
+anything secret-shaped masked. Setup asks once, `logos activity on` and `logos
+activity off` are the switch, `logos activity` shows it, `logos index` keeps it
+out of the vault's git, and a month's entries are deleted 30 days after that
+month ends. The one network call Logos ever makes
 on its own is `logos update` checking for a new release, and only when you type it; nothing
 else leaves the machine, ever. A host wired to run Logos through `npx` is the one
 exception: npm itself asks the registry for the package on every start — the
