@@ -374,14 +374,24 @@ func TestIngestArchiveRefusesToChooseTheDirectoryItself(t *testing.T) {
 // typo'd flag. The destination is where secrets come to rest; it has to be a
 // path somebody meant.
 func TestIngestArchiveRefusesAFlagAsItsDestination(t *testing.T) {
+	// Proving this bug does what the bug does, and `go test` runs in the
+	// package directory: the first run of this test against the old code left
+	// --help, -n and --dry-run in cmd/logos, untracked and unnoticed because
+	// git does not track empty directories. Somewhere disposable, and the
+	// assertion below turns a regression into a failure rather than files.
+	scratchIngest(t)
+	work := t.TempDir()
+	t.Chdir(work)
+
 	for _, arg := range []string{"--help", "-n", "--dry-run"} {
 		err := runIngestArchive([]string{arg})
 		if err == nil {
 			t.Errorf("logos ingest archive %s was taken as a directory to copy transcripts into", arg)
-			continue
-		}
-		if !strings.Contains(err.Error(), arg) {
+		} else if !strings.Contains(err.Error(), arg) {
 			t.Errorf("the error for %s does not name it: %v", arg, err)
+		}
+		if _, err := os.Stat(filepath.Join(work, arg)); err == nil {
+			t.Errorf("logos ingest archive %s created a directory named after the flag", arg)
 		}
 	}
 }

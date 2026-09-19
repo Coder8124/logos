@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -536,7 +537,19 @@ func rawID(line string) json.RawMessage {
 	return json.RawMessage(candidate)
 }
 
-func (s *Session) handle(req request) *response {
+func (s *Session) handle(req request) (resp *response) {
+	// A panic in here used to exit the process, and with it every Logos tool
+	// for the rest of the host's session — and the main goroutine's defers
+	// never ran, so the session's unsaved work went unrecorded too. One bad
+	// argument should cost one call. The stack still goes to stderr, because a
+	// failure is reported, never swallowed.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "logos: panic handling %s: %v\n%s\n", req.Method, r, debug.Stack())
+			resp = replyErr(req.ID, -32603, fmt.Sprintf("logos failed handling %s: %v", req.Method, r))
+		}
+	}()
+
 	switch req.Method {
 	case "initialize":
 		// Roots, when the host sends them, say which folder the user actually
@@ -879,6 +892,14 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 	}
 	if len(mems) == 0 {
 		if project != "" {
+			// A typo and a real project with nothing on the subject used to get
+			// the same sentence, and the agent draws the same conclusion from
+			// it: this work has no recorded facts, carry on without them. Only
+			// one of those is true. resolveProject accepts any string, so the
+			// check has to be here.
+			if !s.projectExists(project) {
+				return fmt.Sprintf("No project named %s in this vault%s", untrusted.Inline(project), s.knownProjectsSentence()) + s.awaitingReview(), nil
+			}
 			return fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project) + s.awaitingReview(), nil
 		}
 		return "No relevant memories." + s.awaitingReview(), nil
@@ -1348,6 +1369,38 @@ func (s *Server) knownProjects() string {
 		}
 	}
 	return ". Known projects: " + strings.Join(parts, ", ")
+}
+
+// projectExists reports whether the vault has ever heard this exact name —
+// either a memory filed under it or a session directory carrying it. Both are
+// consulted because a project can have checkpoints and no memory, or memory
+// and no checkpoint, and either one makes the name real.
+func (s *Server) projectExists(name string) bool {
+	if ok, err := memory.HasProject(s.DB, name); err == nil && ok {
+		return true
+	}
+	names, err := session.Projects(s.vault)
+	if err != nil {
+		return false
+	}
+	for _, n := range names {
+		// Either direction counts: a worktree scope is "shop/fix-auth" while
+		// the enumerator lists "shop", so a name can be the parent of a known
+		// scope or a scope under a known parent.
+		if n == name || strings.HasPrefix(n, name+"/") || strings.HasPrefix(name, n+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// knownProjectsSentence is knownProjects punctuated as an answer rather than
+// as the tail of a refusal.
+func (s *Server) knownProjectsSentence() string {
+	if known := s.knownProjects(); known != "" {
+		return known + "."
+	}
+	return "."
 }
 
 type knownProject struct {

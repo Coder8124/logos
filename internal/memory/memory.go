@@ -631,6 +631,14 @@ func recallByVec(db *sql.DB, query []float32, k int, queryText string) ([]Memory
 // guarantee is enforced at the SQL level rather than left to callers to
 // remember.
 func recallScoped(db *sql.DB, query []float32, k int, queryText, project string, kind Kind, onlyKind bool) ([]Memory, error) {
+	// A model picks its own tool arguments, and -1 for "no limit" is a common
+	// guess; it reached `mems[:k]` below and panicked, taking the whole MCP
+	// server with it. 0 was quieter and worse — an empty result reads as "this
+	// project knows nothing". Clamped here because every recall path funnels
+	// through this function, so no caller can reintroduce it.
+	if k < 1 {
+		k = 1
+	}
 	// quarantined = 0 is the enforcement point for "a quarantined memory must
 	// not be returned by normal recall" — every read path funnels through here
 	// or through All/AllInProject below, so this one line is what makes the
@@ -790,6 +798,20 @@ func All(db *sql.DB) ([]Memory, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// HasProject reports whether any memory — including a superseded or
+// quarantined one — is filed under this exact project name. It is how a caller
+// tells "this project has recorded nothing about that" apart from "there is no
+// such project", which otherwise produce the same empty result and so the same
+// wrong conclusion for the agent reading it.
+func HasProject(db *sql.DB, project string) (bool, error) {
+	if strings.TrimSpace(project) == "" {
+		return false, nil
+	}
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE project = ?", project).Scan(&n)
+	return n > 0, err
 }
 
 // AllInProject is All narrowed to one project's memories plus the global ones,
@@ -1019,12 +1041,22 @@ func Exclude(db *sql.DB, id int64) error { return setPin(db, id, PinNever, "excl
 
 // setPin is Forget's pattern without the delete: snapshot for the log, change
 // the row, log the event, flush to the vault so the state survives `rm -rf
-// .logos`. Silently a no-op on an id that does not exist, matching Forget —
-// see there for why that asymmetry (permissive here, not an error) is the
-// existing behaviour rather than a gap introduced by this function.
+// .logos`.
+//
+// The missing-id case is checked here for the reason Forget gives. Ignoring
+// the Scan error reported "Pinned — always included in context packs" for an
+// id nobody ever created, and wrote `pinned: id=999` into the vault's
+// append-only log with empty text, under the empty kind. An agent that
+// mistypes an id, or carries one over from a stale list_memories, was told the
+// pin worked and then spent the session wondering why the fact never appeared.
 func setPin(db *sql.DB, id int64, pin int, verb string) error {
 	var text, kind string
-	db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind)
+	if err := db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("no memory #%d", id)
+		}
+		return err
+	}
 	// Same reason as Store: this ends in a whole-file rewrite, so whatever the
 	// user edited by hand has to be adopted before it, not lost by it — and the
 	// adopt, the update and the rewrite are one operation, held under one lock.

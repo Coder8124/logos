@@ -182,16 +182,10 @@ func TestUnpinReturnsToNormalRanking(t *testing.T) {
 	}
 }
 
-func TestSetPinOnUnknownIDIsANoop(t *testing.T) {
-	db := testDB(t)
-	// Matches Forget's existing behaviour on a bad id: permissive, not an error.
-	if err := Pin(db, 999); err != nil {
-		t.Errorf("Pin on an unknown id should be a silent no-op, got %v", err)
-	}
-	if err := Exclude(db, 999); err != nil {
-		t.Errorf("Exclude on an unknown id should be a silent no-op, got %v", err)
-	}
-}
+// A pin on an unknown id used to be a deliberate silent no-op here, justified
+// as matching Forget. Forget has errored since it was found to be logging
+// phantom events, so that justification is gone and the behaviour with it —
+// see TestPinningAMemoryThatDoesNotExistIsAnError in pin_missing_test.go.
 
 func TestPinnedFuncReturnsOnlyPinAlways(t *testing.T) {
 	db := testDB(t)
