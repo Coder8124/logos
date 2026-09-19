@@ -34,9 +34,21 @@ site=$(sed -n 's|.*/releases/tag/v\([0-9][0-9.]*\)".*|\1|p' docs/index.html | he
 [ -n "$site" ] || { echo "could not read a version from docs/index.html"; exit 2; }
 note "site" "$site"
 
-pkg=$(sed -n 's/.*"version": *"\([0-9][0-9.]*\)".*/\1/p' npm/package.json | head -1)
-note "npm/package.json" "${pkg:-unknown}"
-[ "$pkg" = "$site" ] || { note "" "^ does not match the site"; fail=1; }
+# The files a release has to bump by hand. 0.4.6 bumped two of them, so the
+# binary it shipped carried a plugin manifest one version behind itself and
+# `logos doctor` warned every user of a skew they had no way to clear. The
+# skew is invisible from inside any one file, which is why it survived two
+# releases; checking them together is the only place it shows.
+check_local() {
+  local label="$1" path="$2" key="$3" got
+  got=$(sed -n "s/.*\"$key\": *\"\([0-9][0-9.]*\)\".*/\1/p" "$path" | head -1)
+  note "$label" "${got:-unknown}"
+  [ "$got" = "$site" ] || { note "" "^ does not match the site"; fail=1; }
+}
+check_local "npm/package.json"        npm/package.json                   version
+check_local "plugin manifest"         plugin/.claude-plugin/plugin.json  version
+check_local "marketplace"             .claude-plugin/marketplace.json    version
+check_local "desktop app"             app/wails.json                     productVersion
 
 # Published, not local. A formula committed in the tap checkout and never pushed
 # is exactly the state that produced the original report.
