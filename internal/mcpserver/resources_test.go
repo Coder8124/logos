@@ -119,7 +119,12 @@ func TestReadResourceMemoriesMatchesListMemoriesTool(t *testing.T) {
 	}
 }
 
-func TestReadResourceProjectsMatchesListProjectsTool(t *testing.T) {
+// The two surfaces share one inventory and differ in exactly one way: the tool
+// is answering an agent standing somewhere, so it leads with where that is,
+// while the resource is a directory of the vault with no caller to address.
+// This used to assert the two were identical, which is what kept the session's
+// own project out of the tool's answer — see list_projects_scope_test.go.
+func TestReadResourceProjectsCarriesTheSameInventoryAsTheTool(t *testing.T) {
 	c, _, _ := startServer(t)
 	handshake(t, c)
 
@@ -131,8 +136,11 @@ func TestReadResourceProjectsMatchesListProjectsTool(t *testing.T) {
 	raw := c.req("resources/read", map[string]any{"uri": "logos://projects"})
 	resourceOut := resourceContent(t, raw)
 
-	if resourceOut != toolOut {
-		t.Errorf("resources/read logos://projects = %q, want it to match list_projects tool output %q", resourceOut, toolOut)
+	if !strings.Contains(toolOut, resourceOut) {
+		t.Errorf("the two surfaces no longer share one inventory: resource %q is not inside tool output %q", resourceOut, toolOut)
+	}
+	if strings.Contains(resourceOut, "You are in") {
+		t.Errorf("the vault's directory listing addresses a caller it does not have: %q", resourceOut)
 	}
 }
 

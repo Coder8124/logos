@@ -761,7 +761,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	case "memory_diff":
 		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7))
 	case "list_projects":
-		return s.listProjects()
+		return s.listProjectsHere()
 	case "ingest_harvest":
 		return s.ingestHarvest(argStr(args, "session"), argInt(args, "max_turns", 0))
 	case "ingest_distil":
@@ -1428,6 +1428,66 @@ func (s *Server) checkpointedProjects() []knownProject {
 	return ps
 }
 
+// scopeCount is a scope and how much work is filed under it.
+type scopeCount struct {
+	name string
+	n    int
+}
+
+// checkpointedScopes lists the scopes holding at least one checkpoint, with
+// the count. Separate from checkpointedProjects because that one carries the
+// most recent checkpoint's agent and timestamp and this one only needs a
+// number; both drop the scopes holding none, which is the part that matters.
+func (s *Server) checkpointedScopes() []scopeCount {
+	names, err := session.Scopes(s.vault)
+	if err != nil {
+		return nil
+	}
+	var out []scopeCount
+	for _, n := range names {
+		h, err := session.History(s.vault, n, 0)
+		if err != nil || len(h) == 0 {
+			continue
+		}
+		out = append(out, scopeCount{n, len(h)})
+	}
+	return out
+}
+
+// listProjectsHere is listProjects with the one fact it could never supply:
+// where the caller is standing.
+//
+// listProjects is a method on Server, and its line in the tool switch was the
+// only one that threaded no session state — so the single tool whose answer is
+// a list of names had no way to mark the name belonging to the agent asking.
+// An agent handed four names fans out and calls resume once per name; three of
+// those answers are somebody else's work. The scope comes from the same
+// observed sources every other continuity tool uses, never from an argument.
+//
+// The resource surface keeps the unscoped listing: logos://projects is a
+// directory of the vault, not advice to an agent standing somewhere.
+func (s *Session) listProjectsHere() (string, error) {
+	body, err := s.listProjects()
+	if err != nil {
+		return "", err
+	}
+	here := s.resolveScope("")
+	if here == "" {
+		return body, nil
+	}
+	head := fmt.Sprintf("You are in %s", untrusted.Inline(here))
+	if h, err := session.History(s.vault, here, 0); err == nil && len(h) > 0 {
+		word := "checkpoints"
+		if len(h) == 1 {
+			word = "checkpoint"
+		}
+		head += fmt.Sprintf(" (%d %s)", len(h), word)
+	} else {
+		head += " (no checkpoints yet)"
+	}
+	return head + ".\n\nEverything in this vault:\n" + body, nil
+}
+
 // listProjects enumerates the projects logos detected, most-recently-active
 // first, so a host can navigate the memory by the work it is organised around.
 func (s *Server) listProjects() (string, error) {
@@ -1440,16 +1500,24 @@ func (s *Server) listProjects() (string, error) {
 		// for a name to resume was told there were none while sessions/ held
 		// them, and reported an empty memory. `logos projects` falls back the
 		// same way.
-		if names, err := session.Scopes(s.vault); err == nil && len(names) > 0 {
+		// Only scopes that actually hold a checkpoint. This branch used to print
+		// every session directory under a heading asserting they all had one,
+		// contradicting itself on the rows reading "(0 checkpoints)" — and those
+		// empty rows are the ghost projects a host leaves behind in any folder
+		// it was opened in, so the list was advertising its own exhaust.
+		if ps := s.checkpointedScopes(); len(ps) > 0 {
 			var b strings.Builder
-			b.WriteString("No activity rollup yet, but these scopes have checkpoints — call resume with one:\n")
-			for _, n := range names {
+			// A statement, not an instruction. "call resume with one" was the
+			// only line in this server aimed at the model, and it sat directly
+			// above a list — which a thorough agent reads as "enumerate these",
+			// and did: four resume calls where one was wanted.
+			b.WriteString("No activity rollup yet. These scopes hold checkpoints:\n")
+			for _, p := range ps {
 				word := "checkpoints"
-				h, _ := session.History(s.vault, n, 0)
-				if len(h) == 1 {
+				if p.n == 1 {
 					word = "checkpoint"
 				}
-				fmt.Fprintf(&b, "- %s (%d %s)\n", n, len(h), word)
+				fmt.Fprintf(&b, "- %s (%d %s)\n", p.name, p.n, word)
 			}
 			return strings.TrimRight(b.String(), "\n"), nil
 		}
