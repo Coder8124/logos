@@ -285,8 +285,15 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// project's files but never the content, so an agent still had to go read
 	// them one by one.
 	if embed != nil && query != "" {
-		if hits, err := ix.HybridSearch(embed, embedModel, query, maxNotes); err == nil {
-			p.Notes = withoutOwnSections(hits)
+		// Over-fetched because the scoping below drops hits, and a pack that
+		// asked for exactly maxNotes would come back short by however many
+		// belonged to somebody else.
+		if hits, err := ix.HybridSearch(embed, embedModel, query, maxNotes*3); err == nil {
+			hits = p.withoutForeignProjects(withoutOwnSections(hits))
+			if len(hits) > maxNotes {
+				hits = hits[:maxNotes]
+			}
+			p.Notes = hits
 		}
 	}
 	p.Notes = interleave(p.Notes, p.graphReach(db))
@@ -475,6 +482,54 @@ func inferSince(checkpoint *session.Checkpoint, now time.Time) Since {
 // applies — project scoping, supersession, the pin tier — so a fact a later one
 // had superseded was suppressed below and printed verbatim above, exactly the
 // checkpoint failure described a paragraph up.
+// withoutForeignProjects drops vault prose filed under a project other than
+// the one being asked about.
+//
+// Every other arm of this pack is scoped — session.History, session.Uncommitted,
+// memory.RecallInProject, memory.Pinned — and this one was not, so the "From
+// the vault" section ranked the whole vault by similarity to the task alone.
+// The sibling call below the memories arm records what that costs when it was
+// measured there: 7 of 12 "related" memories for one project's resume were
+// another project's facts. The notes arm never got the same treatment.
+//
+// Shared prose — a topic, a decision, a person — has no owner and stays. So
+// does everything, when no project was resolved at all: an unscoped pack is
+// asking about the whole vault and must still be answered from it.
+//
+// graphReach is the deliberate exception and runs after this: it crosses
+// projects on purpose and labels every note it pulls in as reached rather than
+// matched.
+func (p Pack) withoutForeignProjects(hits []index.Hit) []index.Hit {
+	if p.Project == nil || p.Project.Slug == "" {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		if owner := projectOwner(h); owner != "" && owner != p.Project.Slug {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
+// projectOwner names the project a note is filed under, and "" for prose that
+// belongs to no single one. A project note owns itself; anything beneath a
+// project's folder belongs to it.
+func projectOwner(h index.Hit) string {
+	if h.Kind == "project" {
+		return h.Slug
+	}
+	rest, ok := strings.CutPrefix(h.Slug, "projects/")
+	if !ok {
+		return ""
+	}
+	if i := strings.Index(rest, "/"); i >= 0 {
+		return "projects/" + rest[:i]
+	}
+	return "projects/" + rest
+}
+
 func withoutOwnSections(hits []index.Hit) []index.Hit {
 	out := hits[:0]
 	for _, h := range hits {
