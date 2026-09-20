@@ -45,7 +45,10 @@ func TestThePluginDoesNotRunSomeoneElsesLogos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver failed: %v\n%s", err, got)
 	}
-	if got != "brain" {
+	// Resolved by full path, not bare name: the resolver may deliberately pass
+	// over the copy PATH would give, so running by name would launch the wrong
+	// one (#157).
+	if filepath.Base(got) != "brain" {
 		t.Errorf("the resolver chose %q over this product's brain", got)
 	}
 }
@@ -63,7 +66,7 @@ func TestThePluginSkipsACandidateThatDoesNotRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolver failed: %v\n%s", err, got)
 	}
-	if got != "brain" {
+	if filepath.Base(got) != "brain" {
 		t.Errorf("the resolver chose %q, which does not run", got)
 	}
 }
@@ -144,5 +147,95 @@ func TestThePluginOffersAnInstallThatNeedsNoToolchain(t *testing.T) {
 	// Go stays, last: it is the right answer for whoever already has it.
 	if brew, goInstall := strings.Index(got, "brew install"), strings.Index(got, "go install"); goInstall >= 0 && goInstall < brew {
 		t.Errorf("go install is offered before the routes that need no toolchain:\n%s", got)
+	}
+}
+
+// The resolver took the first working candidate, never comparing versions, so
+// a `go install` build from months ago sitting earlier on PATH than a fresh
+// `brew upgrade` won every time. That is not one stale feature: every guard
+// the hooks rely on is an environment variable an older binary ignores, so the
+// plugin silently reverted to whatever that binary did — #145's ghost projects
+// were this, and nothing on screen said which copy answered.
+func TestThePluginRunsTheNewestLogosNotTheFirstOneFound(t *testing.T) {
+	stale, fresh := t.TempDir(), t.TempDir()
+	fakeProgram(t, stale, "logos", `echo "logos 0.4.1 darwin/arm64 go1.26"`)
+	fakeProgram(t, fresh, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
+
+	got, err := runResolver(t, stale+":"+fresh+":/usr/bin:/bin",
+		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if !strings.HasPrefix(got, fresh) {
+		t.Errorf("the resolver chose %q, not the newer copy in %s", got, fresh)
+	}
+}
+
+// Invariant 3: a choice the user cannot see is the whole of this bug. When the
+// plugin runs something other than the copy the user gets by typing `logos`,
+// it says so, with both versions.
+func TestThePluginSaysWhenItPassesOverTheLogosOnPath(t *testing.T) {
+	stale, fresh := t.TempDir(), t.TempDir()
+	fakeProgram(t, stale, "logos", `echo "logos 0.4.1 darwin/arm64 go1.26"`)
+	fakeProgram(t, fresh, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
+
+	got, err := runResolver(t, stale+":"+fresh+":/usr/bin:/bin", `logos_resolve`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if !strings.Contains(got, "0.4.7") || !strings.Contains(got, "0.4.1") {
+		t.Errorf("the resolver passed over the logos on PATH without saying so: %q", got)
+	}
+}
+
+// An unversioned build — what `go install` produces — cannot say how old it is,
+// and the failure that shipped is exactly one of those beating a current
+// install. A numbered release wins.
+func TestANumberedReleaseBeatsAnUnversionedBuild(t *testing.T) {
+	dev, release := t.TempDir(), t.TempDir()
+	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
+
+	got, err := runResolver(t, dev+":"+release+":/usr/bin:/bin",
+		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if !strings.HasPrefix(got, release) {
+		t.Errorf("the resolver kept the unversioned build %q over a numbered release", got)
+	}
+}
+
+// A developer running their own build needs a way to say so out loud, or the
+// version ranking above makes this repository impossible to dogfood.
+func TestAnExplicitLogosBinIsNotRankedAgainstAnythingElse(t *testing.T) {
+	mine, release := t.TempDir(), t.TempDir()
+	fakeProgram(t, mine, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
+
+	got, err := runResolver(t, release+":/usr/bin:/bin",
+		`LOGOS_BIN=`+filepath.Join(mine, "logos")+` logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if !strings.HasPrefix(got, mine) {
+		t.Errorf("LOGOS_BIN was overridden by version ranking: chose %q", got)
+	}
+}
+
+// Same version, two names: `brain` is pre-rename and so never newer than the
+// `logos` it was renamed from.
+func TestAtTheSameVersionLogosBeatsThePreRenameBrain(t *testing.T) {
+	bin := t.TempDir()
+	fakeProgram(t, bin, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
+	fakeProgram(t, bin, "brain", `echo "brain 0.4.7 darwin/arm64 go1.26"`)
+
+	got, err := runResolver(t, bin+":/usr/bin:/bin",
+		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if filepath.Base(got) != "logos" {
+		t.Errorf("the resolver chose %q at equal versions", got)
 	}
 }
