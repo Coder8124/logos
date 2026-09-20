@@ -48,7 +48,7 @@ func TestProposalsSurviveDeletingTheIndex(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	n, _, err := ImportPending(wiped, dir)
@@ -319,7 +319,7 @@ func TestAReviewQueueThatWasNeverWrittenDownIsWrittenDownBeforeItIsLost(t *testi
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	if n, _, err := ImportPending(wiped, dir); err != nil {

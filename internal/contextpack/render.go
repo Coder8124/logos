@@ -456,10 +456,39 @@ func (p *Pack) renderWorking(b *strings.Builder, items []string) {
 		}
 		meta = append(meta, age)
 	}
+	// Notes the vault never got, said here rather than nowhere. note_progress
+	// is sold on one promise — a line survives the agent's context running out
+	// — and a line held only in .logos/index.db does not, because the user is
+	// told that file is safe to delete. The write that failed reported it to an
+	// agent that has since exited; this is the next reader, and until now it
+	// was shown work at risk as though it were on disk.
+	if n := p.strandedWorking(); n > 0 {
+		meta = append(meta, fmt.Sprintf("**%d not yet saved to the vault** — run `logos index` to write %s out",
+			n, itOrThem(n)))
+	}
 	if len(meta) > 0 {
 		fmt.Fprintf(b, "\n_%s. Never checkpointed._\n", strings.Join(meta, ", "))
 	}
 	b.WriteString("\n" + strings.Join(items, "\n") + "\n")
+}
+
+// strandedWorking counts the working notes that reached the index and not the
+// vault. Normally zero.
+func (p *Pack) strandedWorking() int {
+	var n int
+	for _, w := range p.Working {
+		if w.Unflushed {
+			n++
+		}
+	}
+	return n
+}
+
+func itOrThem(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // priorFailures collects what earlier checkpoints ruled out, attributed to

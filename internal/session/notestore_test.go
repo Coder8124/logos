@@ -52,7 +52,7 @@ func TestWorkingNotesSurviveDeletingTheIndex(t *testing.T) {
 
 	// Simulate `rm -rf .logos && logos index`: a wholly new database, same vault.
 	rebuilt := boundDB(t, v)
-	n, err := ImportNotes(rebuilt, v)
+	n, _, err := ImportNotes(rebuilt, v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRestoringNotesTwiceDoesNotDoubleThem(t *testing.T) {
 
 	rebuilt := boundDB(t, v)
 	for i := range 3 {
-		n, err := ImportNotes(rebuilt, v)
+		n, _, err := ImportNotes(rebuilt, v)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +125,7 @@ func TestCheckpointClearsTheWorkingNotesFile(t *testing.T) {
 	}
 
 	rebuilt := boundDB(t, v)
-	if n, err := ImportNotes(rebuilt, v); err != nil || n != 0 {
+	if n, _, err := ImportNotes(rebuilt, v); err != nil || n != 0 {
 		t.Errorf("a rebuild resurrected %d checkpointed notes (%v)", n, err)
 	}
 }
@@ -143,7 +143,7 @@ func TestWorktreeNotesFileBesideTheirOwnCheckpoints(t *testing.T) {
 	}
 
 	rebuilt := boundDB(t, v)
-	if _, err := ImportNotes(rebuilt, v); err != nil {
+	if _, _, err := ImportNotes(rebuilt, v); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := Uncommitted(rebuilt, "kestrel/feature-x"); len(got) != 1 {
@@ -163,7 +163,7 @@ func TestAMultilineNoteStillComesBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	rebuilt := boundDB(t, v)
-	if _, err := ImportNotes(rebuilt, v); err != nil {
+	if _, _, err := ImportNotes(rebuilt, v); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := Uncommitted(rebuilt, "kestrel")

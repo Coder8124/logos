@@ -203,8 +203,18 @@ func flushLocked(db *sql.DB, kind Kind) error {
 		return nil
 	}
 	if err := ExportKind(db, dir, kind); err != nil {
+		// Record which rows the failed export left behind, so the split state
+		// outlives the one call that was told about it. The caller here gets an
+		// honest error and then exits; everyone after it — recall, doctor, the
+		// next index pass — has only the database to go on.
+		markUnflushed(db, dir, kind)
 		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
 	}
+	// The file on disk is now this kind, whole. Whatever an earlier failure
+	// stranded went out with it, because the export rewrites the entire file
+	// rather than appending — which is also why a single later write of any
+	// memory of this kind repairs every stranded one.
+	db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND unflushed = 1", string(kind))
 	// Remember the file we just produced, so the next reconcile can recognise it
 	// as ours and skip a full pass. Read back rather than hashing what we think
 	// we wrote: if the export and the file on disk ever disagree, the stamp must
@@ -223,6 +233,81 @@ func flushLocked(db *sql.DB, kind Kind) error {
 		dropStamp(db, kind)
 	}
 	return nil
+}
+
+// markUnflushed flags the memories of one kind that are in the cache and not in
+// the file, after an export failed to write that file.
+//
+// Measured against the bytes actually on disk rather than assumed for the whole
+// kind. A failed whole-file export usually leaves the *previous* file intact,
+// so most rows of that kind are still perfectly durable, and flagging them all
+// would put doctor in the position of naming fifty memories at risk when one
+// is. A missing or unreadable file answers the same question the other way: no
+// row of this kind is in it, and every one of them is flagged.
+//
+// Errors are dropped on purpose. This runs on the failure path of a write that
+// is already returning an error to the caller, and a second error about the
+// bookkeeping would replace the one that says what actually went wrong.
+func markUnflushed(db *sql.DB, dir string, kind Kind) {
+	onDisk := map[string]bool{}
+	if raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
+		for _, m := range parseKind(kind, string(raw)) {
+			onDisk[fingerprint(m.Text)] = true
+		}
+	}
+	// quarantined = 0 for the reason Import gives: a pending memory is never
+	// written to the file, so its absence from one is not evidence of anything.
+	rows, err := db.Query("SELECT id, text FROM memories WHERE kind = ? AND quarantined = 0", string(kind))
+	if err != nil {
+		return
+	}
+	var stranded []int64
+	for rows.Next() {
+		var id int64
+		var text string
+		if rows.Scan(&id, &text) != nil {
+			continue
+		}
+		if !onDisk[fingerprint(text)] {
+			stranded = append(stranded, id)
+		}
+	}
+	rows.Close()
+	for _, id := range stranded {
+		db.Exec("UPDATE memories SET unflushed = 1 WHERE id = ?", id)
+	}
+}
+
+// UnflushedIDs is the set of memories the cache holds and the vault does not,
+// for a reader that has already loaded some memories and needs to say which of
+// them are not durable.
+//
+// A set rather than a column on Memory because every recall path scans its own
+// explicit column list, and threading one more field through all of them would
+// touch far more code than the question is worth. One query answers it for a
+// whole page of results, and the normal answer is an empty map.
+func UnflushedIDs(db *sql.DB) map[int64]bool {
+	out := map[int64]bool{}
+	rows, err := db.Query("SELECT id FROM memories WHERE unflushed = 1")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// Unflushed counts the memories the cache holds that the vault does not, which
+// is what `logos doctor` needs in order to say so. Zero is the normal answer.
+func Unflushed(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE unflushed = 1 AND superseded = 0").Scan(&n)
+	return n, err
 }
 
 // Reconcile adopts whatever the user did to one kind's file by hand, before
@@ -469,9 +554,9 @@ func oneLine(s string) string {
 //
 // Vectors are not stored in the file; anything without one is re-embedded here,
 // which is the same work `logos index` already does for notes.
-func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, error) {
+func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported, rescued int, err error) {
 	if err := Init(db); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Every kind's lock, held for the whole import.
@@ -488,12 +573,11 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	for _, kind := range kinds {
 		g, err := vault.Lock(dir, "memory-"+string(kind))
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		defer g.Unlock()
 	}
 
-	var imported int
 	keep := map[int64]bool{}
 
 	// Only kinds whose file was read and found intact are authoritative. A kind
@@ -511,7 +595,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 			continue
 		}
 		if err != nil {
-			return imported, err
+			return imported, rescued, err
 		}
 
 		parsed := parseKind(kind, string(raw))
@@ -526,7 +610,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 		for _, m := range parsed {
 			id, err := upsert(db, p, embedModel, m)
 			if err != nil {
-				return imported, err
+				return imported, rescued, err
 			}
 			keep[id] = true
 			imported++
@@ -538,7 +622,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	// would be the same silent deletion this guard exists to prevent, and the
 	// user needs to know before they overwrite the file by writing a new memory.
 	if len(damaged) > 0 {
-		return imported, fmt.Errorf(
+		return imported, rescued, fmt.Errorf(
 			"refusing to import an incomplete memory store (%s); "+
 				"restore the file or delete the count line to accept it as-is",
 			strings.Join(damaged, "; "))
@@ -554,7 +638,17 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 		// are no longer on disk — and a stamp is a claim the file is ours, which
 		// makes the next Reconcile skip the pass that would have adopted it.
 		defer dropStamps(db)
-		return 0, Export(db, dir)
+		// The count before the write, because the write is what settles it: a
+		// vault whose very first export failed has no files at all, so this is
+		// the branch a stranded memory comes back through, and it is as much a
+		// rescue as the one below. Reporting 0 here would have `logos index`
+		// stay silent about writing out data that was one wipe from gone.
+		rescued, _ = Unflushed(db)
+		if err := Export(db, dir); err != nil {
+			return 0, 0, err
+		}
+		db.Exec("UPDATE memories SET unflushed = 0")
+		return 0, rescued, nil
 	}
 
 	// quarantined = 0: a pending memory was never written to the file (see
@@ -562,21 +656,45 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 	// file was read. Without this exclusion, every `logos index` would read
 	// that absence as "the user deleted this line" and Forget the whole review
 	// queue out from under them before they ever saw it.
-	rows, err := db.Query("SELECT id, kind FROM memories WHERE superseded = 0 AND quarantined = 0")
+	rows, err := db.Query("SELECT id, kind, unflushed FROM memories WHERE superseded = 0 AND quarantined = 0")
 	if err != nil {
-		return imported, err
+		return imported, rescued, err
 	}
 	var orphans []int64
+	rescue := map[Kind]bool{}
 	for rows.Next() {
 		var id int64
 		var kind string
-		if err := rows.Scan(&id, &kind); err != nil {
+		var unflushed int
+		if err := rows.Scan(&id, &kind, &unflushed); err != nil {
 			rows.Close()
-			return imported, err
+			return imported, rescued, err
 		}
-		if !keep[id] && authoritative[Kind(kind)] {
-			orphans = append(orphans, id)
+		if keep[id] {
+			continue
 		}
+		// Absent from the file, and we know why: the export that should have
+		// written it failed, and nothing since has succeeded. This is the one
+		// case where the file's silence is not the user deleting a line, and
+		// treating it as one is how the command documented as safe — delete the
+		// index, reindex, lose nothing — became the command that destroys the
+		// memory. Put it in the vault instead of reaping it.
+		//
+		// Ahead of the authoritative gate, not behind it, because the commonest
+		// way to strand a memory is a vault that was unwritable for the very
+		// first export of its kind — which leaves no file at all, and a kind
+		// with no file is exactly what that gate excludes. Behind the gate,
+		// those memories were never rescued and never lost the flag, so doctor
+		// reported the same at-risk rows after every repair.
+		if unflushed == 1 {
+			rescue[Kind(kind)] = true
+			rescued++
+			continue
+		}
+		if !authoritative[Kind(kind)] {
+			continue
+		}
+		orphans = append(orphans, id)
 	}
 	rows.Close()
 	for _, id := range orphans {
@@ -586,10 +704,24 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (int, erro
 		// the very file being read as the source of truth. Same reasoning, and
 		// the same choice, as Reconcile's own deletion loop.
 		if _, err := forgetRow(db, id); err != nil {
-			return imported, err
+			return imported, rescued, err
 		}
 	}
-	return imported, nil
+
+	// The rescue itself, after the reaping, so the file this writes reflects
+	// every decision above. ExportKind rather than flush: this function already
+	// holds every kind's lock, and flush would take them again.
+	for kind := range rescue {
+		if err := ExportKind(db, dir, kind); err != nil {
+			// Still not writable. The rows keep their flag and stay in the
+			// cache, which is the whole point of the flag — nothing is lost,
+			// and the next run tries again.
+			return imported, 0, fmt.Errorf("memories are in the cache that the vault still will not take: %w", err)
+		}
+		db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND unflushed = 1", string(kind))
+		dropStamp(db, kind)
+	}
+	return imported, rescued, nil
 }
 
 // upsert writes one parsed memory back, preserving its id so that references in

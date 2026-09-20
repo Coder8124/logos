@@ -160,8 +160,9 @@ func Open(vaultDir string) (*Index, error) {
 // database and reindex" true for one half and quietly destructive for the
 // other. Running both from one command is what makes the guarantee whole.
 //
-// Returns how many memories the vault held.
-func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (int, error) {
+// Returns how many memories the vault held, and how many it rescued out of a
+// cache that was their only copy — see memory.Import.
+func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (imported, rescued int, err error) {
 	return memory.Import(ix.DB, p, embedModel, ix.Vault)
 }
 
@@ -172,8 +173,9 @@ func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (int, err
 // were the last thing that existed only in the database, so `rm -rf .logos`
 // silently threw away exactly the in-flight work note_progress exists to keep.
 //
-// Returns how many it restored.
-func (ix *Index) SyncNotes() (int, error) {
+// Returns how many it restored, and how many it rescued out of a cache that
+// was their only copy — see session.ImportNotes.
+func (ix *Index) SyncNotes() (restored, rescued int, err error) {
 	return session.ImportNotes(ix.DB, ix.Vault)
 }
 

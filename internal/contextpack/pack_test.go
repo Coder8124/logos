@@ -963,7 +963,7 @@ func TestARememberedFactIsNotAlsoRenderedAsAVaultNote(t *testing.T) {
 	if _, err := memory.Store(ix.DB, nil, "", &m); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ix.SyncMemories(embed, "fake-model"); err != nil {
+	if _, _, err := ix.SyncMemories(embed, "fake-model"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -56,6 +56,12 @@ type Note struct {
 	Agent string
 	Text  string
 	TS    int64
+	// Unflushed means this note is in the cache and not in the vault, because
+	// the write to uncommitted.md failed. Carried onto the note so resume can
+	// say so: the whole promise of note_progress is that a line survives the
+	// agent's context running out, and a line held only in a deletable cache
+	// does not. See flushNotes.
+	Unflushed bool
 }
 
 const Schema = `
@@ -71,17 +77,27 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project, started);
 
 CREATE TABLE IF NOT EXISTS session_notes (
-    id      INTEGER PRIMARY KEY,
-    session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    text    TEXT NOT NULL,
-    ts      INTEGER NOT NULL
+    id        INTEGER PRIMARY KEY,
+    session   TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    text      TEXT NOT NULL,
+    ts        INTEGER NOT NULL,
+    unflushed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS session_notes_session ON session_notes(session, ts);
 `
 
 func Init(db *sql.DB) error {
-	_, err := db.Exec(Schema)
-	return err
+	if _, err := db.Exec(Schema); err != nil {
+		return err
+	}
+	// A migration for stores created before the column existed, in the idiom
+	// internal/memory's Init uses: a no-op once applied, and the error when the
+	// column is already there is what says so. Existing rows default to 0 —
+	// flushed — because a note written before this was tracked was either
+	// exported or stranded by a failure nobody recorded, and guessing the
+	// second would put every note anyone has on doctor's at-risk list.
+	db.Exec("ALTER TABLE session_notes ADD COLUMN unflushed INTEGER NOT NULL DEFAULT 0")
+	return nil
 }
 
 // idFor builds a session id that sorts by time and names its author. Seconds
@@ -245,7 +261,7 @@ func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, er
 // written is the order they make sense in.
 func Notes(db *sql.DB, sessionID string) ([]Note, error) {
 	return scanNotes(db.Query(
-		`SELECT n.id, n.session, s.agent, n.text, n.ts
+		`SELECT n.id, n.session, s.agent, n.text, n.ts, n.unflushed
 		 FROM session_notes n JOIN sessions s ON s.id = n.session
 		 WHERE n.session = ? ORDER BY n.ts, n.id`, sessionID))
 }
@@ -257,7 +273,7 @@ func Notes(db *sql.DB, sessionID string) ([]Note, error) {
 // died before it could.
 func Uncommitted(db *sql.DB, project string) ([]Note, error) {
 	return scanNotes(db.Query(
-		`SELECT n.id, n.session, s.agent, n.text, n.ts
+		`SELECT n.id, n.session, s.agent, n.text, n.ts, n.unflushed
 		 FROM session_notes n JOIN sessions s ON s.id = n.session
 		 WHERE s.project = ? AND s.ended = 0
 		 ORDER BY n.ts, n.id`, safeScope(project)))
@@ -272,9 +288,11 @@ func scanNotes(rows *sql.Rows, err error) ([]Note, error) {
 	var out []Note
 	for rows.Next() {
 		var n Note
-		if err := rows.Scan(&n.ID, &n.Session, &n.Agent, &n.Text, &n.TS); err != nil {
+		var unflushed int
+		if err := rows.Scan(&n.ID, &n.Session, &n.Agent, &n.Text, &n.TS, &unflushed); err != nil {
 			return nil, err
 		}
+		n.Unflushed = unflushed == 1
 		out = append(out, n)
 	}
 	return out, rows.Err()
@@ -348,7 +366,7 @@ func notesIn(db *sql.DB, ids []string) ([]Note, error) {
 	for i, id := range ids {
 		args[i] = id
 	}
-	q := `SELECT n.id, n.session, s.agent, n.text, n.ts
+	q := `SELECT n.id, n.session, s.agent, n.text, n.ts, n.unflushed
 	      FROM session_notes n JOIN sessions s ON s.id = n.session
 	      WHERE n.session IN (?` + strings.Repeat(",?", len(ids)-1) + `)
 	      ORDER BY n.ts, n.id`

@@ -915,6 +915,12 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 		return "No relevant memories." + s.awaitingReview(), nil
 	}
 	var b strings.Builder
+	// A memory the vault never got is still usable and still true — it is just
+	// one `rm -rf .logos` from gone, and the README tells people that command
+	// is safe. The write reported the failure once, to a caller that has since
+	// exited; every reader after that saw a row indistinguishable from a
+	// durable one. See memory.UnflushedIDs.
+	stranded := memory.UnflushedIDs(s.DB)
 	for _, m := range mems {
 		// Tag anything from outside the current project, so a fact borrowed
 		// from elsewhere cannot be read as this project's own settled truth.
@@ -924,12 +930,23 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 		// into a section of logos's own frame, with a "Next step" the reading
 		// agent had no way to tell from the real one.
 		case m.Project == "" || m.Project == project:
-			fmt.Fprintf(&b, "- (%s) %s\n", m.Kind, untrusted.Inline(m.Text))
+			fmt.Fprintf(&b, "- (%s%s) %s\n", m.Kind, notDurable(stranded[m.ID]), untrusted.Inline(m.Text))
 		default:
-			fmt.Fprintf(&b, "- (%s, from %s) %s\n", m.Kind, m.Project, untrusted.Inline(m.Text))
+			fmt.Fprintf(&b, "- (%s, from %s%s) %s\n", m.Kind, m.Project, notDurable(stranded[m.ID]), untrusted.Inline(m.Text))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n") + s.awaitingReview(), nil
+}
+
+// notDurable marks a memory that is in the cache and not in the vault. Worded
+// as a fact about where it is rather than a warning, because the memory itself
+// is fine — an agent should still use it, and should know not to rely on it
+// being there tomorrow.
+func notDurable(stranded bool) string {
+	if !stranded {
+		return ""
+	}
+	return ", not yet saved to the vault"
 }
 
 // fromProject names the project a memory belongs to when it is not the one the
@@ -975,6 +992,7 @@ func (s *Server) listMemories(here string) (string, error) {
 		return "No memories yet.", nil
 	}
 	var b strings.Builder
+	stranded := memory.UnflushedIDs(s.DB)
 	for _, m := range mems {
 		tag := ""
 		// Pin state has to be visible here too, not just in the CLI — a host's
@@ -986,7 +1004,7 @@ func (s *Server) listMemories(here string) (string, error) {
 		case memory.PinNever:
 			tag = " [excluded]"
 		}
-		fmt.Fprintf(&b, "[%d] (%s%s)%s %s\n", m.ID, m.Kind, fromProject(m.Project, here), tag, untrusted.Inline(m.Text))
+		fmt.Fprintf(&b, "[%d] (%s%s%s)%s %s\n", m.ID, m.Kind, fromProject(m.Project, here), notDurable(stranded[m.ID]), tag, untrusted.Inline(m.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

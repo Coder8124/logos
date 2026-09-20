@@ -178,7 +178,7 @@ func TestImportDoesNotReapQuarantinedMemories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 

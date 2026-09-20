@@ -118,7 +118,17 @@ CREATE TABLE IF NOT EXISTS memories (
     superseded    INTEGER NOT NULL DEFAULT 0,
     superseded_by INTEGER NOT NULL DEFAULT 0,
     quarantined   INTEGER NOT NULL DEFAULT 0,
-    pin           INTEGER NOT NULL DEFAULT 0
+    pin           INTEGER NOT NULL DEFAULT 0,
+    -- unflushed marks a row the cache holds and the vault does not, because the
+    -- export that should have written it failed — a read-only mount, a full
+    -- disk, a permissions change. Without it the split is known for exactly one
+    -- call and then forgotten: the caller is told honestly that the write did
+    -- not reach the vault, that caller exits, and every later reader sees a row
+    -- indistinguishable from a durable one. The next index pass then reads the
+    -- file, does not find the line, and forgets the memory as one the user
+    -- deleted by hand — which makes "delete the index, lose nothing" false in
+    -- the one command that promises it. See Unflushed and Import.
+    unflushed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
 
@@ -168,6 +178,12 @@ func Init(db *sql.DB) error {
 	// as visible and recallable as it was before this column existed.
 	db.Exec("ALTER TABLE memories ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0")
 	db.Exec("CREATE INDEX IF NOT EXISTS memories_quarantined ON memories(quarantined)")
+	// Existing rows default to 0 — flushed — which is the honest answer: a row
+	// written before this column existed was either exported successfully or
+	// stranded by a failure nobody recorded, and guessing the second would put
+	// every memory anyone already has on doctor's at-risk list.
+	db.Exec("ALTER TABLE memories ADD COLUMN unflushed INTEGER NOT NULL DEFAULT 0")
+	db.Exec("CREATE INDEX IF NOT EXISTS memories_unflushed ON memories(unflushed)")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
