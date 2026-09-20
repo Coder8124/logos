@@ -21,6 +21,10 @@ type DiffEntry struct {
 	Event string `json:"event"`
 	Text  string `json:"text"` // snapshot from the log at the time of the change
 	TS    int64  `json:"ts"`
+	// The project the memory belonged to, "" for a global fact. Carried so a
+	// reader can tell whose work an entry describes: a flat list of every
+	// project's changes reads as a list of changes to the one in front of you.
+	Project string `json:"project,omitempty"`
 }
 
 // DiffResult is what changed between two moments.
@@ -57,7 +61,7 @@ func Diff(db *sql.DB, subject string, since, until int64) (DiffResult, error) {
 	res := DiffResult{Subject: subject, Since: since, Until: until}
 
 	rows, err := db.Query(
-		`SELECT mem_id, event, COALESCE(detail,''), ts FROM memory_log
+		`SELECT mem_id, event, COALESCE(detail,''), ts, COALESCE(project,'') FROM memory_log
 		 WHERE ts >= ? AND ts <= ? ORDER BY ts ASC, id ASC`, since, until)
 	if err != nil {
 		return res, err
@@ -67,7 +71,7 @@ func Diff(db *sql.DB, subject string, since, until int64) (DiffResult, error) {
 	needle := strings.ToLower(strings.TrimSpace(subject))
 	for rows.Next() {
 		var e DiffEntry
-		if err := rows.Scan(&e.MemID, &e.Event, &e.Text, &e.TS); err != nil {
+		if err := rows.Scan(&e.MemID, &e.Event, &e.Text, &e.TS, &e.Project); err != nil {
 			return res, err
 		}
 		if needle != "" && !strings.Contains(strings.ToLower(e.Text), needle) {
