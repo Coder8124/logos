@@ -59,7 +59,7 @@ func TestOneMissingFileDoesNotForgetThatKind(t *testing.T) {
 	if err := os.Remove(path(dir, Fact)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestTruncatedFileIsDetected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err == nil {
+	if _, _, err := Import(db, nil, "", dir); err == nil {
 		t.Error("a file that ends mid-record was imported without complaint; " +
 			"the memories in the missing tail were silently forgotten")
 	}
@@ -131,7 +131,7 @@ func TestDeletingALineStillForgets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatalf("a hand-deleted line was rejected as damage: %v", err)
 	}
 	if got := kindCount(t, db, Fact); got != 1 {
@@ -180,7 +180,7 @@ func TestCorruptStoreIsSurvivable(t *testing.T) {
 					t.Fatalf("Import panicked on %s input: %v", name, r)
 				}
 			}()
-			if _, err := Import(db, nil, "", dir); err != nil {
+			if _, _, err := Import(db, nil, "", dir); err != nil {
 				t.Logf("Import reported: %v", err)
 			}
 			if _, err := All(db); err != nil {
@@ -215,7 +215,7 @@ func TestCreatedTimeSurvivesTheRoundTrip(t *testing.T) {
 	if err := Init(db2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Import(db2, nil, "", dir); err != nil {
+	if _, _, err := Import(db2, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,7 +265,7 @@ func TestHandEditsSurviveAtScale(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	if got := kindCount(t, db, Fact); got != n {

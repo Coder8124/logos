@@ -188,7 +188,7 @@ func (b *Logos) DropDerived() error {
 	}
 	// Both halves, exactly as `logos index` runs them. Rebuilding notes but not
 	// memories would measure a reindex nobody performs.
-	_, err := b.ix.SyncMemories(b.embed, b.model)
+	_, _, err := b.ix.SyncMemories(b.embed, b.model)
 	return err
 }
 

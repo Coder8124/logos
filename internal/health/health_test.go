@@ -67,7 +67,14 @@ func TestUnwritableVaultIsCaught(t *testing.T) {
 	}
 }
 
-func TestStaleIndexIsReported(t *testing.T) {
+// Markdown in the vault that has never been indexed is worth saying and is not
+// breakage — and this is the ordinary state of the vault the product aims at.
+// A user who installs the plugin and talks to their agent creates a vault
+// entirely over MCP: every checkpoint and memory is written and read back, and
+// no `logos` command is ever run. Grading that FAILED told someone with a
+// healthy vault that something was broken, exited 1, and blamed the half of the
+// system they had never touched.
+func TestAVaultThatHasNeverBeenIndexedIsReportedWithoutBeingCalledBroken(t *testing.T) {
 	dir := t.TempDir()
 	ix, err := index.Open(dir)
 	if err != nil {
@@ -75,16 +82,57 @@ func TestStaleIndexIsReported(t *testing.T) {
 	}
 	defer ix.Close()
 
-	// Markdown in the vault, nothing in the index: the "I edited a note and the
-	// agent still quotes the old one" case, which otherwise looks like logos
-	// being wrong rather than logos being behind.
 	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# a note\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// t.TempDir is world-readable, which the privacy check fails on its own
+	// account. This test is about the exit code, so the vault has to be
+	// otherwise healthy for that to mean anything.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Run(Input{Vault: dir, DB: ix.DB})
+	c := find(t, r, "index")
+	if c.State != Warn {
+		t.Errorf("index state = %q on a vault nobody has indexed yet, want %q", c.State, Warn)
+	}
+	if c.Fix == "" {
+		t.Error("the check should still say what to do about it")
+	}
+	if !r.Healthy() {
+		t.Error("`logos doctor` exits 1 on a vault where nothing is wrong")
+	}
+
+	// And the advice next to it must not be advice for a different problem.
+	if fix := find(t, r, "notes").Fix; strings.Contains(fix, "add markdown") {
+		t.Errorf("a vault full of markdown is told to add markdown: %q", fix)
+	}
+}
+
+// The other branch, which must still fail: indexed once, and now behind. This
+// is the "I edited a note and the agent still quotes the old one" case, which
+// otherwise looks like logos being wrong rather than logos being behind.
+func TestAnIndexThatHasFallenBehindTheVaultIsAFailure(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# a note\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A pass that ran well before the file was written.
+	long := time.Now().Add(-30 * 24 * time.Hour).Unix()
+	if _, err := ix.DB.Exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)", long); err != nil {
 		t.Fatal(err)
 	}
 
 	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "index")
 	if c.State != Failed {
-		t.Errorf("index state = %q with unindexed markdown, want %q", c.State, Failed)
+		t.Errorf("index state = %q with the vault a month ahead of it, want %q", c.State, Failed)
 	}
 	if c.Fix == "" {
 		t.Error("a failed index check should say what to do about it")
@@ -1157,5 +1205,61 @@ func TestDoctorIsQuietAboutAPluginFailureThatHasAgedOut(t *testing.T) {
 	}
 	if c, _ := checkPlugin("v0.4.3"); c.State != OK {
 		t.Errorf("state = %q, want ok: %s", c.State, c.Detail)
+	}
+}
+
+// The one question the other checks never asked: is everything the index holds
+// also in the vault? A memory that is only in the cache is one `rm -rf .logos`
+// from gone, and until this check existed nothing after the failing write said
+// so.
+func TestDoctorReportsMemoriesThatReachedTheIndexAndNotTheVault(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	// index.Open binds the vault but does not create the memory tables; the
+	// commands that write memories do. Doctor on a vault nobody has ever
+	// remembered into reports "unknown" instead, which is the honest answer and
+	// not what this test is about.
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+
+	memDir := filepath.Join(dir, memory.Dir)
+	if err := os.MkdirAll(memDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(memDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	m := memory.Memory{Text: "a fact that cannot land", Kind: memory.Fact, Source: "test"}
+	if _, err := memory.Store(ix.DB, nil, "", &m); err == nil {
+		t.Fatal("storing into an unwritable vault reported success")
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "durability")
+	if c.State != Failed {
+		t.Errorf("durability state = %q with a memory the vault never got, want %q", c.State, Failed)
+	}
+	if !strings.Contains(c.Detail, "1 memory") {
+		t.Errorf("detail does not say how much is at risk: %q", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Error("the check names a real data-loss risk and says nothing about fixing it")
+	}
+
+	// And it clears once the vault takes them, so the warning cannot outlive
+	// the problem — a doctor that cries wolf is one nobody reads.
+	if err := os.Chmod(memDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memory.Import(ix.DB, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "durability"); c.State != OK {
+		t.Errorf("durability state = %q after the memories were written out, want %q", c.State, OK)
 	}
 }

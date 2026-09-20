@@ -85,7 +85,43 @@ func flushNotes(db *sql.DB, scope string) error {
 	if dir == "" {
 		return nil
 	}
-	return flushNotesIn(db, dir, scope)
+	err := flushNotesIn(db, dir, scope)
+	// Record the split rather than leaving it in the one error the caller is
+	// about to be handed. AddNoteAt returns both the note and the failure, and
+	// that is correct — but the caller then exits, and every reader after it
+	// has only the database to go on. See Note.Unflushed.
+	markNotes(db, scope, err != nil)
+	return err
+}
+
+// markNotes flags or clears the open notes of one scope, after an attempt to
+// write that scope's uncommitted.md.
+//
+// Scope-wide in both directions because the file is rewritten whole: if the
+// write failed, nothing in it is durable, and if it succeeded, everything in it
+// is — including lines a previous failure stranded. That is also why a single
+// later note repairs the whole backlog once the vault is writable again.
+//
+// Errors are dropped: this runs on the failure path of a write already
+// reporting a more useful error, and replacing that one with an error about
+// bookkeeping would hide what actually went wrong.
+func markNotes(db *sql.DB, scope string, stranded bool) {
+	v := 0
+	if stranded {
+		v = 1
+	}
+	db.Exec(`UPDATE session_notes SET unflushed = ?
+	         WHERE session IN (SELECT id FROM sessions WHERE project = ? AND ended = 0)`,
+		v, safeScope(scope))
+}
+
+// Unflushed counts the working notes the cache holds that the vault does not,
+// which is what `logos doctor` needs in order to say so. Zero is the normal
+// answer.
+func Unflushed(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM session_notes WHERE unflushed = 1").Scan(&n)
+	return n, err
 }
 
 // flushNotesIn is flushNotes with the vault path passed explicitly rather than
@@ -154,17 +190,16 @@ var notePattern = regexp.MustCompile(`^-\s+(.*?)\s*<!--\s*ts=(\d+)\s+agent=(\S*)
 // one that keeps the work.
 //
 // Returns how many notes it restored.
-func ImportNotes(db *sql.DB, vaultDir string) (int, error) {
+func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued int, err error) {
 	// A rebuild is exactly the case where the tables do not exist yet — the user
 	// deleted the database — so create them rather than reporting their absence
 	// as a failure to restore.
 	if err := Init(db); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	root := filepath.Join(vaultDir, CheckpointDir)
-	var restored int
 
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			// One unreadable directory must not abort the rest of the rebuild.
 			return nil //nolint:nilerr
@@ -192,9 +227,51 @@ func ImportNotes(db *sql.DB, vaultDir string) (int, error) {
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return restored, err
+		return restored, 0, err
 	}
-	return restored, nil
+
+	// Then the other direction: notes the vault never got, because the write
+	// that should have put them there failed. Nothing above can restore these —
+	// they are in no file to be read out of — and `rm -rf .logos` is exactly
+	// what the user is told is safe to do. So the rebuild that exists to make
+	// the vault and the cache agree writes them out, rather than leaving them
+	// in the one place the documentation invites people to delete.
+	rescued, err = rescueNotes(db, vaultDir)
+	return restored, rescued, err
+}
+
+// rescueNotes writes out the working notes that are in the cache and not in the
+// vault, and reports how many it made durable.
+func rescueNotes(db *sql.DB, vaultDir string) (int, error) {
+	rows, err := db.Query(`SELECT DISTINCT s.project
+	                       FROM session_notes n JOIN sessions s ON s.id = n.session
+	                       WHERE n.unflushed = 1`)
+	if err != nil {
+		return 0, nil // a store with no such column has nothing to report
+	}
+	var scopes []string
+	for rows.Next() {
+		var scope string
+		if rows.Scan(&scope) == nil {
+			scopes = append(scopes, scope)
+		}
+	}
+	rows.Close()
+
+	var rescued int
+	for _, scope := range scopes {
+		var n int
+		db.QueryRow(`SELECT COUNT(*) FROM session_notes n JOIN sessions s ON s.id = n.session
+		             WHERE s.project = ? AND n.unflushed = 1`, scope).Scan(&n)
+		if err := flushNotesIn(db, vaultDir, scope); err != nil {
+			// Still not writable. The notes keep their flag and stay in the
+			// cache, which is what the flag is for; the next run tries again.
+			return rescued, fmt.Errorf("working notes are in the cache that the vault still will not take: %w", err)
+		}
+		markNotes(db, scope, false)
+		rescued += n
+	}
+	return rescued, nil
 }
 
 func importScopeNotes(db *sql.DB, scope, raw string) (int, error) {

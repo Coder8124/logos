@@ -130,7 +130,8 @@ func Run(in Input) Report {
 	var r Report
 	r.Add(checkVault(in.Vault))
 	r.Add(checkPrivacy(in.Vault))
-	r.Add(checkNotes(in.DB))
+	r.Add(checkNotes(in.Vault, in.DB))
+	r.Add(checkDurability(in.DB))
 	r.Add(checkFreshness(in.Vault, in.DB))
 	r.Add(checkEmbeddings(in.DB, in.Runtime))
 	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
@@ -364,7 +365,81 @@ func forms(path string) []string {
 	return out
 }
 
-func checkNotes(db *sql.DB) Check {
+// checkDurability answers the one question the other eleven checks never asked:
+// is there anything the cache holds that the vault does not?
+//
+// The first principle of this project is that the vault is the truth and
+// .logos/index.db is a cache you may delete at any time. A write that reached
+// the cache and failed to reach the vault breaks that, and it used to break it
+// invisibly: the call that failed said so, honestly, to a process that then
+// exited, and from that moment a stranded row read exactly like a durable one.
+// doctor gave a vault in that state a clean bill of health, and the next
+// `logos index` — the command every document here calls safe — deleted the row.
+//
+// Failed rather than Warn. This is not a backlog waiting on the user; it is
+// data that one `rm -rf .logos` destroys, and the fix is a command.
+func checkDurability(db *sql.DB) Check {
+	c := Check{Name: "durability"}
+	if db == nil {
+		c.State, c.Detail = Unknown, "no index open"
+		return c
+	}
+	// The two halves are asked separately and degrade separately. A store that
+	// predates the column answers neither; a database opened without the session
+	// tables — every caller but `logos doctor`, which initialises them first —
+	// answers only the first. Letting the missing half veto the other would hide
+	// a real memory at risk behind a table nobody in this vault had used yet.
+	mems, merr := memory.Unflushed(db)
+	notes, nerr := session.Unflushed(db)
+	if merr != nil && nerr != nil {
+		// Saying "ok" here would be the same silence-as-success this package
+		// exists to refuse.
+		c.State, c.Detail = Unknown, "this index does not record which writes reached the vault"
+		return c
+	}
+	if merr != nil {
+		mems = 0
+	}
+	if nerr != nil {
+		notes = 0
+	}
+	if mems+notes == 0 {
+		c.State, c.Detail = OK, "everything in the index is in the vault"
+		if merr != nil || nerr != nil {
+			// Half a measurement, reported as half a measurement. "Everything"
+			// would be a claim about rows this call never looked at.
+			c.Detail = "every memory in the index is in the vault"
+			if merr != nil {
+				c.Detail = "every working note in the index is in the vault"
+			}
+		}
+		return c
+	}
+	var parts []string
+	if mems > 0 {
+		parts = append(parts, fmt.Sprintf("%d memor%s", mems, plural(mems)))
+	}
+	if notes > 0 {
+		parts = append(parts, fmt.Sprintf("%d working %s", notes, pluralWord(notes, "note")))
+	}
+	c.State = Failed
+	c.Detail = strings.Join(parts, " and ") + " reached the index but not the vault"
+	// index, not a repair command, because `logos index` is what writes them
+	// out — and naming it here is also what tells the user it is safe to run.
+	c.Fix = "check the vault is writable, then run `logos index` to write them out"
+	return c
+}
+
+// pluralWord is the ordinary -s pluraliser. The package's own plural() is the
+// y/ies one, which memories need and notes do not.
+func pluralWord(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
+}
+
+func checkNotes(dir string, db *sql.DB) Check {
 	c := Check{Name: "notes"}
 	if db == nil {
 		c.State, c.Detail = Unknown, "no index open, so the note count could not be read"
@@ -380,7 +455,16 @@ func checkNotes(db *sql.DB) Check {
 	switch n {
 	case 0:
 		c.Detail = "none indexed yet"
-		c.Fix = "add markdown to the vault, then run `logos index`"
+		// What to do depends on which of the two situations this is, and the
+		// vault answers it. Telling a user whose vault is full of checkpoints
+		// and memories to "add markdown to the vault" is advice for a problem
+		// they do not have, about a directory they never open, and it is the
+		// line that makes an MCP-only vault look broken.
+		if newest, err := newestMarkdown(dir); err == nil && !newest.IsZero() {
+			c.Fix = "run `logos index` to make the vault searchable as prose"
+		} else {
+			c.Fix = "add markdown to the vault, then run `logos index`"
+		}
 	default:
 		c.Detail = fmt.Sprintf("%d indexed", n)
 	}
@@ -430,7 +514,23 @@ func checkFreshness(dir string, db *sql.DB) Check {
 		var notes int
 		db.QueryRow("SELECT COUNT(*) FROM notes").Scan(&notes)
 		if notes == 0 {
-			c.State, c.Detail = Failed, "vault has markdown but the index is empty"
+			// Never indexed, which is not the same thing as broken — and this
+			// is the ordinary state of the vault the product actually aims at.
+			// A user who installs the plugin and talks to their agent creates a
+			// vault entirely over MCP: every checkpoint and memory is written
+			// to disk, every tool reads them back, and no `logos` command is
+			// ever run, so last_sync is unset and the document table is empty.
+			// Reporting FAILED there told a user with a perfectly healthy vault
+			// that something was broken, exited 1, and blamed the half of the
+			// system they had never touched.
+			//
+			// Nothing is lost in this state and nothing is diverging; prose
+			// search simply has not been built yet. Warn is the tier for
+			// exactly that — working, with a chore outstanding — and it does
+			// not set the exit code. Real divergence is checkDurability's
+			// question, and it is a Failure there.
+			c.State = Warn
+			c.Detail = "the vault's markdown has not been indexed for prose search yet"
 		} else {
 			c.State, c.Detail = Unknown, "cannot tell when the index was last built"
 		}

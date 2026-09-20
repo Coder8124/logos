@@ -113,7 +113,7 @@ func TestProceduresSurviveDeletingTheIndex(t *testing.T) {
 
 	// The wipe. A fresh database, as if .logos/index.db had been deleted.
 	wiped := testDB(t)
-	n, err := Import(wiped, nil, "", dir)
+	n, _, err := Import(wiped, nil, "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}

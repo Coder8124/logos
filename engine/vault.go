@@ -34,6 +34,6 @@ func (b *Logos) Index() (SyncReport, error) {
 			return rep, err
 		}
 	}
-	_, err = b.ix.SyncMemories(b.embed, b.embedModel)
+	_, _, err = b.ix.SyncMemories(b.embed, b.embedModel)
 	return rep, err
 }

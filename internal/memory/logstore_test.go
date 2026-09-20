@@ -35,7 +35,7 @@ func TestTheMemoryTimelineSurvivesDeletingTheIndex(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ImportLog(wiped, dir); err != nil {
@@ -91,7 +91,7 @@ func TestRestoringAWipedRowDoesNotBackdateToTheRebuild(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ImportLog(wiped, dir); err != nil {
@@ -139,7 +139,7 @@ func TestARestoredProposalKeepsTheDateItWasProposed(t *testing.T) {
 	wiped := testDB(t)
 	SetVault(wiped, dir)
 	t.Cleanup(func() { SetVault(wiped, "") })
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := ImportPending(wiped, dir); err != nil {

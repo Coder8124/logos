@@ -40,7 +40,7 @@ func TestMemoriesSurviveLosingTheDatabase(t *testing.T) {
 
 	// The wipe. A fresh database, as if .logos had been deleted.
 	wiped := testDB(t)
-	n, err := Import(wiped, nil, "", dir)
+	n, _, err := Import(wiped, nil, "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestIdsSurviveTheRoundTrip(t *testing.T) {
 	original := m.ID
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := All(wiped)
@@ -113,7 +113,7 @@ func TestEditingTheFileCorrectsTheMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := All(db)
@@ -148,7 +148,7 @@ func TestDeletingALineForgetsIt(t *testing.T) {
 	}
 	os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644)
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := All(db)
@@ -200,7 +200,7 @@ func TestHandWrittenLinesAreAccepted(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, Dir, "preference.md"),
 		[]byte("---\ntype: memory-store\nkind: preference\n---\n\n- I like my coffee before any meeting\n"), 0o644)
 
-	n, err := Import(db, nil, "", dir)
+	n, _, err := Import(db, nil, "", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestAnEmptyVaultDoesNotWipeTheStore(t *testing.T) {
 	// Simulate a store that predates the vault format.
 	os.RemoveAll(filepath.Join(dir, Dir))
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := All(db)
@@ -318,7 +318,7 @@ func TestAgentSurvivesExportAndImport(t *testing.T) {
 	}
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, err := All(wiped)
@@ -344,7 +344,7 @@ func TestOldVaultFileWithNoAgentMetadataImportsCleanly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, nil, "", dir); err != nil {
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatalf("importing a pre-agent vault file failed: %v", err)
 	}
 	all, err := All(db)
@@ -390,7 +390,7 @@ func TestAMemoryQuotingLogosOwnCommentIsNotTruncatedByTheNextWrite(t *testing.T)
 	}
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, err := All(wiped)
@@ -425,7 +425,7 @@ func TestTheUsageSignalSurvivesDeletingTheIndex(t *testing.T) {
 	}
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, nil, "", dir); err != nil {
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 	all, err := All(wiped)

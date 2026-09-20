@@ -1060,10 +1060,21 @@ func runIndex(watch bool) error {
 		// user runs after deleting the index, which is precisely when they are
 		// gone. Announced when there were any: a rebuild that silently recovered
 		// in-flight work is indistinguishable from one that lost it.
-		if restored, err := ix.SyncNotes(); err != nil {
+		restoredNotes, rescuedNotes, err := ix.SyncNotes()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "· could not restore working notes:", err)
-		} else if restored > 0 {
-			fmt.Printf("restored %d uncommitted working %s\n", restored, plural(restored, "note"))
+		}
+		if restoredNotes > 0 {
+			fmt.Printf("restored %d uncommitted working %s\n", restoredNotes, plural(restoredNotes, "note"))
+		}
+		// The other direction, and said out loud for the reason the rescued
+		// proposals are: these were in the cache alone because a write to the
+		// vault failed earlier, and the user was told that once, by a process
+		// that has since exited. Silence here would make this run look like an
+		// ordinary one while it repaired real data loss.
+		if rescuedNotes > 0 {
+			fmt.Printf("wrote %d working %s to the vault — %s only in the index\n",
+				rescuedNotes, plural(rescuedNotes, "note"), wasWere(rescuedNotes))
 		}
 
 		// Memories and the review queue come back with or without a model.
@@ -1073,9 +1084,16 @@ func runIndex(watch bool) error {
 		// the notes and left every remembered fact out of the cache until some
 		// later run happened to have Ollama up. "Delete the index, lose
 		// nothing" cannot depend on a model being reachable.
-		mems, err := ix.SyncMemories(p, embed)
+		mems, rescuedMems, err := ix.SyncMemories(p, embed)
 		if err != nil {
 			return err
+		}
+		// Same again for memories, and this is the count the bug was about: a
+		// memory stranded in the cache used to be reaped here as a line the
+		// user had deleted by hand, and reported under `-0`.
+		if rescuedMems > 0 {
+			fmt.Printf("wrote %d memor%s to the vault — %s only in the index\n",
+				rescuedMems, pluralY(rescuedMems), wasWere(rescuedMems))
 		}
 
 		// The review queue, after the memories, so an accepted proposal is
@@ -1239,4 +1257,13 @@ func ask(question string) error {
 		}
 	}
 	return nil
+}
+
+// wasWere keeps the rescue receipts readable when exactly one thing was
+// rescued, which is the commonest case — one failed write, one memory.
+func wasWere(n int) string {
+	if n == 1 {
+		return "it was"
+	}
+	return "they were"
 }
