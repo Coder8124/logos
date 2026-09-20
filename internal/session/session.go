@@ -400,7 +400,22 @@ func safe(s string) string {
 			}
 		}
 	}
-	return strings.Trim(b.String(), "-")
+	return capName(strings.Trim(b.String(), "-"))
+}
+
+// maxNameLen caps one path segment. Every filesystem in play refuses a name
+// past 255 bytes, and a project name long enough to hit that reached the vault
+// as a raw `mkdir …: file name too long` handed straight to the model — an
+// error about the filesystem, for a name the product accepted without comment.
+// 120 leaves room for the timestamp-and-agent filename beneath it on the
+// path-length-limited filesystems too.
+const maxNameLen = 120
+
+func capName(s string) string {
+	if len(s) <= maxNameLen {
+		return s
+	}
+	return strings.Trim(s[:maxNameLen], "-")
 }
 
 // safeScope is safe for a scope rather than a plain name: "kestrel" is one, and
