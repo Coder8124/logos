@@ -401,13 +401,16 @@ func TestAToolThatNeedsAProjectNamesTheProjectsThatHaveCheckpoints(t *testing.T)
 	}); !ok {
 		t.Fatal("checkpoint failed")
 	}
-	for i, tool := range []string{"checkpoint", "note_progress"} {
-		line, ok := call(t, c, 4+i, tool, map[string]any{"text": "halfway"})
+	// Each tool with its own argument for the summary: checkpoint takes task,
+	// note_progress takes text, and passing one the other's is now refused
+	// before the missing-project refusal this test is about.
+	for i, tool := range []struct{ name, arg string }{{"checkpoint", "task"}, {"note_progress", "text"}} {
+		line, ok := call(t, c, 4+i, tool.name, map[string]any{tool.arg: "halfway"})
 		if !ok {
-			t.Fatalf("%s did not answer", tool)
+			t.Fatalf("%s did not answer", tool.name)
 		}
 		if !strings.Contains(line, "needs a project") || !strings.Contains(line, "kestrel (") {
-			t.Errorf("%s did not name the project that has a checkpoint:\n%s", tool, truncateForLog(line))
+			t.Errorf("%s did not name the project that has a checkpoint:\n%s", tool.name, truncateForLog(line))
 		}
 	}
 }

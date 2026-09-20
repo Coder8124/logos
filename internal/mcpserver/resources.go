@@ -57,7 +57,9 @@ var resourceTemplateDefs = []map[string]any{
 // showing it.
 func (s *Session) readResource(rawURI string) (string, error) {
 	if rawURI == "logos://memories" {
-		return s.listMemories()
+		// No caller to be standing anywhere: every memory is labelled with its
+		// project, because this surface is a directory of the vault (#143).
+		return s.listMemories("")
 	}
 	if rawURI == "logos://projects" {
 		return s.listProjects()
@@ -75,7 +77,7 @@ func (s *Session) readResource(rawURI string) (string, error) {
 			}
 			days = n
 		}
-		return s.memoryDiff(q.Get("subject"), days)
+		return s.memoryDiff(q.Get("subject"), days, "")
 	}
 	return "", fmt.Errorf("unknown resource %q", rawURI)
 }

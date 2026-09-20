@@ -634,6 +634,16 @@ func (s *Session) callTool(req request) *response {
 		}
 	}
 
+	// Before dispatch, because every argument helper below returns a zero value
+	// for a name it does not find, and the call would otherwise succeed with
+	// the argument silently gone.
+	if err := validateArgs(p.Name, args); err != nil {
+		return reply(req.ID, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": err.Error()}},
+			"isError": true,
+		})
+	}
+
 	stalls := s.embed.Stalls()
 	text, err := s.dispatch(p.Name, args)
 	// Falling back without embeddings is right, and doing it without a word is
@@ -702,7 +712,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.recall(argStr(args, "query"), argInt(args, "limit", 5),
 			argStr(args, "project"), argBool(args, "all_projects", false))
 	case "list_memories":
-		return s.listMemories()
+		return s.listMemories(s.resolveProject(""))
 	case "forget":
 		return s.forget(argStr(args, "id"))
 	case "pin_memory":
@@ -759,7 +769,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	case "handoff":
 		return s.checkpoint(args, argStr(args, "to"))
 	case "memory_diff":
-		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7))
+		return s.memoryDiff(argStr(args, "subject"), argInt(args, "days", 7), s.resolveProject(""))
 	case "list_projects":
 		return s.listProjectsHere()
 	case "ingest_harvest":
@@ -922,7 +932,41 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 	return strings.TrimRight(b.String(), "\n") + s.awaitingReview(), nil
 }
 
-func (s *Server) listMemories() (string, error) {
+// fromProject names the project a memory belongs to when it is not the one the
+// caller is standing in, and says nothing when it is — the same distinction
+// recall draws, in the same words, so a reader moving between the two tools
+// does not have to learn two conventions. A global fact belongs everywhere and
+// is never foreign.
+func fromProject(owner, here string) string {
+	if owner == "" || owner == here {
+		return ""
+	}
+	return ", from " + untrusted.Inline(owner)
+}
+
+// diffOwner is fromProject for the +/-/~ lines, which carry no kind to hang a
+// clause off and so need their own parentheses.
+func diffOwner(owner, here string) string {
+	if owner == "" || owner == here {
+		return ""
+	}
+	return " (" + untrusted.Inline(owner) + ")"
+}
+
+// listMemories lists every memory in the vault, labelled with the project each
+// one belongs to. `here` is the project the caller is standing in, whose
+// memories are printed bare; "" labels everything, which is what the resource
+// surface wants because it is addressed to no one in particular.
+//
+// Labelled rather than scoped: this tool is meant to show everything, and that
+// is fine as long as it says what everything is. It was not saying, and the
+// consequence was worse than a model being misled — the documented use for this
+// tool is "before forgetting something", `forget` takes the id printed here,
+// and another project's id sat in the same undifferentiated list as this
+// project's. The obvious next call deleted work from a repository nobody in the
+// session had opened. recall has labelled foreign results since #155; these two
+// tools are where that fix did not reach.
+func (s *Server) listMemories(here string) (string, error) {
 	mems, err := memory.All(s.DB)
 	if err != nil {
 		return "", err
@@ -942,7 +986,7 @@ func (s *Server) listMemories() (string, error) {
 		case memory.PinNever:
 			tag = " [excluded]"
 		}
-		fmt.Fprintf(&b, "[%d] (%s)%s %s\n", m.ID, m.Kind, tag, untrusted.Inline(m.Text))
+		fmt.Fprintf(&b, "[%d] (%s%s)%s %s\n", m.ID, m.Kind, fromProject(m.Project, here), tag, untrusted.Inline(m.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -1319,7 +1363,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 // memoryDiff reports what the memory learned, dropped, or corroborated over the
 // last `days`, optionally about one subject. Instant and offline — it reads the
 // append-only memory log, no model.
-func (s *Server) memoryDiff(subject string, days int) (string, error) {
+func (s *Server) memoryDiff(subject string, days int, here string) (string, error) {
 	if days <= 0 {
 		days = 7
 	}
@@ -1336,14 +1380,17 @@ func (s *Server) memoryDiff(subject string, days int) (string, error) {
 	// One line per entry, for the same reason recall collapses: the +/-/~ marker
 	// is the only thing distinguishing logos's reading of the window from the
 	// stored text beside it.
+	// The project on each line for the same reason recall carries it: over a
+	// window, every project's changes arrive in one list, and an unlabelled
+	// line about another repository reads as a change to this one.
 	for _, e := range res.Added {
-		fmt.Fprintf(&b, "+ %s\n", untrusted.Inline(e.Text))
+		fmt.Fprintf(&b, "+%s %s\n", diffOwner(e.Project, here), untrusted.Inline(e.Text))
 	}
 	for _, e := range res.Removed {
-		fmt.Fprintf(&b, "- %s\n", untrusted.Inline(e.Text))
+		fmt.Fprintf(&b, "-%s %s\n", diffOwner(e.Project, here), untrusted.Inline(e.Text))
 	}
 	for _, e := range res.Corroborated {
-		fmt.Fprintf(&b, "~ %s\n", untrusted.Inline(e.Text))
+		fmt.Fprintf(&b, "~%s %s\n", diffOwner(e.Project, here), untrusted.Inline(e.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }

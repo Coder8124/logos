@@ -91,10 +91,17 @@ func TestResourceTemplatesListNamesMemoryDiff(t *testing.T) {
 	}
 }
 
-// Reading the memories resource must return the same content the equivalent
-// tool call returns — a host choosing the cheaper resource path must not see
-// a different answer than one that kept calling the tool.
-func TestReadResourceMemoriesMatchesListMemoriesTool(t *testing.T) {
+// The two surfaces list the same memories, with the same ids, and differ in
+// exactly one way: the tool is answering an agent standing in a project, so
+// that project's own memories are printed bare and everything else is marked
+// as belonging elsewhere; the resource is a directory of the vault addressed
+// to no one, so it names the owner of every memory it lists.
+//
+// This used to assert the two were byte-identical, which is what kept the
+// project labels out of the tool — and an unlabelled id from another
+// repository is the one `forget` then deletes. See
+// memory_project_label_test.go.
+func TestReadResourceMemoriesCarriesTheSameMemoriesAsTheTool(t *testing.T) {
 	t.Setenv("LOGOS_TRUST_MCP", "1")
 	c, _, _ := startServer(t)
 	handshake(t, c)
@@ -114,8 +121,14 @@ func TestReadResourceMemoriesMatchesListMemoriesTool(t *testing.T) {
 	raw := c.req("resources/read", map[string]any{"uri": "logos://memories"})
 	resourceOut := resourceContent(t, raw)
 
-	if resourceOut != toolOut {
-		t.Errorf("resources/read logos://memories = %q, want it to match list_memories tool output %q", resourceOut, toolOut)
+	if !strings.Contains(resourceOut, "dark mode") || !strings.Contains(toolOut, "dark mode") {
+		t.Fatalf("the two surfaces do not list the same memory:\nresource: %q\ntool: %q", resourceOut, toolOut)
+	}
+	if strings.Count(resourceOut, "\n") != strings.Count(toolOut, "\n") {
+		t.Errorf("the two surfaces list different numbers of memories:\nresource: %q\ntool: %q", resourceOut, toolOut)
+	}
+	if strings.Contains(toolOut, ", from ") {
+		t.Errorf("the tool marked the caller's own memory as another project's: %q", toolOut)
 	}
 }
 
