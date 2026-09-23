@@ -127,6 +127,7 @@ func runContext(args []string) error {
 		return err
 	}
 	fmt.Print(pack.Render())
+	ledgerPack(ix.Vault, "cli:context", hint, pack)
 	return nil
 }
 

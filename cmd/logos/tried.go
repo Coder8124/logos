@@ -9,6 +9,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/session"
+	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
 
 // runTried asks whether an approach has already been ruled out — or, with
@@ -58,6 +59,13 @@ func runTried(args []string) error {
 	}
 	fmt.Print(deadend.Render(proposed, hits))
 	fmt.Print(deadend.SemanticSkipped(semanticErr))
+	if len(hits) > 0 {
+		here := strings.TrimSpace(flagStr(args, "--project", ""))
+		if here == "" {
+			here = projectHere()
+		}
+		ledger(ix.Vault, usagepkg.Event{Kind: usagepkg.KindDeadEnd, Via: "cli:tried", Project: here, Rulings: len(hits)})
+	}
 	return nil
 }
 

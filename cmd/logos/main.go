@@ -129,6 +129,9 @@ CONTINUITY
     logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
                                       record one now, without waiting for a checkpoint
     logos insights [project]          patterns already in the vault: a recurring blocker, a dormant memory
+    logos usage [project] [--usd RATE]
+                                      what the budget left out of context packs, and
+                                      dead ends handed back before a retry
     logos why <file> [--limit N]      what was being decided when this file was touched
     logos projects | project <name>   auto-detected projects and their dossiers
     logos project-name [dir]          the project name for a directory, as the hooks compute it
@@ -341,6 +344,8 @@ func main() {
 		err = runBootstrap(args)
 	case cmd == "insights":
 		err = runInsights(args)
+	case cmd == "usage":
+		err = runUsage(args)
 	case cmd == "why":
 		err = runWhy(args)
 	case cmd == "tried":
@@ -494,6 +499,7 @@ var commandFlags = map[string]flagSpec{
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
+	"usage":    {valued: []string{"--usd"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
 		"--action", "--instead"}},

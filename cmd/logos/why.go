@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/session"
+	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
 
 // logos why <file> — what was being decided when this file was last worked on.
@@ -94,6 +95,19 @@ func runWhy(args []string) error {
 
 	fmt.Println("\nThis is what was written down while the file was touched, not an")
 	fmt.Println("explanation of the code. A decision nobody recorded is not here.")
+	// Counted only when a ruled-out approach came back: decisions alone kept
+	// nobody from repeating anything.
+	ruled := 0
+	for _, m := range mentions {
+		for _, f := range m.Failed {
+			if strings.TrimSpace(f) != "" {
+				ruled++
+			}
+		}
+	}
+	if ruled > 0 {
+		ledger(vault, usagepkg.Event{Kind: usagepkg.KindDeadEnd, Via: "cli:why", Project: projectHere(), Rulings: ruled})
+	}
 	return nil
 }
 

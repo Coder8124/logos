@@ -982,3 +982,33 @@ func TestARememberedFactIsNotAlsoRenderedAsAVaultNote(t *testing.T) {
 		t.Errorf("the fact is rendered %d times, want 1:\n%s", n, p.Render())
 	}
 }
+
+// The saving `logos usage` totals is measured here, on the same estimate as the
+// spend: what the pack's candidates came to uncut, against what it sent. A
+// budget roomy enough to take everything saved nothing and must not say it did;
+// a tight one saved exactly what it left out, and says so in the pack itself.
+func TestAPackMeasuresWhatItsBudgetLeftOut(t *testing.T) {
+	ix := seedVault(t)
+
+	roomy, _ := Build(ix, nil, "", Request{Task: "reduce cost", Hint: "kestrel-one", Budget: 100000})
+	roomyOut := roomy.Render()
+	if roomy.Budget.Candidates != roomy.Budget.Spent {
+		t.Errorf("with room for everything, candidates %d should equal spend %d", roomy.Budget.Candidates, roomy.Budget.Spent)
+	}
+	if strings.Contains(roomyOut, "The budget left out") {
+		t.Errorf("a pack that dropped nothing claimed a saving:\n%s", roomyOut)
+	}
+
+	tight, _ := Build(ix, nil, "", Request{Task: "reduce cost", Hint: "kestrel-one", Budget: 40})
+	tightOut := tight.Render()
+	if tight.Budget.Candidates != roomy.Budget.Candidates {
+		t.Errorf("the budget changed what was considered: %d at 40 tokens vs %d uncut", tight.Budget.Candidates, roomy.Budget.Candidates)
+	}
+	if tight.Budget.Candidates <= tight.Budget.Spent {
+		t.Fatalf("a 40-token pack left nothing out: candidates %d, spent %d", tight.Budget.Candidates, tight.Budget.Spent)
+	}
+	want := fmt.Sprintf("The budget left out ~%d tokens", tight.Budget.Candidates-tight.Budget.Spent)
+	if !strings.Contains(tightOut, want) || !strings.Contains(tightOut, "not your API usage") {
+		t.Errorf("the footer should state the saving and how it was measured (%q):\n%s", want, tightOut)
+	}
+}

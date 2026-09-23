@@ -81,6 +81,7 @@ func (p *Pack) Render() string {
 
 	p.renderSources(&b)
 	p.Budget.Spent = sp.spent
+	p.Budget.Candidates = sp.offered
 	p.Budget.By = sp.lines
 	// Everything in b so far is real prose an agent has to read, and none of it
 	// passed through the spender — this is the gap renderBudget used to hide.
@@ -251,6 +252,14 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 
 	text := head.String() + state + tail.String()
 	cost := estimate(text)
+	// Offered at its untrimmed size: the session log fit cut is exactly the
+	// part of the checkpoint the budget saved. Never less than what was charged,
+	// since the trim marker can make a barely-cut checkpoint cost more.
+	uncut := fixed
+	if s := strings.TrimSpace(c.State); s != "" {
+		uncut = head.String() + block(s) + "\n\n" + tail.String()
+	}
+	sp.offered += max(cost, estimate(uncut))
 	sp.spent += cost
 	sp.carry = max(0, allowance-cost)
 	dropped := 0
@@ -798,6 +807,10 @@ func (p *Pack) spendMemories(sp *spender) []string {
 	for _, s := range pinned {
 		pinnedCost += estimate(s)
 	}
+	sp.offered += pinnedCost
+	for _, chunk := range ranked {
+		sp.offered += estimate(chunk)
+	}
 
 	var keptRanked []string
 	used := pinnedCost
@@ -969,6 +982,14 @@ func (p *Pack) renderBudget(b *strings.Builder) {
 		for _, e := range p.Excluded {
 			fmt.Fprintf(&fb, "- %s\n", e)
 		}
+	}
+
+	// Per call, and with how it was measured beside it: a saving with its
+	// method in a footnote reads as a claim about the user's bill, which Logos
+	// cannot see.
+	if p.Budget.Candidates > p.Budget.Spent {
+		fmt.Fprintf(&fb, "_The budget left out ~%d tokens of what this pack drew from (pack vs. its own candidates, not your API usage)._\n",
+			p.Budget.Candidates-p.Budget.Spent)
 	}
 
 	// The footer's own text is overhead too — measured once, here, rather than

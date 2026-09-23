@@ -35,6 +35,12 @@ type Budget struct {
 	// actually costing ~2212, a 13% undercount nobody could see. See
 	// renderBudget.
 	Overhead int `json:"overhead"`
+	// Candidates is what every item this pack considered would have cost with
+	// no budget at all: each section's full candidate list, the checkpoint
+	// untrimmed. Spent against it is the one saving Logos can state without
+	// guessing — it cannot see a host's real API usage, only its own pack and
+	// what that pack chose to leave out. `logos usage` totals it.
+	Candidates int `json:"candidates"`
 }
 
 // A Line is one section's spend, including what it could not fit.
@@ -85,6 +91,9 @@ type spender struct {
 	carry int
 	spent int
 	lines []Line
+	// offered is the uncut cost of everything a section was handed, kept
+	// beside spent so the saving is measured on the same estimate as the spend.
+	offered int
 }
 
 func newSpender(limit int) *spender { return &spender{limit: limit} }
@@ -109,6 +118,9 @@ func (s *spender) take(section string, want []string) []string {
 	budget := s.allowance(section)
 	var kept []string
 	used := 0
+	for _, chunk := range want {
+		s.offered += estimate(chunk)
+	}
 	for _, chunk := range want {
 		cost := estimate(chunk)
 		if used+cost > budget && len(kept) > 0 {
