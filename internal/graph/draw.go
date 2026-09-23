@@ -81,6 +81,10 @@ func Draw(g Graph, cols, rows int, color bool) string {
 			mark = '◉'
 		case n.Kind == "missing":
 			mark = '○'
+		case n.Kind == "project":
+			mark = '■'
+		case n.Kind == "memory":
+			mark = '◆'
 		}
 		// Two nodes in one cell: the one drawn first — the more important —
 		// keeps it.
@@ -114,7 +118,19 @@ func Draw(g Graph, cols, rows int, color bool) string {
 	var b strings.Builder
 	b.WriteString(c.render(color))
 	b.WriteString("\n")
-	legend := "◉ focus  ● note  ○ linked, not written yet"
+	// Only the kinds in this picture: a key naming shapes that are not on
+	// screen is one more thing to read before the drawing.
+	legend := "◉ focus  ● note"
+	if hasKind(g, "checkpoint") {
+		legend = "◉ focus  ● note or checkpoint"
+	}
+	for _, k := range []struct{ kind, text string }{
+		{"project", "■ project"}, {"memory", "◆ memory"}, {"missing", "○ linked, not written yet"},
+	} {
+		if hasKind(g, k.kind) {
+			legend += "  " + k.text
+		}
+	}
 	if hasSimilarity(g) {
 		legend += "  ⠒⠒ linked  ⠂⠂ similar, not linked"
 	}
@@ -125,7 +141,7 @@ func Draw(g Graph, cols, rows int, color bool) string {
 		// with fewer notes in it than it has.
 		b.WriteString(paint(color, styleDim, fmt.Sprintf(
 			"%d %s left unlabelled for space — logos graph --list names every node\n",
-			hidden, plural(hidden, "note", "notes"))))
+			hidden, plural(hidden, "node", "nodes"))))
 	}
 	return b.String()
 }
@@ -154,6 +170,15 @@ func Label(n Node, width int) string {
 		name = text.Ellipsize(name, len([]rune(name))-1)
 	}
 	return name
+}
+
+func hasKind(g Graph, kind string) bool {
+	for _, n := range g.Nodes {
+		if n.Kind == kind && n.Slug != g.Focus {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSimilarity(g Graph) bool {

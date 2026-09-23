@@ -22,10 +22,23 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 	}
 	defer ix.Close()
 
+	// A name is resolved the way a user means it: a note by its slug or its
+	// last segment, or a project by name. Asked for nothing, the project of
+	// the directory they are standing in, which in a repository is the
+	// question — and only then the vault's busiest note.
 	if focus == "" {
-		focus = graph.DefaultFocus(ix.DB, "daily/"+time.Now().Format("2006-01-02"))
+		if p := projectHere(); p != "" {
+			if slug, ok := graph.Resolve(ix.DB, p); ok {
+				focus = slug
+			}
+		}
+		if focus == "" {
+			focus = graph.DefaultFocus(ix.DB, "daily/"+time.Now().Format("2006-01-02"))
+		}
+	} else if slug, ok := graph.Resolve(ix.DB, focus); ok {
+		focus = slug
 	}
-	g, err := graph.Ego(ix.DB, focus, hops, similarity)
+	g, err := graph.Around(ix.DB, focus, hops, graph.Options{Similarity: similarity, Memories: true})
 	if err != nil {
 		return err
 	}
@@ -38,8 +51,15 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 
 	fmt.Printf("◉ %s  (%d nodes, %d edges, %d hops)\n\n", graph.Label(graph.Node{Slug: g.Focus}, 200), len(g.Nodes), len(g.Edges), hops)
 	if !list {
-		cols, rows, color := drawSize(len(g.Nodes))
-		fmt.Print(graph.Draw(g, cols, rows, color))
+		drawn, older := graph.Condense(g, recentCheckpoints)
+		cols, rows, color := drawSize(len(drawn.Nodes))
+		fmt.Print(graph.Draw(drawn, cols, rows, color))
+		if older > 0 {
+			// Invariant 3: the picture is the recent end of the project, and
+			// says so, rather than passing for all of it.
+			fmt.Printf("%d older %s not drawn — logos graph --list names every node\n",
+				older, map[bool]string{true: "checkpoint", false: "checkpoints"}[older == 1])
+		}
 		return nil
 	}
 
@@ -52,7 +72,12 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 	})
 	fmt.Println("nodes")
 	for _, n := range g.Nodes {
-		fmt.Printf("  %s %-28s %-9s deg %d\n", ringMark(n.Hops), n.Slug, n.Kind, n.Degree)
+		// A memory's slug is a number; its text is what names it.
+		name := n.Slug
+		if n.Kind == "memory" {
+			name += " " + graph.Label(n, 60)
+		}
+		fmt.Printf("  %s %-28s %-9s deg %d\n", ringMark(n.Hops), name, n.Kind, n.Degree)
 	}
 
 	fmt.Println("\nedges")
@@ -61,6 +86,10 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 	}
 	return nil
 }
+
+// recentCheckpoints is how many of a project's checkpoints the drawing shows:
+// about as many names as fit around a hub in an 80-column terminal.
+const recentCheckpoints = 10
 
 func ringMark(hops int) string {
 	switch hops {

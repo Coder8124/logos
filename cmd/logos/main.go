@@ -157,7 +157,8 @@ MEMORY
     logos memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     logos loop [list|add|done|drop]   list or manage open loops (commitments)
     logos graph [focus] [--hops N] [--similar] [--list]
-                                      draw the memory graph around a note; --list prints it as text
+                                      draw a project or note with its checkpoints and memories
+                                      (default: this directory's project); --list prints it as text
 
 RETRIEVAL
     logos search <query…>             retrieve only, no generation
