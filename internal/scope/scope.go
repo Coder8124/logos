@@ -197,8 +197,25 @@ func NormalizeArg(arg string) string {
 	if !looksLikePath {
 		return p
 	}
-	if base := Name(p); base != "" {
+	if base := Name(resolve(p)); base != "" {
 		return base
+	}
+	return p
+}
+
+// resolve makes a path argument absolute before Name walks up from it. Walked
+// as written, "../etc" climbs to ".." and then to "." — filepath.Dir("..") is
+// "." — so the marker search ends in the caller's own directory, and a project
+// pointed at a sibling was filed under the repository the caller stood in. A
+// leading ~ is the user's home, which no shell expanded for a quoted argument.
+func resolve(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
 	}
 	return p
 }

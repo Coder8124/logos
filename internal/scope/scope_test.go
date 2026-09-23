@@ -157,3 +157,24 @@ func TestAGitRepositoryAtHomeDoesNotNameWhatIsUnderIt(t *testing.T) {
 		t.Errorf("Name under a git-tracked home = %q, want the folder's own name %q", got, "drafts")
 	}
 }
+
+// A relative or ~ path was walked as written, and filepath.Dir("..") is ".", so
+// the marker search for "../etc" climbed into the working directory: memory add
+// --project ../etc, run from this repository, was filed under "brain".
+func TestAPathArgumentIsNamedFromWhereItPointsNotFromWhereTheCallerStands(t *testing.T) {
+	here := t.TempDir()
+	if err := os.WriteFile(filepath.Join(here, ".logos-project"), []byte("brain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
+	t.Setenv("HOME", t.TempDir())
+
+	for arg, want := range map[string]string{
+		"../etc":         "etc",
+		"~/code/kestrel": "kestrel",
+	} {
+		if got := NormalizeArg(arg); got != want {
+			t.Errorf("NormalizeArg(%q) = %q, want %q", arg, got, want)
+		}
+	}
+}

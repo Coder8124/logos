@@ -13,6 +13,10 @@ import (
 // again: not list_projects, not resume by name, not any count or dead-end
 // check.
 func TestAnAbsolutePathAsTheProjectIsFiledUnderTheProjectItNames(t *testing.T) {
+	// Relative and ~ paths are named from where they point, so the test stands
+	// outside any repository — from inside this one, "../escape" is in it.
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	if got := scope.NormalizeArg("/Users/pragun/IdeaProjects/brain"); got != "brain" {
 		t.Errorf("want brain, got %q — the checkpoint would be four levels deep and unreachable", got)
 	}

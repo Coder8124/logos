@@ -124,6 +124,9 @@ func TestMemoryAddReducesAPathShapedProjectToItsName(t *testing.T) {
 	old := provider.LocalEndpoints
 	provider.LocalEndpoints = nil
 	t.Cleanup(func() { provider.LocalEndpoints = old })
+	// Standing outside any repository, so "../etc" points somewhere that is
+	// named etc — from inside this one it would rightly be filed under it.
+	t.Chdir(t.TempDir())
 
 	out := captureStdout(t, func() {
 		if err := memoryCmd([]string{"add", "the build runs on arm", "--project", "../etc"}); err != nil {
