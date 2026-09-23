@@ -102,3 +102,23 @@ func TestATxcriptSessionIsExportedByIdFromItsHarness(t *testing.T) {
 		t.Errorf("session = %s with %d turns", s.Harness, len(s.Turns))
 	}
 }
+
+// JSON null unmarshals into a slice without error, so a message whose content
+// was null took the block path, came out as no turns at all, and its text and
+// tool fields — the only place the message said anything — were dropped.
+func TestAMessageWithNullContentKeepsItsTextAndTool(t *testing.T) {
+	doc := `{"messages": [
+	  {"role": "assistant", "content": null, "text": "ran the tests"},
+	  {"role": "tool", "content": null, "tool": "Bash", "text": "42 passed"}
+	]}`
+	s, err := transcript.ReadInterchange(strings.NewReader(doc))
+	if err != nil {
+		t.Fatalf("ReadInterchange: %v", err)
+	}
+	if len(s.Turns) != 2 {
+		t.Fatalf("want two turns, got %+v", s.Turns)
+	}
+	if s.Turns[0].Text != "ran the tests" || s.Turns[1].Tool != "Bash" || s.Turns[1].Text != "42 passed" {
+		t.Errorf("null content lost the message's own fields: %+v", s.Turns)
+	}
+}

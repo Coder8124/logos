@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -79,8 +80,11 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 	}
 	var calls toolCalls
 	for _, m := range ic.Messages {
+		// Only an array is blocks. JSON null unmarshals into a slice without
+		// error, and taking this path for it dropped the message's text and
+		// tool fields — everything a null-content message had to say.
 		var blocks []claudeBlock
-		if json.Unmarshal(m.Content, &blocks) == nil {
+		if bytes.HasPrefix(bytes.TrimSpace(m.Content), []byte("[")) && json.Unmarshal(m.Content, &blocks) == nil {
 			s.Turns = append(s.Turns, calls.turns(strings.ToLower(m.Role), blocks)...)
 			continue
 		}
