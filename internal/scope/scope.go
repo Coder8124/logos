@@ -165,3 +165,40 @@ func firstMeaningfulLine(s string) string {
 	}
 	return ""
 }
+
+// NormalizeArg reduces a project argument that is really a filesystem
+// path to the project name it names, and leaves everything else alone.
+//
+// A model asked "which project" answers with the directory it is standing in,
+// because that is what the host handed it. That argument was taken verbatim:
+// checkpoint(project: "/Users/x/IdeaProjects/brain") filed at
+// sessions/users/x/ideaprojects/brain/ — four levels deep, where session.Scopes
+// reads exactly two, so the checkpoint existed and no count, list, resume or
+// dead-end check could ever see it again. remember stored the same string as
+// the memory's project, putting a machine-specific path carrying the user's
+// account name into memories/fact.md, a file this product tells people to keep
+// in git — and leaving the fact unreachable by the only name a human would type.
+//
+// The rule is Name's, which already argues it: a project is a name a
+// human would recognise and type, and "/Users/x/code/kestrel" and
+// "/Users/x/kestrel" are the same work moved, not two projects.
+//
+// A single separator is left alone, because that is the qualified scope
+// resolveContinuity documents — "kestrel/feature-a", a linked worktree. Two or
+// more, or a leading /, ~, ./ or ../, is a path and nothing else.
+func NormalizeArg(arg string) string {
+	p := strings.TrimSpace(arg)
+	if p == "" {
+		return ""
+	}
+	looksLikePath := strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") ||
+		strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../") ||
+		strings.Count(strings.Trim(p, "/"), "/") >= 2
+	if !looksLikePath {
+		return p
+	}
+	if base := Name(p); base != "" {
+		return base
+	}
+	return p
+}

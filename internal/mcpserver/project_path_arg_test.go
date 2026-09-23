@@ -1,6 +1,10 @@
 package mcpserver
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Coder8124/logos/internal/scope"
+)
 
 // A model asked "which project" answers with the directory the host handed it.
 // That argument was filed verbatim, so a checkpoint landed at
@@ -9,16 +13,16 @@ import "testing"
 // again: not list_projects, not resume by name, not any count or dead-end
 // check.
 func TestAnAbsolutePathAsTheProjectIsFiledUnderTheProjectItNames(t *testing.T) {
-	if got := normalizeProjectArg("/Users/pragun/IdeaProjects/brain"); got != "brain" {
+	if got := scope.NormalizeArg("/Users/pragun/IdeaProjects/brain"); got != "brain" {
 		t.Errorf("want brain, got %q — the checkpoint would be four levels deep and unreachable", got)
 	}
-	if got := normalizeProjectArg("/tmp/abs-escape"); got != "abs-escape" {
+	if got := scope.NormalizeArg("/tmp/abs-escape"); got != "abs-escape" {
 		t.Errorf("want abs-escape, got %q", got)
 	}
-	if got := normalizeProjectArg("~/code/kestrel"); got != "kestrel" {
+	if got := scope.NormalizeArg("~/code/kestrel"); got != "kestrel" {
 		t.Errorf("want kestrel, got %q", got)
 	}
-	if got := normalizeProjectArg("../escape"); got != "escape" {
+	if got := scope.NormalizeArg("../escape"); got != "escape" {
 		t.Errorf("want escape, got %q", got)
 	}
 }
@@ -38,7 +42,7 @@ func TestAMemoryIsNotFiledUnderAnAbsolutePathCarryingTheUsersAccountName(t *test
 // and the linked worktree it is being worked on in. Reducing that to a
 // basename would file every worktree as a project of its own, undoing #140.
 func TestAQualifiedWorktreeScopeIsLeftAlone(t *testing.T) {
-	if got := normalizeProjectArg("kestrel/feature-a"); got != "kestrel/feature-a" {
+	if got := scope.NormalizeArg("kestrel/feature-a"); got != "kestrel/feature-a" {
 		t.Errorf("a worktree scope was reduced to %q", got)
 	}
 }
@@ -46,7 +50,7 @@ func TestAQualifiedWorktreeScopeIsLeftAlone(t *testing.T) {
 // A plain name is the overwhelmingly common case and must cost nothing.
 func TestAPlainProjectNameIsUnchanged(t *testing.T) {
 	for _, name := range []string{"brain", "kestrel-one", "Heron"} {
-		if got := normalizeProjectArg(name); got != name {
+		if got := scope.NormalizeArg(name); got != name {
 			t.Errorf("%q became %q", name, got)
 		}
 	}
