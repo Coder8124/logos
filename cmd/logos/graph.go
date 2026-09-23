@@ -24,8 +24,11 @@ func runGraph(focus string, hops int, similarity bool) error {
 	if err != nil {
 		return err
 	}
-	if len(g.Nodes) == 0 {
-		return fmt.Errorf("no node matches %q — nothing to graph", focus)
+	// Ego draws a focus the vault does not hold as a ghost node, which is right
+	// for a wikilink target and wrong for the thing asked about: `graph
+	// nonexistent` and an empty vault both drew "missing deg 0" and exited 0.
+	if len(g.Nodes) == 0 || (len(g.Nodes) == 1 && len(g.Edges) == 0 && g.Nodes[0].Kind == "missing") {
+		return fmt.Errorf("no note or entity %q in the vault — nothing to graph", focus)
 	}
 
 	fmt.Printf("● %s  (%d nodes, %d edges, %d hops)\n\n", g.Focus, len(g.Nodes), len(g.Edges), hops)

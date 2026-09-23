@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/Coder8124/logos/internal/secretary"
 )
@@ -48,10 +49,13 @@ func commitmentCmd(args []string) error {
 
 	switch args[0] {
 	case "add":
-		if len(args) < 2 {
+		// Trimmed and tested, because `logos loop add "$UNSET"` from a script
+		// tracked a blank loop that then sat as a bare bullet in every resume.
+		text := strings.TrimSpace(joinArgs(args[1:]))
+		if text == "" {
 			return fmt.Errorf("usage: logos loop add <text>")
 		}
-		c := &secretary.Commitment{Text: joinArgs(args[1:])}
+		c := &secretary.Commitment{Text: text}
 		added, err := secretary.Add(ix.DB, c)
 		if err != nil {
 			return err
