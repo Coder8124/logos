@@ -145,9 +145,10 @@ type Session struct {
 	// client advertised or the folder the host was launched in, rather than
 	// from the model remembering to say so. See scope.go. Resolved once, on
 	// first use.
-	roots       []string
-	project     string
-	projectOnce sync.Once
+	roots           []string
+	project         string
+	projectInferred bool
+	projectOnce     sync.Once
 
 	// hasRoots is whether the host declared the roots capability, and so can be
 	// asked which folder is open. See askRoots.
@@ -1218,6 +1219,22 @@ func writeList(b *strings.Builder, label string, items []string) {
 func (s *Session) resume(projectArg, agent string, budget int, since contextpack.Since) (string, error) {
 	project, worktree := s.resolveContinuity(projectArg)
 	chose := ""
+	// A folder name the vault has never heard of is the ordinary way to reach
+	// this branch, not a launch in /: a scratch directory, a fresh clone under
+	// another name. The guard used to test only for an empty name, and a
+	// working directory almost always has a basename, so the fallback below
+	// was dead code while the agent was told, emphatically, that nothing was
+	// recorded (#169). A name the caller gave, or LOGOS_PROJECT set, is still
+	// honoured as asked — there the caller asserted something, and is told it
+	// was wrong below rather than handed another project's work.
+	guess := s.inferredProject()
+	if strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
+		if ps := s.checkpointedProjects(); len(ps) > 0 {
+			chose = fmt.Sprintf("_Nothing in this vault is filed under %s, the folder this host was launched in — resuming %s, the most recently checkpointed project%s. Pass project to resume a different one, or checkpoint to start %s._\n\n",
+				untrusted.Inline(guess), untrusted.Inline(ps[0].name), s.knownProjects(), untrusted.Inline(guess))
+			project, worktree = ps[0].name, ""
+		}
+	}
 	if strings.TrimSpace(project) == "" {
 		// Hosts without hooks (Cursor, Codex, Claude Desktop) launched outside
 		// any repository give no project, and an error sent the user off to
@@ -1250,6 +1267,12 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		// finds none will invent continuity that never existed.
 		out += "\n_No checkpoint has been written for this project yet — " +
 			"this is context, not a handoff. Call checkpoint before you stop._\n"
+		// "Nothing recorded" is true of this name and false of the vault. An
+		// agent told only the first stops; one told what exists recovers in a
+		// single call.
+		if known := s.knownProjects(); known != "" && !s.projectExists(project) {
+			out += fmt.Sprintf("_Nothing in this vault is filed under %s%s._\n", untrusted.Inline(project), known)
+		}
 	}
 	out += s.awaitingReview()
 	// Filed under the scope the pack itself read, so the note lands in the same

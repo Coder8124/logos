@@ -90,13 +90,24 @@ func (s *Session) resolveProject(arg string) string {
 // again; see setRoots.
 func (s *Session) sessionProject() string {
 	s.projectOnce.Do(func() {
-		s.project = firstNonEmpty(
-			strings.TrimSpace(os.Getenv("LOGOS_PROJECT")),
-			projectFromRoots(s.roots),
-			projectFromCwd(),
-		)
+		explicit := strings.TrimSpace(os.Getenv("LOGOS_PROJECT"))
+		s.project = firstNonEmpty(explicit, projectFromRoots(s.roots), projectFromCwd())
+		s.projectInferred = explicit == "" && s.project != ""
 	})
 	return s.project
+}
+
+// inferredProject is the session's default project when nobody chose it — it
+// was read off the folder the host stands in, not set by LOGOS_PROJECT. The
+// read path needs the difference: a name invented from ~/Downloads that the
+// vault has never heard of is not a project that came up empty, and answering
+// it with "nothing recorded" hid every checkpoint in the vault (#169).
+func (s *Session) inferredProject() string {
+	p := s.sessionProject()
+	if !s.projectInferred {
+		return ""
+	}
+	return p
 }
 
 // resolveContinuity picks where a session, a note or a checkpoint is filed: the
@@ -338,6 +349,6 @@ func (s *Session) setRoots(roots []string) {
 		return
 	}
 	s.roots = roots
-	s.project, s.projectOnce = "", sync.Once{}
+	s.project, s.projectInferred, s.projectOnce = "", false, sync.Once{}
 	s.worktree, s.worktreeOnce = "", sync.Once{}
 }
