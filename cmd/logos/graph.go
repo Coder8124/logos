@@ -2,15 +2,20 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/Coder8124/logos/internal/graph"
 )
 
-// runGraph prints the ego-graph as text — the CLI counterpart to the app's
-// memory-graph view, useful for checking what the visual will render.
-func runGraph(focus string, hops int, similarity bool) error {
+// runGraph draws the ego-graph in the terminal — the CLI counterpart to the
+// app's memory-graph view — or, with list, prints its nodes and edges as text,
+// which is what a script or a diff wants and what names every node the drawing
+// had no room to label.
+func runGraph(focus string, hops int, similarity, list bool) error {
 	ix, err := openIndex()
 	if err != nil {
 		return err
@@ -31,7 +36,12 @@ func runGraph(focus string, hops int, similarity bool) error {
 		return fmt.Errorf("no note or entity %q in the vault — nothing to graph", focus)
 	}
 
-	fmt.Printf("● %s  (%d nodes, %d edges, %d hops)\n\n", g.Focus, len(g.Nodes), len(g.Edges), hops)
+	fmt.Printf("● %s  (%d nodes, %d edges, %d hops)\n\n", graph.Label(graph.Node{Slug: g.Focus}, 200), len(g.Nodes), len(g.Edges), hops)
+	if !list {
+		cols, rows, color := drawSize(len(g.Nodes))
+		fmt.Print(graph.Draw(g, cols, rows, color))
+		return nil
+	}
 
 	// Nodes, closest hop first, then by degree.
 	sort.Slice(g.Nodes, func(i, j int) bool {
@@ -72,4 +82,24 @@ func provMark(p graph.Provenance) string {
 	default:
 		return "┄" // similarity lens
 	}
+}
+
+// drawSize fits the drawing to the terminal: its full width up to a point past
+// which lines only get longer, and enough rows for the nodes to spread without
+// scrolling the header off a laptop screen. Colour only when the output is a
+// terminal and NO_COLOR is unset — escape codes in a file or a pipe are noise
+// in whatever reads it.
+func drawSize(nodes int) (cols, rows int, color bool) {
+	cols, rows = 100, 30
+	fd := int(os.Stdout.Fd())
+	tty := term.IsTerminal(fd)
+	if tty {
+		if w, h, err := term.GetSize(fd); err == nil && w > 0 && h > 0 {
+			cols, rows = w, h
+		}
+	}
+	cols = min(max(cols-1, 40), 180)
+	rows = min(max(rows-6, 10), 8+nodes*2, 50)
+	rows = max(rows, 10)
+	return cols, rows, tty && os.Getenv("NO_COLOR") == ""
 }

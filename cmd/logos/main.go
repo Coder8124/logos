@@ -156,7 +156,8 @@ MEMORY
     logos demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     logos memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline
     logos loop [list|add|done|drop]   list or manage open loops (commitments)
-    logos graph [focus] [--hops N] [--similar]   memory graph around a note
+    logos graph [focus] [--hops N] [--similar] [--list]
+                                      draw the memory graph around a note; --list prints it as text
 
 RETRIEVAL
     logos search <query…>             retrieve only, no generation
@@ -402,7 +403,7 @@ func main() {
 		if hops == 0 {
 			hops = 2 // 0 asks for the default, as --budget 0 does
 		}
-		err = runGraph(firstNonFlag(args), hops, hasFlag(args, "--similar"))
+		err = runGraph(firstNonFlag(args), hops, hasFlag(args, "--similar"), hasFlag(args, "--list"))
 	default:
 		unknownCommand(cmd)
 	}
@@ -494,7 +495,7 @@ var commandFlags = map[string]flagSpec{
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
-	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar"}},
+	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
 		"--action", "--instead"}},
 	"context": {valued: []string{"--project", "-p", "--since", "--pin", "--exclude", "--unpin"},
