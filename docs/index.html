@@ -7,54 +7,42 @@
 <meta name="description" content="Continuity for AI coding agents. One vault of markdown you own; Claude Code, Cursor and Codex are all clients of it.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* ── Tokens ────────────────────────────────────────────────────────────────
-   Five fixed colours, at the share of the page each is meant to carry:
-   verdigris 45%, parchment 30%, brass 10%, charcoal 10%, deep verdigris 5%.
+   The same five colours as before: verdigris, parchment, brass, charcoal and
+   deep verdigris. What changed is where they sit. The page is now one dark
+   ground end to end, with parchment as the ink, brass as the one accent, and
+   charcoal kept for terminals, so a terminal always looks like a terminal.
 
-   Verdigris is a surface here, not an accent. It grounds the masthead, the
-   hero, the handoff, the install band and the close; parchment carries the
-   sections you read at length. That alternation is what produces the ratio.
-
-   The contrast floors decide the rest, and two of them are strict:
-   brass on parchment is 2.40:1, so gold is never a word you have to read on
-   a light band; charcoal on verdigris is 1.24:1, so those two never touch.
-   Brass reads at 4.55 on verdigris and 5.64 on charcoal, which is where all
-   gold type lives. On parchment, deep verdigris does that job at 10.91.
-
-   One committed look. The palette is fixed hex, and a dark variant would be
-   five more values nobody has chosen yet. */
+   The contrast limits still decide where each colour can go:
+   brass on verdigris is 4.55:1, so brass type is fine anywhere on the ground;
+   verdigris on brass is the same 4.55, which is what lets the closing band be
+   solid brass with dark type; charcoal on verdigris is 1.24:1, so a charcoal
+   surface always needs a hairline edge to be seen at all. */
 :root {
   --verdigris: #00392F;
   --parchment: #F3EBDD;
   --brass:     #B89452;
   --charcoal:  #24211F;
-  --muted:     #00392F;
 
   /* Derived only by lightening or darkening a named colour. No sixth hue. */
-  --verdigris-lift: #006D5E;   /* raised edges and bars on verdigris */
-  --paper:         #FBF6EE;   /* cards on parchment */
-  --parchment-sunk:#E7DCCA;   /* wells, table heads, inert bars */
-  --rule-light:    #D5C7B2;
-  --charcoal-deep: #1A1816;   /* window title bars */
+  --verdigris-sunk: #002E26;   /* cells, wells, table heads */
+  --verdigris-lift: #006D5E;   /* hairlines, bar fills */
+  --rule:           #0E5245;   /* dashed section rules, cell borders */
+  --charcoal-deep:  #1A1816;   /* window title bars */
+  --brass-lift:     #C9A765;
+  --brass-sunk:     #8E703B;   /* the wordmark's corner pixels once it turns brass */
 
-  /* Inks. Dim tones are the ground mixed toward its own type colour. */
-  --on-verdigris:    #F3EBDD;
-  --on-verdigris-2:  #D9C9B4;
-  --on-verdigris-3:  #B79E86;
-  --on-parchment:   #24211F;
-  --on-parchment-2: #4E4741;
-  --on-parchment-3: #6E6459;
-  --on-charcoal-2:  #C7BFB5;
-  --on-charcoal-3:  #9C948A;
+  --ink:   #F3EBDD;
+  --ink-2: #D9C9B4;
+  --ink-3: #B79E86;
+  --on-charcoal-2: #C7BFB5;
+  --on-charcoal-3: #9C948A;
 
-  --f-display: "IBM Plex Sans Condensed", "Helvetica Neue Condensed", Impact, sans-serif;
   --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --f-voice: "Newsreader", "Iowan Old Style", Georgia, serif;
 
-  --radius: 8px;
   --ease: cubic-bezier(.2, .8, .2, 1);
   color-scheme: dark;
 }
@@ -64,7 +52,7 @@ html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-t
 body {
   margin: 0;
   background: var(--verdigris);
-  color: var(--on-verdigris);
+  color: var(--ink);
   font-family: var(--f-body);
   font-size: 15px;
   line-height: 1.6;
@@ -72,128 +60,220 @@ body {
 }
 img { max-width: 100%; }
 h1, h2, h3 { text-wrap: balance; margin: 0; }
-p { margin: 0 0 .9rem; }
+p { margin: 0 0 .9rem; color: var(--ink-2); }
 p:last-child { margin-bottom: 0; }
+strong { color: var(--ink); font-weight: 600; }
+a { color: var(--brass); text-underline-offset: 3px; }
 code { font-family: var(--f-mono); font-size: .86em; }
 
-/* ── Bands ─────────────────────────────────────────────────────────────────
-   Every section declares which of the two grounds it is on, and every colour
-   inside it comes from that ground's ink set. Nothing takes a colour that
-   only resolves on the other band. */
-.band { padding-block: 4.5rem; }
-.band.light { background: var(--parchment); color: var(--on-parchment); }
-.band.dark  { background: var(--verdigris);  color: var(--on-verdigris); }
-.wrap { max-width: 68rem; margin: 0 auto; padding-inline: 1.5rem; }
+.wrap { max-width: 72rem; margin: 0 auto; padding-inline: 1.5rem; }
+/* Sections are separated by a dashed rule rather than a change of ground; with
+   one ground the rule is the only thing marking where a section starts. */
+.sec { padding-block: 5rem; border-top: 1px dashed var(--rule); }
 
-.light p { color: var(--on-parchment-2); }
-.dark  p { color: var(--on-verdigris-2); }
-.light strong { color: var(--on-parchment); font-weight: 600; }
-.dark  strong { color: var(--on-verdigris); font-weight: 600; }
-.light a { color: var(--muted); text-underline-offset: 3px; }
-.dark  a { color: var(--brass); text-underline-offset: 3px; }
-
-.head { text-align: center; max-width: 42rem; margin: 0 auto 2.25rem; }
-.eyebrow {
+.label {
   display: inline-block; font-family: var(--f-mono); font-size: .6875rem;
-  font-weight: 500; letter-spacing: .14em; text-transform: uppercase; margin-bottom: .7rem;
+  font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-3);
 }
-/* Gold labels only where gold is readable. On parchment the label is muted
-   verdigris, which clears 10:1 where brass would sit at 2.40. */
-.dark .eyebrow  { color: var(--brass); }
-.light .eyebrow { color: var(--muted); }
+/* The heading glyph is a brass staircase of four pixels, the wordmark's
+   pixels at a smaller scale, so every section heading carries the mark. */
 h2 {
-  font-family: var(--f-display); font-weight: 600;
-  font-size: clamp(1.7rem, 3.4vw, 2.35rem); line-height: 1.1;
-  letter-spacing: -.01em; margin-bottom: .7rem;
+  font-weight: 600; font-size: clamp(1.6rem, 3vw, 2.2rem); line-height: 1.12;
+  letter-spacing: -.02em; margin-bottom: .8rem; color: var(--ink);
+  display: flex; align-items: center; gap: .75rem;
 }
-h3 { font-size: .9375rem; font-weight: 600; margin-bottom: .3rem; }
+h2::before {
+  content: ""; flex: none; width: 4px; height: 4px; background: var(--brass);
+  margin: 0 8px 8px 0;
+  box-shadow: 4px -4px 0 var(--brass), 8px -8px 0 var(--brass), 8px 0 0 var(--brass-lift), 0 -8px 0 var(--verdigris-lift);
+}
+h3 { font-size: .9375rem; font-weight: 600; margin-bottom: .3rem; color: var(--ink); }
+.head { max-width: 40rem; margin-bottom: 2.5rem; }
 .head p { font-size: 1rem; }
-.note { font-size: .8125rem; max-width: 62ch; margin-top: .8rem; }
-.light .note { color: var(--on-parchment-3); }
-.dark  .note { color: var(--on-verdigris-3); }
-.note code { white-space: nowrap; }
-.dark .note code { color: var(--brass); }
-.light .note code { color: var(--muted); }
+.note { font-size: .8125rem; max-width: 62ch; margin-top: .8rem; color: var(--ink-3); }
+.note code { white-space: nowrap; color: var(--brass); }
 
-a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 3px; }
-::selection { background: var(--muted); color: var(--parchment); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 2px; }
+::selection { background: var(--brass); color: var(--verdigris); }
+
+/* ── Frame ─────────────────────────────────────────────────────────────────
+   A dashed box with brass corner brackets, drawn with eight gradients so no
+   element needs extra markup. It marks the things you can act on or inspect:
+   the install command, the demo and the handoff. */
+.frame {
+  position: relative; padding: 1.5rem; border: 1px dashed var(--rule);
+  background:
+    linear-gradient(var(--brass), var(--brass)) 0 0 / 14px 2px,
+    linear-gradient(var(--brass), var(--brass)) 0 0 / 2px 14px,
+    linear-gradient(var(--brass), var(--brass)) 100% 0 / 14px 2px,
+    linear-gradient(var(--brass), var(--brass)) 100% 0 / 2px 14px,
+    linear-gradient(var(--brass), var(--brass)) 0 100% / 14px 2px,
+    linear-gradient(var(--brass), var(--brass)) 0 100% / 2px 14px,
+    linear-gradient(var(--brass), var(--brass)) 100% 100% / 14px 2px,
+    linear-gradient(var(--brass), var(--brass)) 100% 100% / 2px 14px;
+  background-repeat: no-repeat;
+  background-origin: border-box;
+}
+.frame.tight { padding: .5rem; }
 
 /* ── Masthead ──────────────────────────────────────────────────────────── */
 .masthead {
   position: sticky; top: 0; z-index: 10;
-  background: rgba(0, 57, 47, .88);
+  background: rgba(0, 57, 47, .86);
   backdrop-filter: saturate(1.4) blur(10px);
   -webkit-backdrop-filter: saturate(1.4) blur(10px);
-  border-bottom: 1px solid var(--verdigris-lift);
-  box-shadow: inset 0 2px 0 var(--brass);
+  border-bottom: 1px dashed var(--rule);
 }
 .masthead .wrap { display: flex; align-items: center; gap: 1.5rem; height: 3.5rem; }
-.wordmark {
-  font-family: var(--f-display); font-weight: 700; font-size: 1.3rem;
-  letter-spacing: .01em; line-height: 1; color: var(--on-verdigris);
-  text-decoration: none; margin-right: auto;
-}
-/* The mark itself is the 10%: one gold dot, the only logo element there is. */
-.wordmark::after {
-  content: ""; display: inline-block; width: .32rem; height: .32rem;
-  margin-left: .35rem; border-radius: 50%; background: var(--brass); vertical-align: .12em;
-}
+.masthead .brand { margin-right: auto; }
 .masthead nav { display: flex; align-items: center; gap: 1.4rem; font-size: .875rem; }
-.masthead nav a { color: var(--on-verdigris-2); text-decoration: none; transition: color .16s var(--ease); }
+.masthead nav a { color: var(--ink-2); text-decoration: none; transition: color .16s var(--ease); }
 .masthead nav a:hover { color: var(--brass); }
 
-/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* ── Buttons ─────────────────────────────────────────────────────────────
+   Square-cornered, mono, uppercase: the button reads as a command rather
+   than a pill. Solid is brass; outline is a brass hairline. */
 .btns { display: flex; flex-wrap: wrap; gap: .6rem; }
 .btn {
   display: inline-flex; align-items: center; gap: .45rem;
-  padding: .55rem 1.05rem; border-radius: 999px; border: 1px solid transparent;
-  font-size: .875rem; font-weight: 500; text-decoration: none; white-space: nowrap;
-  transition: background .16s var(--ease), color .16s var(--ease), border-color .16s var(--ease), transform .16s var(--ease);
+  padding: .55rem 1rem; border: 1px solid transparent; border-radius: 0;
+  font-family: var(--f-mono); font-size: .75rem; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase;
+  text-decoration: none; white-space: nowrap;
+  transition: background .16s var(--ease), color .16s var(--ease), border-color .16s var(--ease);
 }
-.btn:hover { transform: translateY(-1px); }
-/* On verdigris the solid button is brass — the one place gold is a surface. */
-.dark .btn.solid { background: var(--brass); color: var(--verdigris); font-weight: 600; }
-.dark .btn.solid:hover { background: #C9A765; }
-.dark .btn.ghost { color: var(--brass); border-color: var(--brass); }
-.dark .btn.ghost:hover { background: var(--muted); border-color: var(--muted); color: var(--parchment); }
-.light .btn.solid { background: var(--verdigris); color: var(--parchment); font-weight: 600; }
-.light .btn.solid:hover { background: var(--muted); }
-.light .btn.ghost { color: var(--on-parchment); border-color: var(--rule-light); background: var(--paper); }
-.light .btn.ghost:hover { border-color: var(--muted); color: var(--muted); }
-.masthead .btn { padding: .38rem .85rem; font-size: .8125rem; }
+.btn.solid { background: var(--brass); color: var(--verdigris); font-weight: 600; }
+.btn.solid:hover { background: var(--brass-lift); }
+.btn.ghost { color: var(--brass); border-color: var(--brass); }
+.btn.ghost:hover { background: var(--brass); color: var(--verdigris); }
+.masthead .btn { padding: .4rem .85rem; }
+.masthead nav a.btn.solid, .masthead nav a.btn.solid:hover { color: var(--verdigris); }
+
+/* ── Wordmark ──────────────────────────────────────────────────────────────
+   LOGOS set in pixels, one <rect> per pixel so each can move on its own.
+   The dimmed corner pixels are the stepped anti-aliasing that keeps a pixel
+   face from reading as blocky at display size.
+
+   Interacting with it glosses the name: "logos" is short for logothete, the
+   Byzantine office of the scribe who kept the record. Hovering, focusing or
+   tapping the mark sweeps it to brass column by column and types out the
+   gloss. Hover and focus are pure CSS, so the gloss works without script;
+   script only adds tap-to-pin for touch screens, which have no hover. */
+.brand { position: relative; display: inline-flex; flex-direction: column; align-items: center; }
+.mark {
+  display: block; padding: 0; margin: 0; border: 0; background: none;
+  cursor: pointer; color: inherit; line-height: 0;
+}
+.mark svg { display: block; shape-rendering: crispEdges; overflow: visible; }
+.mark rect { fill: var(--ink); transition: fill .35s var(--ease); }
+.mark rect.d { fill: var(--ink-3); }
+.brand:has(.mark:hover) rect,
+.brand:has(.mark:focus-visible) rect,
+.brand.open rect { fill: var(--brass); transition-delay: calc(var(--c) * 14ms); }
+.brand:has(.mark:hover) rect.d,
+.brand:has(.mark:focus-visible) rect.d,
+.brand.open rect.d { fill: var(--brass-sunk); }
+
+.gloss {
+  font-family: var(--f-mono); font-size: .8125rem; color: var(--ink-2);
+  margin: 0; white-space: nowrap; line-height: 1.4;
+  opacity: 0; transition: opacity .2s var(--ease);
+}
+.gloss b { color: var(--brass); font-weight: 500; }
+/* Typed rather than faded: 41 characters, 41 steps, in a monospace face, so
+   each step reveals exactly one character. */
+.gloss .t {
+  display: inline-block; vertical-align: bottom; overflow: hidden;
+  width: 0; max-width: 41ch;
+}
+.gloss .caret {
+  display: inline-block; width: .55em; height: 1.05em; margin-left: .15em;
+  vertical-align: -.18em; background: var(--brass);
+}
+.brand:has(.mark:hover) .gloss,
+.brand:has(.mark:focus-visible) .gloss,
+.brand.open .gloss { opacity: 1; }
+.brand:has(.mark:hover) .gloss .t,
+.brand:has(.mark:focus-visible) .gloss .t,
+.brand.open .gloss .t { animation: type .9s steps(41) .12s forwards; }
+@keyframes type { to { width: 41ch; } }
+
+.hero .mark svg { width: clamp(15rem, 84vw, 40rem); height: auto; }
+.hero .gloss { margin-top: 1.1rem; font-size: clamp(.75rem, 2.2vw, .9375rem); }
+/* In the masthead the gloss has no room below the mark, so it becomes a
+   small popover under it instead. */
+.masthead .mark svg { width: 5.2rem; height: auto; }
+.masthead .gloss {
+  position: absolute; top: calc(100% + .9rem); left: 0; z-index: 2;
+  padding: .45rem .7rem; background: var(--charcoal); color: var(--on-charcoal-2);
+  box-shadow: 0 0 0 1px var(--verdigris-lift), 0 16px 30px -18px #000;
+  pointer-events: none;
+}
 
 /* ── Hero ──────────────────────────────────────────────────────────────────
-   Two words at the largest size the page ever uses, and the one italic serif
-   word is the only warm voice on the page — spent once. */
-.hero { text-align: center; padding-block: 5rem 4.5rem; }
-.hero .eyebrow { color: var(--on-verdigris-3); }
-.hero .eyebrow a { color: var(--brass); text-decoration: none; border-bottom: 1px solid var(--verdigris-lift); }
-.hero h1 {
-  font-family: var(--f-display); font-weight: 700;
-  font-size: clamp(2.9rem, 8.5vw, 5.4rem); line-height: .95;
-  letter-spacing: -.025em; margin: 0 auto 1.25rem; color: var(--on-verdigris);
+   The stars are fixed positions rather than random ones, so the page looks the
+   same on every load, and they never twinkle: nothing on this page loops. */
+.hero-band {
+  position: relative;
+  background-image:
+    radial-gradient(1.4px 1.4px at 31% 50%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 18% 27%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 12% 20%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 66% 29%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 84% 6%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 64% 61%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 65% 76%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 53% 14%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 31% 5%, rgba(243,235,221,0.35) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 68% 55%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 50% 95%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 86% 36%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 10% 52%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 15% 87%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 45% 33%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 65% 86%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 76% 21%, rgba(243,235,221,0.18) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 71% 7%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 91% 27%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 76% 61%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 38% 74%, rgba(243,235,221,0.35) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 56% 20%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 78% 15%, rgba(243,235,221,0.35) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 91% 48%, rgba(243,235,221,0.5) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 66% 82%, rgba(243,235,221,0.25) 98%, transparent),
+    radial-gradient(1.4px 1.4px at 41% 22%, rgba(243,235,221,0.35) 98%, transparent),
+    radial-gradient(2px 2px at 14% 22%, #B89452 98%, transparent),
+    radial-gradient(2px 2px at 83% 64%, #B89452 98%, transparent),
+    radial-gradient(2px 2px at 71% 12%, #B89452 98%, transparent);
 }
-.hero h1 em {
-  font-family: var(--f-voice); font-weight: 400; font-style: italic;
-  letter-spacing: -.01em; color: var(--brass);
-}
-.hero .sub { max-width: 46ch; margin: 0 auto 2rem; font-size: 1.0625rem; color: var(--on-verdigris-2); }
-.hero .cmd { max-width: 32rem; margin: 0 auto; text-align: left; }
-.hero .btns { justify-content: center; margin-top: 1.1rem; }
+.hero { text-align: center; padding-block: 5.5rem 4rem; }
+.hero .label a { color: var(--brass); text-decoration: none; }
+.hero .label { display: block; margin-bottom: 2.2rem; }
+.hero .brand { display: flex; }
+.hero .sub { max-width: 44ch; margin: 2rem auto 2.2rem; font-size: 1.0625rem; color: var(--ink-3); }
+.hero .sub strong { color: var(--ink); font-weight: 500; }
+.hero .frame { max-width: 34rem; margin: 0 auto; text-align: left; }
+.hero .btns { justify-content: center; margin-top: 1.2rem; }
 .hero .note { margin-inline: auto; text-align: center; }
-.hero .window { max-width: 52rem; margin: 3.5rem auto 0; }
 
-/* ── Command blocks ────────────────────────────────────────────────────────
-   Charcoal, on both grounds. It is the one neutral surface in the system, and
-   a terminal that changes colour with the band behind it stops reading as a
-   terminal. On verdigris it needs the brass hairline to have an edge at all. */
+/* ── Hosts ─────────────────────────────────────────────────────────────── */
+.hosts { text-align: center; padding-block: 1rem 4.5rem; }
+.hosts ul {
+  list-style: none; margin: 1.2rem 0 0; padding: 0;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: .6rem 2.4rem;
+  font-family: var(--f-mono); font-size: .875rem; font-weight: 500; color: var(--ink-2);
+}
+.hosts li.open { color: var(--ink-3); font-style: italic; font-weight: 400; }
+.hosts .note { margin-inline: auto; }
+
+.demo { max-width: 56rem; margin: 0 auto; padding-bottom: 5rem; }
+.demo .note { text-align: center; margin-inline: auto; }
+
+/* ── Command blocks ────────────────────────────────────────────────────── */
 .cmd {
   display: flex; align-items: stretch; background: var(--charcoal);
-  border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 0 0 1px var(--verdigris-lift); overflow: hidden;
 }
-.dark .cmd { box-shadow: 0 0 0 1px var(--verdigris-lift); }
-.light .cmd { box-shadow: 0 0 0 1px var(--rule-light); }
-.cmd.primary { box-shadow: 0 0 0 1px var(--brass); }
 .cmd pre {
   margin: 0; padding: .8rem 1rem; flex: 1; min-width: 0; overflow-x: auto;
   font-family: var(--f-mono); font-size: .8125rem; line-height: 1.7; color: var(--parchment);
@@ -209,19 +289,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
   padding: 0 1rem; cursor: pointer;
   transition: background .16s var(--ease), color .16s var(--ease);
 }
-.copy:hover { background: var(--muted); color: var(--parchment); }
+.copy:hover { background: var(--brass); color: var(--verdigris); }
 .copy[data-state="done"] { color: var(--brass); }
+.copy[data-state="done"]:hover { color: var(--verdigris); }
 
 /* ── Window ────────────────────────────────────────────────────────────────
    Terminal output copied from a real run, not retyped: a page that mocks up
    its own product's output is advertising, and this project's argument is the
    difference between measured and claimed. */
-.window {
-  border-radius: var(--radius); background: var(--charcoal);
-  overflow: hidden; min-width: 0; text-align: left;
-}
-.dark .window { box-shadow: 0 0 0 1px var(--verdigris-lift), 0 22px 44px -30px #000; }
-.light .window { box-shadow: 0 0 0 1px var(--rule-light), 0 22px 44px -30px rgba(36,33,31,.55); }
+.window { background: var(--charcoal); overflow: hidden; min-width: 0; text-align: left; box-shadow: 0 0 0 1px var(--verdigris-lift); }
 .window .bar {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem 1rem;
   padding: .55rem .95rem; background: var(--charcoal-deep);
@@ -232,7 +308,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 .window .bar b { color: var(--on-charcoal-2); font-weight: 500; }
 .window .bar .side { margin-left: auto; letter-spacing: .03em; text-transform: none; }
 /* The record — a checkpoint, the vault — wears the gold edge. The live thing
-   does not; that distinction is the only thing gold is asked to carry. */
+   does not; that distinction is the only thing gold is asked to carry here. */
 .window.record .bar { border-bottom-color: var(--brass); color: var(--brass); }
 .window.record .bar b { color: var(--brass); }
 .window pre {
@@ -245,174 +321,204 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 .window .say { color: var(--on-charcoal-2); }
 .window .del { color: var(--on-charcoal-3); text-decoration: line-through; }
 
-/* ── Hosts ─────────────────────────────────────────────────────────────── */
-.hosts { text-align: center; padding-block: 0 4.5rem; }
-.hosts ul {
-  list-style: none; margin: .9rem 0 0; padding: 0;
-  display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 2.2rem;
-  font-family: var(--f-display); font-weight: 600; font-size: 1.15rem; color: var(--on-verdigris-2);
+/* ── Cells ─────────────────────────────────────────────────────────────────
+   One grid whose cells share their borders, the way a table does, rather
+   than cards floating apart: the six features are one system, not six
+   products. Each cell draws only its right and bottom edge and the grid draws
+   the top and left, so no line is ever doubled. */
+.cells {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--rule); border-left: 1px solid var(--rule);
 }
-.hosts li.open { color: var(--on-verdigris-3); font-weight: 500; font-style: italic; }
-.hosts .note { margin-inline: auto; }
-
-/* ── Cards ─────────────────────────────────────────────────────────────── */
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-.card {
-  border: 1px solid var(--rule-light); border-radius: var(--radius);
-  background: var(--paper); padding: 1.3rem; min-width: 0;
-  display: flex; flex-direction: column;
+.cell {
+  padding: 1.5rem; min-width: 0; display: flex; flex-direction: column;
+  border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+  transition: background .2s var(--ease);
 }
-.card .k {
-  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .12em;
-  text-transform: uppercase; color: var(--muted); margin-bottom: .55rem;
+.cell:hover { background: var(--verdigris-sunk); }
+.cell .k {
+  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-3); margin-bottom: .6rem;
 }
 /* Two of the six are about the record rather than the live thing, and they
-   are the two the gold edge marks. */
-.card.record { border-top: 2px solid var(--brass); }
-.card p { font-size: .875rem; margin-bottom: .8rem; }
-.card code.line {
+   are the two whose label is brass. */
+.cell.record .k { color: var(--brass); }
+.cell p { font-size: .875rem; margin-bottom: 1rem; color: var(--ink-3); }
+.cell code.line {
   display: block; margin-top: auto; padding: .5rem .7rem;
-  background: var(--parchment-sunk); border-radius: 5px; font-size: .75rem;
-  color: var(--on-parchment-2); overflow-x: auto; white-space: nowrap;
+  background: var(--verdigris-sunk); border: 1px solid var(--rule);
+  font-size: .75rem; color: var(--ink-2); overflow-x: auto; white-space: nowrap;
 }
+.cell:hover code.line { background: var(--verdigris); }
 
-/* ── Split and pull ────────────────────────────────────────────────────── */
+/* A section whose heading sits in a left column and its content on the right,
+   so a long page has somewhere to rest its eye at the left edge. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr); gap: 3rem; align-items: start; }
+.split .head { position: sticky; top: 5.5rem; margin-bottom: 0; }
+
+/* ── Handoff ───────────────────────────────────────────────────────────── */
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .pull {
-  font-family: var(--f-voice); font-style: italic; font-size: 1.2rem; line-height: 1.45;
-  color: var(--on-verdigris); max-width: 48ch; margin: 2.4rem auto 0;
-  text-align: center; padding-top: 1.6rem; position: relative;
+  font-size: 1.35rem; line-height: 1.45; font-weight: 400; letter-spacing: -.01em;
+  color: var(--ink); max-width: 44ch; margin: 3rem 0 0;
 }
-.pull::before {
-  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  width: 3.5rem; height: 2px; background: var(--brass);
-}
+.pull::before { content: "\201C"; color: var(--brass); }
+.pull::after  { content: "\201D"; color: var(--brass); }
+
+/* ── Community ─────────────────────────────────────────────────────────────
+   The testers are anonymous at their own request, so there are no photos and
+   no names. The avatar is a pixel block rather than a silhouette: a
+   silhouette stands in for a face that has been withheld, while a pixel
+   block reads as the wordmark's own pixels. A quote that makes a number
+   claim carries the measurement under it, because this page's argument is
+   the difference between measured and claimed. */
+.quotes { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.quote { padding: 2rem; justify-content: space-between; gap: 2rem; }
+.quote blockquote { margin: 0; font-size: 1.125rem; line-height: 1.5; color: var(--ink); letter-spacing: -.01em; }
+.quote.lead blockquote { font-size: clamp(1.3rem, 2.4vw, 1.6rem); line-height: 1.4; }
+.quote blockquote::before { content: "\201C"; color: var(--brass); }
+.quote blockquote::after  { content: "\201D"; color: var(--brass); }
+.quote .measured { font-size: .8125rem; color: var(--ink-3); margin: 1rem 0 0; }
+.who { display: flex; align-items: center; gap: .8rem; }
+.who svg { flex: none; width: 36px; height: 36px; shape-rendering: crispEdges; box-shadow: 0 0 0 1px var(--rule); }
+.who svg rect { fill: var(--brass); }
+.who svg rect.d { fill: var(--verdigris-lift); }
+.who b { display: block; font-size: .875rem; font-weight: 600; color: var(--ink); }
+.who span { display: block; font-size: .8125rem; color: var(--ink-3); }
+.who .tag { font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase; }
 
 /* ── Benchmark ─────────────────────────────────────────────────────────── */
-.proof-run { max-width: 36rem; margin: 0 auto; text-align: left; }
-.proof-run-note { max-width: 36rem; margin-inline: auto; text-align: center; margin-bottom: 1.8rem; }
-.stats {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem;
-  max-width: 50rem; margin: 0 auto 1.25rem; text-align: center;
-}
-/* The three figures are the measured record, so they are gold — but gold is
-   unreadable on parchment, so the tile goes charcoal to carry them. */
-.stats div { background: var(--charcoal); border-radius: var(--radius); padding: 1.05rem .75rem; }
+.proof-run { max-width: 36rem; }
+.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 2rem 0 1.5rem; }
+.stats .cell { padding: 1.3rem 1.4rem; }
 .stats b {
-  display: block; font-family: var(--f-display); font-size: 1.9rem; font-weight: 600;
-  line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--brass);
+  display: block; font-family: var(--f-mono); font-size: 2rem; font-weight: 500;
+  line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--brass); margin-bottom: .3rem;
 }
-.stats span { font-size: .8125rem; color: var(--on-charcoal-2); }
+.stats span { font-size: .8125rem; color: var(--ink-3); }
 
-.tablewrap { overflow-x: auto; border: 1px solid var(--rule-light); border-radius: var(--radius); background: var(--paper); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); }
 table { border-collapse: collapse; width: 100%; font-size: .8125rem; }
-th, td { text-align: left; padding: .5rem .85rem; border-bottom: 1px solid #E2D6C2; color: var(--on-parchment-2); }
+th, td { text-align: left; padding: .55rem .9rem; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
 thead th {
-  font-family: var(--f-mono); font-size: .6875rem; font-weight: 500; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--on-parchment-3);
-  background: var(--parchment-sunk); border-bottom: 2px solid var(--brass);
+  font-family: var(--f-mono); font-size: .6875rem; font-weight: 500; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-3);
+  background: var(--verdigris-sunk); border-bottom: 1px solid var(--brass);
 }
 tbody tr:last-child td { border-bottom: 0; }
-td:first-child { color: var(--on-parchment); }
+td:first-child { color: var(--ink); }
 .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* A bar per row, because the interesting number is a gap and a gap is easier
-   to see than to read. Verdigris marks this project's row: on parchment it is
-   the colour that reads as live, where brass would be ornament at 2.40. */
-.bench { max-width: 50rem; margin: 0 auto; }
+   to see than to read. Brass marks this project's row. */
 .bench td.bar { width: 42%; padding-right: 1.2rem; }
-.bench .track { display: block; height: .45rem; background: var(--parchment-sunk); border-radius: 99px; overflow: hidden; }
-.bench .fill { display: block; height: 100%; background: #BCAE9B; border-radius: 99px; }
-.bench tr.us td { color: var(--on-parchment); }
+.bench .track { display: block; height: .45rem; background: var(--verdigris-sunk); overflow: hidden; }
+.bench .fill { display: block; height: 100%; background: var(--verdigris-lift); }
+.bench tr.us td { color: var(--ink); }
 .bench tr.us td:first-child { font-weight: 600; }
-.bench tr.us .fill { background: var(--verdigris); }
-.bench-notes { max-width: 50rem; margin-inline: auto; }
+.bench tr.us .fill { background: var(--brass); }
 
 /* ── Install ───────────────────────────────────────────────────────────────
    Six ways to install one thing are alternatives, not steps, so they share one
    box and a person sees only the one they picked. Without script every panel
    stays visible, stacked, which is still a complete install page. */
-.install {
-  max-width: 50rem; margin: 0 auto; border-radius: var(--radius);
-  background: var(--paper); color: var(--on-parchment);
-  box-shadow: 0 0 0 1px var(--brass), 0 24px 50px -34px #000; overflow: hidden;
-}
-.install p { color: var(--on-parchment-2); }
-.install .note { color: var(--on-parchment-3); }
-.install .note code, .install p code { color: var(--muted); white-space: nowrap; }
-.install a { color: var(--muted); }
-.tabs { display: flex; overflow-x: auto; background: var(--parchment-sunk); border-bottom: 1px solid var(--rule-light); scrollbar-width: none; }
+.tabs { display: flex; gap: .35rem; overflow-x: auto; scrollbar-width: none; margin-bottom: .9rem; }
 .tabs button {
-  flex: none; border: 0; border-bottom: 2px solid transparent; background: transparent;
-  padding: .7rem 1rem .6rem; font: 500 .8125rem var(--f-body);
-  color: var(--on-parchment-3); cursor: pointer; white-space: nowrap;
+  flex: none; border: 1px solid var(--rule); background: var(--verdigris-sunk);
+  padding: .5rem .9rem; font: 500 .8125rem var(--f-body);
+  color: var(--ink-3); cursor: pointer; white-space: nowrap;
+  transition: color .16s var(--ease), border-color .16s var(--ease);
 }
-.tabs button:hover { color: var(--muted); }
-.tabs button[aria-selected="true"] { color: var(--on-parchment); border-bottom-color: var(--verdigris); background: var(--paper); }
+.tabs button:hover { color: var(--ink); border-color: var(--verdigris-lift); }
+.tabs button[aria-selected="true"] { background: var(--brass); border-color: var(--brass); color: var(--verdigris); font-weight: 600; }
 .no-js .tabs { display: none; }
-.panel { padding: 1.3rem 1.3rem 1.4rem; }
-.no-js .panel + .panel { border-top: 1px solid var(--rule-light); }
 .panel > p { font-size: .875rem; max-width: 60ch; }
+.no-js .panel + .panel { border-top: 1px dashed var(--rule); margin-top: 1.4rem; padding-top: 1.4rem; }
 .panel .steps { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .55rem; }
 .panel .steps > li { min-width: 0; }
 .panel .tablewrap { margin-top: .9rem; }
-.panel .cmd { margin-top: .9rem; box-shadow: 0 0 0 1px var(--rule-light); }
+.panel .cmd { margin-top: .9rem; }
 .panel .steps .cmd { margin-top: 0; }
 .panel .btns { margin-top: .9rem; }
+.panel code { color: var(--brass); }
 
 /* ── Facts ─────────────────────────────────────────────────────────────── */
-.facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.4rem 2rem; }
-.facts li { font-size: .875rem; color: var(--on-parchment-2); padding-top: .9rem; border-top: 2px solid var(--brass); }
-.facts strong { display: block; margin-bottom: .2rem; font-size: .9375rem; color: var(--on-parchment); }
-.facts code { color: var(--muted); }
+.facts { list-style: none; margin: 0; padding: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.facts li { display: block; font-size: .875rem; color: var(--ink-3); }
+.facts strong { display: block; margin-bottom: .3rem; font-size: .9375rem; color: var(--ink); }
+.facts code { color: var(--brass); }
 
-/* ── Closing ───────────────────────────────────────────────────────────── */
-.closing { text-align: center; padding-block: 5.5rem; }
-.closing h2 { color: var(--on-verdigris); }
-.closing .cmd { max-width: 32rem; margin: 1.6rem auto 0; text-align: left; }
+/* ── Closing ───────────────────────────────────────────────────────────────
+   The one solid-brass band, and the only place verdigris is the type colour. */
+.closing { background: var(--brass); color: var(--verdigris); padding-block: 2.2rem; }
+.closing .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.2rem 2rem; }
+.closing h2 { color: var(--verdigris); margin: 0; font-size: clamp(1.3rem, 2.4vw, 1.6rem); }
+.closing h2::before { background: var(--verdigris); box-shadow: 4px -4px 0 var(--verdigris), 8px -8px 0 var(--verdigris), 8px 0 0 var(--verdigris-lift), 0 -8px 0 var(--verdigris-lift); }
+.closing .cmd { flex: 0 1 30rem; min-width: 0; box-shadow: none; }
 
-footer {
-  border-top: 2px solid var(--brass);
-  padding-block: 1.4rem 2.5rem;
-  font-family: var(--f-mono); font-size: .75rem; color: var(--on-verdigris-3);
+footer { padding-block: 3.5rem 2rem; font-size: .875rem; }
+footer .top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2rem; }
+footer .tag { font-size: 1.25rem; font-weight: 500; color: var(--ink); margin-bottom: .9rem; letter-spacing: -.01em; }
+footer .badge {
+  display: inline-block; padding: .4rem .7rem; border: 1px solid var(--rule); background: var(--verdigris-sunk);
+  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
 }
-footer .wrap { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; }
-footer a { color: var(--on-verdigris-3); text-decoration-color: var(--verdigris-lift); }
-footer a:hover { color: var(--brass); }
-footer .sp { margin-left: auto; }
+footer .cols { display: flex; gap: 4rem; }
+footer .cols ul { list-style: none; margin: .8rem 0 0; padding: 0; display: grid; gap: .5rem; }
+footer .cols a { color: var(--ink-2); text-decoration: none; }
+footer .cols a:hover { color: var(--brass); }
+footer .bottom {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem 1.4rem;
+  margin-top: 3rem; padding-top: 1.2rem; border-top: 1px dashed var(--rule);
+  font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+}
+footer .bottom a { color: var(--ink-3); text-decoration: none; }
+footer .bottom a:hover { color: var(--brass); }
 
 /* ── Motion ────────────────────────────────────────────────────────────────
    One entrance, staggered, and nothing that repeats. Anything that pulses or
    loops is asking for attention it has not earned. */
 .fade { animation: rise .6s var(--ease) both; }
-.hero .eyebrow { animation-delay: 0s; }
-.hero h1       { animation-delay: .05s; }
-.hero .sub     { animation-delay: .12s; }
-.hero .cmd     { animation-delay: .19s; }
-.hero .window  { animation-delay: .28s; }
+.hero .label  { animation-delay: 0s; }
+.hero .brand  { animation-delay: .05s; }
+.hero .sub    { animation-delay: .12s; }
+.hero .frame  { animation-delay: .19s; }
 @keyframes rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .fade { animation: none; }
-  * { transition-duration: .01ms !important; }
+  * { transition-duration: .01ms !important; transition-delay: 0s !important; }
+  /* Without the typing, the gloss simply appears whole. */
+  .brand:has(.mark:hover) .gloss .t,
+  .brand:has(.mark:focus-visible) .gloss .t,
+  .brand.open .gloss .t { animation: none; width: 41ch; }
 }
 
 /* ── Narrow ────────────────────────────────────────────────────────────── */
 @media (max-width: 56rem) {
-  .grid, .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .split { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .split .head { position: static; margin-bottom: 2rem; }
   .pair { grid-template-columns: minmax(0, 1fr); }
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 40rem) {
   .wrap { padding-inline: 1rem; }
   .masthead nav a:not(.btn) { display: none; }
-  .grid, .facts, .stats { grid-template-columns: minmax(0, 1fr); }
+  .cells, .facts, .stats, .quotes { grid-template-columns: minmax(0, 1fr); }
+  .quote { padding: 1.4rem; }
   .bench td.bar, .bench th.bar { display: none; }
-  footer .sp { margin-left: 0; }
-  .band { padding-block: 3.5rem; }
-  .hero { padding-block: 3.5rem; }
+  .sec { padding-block: 3.5rem; }
+  .hero { padding-block: 3.5rem 3rem; }
+  .frame { padding: 1rem; }
+  .frame.tight { padding: .35rem; }
+  /* The masthead popover would run off a phone's right edge from the left. */
+  .masthead .gloss { white-space: normal; width: min(17rem, calc(100vw - 2rem)); }
+  .masthead .gloss .t { white-space: normal; width: auto; animation: none !important; }
+  .masthead .gloss .caret { display: none; }
   /* The brew command is the longest line a phone has to show without scrolling. */
-  .cmd.primary pre { font-size: .75rem; padding: .8rem .75rem; }
+  .cmd.primary pre { font-size: .6875rem; padding: .8rem .7rem; }
   .copy { padding: 0 .7rem; }
+  footer .cols { gap: 2.5rem; }
 }
 </style>
 </head>
@@ -421,9 +527,13 @@ footer .sp { margin-left: auto; }
 
 <header class="masthead">
   <div class="wrap">
-    <a class="wordmark" href="#">Logos</a>
+    <span class="brand">
+      <a class="mark" href="#" aria-label="Logos" aria-describedby="gloss-nav"><svg viewBox="0 0 39 7" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" style="--c:0"/><rect x="1" y="0" width="1" height="1" style="--c:1"/><rect x="0" y="1" width="1" height="1" style="--c:0"/><rect x="1" y="1" width="1" height="1" style="--c:1"/><rect x="0" y="2" width="1" height="1" style="--c:0"/><rect x="1" y="2" width="1" height="1" style="--c:1"/><rect x="0" y="3" width="1" height="1" style="--c:0"/><rect x="1" y="3" width="1" height="1" style="--c:1"/><rect x="0" y="4" width="1" height="1" style="--c:0"/><rect x="1" y="4" width="1" height="1" style="--c:1"/><rect x="0" y="5" width="1" height="1" style="--c:0"/><rect x="1" y="5" width="1" height="1" style="--c:1"/><rect x="2" y="5" width="1" height="1" style="--c:2"/><rect x="3" y="5" width="1" height="1" style="--c:3"/><rect x="4" y="5" width="1" height="1" style="--c:4"/><rect x="5" y="5" width="1" height="1" style="--c:5"/><rect x="6" y="5" width="1" height="1" style="--c:6"/><rect x="0" y="6" width="1" height="1" style="--c:0"/><rect x="1" y="6" width="1" height="1" style="--c:1"/><rect x="2" y="6" width="1" height="1" style="--c:2"/><rect x="3" y="6" width="1" height="1" style="--c:3"/><rect x="4" y="6" width="1" height="1" style="--c:4"/><rect x="5" y="6" width="1" height="1" style="--c:5"/><rect x="6" y="6" width="1" height="1" class="d" style="--c:6"/><rect x="8" y="0" width="1" height="1" class="d" style="--c:8"/><rect x="9" y="0" width="1" height="1" style="--c:9"/><rect x="10" y="0" width="1" height="1" style="--c:10"/><rect x="11" y="0" width="1" height="1" style="--c:11"/><rect x="12" y="0" width="1" height="1" style="--c:12"/><rect x="13" y="0" width="1" height="1" style="--c:13"/><rect x="14" y="0" width="1" height="1" class="d" style="--c:14"/><rect x="8" y="1" width="1" height="1" style="--c:8"/><rect x="9" y="1" width="1" height="1" style="--c:9"/><rect x="10" y="1" width="1" height="1" style="--c:10"/><rect x="11" y="1" width="1" height="1" style="--c:11"/><rect x="12" y="1" width="1" height="1" style="--c:12"/><rect x="13" y="1" width="1" height="1" style="--c:13"/><rect x="14" y="1" width="1" height="1" style="--c:14"/><rect x="8" y="2" width="1" height="1" style="--c:8"/><rect x="9" y="2" width="1" height="1" style="--c:9"/><rect x="13" y="2" width="1" height="1" style="--c:13"/><rect x="14" y="2" width="1" height="1" style="--c:14"/><rect x="8" y="3" width="1" height="1" style="--c:8"/><rect x="9" y="3" width="1" height="1" style="--c:9"/><rect x="13" y="3" width="1" height="1" style="--c:13"/><rect x="14" y="3" width="1" height="1" style="--c:14"/><rect x="8" y="4" width="1" height="1" style="--c:8"/><rect x="9" y="4" width="1" height="1" style="--c:9"/><rect x="13" y="4" width="1" height="1" style="--c:13"/><rect x="14" y="4" width="1" height="1" style="--c:14"/><rect x="8" y="5" width="1" height="1" style="--c:8"/><rect x="9" y="5" width="1" height="1" style="--c:9"/><rect x="10" y="5" width="1" height="1" style="--c:10"/><rect x="11" y="5" width="1" height="1" style="--c:11"/><rect x="12" y="5" width="1" height="1" style="--c:12"/><rect x="13" y="5" width="1" height="1" style="--c:13"/><rect x="14" y="5" width="1" height="1" style="--c:14"/><rect x="8" y="6" width="1" height="1" class="d" style="--c:8"/><rect x="9" y="6" width="1" height="1" style="--c:9"/><rect x="10" y="6" width="1" height="1" style="--c:10"/><rect x="11" y="6" width="1" height="1" style="--c:11"/><rect x="12" y="6" width="1" height="1" style="--c:12"/><rect x="13" y="6" width="1" height="1" style="--c:13"/><rect x="14" y="6" width="1" height="1" class="d" style="--c:14"/><rect x="16" y="0" width="1" height="1" class="d" style="--c:16"/><rect x="17" y="0" width="1" height="1" style="--c:17"/><rect x="18" y="0" width="1" height="1" style="--c:18"/><rect x="19" y="0" width="1" height="1" style="--c:19"/><rect x="20" y="0" width="1" height="1" style="--c:20"/><rect x="21" y="0" width="1" height="1" style="--c:21"/><rect x="22" y="0" width="1" height="1" class="d" style="--c:22"/><rect x="16" y="1" width="1" height="1" style="--c:16"/><rect x="17" y="1" width="1" height="1" style="--c:17"/><rect x="18" y="1" width="1" height="1" style="--c:18"/><rect x="19" y="1" width="1" height="1" style="--c:19"/><rect x="20" y="1" width="1" height="1" style="--c:20"/><rect x="21" y="1" width="1" height="1" style="--c:21"/><rect x="22" y="1" width="1" height="1" style="--c:22"/><rect x="16" y="2" width="1" height="1" style="--c:16"/><rect x="17" y="2" width="1" height="1" style="--c:17"/><rect x="16" y="3" width="1" height="1" style="--c:16"/><rect x="17" y="3" width="1" height="1" style="--c:17"/><rect x="20" y="3" width="1" height="1" style="--c:20"/><rect x="21" y="3" width="1" height="1" style="--c:21"/><rect x="22" y="3" width="1" height="1" style="--c:22"/><rect x="16" y="4" width="1" height="1" style="--c:16"/><rect x="17" y="4" width="1" height="1" style="--c:17"/><rect x="21" y="4" width="1" height="1" style="--c:21"/><rect x="22" y="4" width="1" height="1" style="--c:22"/><rect x="16" y="5" width="1" height="1" style="--c:16"/><rect x="17" y="5" width="1" height="1" style="--c:17"/><rect x="18" y="5" width="1" height="1" style="--c:18"/><rect x="19" y="5" width="1" height="1" style="--c:19"/><rect x="20" y="5" width="1" height="1" style="--c:20"/><rect x="21" y="5" width="1" height="1" style="--c:21"/><rect x="22" y="5" width="1" height="1" style="--c:22"/><rect x="16" y="6" width="1" height="1" class="d" style="--c:16"/><rect x="17" y="6" width="1" height="1" style="--c:17"/><rect x="18" y="6" width="1" height="1" style="--c:18"/><rect x="19" y="6" width="1" height="1" style="--c:19"/><rect x="20" y="6" width="1" height="1" style="--c:20"/><rect x="21" y="6" width="1" height="1" style="--c:21"/><rect x="22" y="6" width="1" height="1" class="d" style="--c:22"/><rect x="24" y="0" width="1" height="1" class="d" style="--c:24"/><rect x="25" y="0" width="1" height="1" style="--c:25"/><rect x="26" y="0" width="1" height="1" style="--c:26"/><rect x="27" y="0" width="1" height="1" style="--c:27"/><rect x="28" y="0" width="1" height="1" style="--c:28"/><rect x="29" y="0" width="1" height="1" style="--c:29"/><rect x="30" y="0" width="1" height="1" class="d" style="--c:30"/><rect x="24" y="1" width="1" height="1" style="--c:24"/><rect x="25" y="1" width="1" height="1" style="--c:25"/><rect x="26" y="1" width="1" height="1" style="--c:26"/><rect x="27" y="1" width="1" height="1" style="--c:27"/><rect x="28" y="1" width="1" height="1" style="--c:28"/><rect x="29" y="1" width="1" height="1" style="--c:29"/><rect x="30" y="1" width="1" height="1" style="--c:30"/><rect x="24" y="2" width="1" height="1" style="--c:24"/><rect x="25" y="2" width="1" height="1" style="--c:25"/><rect x="29" y="2" width="1" height="1" style="--c:29"/><rect x="30" y="2" width="1" height="1" style="--c:30"/><rect x="24" y="3" width="1" height="1" style="--c:24"/><rect x="25" y="3" width="1" height="1" style="--c:25"/><rect x="29" y="3" width="1" height="1" style="--c:29"/><rect x="30" y="3" width="1" height="1" style="--c:30"/><rect x="24" y="4" width="1" height="1" style="--c:24"/><rect x="25" y="4" width="1" height="1" style="--c:25"/><rect x="29" y="4" width="1" height="1" style="--c:29"/><rect x="30" y="4" width="1" height="1" style="--c:30"/><rect x="24" y="5" width="1" height="1" style="--c:24"/><rect x="25" y="5" width="1" height="1" style="--c:25"/><rect x="26" y="5" width="1" height="1" style="--c:26"/><rect x="27" y="5" width="1" height="1" style="--c:27"/><rect x="28" y="5" width="1" height="1" style="--c:28"/><rect x="29" y="5" width="1" height="1" style="--c:29"/><rect x="30" y="5" width="1" height="1" style="--c:30"/><rect x="24" y="6" width="1" height="1" class="d" style="--c:24"/><rect x="25" y="6" width="1" height="1" style="--c:25"/><rect x="26" y="6" width="1" height="1" style="--c:26"/><rect x="27" y="6" width="1" height="1" style="--c:27"/><rect x="28" y="6" width="1" height="1" style="--c:28"/><rect x="29" y="6" width="1" height="1" style="--c:29"/><rect x="30" y="6" width="1" height="1" class="d" style="--c:30"/><rect x="32" y="0" width="1" height="1" class="d" style="--c:32"/><rect x="33" y="0" width="1" height="1" style="--c:33"/><rect x="34" y="0" width="1" height="1" style="--c:34"/><rect x="35" y="0" width="1" height="1" style="--c:35"/><rect x="36" y="0" width="1" height="1" style="--c:36"/><rect x="37" y="0" width="1" height="1" style="--c:37"/><rect x="38" y="0" width="1" height="1" style="--c:38"/><rect x="32" y="1" width="1" height="1" style="--c:32"/><rect x="33" y="1" width="1" height="1" style="--c:33"/><rect x="34" y="1" width="1" height="1" style="--c:34"/><rect x="35" y="1" width="1" height="1" style="--c:35"/><rect x="36" y="1" width="1" height="1" style="--c:36"/><rect x="37" y="1" width="1" height="1" style="--c:37"/><rect x="38" y="1" width="1" height="1" style="--c:38"/><rect x="32" y="2" width="1" height="1" style="--c:32"/><rect x="33" y="2" width="1" height="1" style="--c:33"/><rect x="34" y="2" width="1" height="1" style="--c:34"/><rect x="32" y="3" width="1" height="1" class="d" style="--c:32"/><rect x="33" y="3" width="1" height="1" style="--c:33"/><rect x="34" y="3" width="1" height="1" style="--c:34"/><rect x="35" y="3" width="1" height="1" style="--c:35"/><rect x="36" y="3" width="1" height="1" style="--c:36"/><rect x="37" y="3" width="1" height="1" style="--c:37"/><rect x="38" y="3" width="1" height="1" class="d" style="--c:38"/><rect x="36" y="4" width="1" height="1" style="--c:36"/><rect x="37" y="4" width="1" height="1" style="--c:37"/><rect x="38" y="4" width="1" height="1" style="--c:38"/><rect x="32" y="5" width="1" height="1" style="--c:32"/><rect x="33" y="5" width="1" height="1" style="--c:33"/><rect x="34" y="5" width="1" height="1" style="--c:34"/><rect x="35" y="5" width="1" height="1" style="--c:35"/><rect x="36" y="5" width="1" height="1" style="--c:36"/><rect x="37" y="5" width="1" height="1" style="--c:37"/><rect x="38" y="5" width="1" height="1" style="--c:38"/><rect x="32" y="6" width="1" height="1" style="--c:32"/><rect x="33" y="6" width="1" height="1" style="--c:33"/><rect x="34" y="6" width="1" height="1" style="--c:34"/><rect x="35" y="6" width="1" height="1" style="--c:35"/><rect x="36" y="6" width="1" height="1" style="--c:36"/><rect x="37" y="6" width="1" height="1" style="--c:37"/><rect x="38" y="6" width="1" height="1" class="d" style="--c:38"/></svg></a>
+      <span class="gloss" id="gloss-nav" role="note"><span class="t">short for <b>logothete</b>: your personal scribe</span><span class="caret" aria-hidden="true"></span></span>
+    </span>
     <nav>
       <a href="#features">Features</a>
+      <a href="#community">Community</a>
       <a href="#proof">Benchmark</a>
       <a href="https://github.com/Coder8124/logos">GitHub</a>
       <a class="btn solid" href="#install">Install</a>
@@ -432,28 +542,51 @@ footer .sp { margin-left: auto; }
 </header>
 
 <main>
-  <div class="band dark" style="padding-block:0">
+  <div class="hero-band">
     <div class="wrap hero">
-      <span class="eyebrow fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.8">v0.4.8</a> &middot; Apache 2.0 &middot; local-first</span>
-      <h1 class="fade">Your memory. <em>Any</em> agent.</h1>
+      <span class="label fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.8">v0.4.8</a> &middot; Apache 2.0 &middot; local-first</span>
+      <div class="brand fade">
+        <h1><button class="mark" type="button" aria-label="Logos" aria-describedby="gloss-hero"><svg viewBox="0 0 39 7" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" style="--c:0"/><rect x="1" y="0" width="1" height="1" style="--c:1"/><rect x="0" y="1" width="1" height="1" style="--c:0"/><rect x="1" y="1" width="1" height="1" style="--c:1"/><rect x="0" y="2" width="1" height="1" style="--c:0"/><rect x="1" y="2" width="1" height="1" style="--c:1"/><rect x="0" y="3" width="1" height="1" style="--c:0"/><rect x="1" y="3" width="1" height="1" style="--c:1"/><rect x="0" y="4" width="1" height="1" style="--c:0"/><rect x="1" y="4" width="1" height="1" style="--c:1"/><rect x="0" y="5" width="1" height="1" style="--c:0"/><rect x="1" y="5" width="1" height="1" style="--c:1"/><rect x="2" y="5" width="1" height="1" style="--c:2"/><rect x="3" y="5" width="1" height="1" style="--c:3"/><rect x="4" y="5" width="1" height="1" style="--c:4"/><rect x="5" y="5" width="1" height="1" style="--c:5"/><rect x="6" y="5" width="1" height="1" style="--c:6"/><rect x="0" y="6" width="1" height="1" style="--c:0"/><rect x="1" y="6" width="1" height="1" style="--c:1"/><rect x="2" y="6" width="1" height="1" style="--c:2"/><rect x="3" y="6" width="1" height="1" style="--c:3"/><rect x="4" y="6" width="1" height="1" style="--c:4"/><rect x="5" y="6" width="1" height="1" style="--c:5"/><rect x="6" y="6" width="1" height="1" class="d" style="--c:6"/><rect x="8" y="0" width="1" height="1" class="d" style="--c:8"/><rect x="9" y="0" width="1" height="1" style="--c:9"/><rect x="10" y="0" width="1" height="1" style="--c:10"/><rect x="11" y="0" width="1" height="1" style="--c:11"/><rect x="12" y="0" width="1" height="1" style="--c:12"/><rect x="13" y="0" width="1" height="1" style="--c:13"/><rect x="14" y="0" width="1" height="1" class="d" style="--c:14"/><rect x="8" y="1" width="1" height="1" style="--c:8"/><rect x="9" y="1" width="1" height="1" style="--c:9"/><rect x="10" y="1" width="1" height="1" style="--c:10"/><rect x="11" y="1" width="1" height="1" style="--c:11"/><rect x="12" y="1" width="1" height="1" style="--c:12"/><rect x="13" y="1" width="1" height="1" style="--c:13"/><rect x="14" y="1" width="1" height="1" style="--c:14"/><rect x="8" y="2" width="1" height="1" style="--c:8"/><rect x="9" y="2" width="1" height="1" style="--c:9"/><rect x="13" y="2" width="1" height="1" style="--c:13"/><rect x="14" y="2" width="1" height="1" style="--c:14"/><rect x="8" y="3" width="1" height="1" style="--c:8"/><rect x="9" y="3" width="1" height="1" style="--c:9"/><rect x="13" y="3" width="1" height="1" style="--c:13"/><rect x="14" y="3" width="1" height="1" style="--c:14"/><rect x="8" y="4" width="1" height="1" style="--c:8"/><rect x="9" y="4" width="1" height="1" style="--c:9"/><rect x="13" y="4" width="1" height="1" style="--c:13"/><rect x="14" y="4" width="1" height="1" style="--c:14"/><rect x="8" y="5" width="1" height="1" style="--c:8"/><rect x="9" y="5" width="1" height="1" style="--c:9"/><rect x="10" y="5" width="1" height="1" style="--c:10"/><rect x="11" y="5" width="1" height="1" style="--c:11"/><rect x="12" y="5" width="1" height="1" style="--c:12"/><rect x="13" y="5" width="1" height="1" style="--c:13"/><rect x="14" y="5" width="1" height="1" style="--c:14"/><rect x="8" y="6" width="1" height="1" class="d" style="--c:8"/><rect x="9" y="6" width="1" height="1" style="--c:9"/><rect x="10" y="6" width="1" height="1" style="--c:10"/><rect x="11" y="6" width="1" height="1" style="--c:11"/><rect x="12" y="6" width="1" height="1" style="--c:12"/><rect x="13" y="6" width="1" height="1" style="--c:13"/><rect x="14" y="6" width="1" height="1" class="d" style="--c:14"/><rect x="16" y="0" width="1" height="1" class="d" style="--c:16"/><rect x="17" y="0" width="1" height="1" style="--c:17"/><rect x="18" y="0" width="1" height="1" style="--c:18"/><rect x="19" y="0" width="1" height="1" style="--c:19"/><rect x="20" y="0" width="1" height="1" style="--c:20"/><rect x="21" y="0" width="1" height="1" style="--c:21"/><rect x="22" y="0" width="1" height="1" class="d" style="--c:22"/><rect x="16" y="1" width="1" height="1" style="--c:16"/><rect x="17" y="1" width="1" height="1" style="--c:17"/><rect x="18" y="1" width="1" height="1" style="--c:18"/><rect x="19" y="1" width="1" height="1" style="--c:19"/><rect x="20" y="1" width="1" height="1" style="--c:20"/><rect x="21" y="1" width="1" height="1" style="--c:21"/><rect x="22" y="1" width="1" height="1" style="--c:22"/><rect x="16" y="2" width="1" height="1" style="--c:16"/><rect x="17" y="2" width="1" height="1" style="--c:17"/><rect x="16" y="3" width="1" height="1" style="--c:16"/><rect x="17" y="3" width="1" height="1" style="--c:17"/><rect x="20" y="3" width="1" height="1" style="--c:20"/><rect x="21" y="3" width="1" height="1" style="--c:21"/><rect x="22" y="3" width="1" height="1" style="--c:22"/><rect x="16" y="4" width="1" height="1" style="--c:16"/><rect x="17" y="4" width="1" height="1" style="--c:17"/><rect x="21" y="4" width="1" height="1" style="--c:21"/><rect x="22" y="4" width="1" height="1" style="--c:22"/><rect x="16" y="5" width="1" height="1" style="--c:16"/><rect x="17" y="5" width="1" height="1" style="--c:17"/><rect x="18" y="5" width="1" height="1" style="--c:18"/><rect x="19" y="5" width="1" height="1" style="--c:19"/><rect x="20" y="5" width="1" height="1" style="--c:20"/><rect x="21" y="5" width="1" height="1" style="--c:21"/><rect x="22" y="5" width="1" height="1" style="--c:22"/><rect x="16" y="6" width="1" height="1" class="d" style="--c:16"/><rect x="17" y="6" width="1" height="1" style="--c:17"/><rect x="18" y="6" width="1" height="1" style="--c:18"/><rect x="19" y="6" width="1" height="1" style="--c:19"/><rect x="20" y="6" width="1" height="1" style="--c:20"/><rect x="21" y="6" width="1" height="1" style="--c:21"/><rect x="22" y="6" width="1" height="1" class="d" style="--c:22"/><rect x="24" y="0" width="1" height="1" class="d" style="--c:24"/><rect x="25" y="0" width="1" height="1" style="--c:25"/><rect x="26" y="0" width="1" height="1" style="--c:26"/><rect x="27" y="0" width="1" height="1" style="--c:27"/><rect x="28" y="0" width="1" height="1" style="--c:28"/><rect x="29" y="0" width="1" height="1" style="--c:29"/><rect x="30" y="0" width="1" height="1" class="d" style="--c:30"/><rect x="24" y="1" width="1" height="1" style="--c:24"/><rect x="25" y="1" width="1" height="1" style="--c:25"/><rect x="26" y="1" width="1" height="1" style="--c:26"/><rect x="27" y="1" width="1" height="1" style="--c:27"/><rect x="28" y="1" width="1" height="1" style="--c:28"/><rect x="29" y="1" width="1" height="1" style="--c:29"/><rect x="30" y="1" width="1" height="1" style="--c:30"/><rect x="24" y="2" width="1" height="1" style="--c:24"/><rect x="25" y="2" width="1" height="1" style="--c:25"/><rect x="29" y="2" width="1" height="1" style="--c:29"/><rect x="30" y="2" width="1" height="1" style="--c:30"/><rect x="24" y="3" width="1" height="1" style="--c:24"/><rect x="25" y="3" width="1" height="1" style="--c:25"/><rect x="29" y="3" width="1" height="1" style="--c:29"/><rect x="30" y="3" width="1" height="1" style="--c:30"/><rect x="24" y="4" width="1" height="1" style="--c:24"/><rect x="25" y="4" width="1" height="1" style="--c:25"/><rect x="29" y="4" width="1" height="1" style="--c:29"/><rect x="30" y="4" width="1" height="1" style="--c:30"/><rect x="24" y="5" width="1" height="1" style="--c:24"/><rect x="25" y="5" width="1" height="1" style="--c:25"/><rect x="26" y="5" width="1" height="1" style="--c:26"/><rect x="27" y="5" width="1" height="1" style="--c:27"/><rect x="28" y="5" width="1" height="1" style="--c:28"/><rect x="29" y="5" width="1" height="1" style="--c:29"/><rect x="30" y="5" width="1" height="1" style="--c:30"/><rect x="24" y="6" width="1" height="1" class="d" style="--c:24"/><rect x="25" y="6" width="1" height="1" style="--c:25"/><rect x="26" y="6" width="1" height="1" style="--c:26"/><rect x="27" y="6" width="1" height="1" style="--c:27"/><rect x="28" y="6" width="1" height="1" style="--c:28"/><rect x="29" y="6" width="1" height="1" style="--c:29"/><rect x="30" y="6" width="1" height="1" class="d" style="--c:30"/><rect x="32" y="0" width="1" height="1" class="d" style="--c:32"/><rect x="33" y="0" width="1" height="1" style="--c:33"/><rect x="34" y="0" width="1" height="1" style="--c:34"/><rect x="35" y="0" width="1" height="1" style="--c:35"/><rect x="36" y="0" width="1" height="1" style="--c:36"/><rect x="37" y="0" width="1" height="1" style="--c:37"/><rect x="38" y="0" width="1" height="1" style="--c:38"/><rect x="32" y="1" width="1" height="1" style="--c:32"/><rect x="33" y="1" width="1" height="1" style="--c:33"/><rect x="34" y="1" width="1" height="1" style="--c:34"/><rect x="35" y="1" width="1" height="1" style="--c:35"/><rect x="36" y="1" width="1" height="1" style="--c:36"/><rect x="37" y="1" width="1" height="1" style="--c:37"/><rect x="38" y="1" width="1" height="1" style="--c:38"/><rect x="32" y="2" width="1" height="1" style="--c:32"/><rect x="33" y="2" width="1" height="1" style="--c:33"/><rect x="34" y="2" width="1" height="1" style="--c:34"/><rect x="32" y="3" width="1" height="1" class="d" style="--c:32"/><rect x="33" y="3" width="1" height="1" style="--c:33"/><rect x="34" y="3" width="1" height="1" style="--c:34"/><rect x="35" y="3" width="1" height="1" style="--c:35"/><rect x="36" y="3" width="1" height="1" style="--c:36"/><rect x="37" y="3" width="1" height="1" style="--c:37"/><rect x="38" y="3" width="1" height="1" class="d" style="--c:38"/><rect x="36" y="4" width="1" height="1" style="--c:36"/><rect x="37" y="4" width="1" height="1" style="--c:37"/><rect x="38" y="4" width="1" height="1" style="--c:38"/><rect x="32" y="5" width="1" height="1" style="--c:32"/><rect x="33" y="5" width="1" height="1" style="--c:33"/><rect x="34" y="5" width="1" height="1" style="--c:34"/><rect x="35" y="5" width="1" height="1" style="--c:35"/><rect x="36" y="5" width="1" height="1" style="--c:36"/><rect x="37" y="5" width="1" height="1" style="--c:37"/><rect x="38" y="5" width="1" height="1" style="--c:38"/><rect x="32" y="6" width="1" height="1" style="--c:32"/><rect x="33" y="6" width="1" height="1" style="--c:33"/><rect x="34" y="6" width="1" height="1" style="--c:34"/><rect x="35" y="6" width="1" height="1" style="--c:35"/><rect x="36" y="6" width="1" height="1" style="--c:36"/><rect x="37" y="6" width="1" height="1" style="--c:37"/><rect x="38" y="6" width="1" height="1" class="d" style="--c:38"/></svg></button></h1>
+        <p class="gloss" id="gloss-hero" role="note"><span class="t">short for <b>logothete</b>: your personal scribe</span><span class="caret" aria-hidden="true"></span></p>
+      </div>
       <p class="sub fade">
-        One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
+        <strong>Your memory. Any agent.</strong> One vault of markdown on your own disk. Claude Code writes to it, Cursor reads
         from it, Codex picks up where both stopped &mdash; and none of them owns it.
       </p>
 
-      <div class="cmd primary fade">
-        <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
+      <div class="frame tight fade">
+        <div class="cmd primary">
+          <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
 <span class="prompt">$ </span>logos setup</pre>
-        <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
+          <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
+        </div>
       </div>
       <p class="note">macOS and Linux. Setup shows what it would write to each agent and changes nothing until you say yes.<br>Windows: <code>npx -y @noeton/logos setup</code></p>
       <div class="btns">
         <a class="btn ghost" href="#install">Other ways to install</a>
         <a class="btn ghost" href="https://github.com/Coder8124/logos">View on GitHub &rarr;</a>
       </div>
+    </div>
 
-      <div class="window fade">
-        <div class="bar"><b>logos demo</b> <span class="side">three agents, one vault &mdash; lines from a real run</span></div>
+    <div class="wrap hosts">
+      <span class="label">Works with</span>
+      <ul>
+        <li>Claude Code</li>
+        <li>Cursor</li>
+        <li>Codex</li>
+        <li>Claude Desktop</li>
+        <li>VS&nbsp;Code</li>
+        <li>Zed</li>
+        <li>Cline</li>
+        <li class="open">your own agent</li>
+      </ul>
+      <p class="note">Setup wires the first four and proves each one with a real store-then-recall. The rest take one block of JSON.</p>
+    </div>
+
+    <div class="wrap demo">
+      <div class="frame">
+        <div class="window">
+          <div class="bar"><b>logos demo</b> <span class="side">three agents, one vault &mdash; lines from a real run</span></div>
 <pre><span class="g">claude code</span>
   <span class="g">&gt;</span> <span class="say">"staging runs on port 8080"</span>
   <span class="ok">&#10003; Logos &middot; stored in logos &mdash; memory #1</span>
@@ -469,65 +602,50 @@ footer .sp { margin-left: auto; }
 
 <span class="g">logos memory log</span>
   <span class="g">superseded </span> <span class="br">#1</span>  <span class="del">Staging runs on port 8080.</span> &rarr; #2</pre>
+        </div>
       </div>
       <p class="note">Run it against a scratch vault, nothing of yours touched: <code>npx -y @noeton/logos demo</code></p>
     </div>
-
-    <div class="wrap hosts">
-      <span class="eyebrow">Works with the agents you already use</span>
-      <ul>
-        <li>Claude Code</li>
-        <li>Cursor</li>
-        <li>Codex</li>
-        <li>Claude Desktop</li>
-        <li>VS&nbsp;Code</li>
-        <li>Zed</li>
-        <li>Cline</li>
-        <li class="open">your own agent</li>
-      </ul>
-      <p class="note">Setup wires the first four and proves each one with a real store-then-recall. The rest take one block of JSON.</p>
-    </div>
   </div>
 
-  <section class="band light" id="features">
-    <div class="wrap">
+  <section class="sec" id="features">
+    <div class="wrap split">
       <div class="head">
-        <span class="eyebrow">Features</span>
-        <h2>Continuity, not just retrieval</h2>
-        <p>Every memory tool can find a fact. Logos makes sure the next agent gets the right one.</p>
+        <h2>Features</h2>
+        <p><strong>Continuity, not just retrieval.</strong> Every memory tool can find a fact. Logos makes sure the next agent gets the right one.</p>
       </div>
-      <div class="grid">
-        <div class="card">
+      <div class="cells">
+        <div class="cell">
           <span class="k">Consolidation</span>
           <h3>Old values are withheld, not ranked lower</h3>
           <p>When a fact changes, the stale one stops coming back, and why it was superseded goes on the record.</p>
           <code class="line">logos memory log</code>
         </div>
-        <div class="card record">
+        <div class="cell record">
           <span class="k">Handoff</span>
           <h3>Dead ends travel between agents</h3>
           <p>A checkpoint carries what was verified, what failed and what is next.</p>
           <code class="line">/handoff &middot; resume</code>
         </div>
-        <div class="card">
+        <div class="cell">
           <span class="k">Cold start</span>
           <h3>Useful before you teach it anything</h3>
           <p>Reads your git history and proposes what it can defend, each with the command behind it.</p>
           <code class="line">logos bootstrap --dry-run</code>
         </div>
-        <div class="card record">
+        <div class="cell record">
           <span class="k">Ownership</span>
           <h3>Markdown you can grep and commit</h3>
           <p>The vault is truth; the SQLite index is a cache. Delete it and it rebuilds from the files.</p>
           <code class="line">~/logos/**/*.md</code>
         </div>
-        <div class="card">
+        <div class="cell">
           <span class="k">Receipts</span>
           <h3>You can see it working</h3>
           <p>Every change to what the agent knows says so in one line, in the host you are already looking at.</p>
           <code class="line">LOGOS_ANNOUNCE=quiet</code>
         </div>
-        <div class="card">
+        <div class="cell">
           <span class="k">Scope</span>
           <h3>One vault, one project per folder</h3>
           <p>The project comes from the directory the agent works in, so two repositories never cross.</p>
@@ -537,16 +655,16 @@ footer .sp { margin-left: auto; }
     </div>
   </section>
 
-  <section class="band dark" id="handoff">
+  <section class="sec" id="handoff">
     <div class="wrap">
       <div class="head">
-        <span class="eyebrow">Handoff</span>
-        <h2>What one agent wrote, and what the next one got</h2>
-        <p>Both panes are real files from this project&rsquo;s own vault.</p>
+        <h2>Handoff</h2>
+        <p><strong>What one agent wrote, and what the next one got.</strong> Both panes are real files from this project&rsquo;s own vault.</p>
       </div>
-      <div class="pair">
-        <div class="window record">
-          <div class="bar"><b>written by claude code</b> <span class="side">sessions/logos/&hellip;-claude.md</span></div>
+      <div class="frame">
+        <div class="pair">
+          <div class="window record">
+            <div class="bar"><b>written by claude code</b> <span class="side">sessions/logos/&hellip;-claude.md</span></div>
 <pre><span class="g">---</span>
 <span class="g">type:</span> checkpoint
 <span class="g">project:</span> logos
@@ -563,9 +681,9 @@ footer .sp { margin-left: auto; }
   'logos' &mdash; taken on npm at 1.0.4
 <span class="g">-</span> claiming the @logos scope &mdash; the org
   already exists, not ours to take</pre>
-        </div>
-        <div class="window">
-          <div class="bar"><b>read back by cursor</b> <span class="side">1 day later</span></div>
+          </div>
+          <div class="window">
+            <div class="bar"><b>read back by cursor</b> <span class="side">1 day later</span></div>
 <pre><span class="g">#</span> Context for: resume work on logos
 
 <span class="say">Last checkpoint by <b>claude</b>, 1d ago.</span>
@@ -580,29 +698,51 @@ a5e72a2 &middot; 2 files uncommitted
   already exists, not ours to take
 
 <span class="g">_Context budget: ~284 of 4000 tokens._</span></pre>
+          </div>
         </div>
       </div>
       <p class="pull">An agent that has never seen your project does not spend an hour rediscovering what last week&rsquo;s agent already paid for.</p>
     </div>
   </section>
 
-  <section class="band light" id="proof">
+  <section class="sec" id="community">
     <div class="wrap">
       <div class="head">
-        <span class="eyebrow">Benchmark</span>
-        <h2>Don&rsquo;t take my numbers for it</h2>
-        <p>I wrote the benchmark and the system that wins it. It runs on your machine in one command, so check it yourself first.</p>
+        <h2>Community</h2>
+        <p><strong>From the people testing it.</strong> Beta testers, unnamed at their own request.</p>
+      </div>
+      <div class="cells quotes">
+        <figure class="cell quote lead" style="margin:0">
+          <div>
+            <blockquote>Logos helped save me over 22&times; tokens.</blockquote>
+            <p class="measured">Measured at the resume moment: a 717-line, ~9,000-token <code>STATE.md</code> against a 34-line, ~400-token checkpoint of the same project.</p>
+          </div>
+          <figcaption class="who"><svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1" class="d"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="1" y="1" width="1" height="1" class="d"/><rect x="3" y="1" width="1" height="1" class="d"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1" class="d"/><rect x="1" y="2" width="1" height="1" class="d"/><rect x="2" y="2" width="1" height="1" class="d"/><rect x="3" y="2" width="1" height="1" class="d"/><rect x="4" y="2" width="1" height="1" class="d"/><rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1" class="d"/><rect x="4" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1" class="d"/><rect x="2" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1" class="d"/></svg><div><b>Anon</b><span>15 years old</span><span class="tag">Beta tester</span></div></figcaption>
+        </figure>
+        <figure class="cell quote" style="margin:0">
+          <blockquote>Logos helped me completely migrate from Claude to Copilot following internal switch-ups. Couldn&rsquo;t be happier.</blockquote>
+          <figcaption class="who"><svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" class="d"/><rect x="2" y="0" width="1" height="1"/><rect x="4" y="0" width="1" height="1" class="d"/><rect x="0" y="1" width="1" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1" class="d"/><rect x="3" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="1" y="2" width="1" height="1" class="d"/><rect x="3" y="2" width="1" height="1" class="d"/><rect x="0" y="3" width="1" height="1"/><rect x="1" y="3" width="1" height="1" class="d"/><rect x="2" y="3" width="1" height="1" class="d"/><rect x="3" y="3" width="1" height="1" class="d"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/></svg><div><b>Anon</b><span>Senior developer</span><span class="tag">Beta tester</span></div></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="proof">
+    <div class="wrap">
+      <div class="head">
+        <h2>Benchmark</h2>
+        <p><strong>Don&rsquo;t take my numbers for it.</strong> I wrote the benchmark and the system that wins it. It runs on your machine in one command, so check it yourself first.</p>
       </div>
       <div class="cmd primary proof-run">
         <pre><span class="prompt">$ </span>go run ./cmd/logos <span class="pkg">bench continuity</span> <span class="flag">--logos-only</span></pre>
         <button class="copy" type="button" data-copy="go run ./cmd/logos bench continuity --logos-only">Copy</button>
       </div>
-      <p class="note proof-run-note">32 handoff scenarios. One passes only if the next agent gets the current fact, without the stale one beside it, in a token budget it did not choose. Here is what it printed for me:</p>
+      <p class="note">32 handoff scenarios. One passes only if the next agent gets the current fact, without the stale one beside it, in a token budget it did not choose. Here is what it printed for me:</p>
 
-      <div class="stats">
-        <div><b>84.4%</b><span>handoff pass rate &middot; next best 46.9%</span></div>
-        <div><b>16.7%</b><span>stale facts leaked &middot; next best 58.3%</span></div>
-        <div><b>0 MB</b><span>of model required</span></div>
+      <div class="cells stats">
+        <div class="cell"><b>84.4%</b><span>handoff pass rate &middot; next best 46.9%</span></div>
+        <div class="cell"><b>16.7%</b><span>stale facts leaked &middot; next best 58.3%</span></div>
+        <div class="cell"><b>0 MB</b><span>of model required</span></div>
       </div>
       <div class="tablewrap bench">
         <table>
@@ -622,27 +762,26 @@ a5e72a2 &middot; 2 files uncommitted
           </tbody>
         </table>
       </div>
-      <p class="note bench-notes">
+      <p class="note">
         <strong>Carry</strong> is required facts retrieved; <strong>Leak</strong> is superseded facts returned anyway, lower is better;
         <strong>Signal</strong> is telling the next agent something was already tried. It loses too, and those rows stay in:
         arithmetic, recency-conflict and multi-hop are all 0%.
       </p>
-      <p class="note bench-notes">
+      <p class="note">
         Drop <code>--logos-only</code> to run every rival too; that one needs their API keys, this one needs only Ollama.
         <a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Scenarios, scoring and every adapter setting</a>.
       </p>
     </div>
   </section>
 
-  <section class="band dark" id="install">
-    <div class="wrap">
+  <section class="sec" id="install">
+    <div class="wrap split">
       <div class="head">
-        <span class="eyebrow">Install</span>
-        <h2>Pick how you work</h2>
-        <p>Every route installs the same single binary and points every agent at the same vault.</p>
+        <h2>Install</h2>
+        <p><strong>Pick how you work.</strong> Every route installs the same single binary and points every agent at the same vault.</p>
       </div>
 
-      <div class="install">
+      <div>
         <div class="tabs" role="tablist" aria-label="Install method">
           <button type="button" role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
           <button type="button" role="tab" id="t-npx" aria-controls="p-npx" aria-selected="false" tabindex="-1">Windows</button>
@@ -652,6 +791,7 @@ a5e72a2 &middot; 2 files uncommitted
           <button type="button" role="tab" id="t-bin" aria-controls="p-bin" aria-selected="false" tabindex="-1">Binaries</button>
         </div>
 
+        <div class="frame">
         <div class="panel" role="tabpanel" id="p-brew" aria-labelledby="t-brew">
           <p>macOS and Linux. The formula is <code>logos-mcp</code>, because Homebrew already has a <code>logos</code>; the command it installs is still <code>logos</code>.</p>
           <ol class="steps">
@@ -749,31 +889,32 @@ a5e72a2 &middot; 2 files uncommitted
             &middot; with Go: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>
           </p>
         </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="band light" id="private">
+  <section class="sec" id="private">
     <div class="wrap">
       <div class="head">
-        <span class="eyebrow">Private by design</span>
-        <h2>What installing does to your machine</h2>
+        <h2>Private by design</h2>
+        <p><strong>What installing does to your machine.</strong></p>
       </div>
-      <ul class="facts">
-        <li><strong>A directory of markdown</strong>At <code>~/logos</code> unless you say otherwise. Open it, grep it, commit it, delete it.</li>
-        <li><strong>Nothing wired without a yes</strong>Setup lists the agents it found and what it would write to each before touching anything.</li>
-        <li><strong>Agents propose, you accept</strong>A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it.</li>
-        <li><strong>No account, server or telemetry</strong>Nothing leaves the machine. <code>.logos/index.db</code> is a cache that rebuilds from the files.</li>
-        <li><strong>No AI runtime required</strong>Checkpoint, resume and dead ends are markdown and SQL. A 274&nbsp;MB model adds semantic recall if you want it.</li>
-        <li><strong>No <code>postinstall</code> script</strong>The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs work.</li>
+      <ul class="cells facts">
+        <li class="cell"><strong>A directory of markdown</strong>At <code>~/logos</code> unless you say otherwise. Open it, grep it, commit it, delete it.</li>
+        <li class="cell"><strong>Nothing wired without a yes</strong>Setup lists the agents it found and what it would write to each before touching anything.</li>
+        <li class="cell"><strong>Agents propose, you accept</strong>A memory written over MCP waits in a review queue &mdash; <code>logos review</code> accepts or rejects it.</li>
+        <li class="cell"><strong>No account, server or telemetry</strong>Nothing leaves the machine. <code>.logos/index.db</code> is a cache that rebuilds from the files.</li>
+        <li class="cell"><strong>No AI runtime required</strong>Checkpoint, resume and dead ends are markdown and SQL. A 274&nbsp;MB model adds semantic recall if you want it.</li>
+        <li class="cell"><strong>No <code>postinstall</code> script</strong>The binary ships as real package contents, so <code>--ignore-scripts</code> and offline installs work.</li>
       </ul>
     </div>
   </section>
 
-  <div class="band dark closing">
+  <div class="closing">
     <div class="wrap">
       <h2>Give your next agent a memory.</h2>
-      <div class="cmd primary">
+      <div class="cmd">
         <pre><span class="prompt">$ </span>brew install <span class="pkg">coder8124/tap/logos-mcp</span>
 <span class="prompt">$ </span>logos setup</pre>
         <button class="copy" type="button" data-copy="brew install coder8124/tap/logos-mcp &amp;&amp; logos setup">Copy</button>
@@ -784,15 +925,65 @@ a5e72a2 &middot; 2 files uncommitted
 
 <footer>
   <div class="wrap">
-    <span>Logos v0.4.8 &middot; Apache 2.0</span>
-    <a href="https://github.com/Coder8124/logos">Coder8124/logos</a>
-    <a href="https://www.npmjs.com/package/@noeton/logos">@noeton/logos</a>
-    <a href="https://github.com/Coder8124/homebrew-tap">coder8124/tap</a>
-    <span class="sp">Formerly &ldquo;brain&rdquo;.</span>
+    <div class="top">
+      <div>
+        <div class="tag">Your memory. Any agent.</div>
+        <span class="badge">Apache 2.0 &middot; local-first</span>
+      </div>
+      <div class="cols">
+        <div>
+          <span class="label">Get it</span>
+          <ul>
+            <li><a href="https://github.com/Coder8124/logos">Coder8124/logos</a></li>
+            <li><a href="https://www.npmjs.com/package/@noeton/logos">@noeton/logos</a></li>
+            <li><a href="https://github.com/Coder8124/homebrew-tap">coder8124/tap</a></li>
+          </ul>
+        </div>
+        <div>
+          <span class="label">Read</span>
+          <ul>
+            <li><a href="#install">Install</a></li>
+            <li><a href="https://github.com/Coder8124/logos/blob/main/docs/continuity-benchmark.md">Benchmark</a></li>
+            <li><a href="https://github.com/Coder8124/logos/releases">Releases</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="bottom">
+      <span>Logos v0.4.8 &middot; Formerly &ldquo;brain&rdquo;</span>
+      <a href="#">Back to top &uarr;</a>
+    </div>
   </div>
 </footer>
 
 <script>
+// The wordmark's gloss. Hover and keyboard focus are handled in CSS; a touch
+// screen has neither, so a tap pins the gloss open and a second tap, a tap
+// elsewhere or Escape closes it. The masthead mark is a link to the top, so
+// its first tap only glosses and the second one navigates.
+(function () {
+  var brands = Array.prototype.slice.call(document.querySelectorAll(".brand"));
+  function closeAll(except) {
+    brands.forEach(function (b) { if (b !== except) b.classList.remove("open"); });
+  }
+  brands.forEach(function (brand) {
+    var mark = brand.querySelector(".mark");
+    mark.addEventListener("click", function (e) {
+      var coarse = window.matchMedia("(hover: none)").matches;
+      if (mark.tagName === "A" && (!coarse || brand.classList.contains("open"))) return;
+      e.preventDefault();
+      closeAll(brand);
+      brand.classList.toggle("open");
+    });
+  });
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".brand")) closeAll(null);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeAll(null);
+  });
+})();
+
 // Install tabs. Arrow keys move between tabs, as the ARIA tabs pattern expects;
 // a person tabbing through the page lands on the selected tab only.
 (function () {
