@@ -73,7 +73,13 @@ func Draw(g Graph, cols, rows int, color bool) string {
 			continue
 		}
 		mark := '●'
-		if n.Kind == "missing" {
+		switch {
+		case n.Slug == g.Focus:
+			// Its own glyph, not just its own colour: under NO_COLOR or in a
+			// pasted drawing the brass is gone and nothing else says where the
+			// picture is centred.
+			mark = '◉'
+		case n.Kind == "missing":
 			mark = '○'
 		}
 		// Two nodes in one cell: the one drawn first — the more important —
@@ -88,11 +94,19 @@ func Draw(g Graph, cols, rows int, color bool) string {
 		if !ok {
 			continue
 		}
-		width := 18
+		// Widest first, shortened only as far as the space beside the node
+		// forces: a fixed clip cut names that had a whole empty row to sit in.
+		// The cap is what stops one long title walling off a row that later,
+		// less important labels also need.
+		width := 44
 		if n.Slug == g.Focus {
-			width = 32
+			width = 60
 		}
-		if !c.label(x/2, y/4, Label(n, width), labelStyle(n, g.Focus)) {
+		placed := false
+		for w := width; w >= minLabel && !placed; w-- {
+			placed = c.label(x/2, y/4, Label(n, w), labelStyle(n, g.Focus))
+		}
+		if !placed {
 			hidden++
 		}
 	}
@@ -100,7 +114,7 @@ func Draw(g Graph, cols, rows int, color bool) string {
 	var b strings.Builder
 	b.WriteString(c.render(color))
 	b.WriteString("\n")
-	legend := "● note  ○ linked, not written yet"
+	legend := "◉ focus  ● note  ○ linked, not written yet"
 	if hasSimilarity(g) {
 		legend += "  ⠒⠒ linked  ⠂⠂ similar, not linked"
 	}
@@ -115,6 +129,11 @@ func Draw(g Graph, cols, rows int, color bool) string {
 	}
 	return b.String()
 }
+
+// minLabel is the narrowest a label is cut before the node goes unnamed
+// instead: under it a name is a few letters and an ellipsis, which reads as
+// noise, and the footer's count of unnamed nodes is the more honest answer.
+const minLabel = 8
 
 // Label is how a node is named in the drawing: its title, or the last segment
 // of its slug, on one line with control characters removed and clipped to

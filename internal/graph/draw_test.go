@@ -85,6 +85,40 @@ func TestAWideScriptLabelIsMeasuredInColumns(t *testing.T) {
 	}
 }
 
+// A name is cut only when something is in its way. Clipped to a fixed 18
+// columns, "logos — Finish the release" came out "logos — Finish th…" with
+// sixty empty columns beside it.
+func TestANameIsDrawnWholeWhenTheRowHasRoomForIt(t *testing.T) {
+	g := Graph{Focus: "sessions/a"}
+	titles := []string{"logos — Finish the release notes", "logos — Make the graph readable", "logos — Merge the subagent branches", "logos — Get Logos into a release"}
+	for i, title := range titles {
+		slug := fmt.Sprintf("sessions/%c", 'a'+i)
+		g.Nodes = append(g.Nodes, Node{Slug: slug, Title: title, Kind: "checkpoint", Degree: 1, Hops: i})
+		if i > 0 {
+			g.Edges = append(g.Edges, Edge{Src: slug, Dst: fmt.Sprintf("sessions/%c", 'a'+i-1), Pred: "follows", Conf: 1, Provenance: Typed})
+		}
+	}
+	out := Draw(g, 140, 24, false)
+	for _, want := range titles {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q was cut short with room to spare:\n%s", want, out)
+		}
+	}
+}
+
+// Without colour the brass focus is gone, and a ● like every other left the
+// reader no way to find where the picture is centred.
+func TestTheFocusIsMarkedApartWithoutColour(t *testing.T) {
+	out := Draw(star(5), 80, 20, false)
+	picture := out[:strings.LastIndex(strings.TrimRight(out, "\n"), "\n")]
+	if n := strings.Count(picture, "◉"); n != 1 {
+		t.Errorf("the focus mark appears %d times, want once:\n%s", n, out)
+	}
+	if !strings.Contains(out, "◉ focus") {
+		t.Errorf("the legend does not say what ◉ is:\n%s", out)
+	}
+}
+
 func TestEveryNodeIsLaidOutInsideTheBox(t *testing.T) {
 	pos := Layout(star(12), 100, 40)
 	if len(pos) != 13 {

@@ -36,7 +36,7 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 		return fmt.Errorf("no note or entity %q in the vault — nothing to graph", focus)
 	}
 
-	fmt.Printf("● %s  (%d nodes, %d edges, %d hops)\n\n", graph.Label(graph.Node{Slug: g.Focus}, 200), len(g.Nodes), len(g.Edges), hops)
+	fmt.Printf("◉ %s  (%d nodes, %d edges, %d hops)\n\n", graph.Label(graph.Node{Slug: g.Focus}, 200), len(g.Nodes), len(g.Edges), hops)
 	if !list {
 		cols, rows, color := drawSize(len(g.Nodes))
 		fmt.Print(graph.Draw(g, cols, rows, color))
