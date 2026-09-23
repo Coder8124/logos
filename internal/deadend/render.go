@@ -3,8 +3,10 @@ package deadend
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/untrusted"
 )
 
@@ -136,8 +138,9 @@ func plural(n int, one, many string) string {
 
 func oneLine(s string) string {
 	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	if len(s) > 120 {
-		s = s[:119] + "…"
+	if utf8.RuneCountInString(s) > 120 {
+		// By characters, as contextpack's oneLine: a byte cut split one (#177).
+		s = text.Ellipsize(s, 120)
 	}
 	return s
 }

@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/untrusted"
 )
 
@@ -137,8 +139,10 @@ func (c Checkpoint) title() string {
 	if t == "" {
 		t = "checkpoint"
 	}
-	if len(t) > 70 {
-		t = strings.TrimSpace(t[:70]) + "…"
+	if utf8.RuneCountInString(t) > 70 {
+		// By characters: this title is written into the vault, and a byte cut
+		// put invalid UTF-8 there for any task in a non-Latin script (#177).
+		t = strings.TrimSpace(text.Truncate(t, 70)) + "…"
 	}
 	return c.Project + " — " + t
 }

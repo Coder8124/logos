@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // Testing the full extract→store→recall pipeline, not just retrieval.
@@ -120,8 +122,9 @@ func topText(mems []Memory) string {
 		return "(nothing recalled)"
 	}
 	t := mems[0].Text
-	if len(t) > 60 {
-		t = t[:60] + "…"
+	// By characters: a byte cut split a non-Latin memory mid-character (#177).
+	if utf8.RuneCountInString(t) > 60 {
+		t = text.Ellipsize(t, 61)
 	}
 	return t
 }

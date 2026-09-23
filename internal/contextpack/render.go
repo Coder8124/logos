@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/textmatch"
 )
 
@@ -1095,8 +1097,9 @@ func flatten(s string) string {
 // headings, list entries whose job is to be scannable — never for findings.
 func oneLine(s string) string {
 	s = flatten(s)
-	if len(s) > 160 {
-		s = s[:159] + "…"
+	if utf8.RuneCountInString(s) > 160 {
+		// By characters: a byte cut split a non-Latin name mid-character (#177).
+		s = text.Ellipsize(s, 160)
 	}
 	return s
 }
