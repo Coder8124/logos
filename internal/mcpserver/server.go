@@ -1277,8 +1277,10 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	out += s.awaitingReview()
 	// Filed under the scope the pack itself read, so the note lands in the same
 	// session a checkpoint will later close — in this worktree, not in the
-	// project the worktree belongs to.
-	if scope := pack.Continuity(); strings.TrimSpace(agent) != "" && scope != "" {
+	// project the worktree belongs to. Not when the project was a guess: the
+	// agent is standing somewhere else and will most likely work there, so the
+	// note opened a session in another project's history that nothing closed.
+	if scope := pack.Continuity(); strings.TrimSpace(agent) != "" && scope != "" && chose == "" {
 		session.AddNote(s.DB, scope, agent, "resumed the project")
 	}
 	return out, nil

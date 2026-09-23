@@ -34,9 +34,15 @@ func TestResumeInAFolderTheVaultDoesNotKnowPicksUpTheMostRecentCheckpoint(t *tes
 		}
 	}
 
-	out, isErr := c.callText(t, "resume", map[string]any{})
+	out, isErr := c.callText(t, "resume", map[string]any{"agent": "codex"})
 	if isErr {
 		t.Fatalf("resume errored: %s", out)
+	}
+	// A guess is not a claim on the project. The agent is standing in a
+	// different folder and will likely work there; a "resumed the project"
+	// note opened a session in kestrel that nobody would ever close.
+	if notes, _ := session.Uncommitted(db, "kestrel"); len(notes) > 0 {
+		t.Errorf("resume filed a working note into the project it only guessed at: %+v", notes)
 	}
 	if !strings.Contains(out, "quote the extruded option") {
 		t.Errorf("resume did not hand over the most recent checkpoint:\n%s", out)
