@@ -2,6 +2,7 @@ package session
 
 import (
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -59,5 +60,29 @@ func TestCuttingANonLatinNameLeavesWholeCharacters(t *testing.T) {
 	}
 	if len(got) > 255 || got == "" {
 		t.Errorf("cut to %d bytes", len(got))
+	}
+}
+
+// The agent name was capped at the filesystem's 255 bytes on its own, and then
+// had a timestamp put in front of it and ".md" after it — so an agent named in
+// the last 20-odd bytes of that range could start a session and then fail every
+// checkpoint with "file name too long".
+func TestALongAgentNameStillLeavesACheckpointAndAPlanThatCanBeWritten(t *testing.T) {
+	vault := t.TempDir()
+	agent := strings.Repeat("a", 250)
+	if _, _, err := claimCheckpoint(vault, "p", agent, idFor(agent, time.Now())); err != nil {
+		t.Errorf("checkpoint: %v", err)
+	}
+	if _, err := SavePlan(vault, Plan{Project: "p", Agent: agent, Text: "do it"}); err != nil {
+		t.Errorf("plan: %v", err)
+	}
+}
+
+// A plan's filename ran the agent through safeScope, which keeps "/" — so an
+// agent called "team/claude" asked for a file inside a directory that did not
+// exist, and the approved plan was never written.
+func TestAnAgentNameWithASlashStillLeavesAPlan(t *testing.T) {
+	if _, err := SavePlan(t.TempDir(), Plan{Project: "p", Agent: "team/claude", Text: "do it"}); err != nil {
+		t.Errorf("plan: %v", err)
 	}
 }

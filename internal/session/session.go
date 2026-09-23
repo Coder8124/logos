@@ -104,7 +104,17 @@ func Init(db *sql.DB) error {
 // idFor builds a session id that sorts by time and names its author. Seconds
 // are included because two agents can easily check in within the same minute.
 func idFor(agent string, t time.Time) string {
-	return t.Format("20060102-150405") + "-" + safe(agent)
+	return t.Format("20060102-150405") + "-" + agentPart(agent)
+}
+
+// agentPart is the agent as it appears inside a filename. safe caps a name at
+// the filesystem's 255 bytes, which is right for a directory that is the whole
+// segment and wrong here: a checkpoint puts a timestamp in front and ".md"
+// after, a plan adds "plan-" too, and an agent named in the last 24 bytes of
+// that range started a session and then failed every checkpoint with "file
+// name too long". The frontmatter keeps the full name; only the filename is cut.
+func agentPart(agent string) string {
+	return capAt(safe(agent), maxNameLen-len("plan-20060102-150405-.md"))
 }
 
 // Start opens a session. Agent defaults to "agent" rather than erroring: a
@@ -440,11 +450,13 @@ const maxNameLen = 255
 // a cut by bytes alone could end inside one — invalid UTF-8, which APFS refuses
 // as a directory name, trading "file name too long" for "illegal byte
 // sequence" (#175).
-func capName(s string) string {
-	if len(s) <= maxNameLen {
+func capName(s string) string { return capAt(s, maxNameLen) }
+
+func capAt(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	cut := maxNameLen
+	cut := n
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
