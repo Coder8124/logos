@@ -186,21 +186,21 @@ func TestAHarnessWithNoReaderIsReportedWithTheReasonItWasSkipped(t *testing.T) {
 	// A known txcript-backed harness with the binary absent says so too, rather
 	// than vanishing from Available(). Cursor used to be this case and is now
 	// read natively, which is the point of the reader.
-	var windsurf transcript.Availability
+	var opencode transcript.Availability
 	for _, a := range transcript.Available() {
-		if a.Harness == "windsurf" {
-			windsurf = a
+		if a.Harness == "opencode" {
+			opencode = a
 		}
 	}
-	if windsurf.Harness == "" {
-		t.Fatal("windsurf missing from Available()")
+	if opencode.Harness == "" {
+		t.Fatal("opencode missing from Available()")
 	}
 	if _, err := execLookTxcript(); err != nil {
-		if windsurf.Found {
-			t.Errorf("windsurf reported found with no txcript on PATH")
+		if opencode.Found {
+			t.Errorf("opencode reported found with no txcript on PATH")
 		}
-		if !strings.Contains(windsurf.Reason, "txcript") {
-			t.Errorf("windsurf skip reason = %q, want it to mention txcript", windsurf.Reason)
+		if !strings.Contains(opencode.Reason, "txcript") {
+			t.Errorf("opencode skip reason = %q, want it to mention txcript", opencode.Reason)
 		}
 	}
 }
