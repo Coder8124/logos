@@ -247,25 +247,24 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
   pointer-events: none;
 }
 
-/* ── Hero ──────────────────────────────────────────────────────────────────
-   The ground behind the hero is a latent field: a grid of glyphs in deep
+/* ── Field ─────────────────────────────────────────────────────────────────
+   The ground under the whole page is a latent field: a grid of glyphs in deep
    verdigris that drifts and flickers like activations nobody reads. Where the
    attention point is, the cursor, or a slow wandering focus on a screen with
    no pointer, the noise decodes into parchment text. That is the product in
    one image: an agent's private state, made into a record someone can read.
+   It is strongest behind the hero and runs at half strength below it, and it
+   never decodes behind the page's own words.
 
    What it decodes into is this repository's own commit history, which is
    public. The page's rule that it shows only real output covers the texture
    too. */
-.hero-band { position: relative; isolation: isolate; overflow: hidden; }
 .field {
-  position: absolute; inset: 0; z-index: -1; display: block;
+  position: fixed; inset: 0; z-index: -1; display: block;
   width: 100%; height: 100%; pointer-events: none;
-  /* The field fades out before the next section, so the dashed rule, not a
-     hard edge of noise, is what ends the hero. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
-          mask-image: linear-gradient(to bottom, #000 72%, transparent);
 }
+
+/* ── Hero ────────────────────────────────────────────────────────────────── */
 /* Type over the field gets a halo of the ground colour, so decoded text
    passing behind a sentence never collides with it. */
 .hero .label, .hero .sub, .hero .note, .hero .gloss,
@@ -479,7 +478,7 @@ td:first-child { color: var(--ink); }
 .closing { background: var(--brass); color: var(--verdigris); padding-block: 2.2rem; }
 .closing .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.2rem 2rem; }
 .closing h2 { color: var(--verdigris); margin: 0; font-size: clamp(1.3rem, 2.4vw, 1.6rem); }
-.closing h2::before { background: var(--verdigris); box-shadow: 4px -4px 0 var(--verdigris), 8px -8px 0 var(--verdigris), 8px 0 0 var(--verdigris-lift), 0 -8px 0 var(--verdigris-lift); }
+.closing h2::before { background: var(--verdigris); }
 .closing .cmd { flex: 0 1 30rem; min-width: 0; box-shadow: none; }
 
 footer { padding-block: 3.5rem 2rem; font-size: .875rem; }
@@ -553,6 +552,7 @@ footer .bottom a:hover { color: var(--brass); }
 </head>
 <body class="no-js">
 <script>document.body.classList.remove("no-js");</script>
+<canvas class="field" aria-hidden="true"></canvas>
 
 <header class="masthead">
   <div class="wrap">
@@ -572,7 +572,6 @@ footer .bottom a:hover { color: var(--brass); }
 
 <main>
   <div class="hero-band">
-    <canvas class="field" aria-hidden="true"></canvas>
     <div class="wrap hero">
       <span class="label fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.8">v0.4.8</a> &middot; Apache 2.0 &middot; local-first</span>
       <div class="brand fade">
@@ -1070,15 +1069,20 @@ document.querySelectorAll(".copy").forEach(function (btn) {
 });
 </script>
 <script>
-// The latent field behind the hero. Every cell holds a noise glyph and, under
-// it, one character of real text; how far a cell has decoded depends on how
-// long attention has rested near it, so text surfaces where you look and sinks
-// back into noise after you leave. Attention follows the pointer, and wanders
-// on its own when there is no pointer, so a phone still sees the field read.
+// The latent field under the whole page. Every cell holds a noise glyph and,
+// under it, one character of real text; how far a cell has decoded depends on
+// how long attention has rested near it, so text surfaces where you look and
+// sinks back into noise after you leave. Attention follows the pointer, and
+// wanders on its own when there is no pointer, so a phone still sees it read.
+//
+// The canvas is fixed to the viewport, but the grid is laid out in document
+// coordinates and drawn at the scroll offset, so the field scrolls with the
+// page like any other ground. A canvas the height of the document would cost
+// hundreds of megabytes at retina density; one the size of the screen is a
+// few.
 (function () {
   var canvas = document.querySelector(".field");
   if (!canvas || !canvas.getContext) return;
-  var band = canvas.parentNode;
   var ctx = canvas.getContext("2d");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -1089,86 +1093,122 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   var NOISE = "0123456789abcdef0123456789abcdef·:;+=*<>/\\|[]{}~^%#";
 
   var FONT = 13, LINE = 19, R = 160;
-  var cw = 8, cols = 0, rows = 0, w = 0, h = 0, dpr = 1;
-  var glyph, target, level, thresh, quiet;
+  // Outside the hero the field is ground, not subject, so it runs at half
+  // strength there.
+  var AWAY = 0.5;
+  var cw = 8, cols = 0, rows = 0, vw = 0, vh = 0, dpr = 1;
+  var glyph, target, level, thresh, quiet, gain;
 
   function rand(n) { return (Math.random() * n) | 0; }
   function noiseChar() { return Math.random() < 0.32 ? " " : NOISE.charAt(rand(NOISE.length)); }
 
   function layout() {
-    var r = band.getBoundingClientRect();
-    w = r.width; h = r.height;
+    vw = document.documentElement.clientWidth; vh = window.innerHeight;
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = FONT + "px 'IBM Plex Mono', ui-monospace, monospace";
     ctx.textBaseline = "top";
     cw = ctx.measureText("0").width;
-    cols = Math.ceil(w / cw) + 1; rows = Math.ceil(h / LINE) + 1;
-    var n = cols * rows;
-    glyph = new Array(n); target = new Array(n);
-    level = new Float32Array(n); thresh = new Float32Array(n); quiet = new Uint8Array(n);
-    markQuiet();
-    for (var y = 0; y < rows; y++) {
-      // Each row starts somewhere different in the history, so neighbouring
-      // lines read as different sentences rather than one text wrapped.
-      var off = (y * 977) % text.length;
-      for (var x = 0; x < cols; x++) {
-        var i = y * cols + x;
-        glyph[i] = noiseChar();
-        target[i] = text.charAt((off + x) % text.length);
-        thresh[i] = 0.25 + Math.random() * 0.55;
+    var c = Math.ceil(vw / cw) + 1;
+    var r = Math.ceil(document.documentElement.scrollHeight / LINE) + 1;
+    // A grid that has not changed shape keeps its state, so a tab switch in
+    // the install section does not wipe what has already been read.
+    if (c !== cols || r !== rows) {
+      cols = c; rows = r;
+      var n = cols * rows;
+      glyph = new Array(n); target = new Array(n);
+      level = new Float32Array(n); thresh = new Float32Array(n);
+      quiet = new Uint8Array(n); gain = new Float32Array(rows);
+      for (var y = 0; y < rows; y++) {
+        // Each row starts somewhere different in the history, so neighbouring
+        // lines read as different sentences rather than one text wrapped.
+        var off = (y * 977) % text.length;
+        for (var x = 0; x < cols; x++) {
+          var i = y * cols + x;
+          glyph[i] = noiseChar();
+          target[i] = text.charAt((off + x) % text.length);
+          thresh[i] = 0.25 + Math.random() * 0.55;
+        }
+      }
+    }
+    measure();
+  }
+
+  // Cells behind the page's own words never decode, even faintly: any
+  // readable text there is read as part of the sentence in front of it. So the
+  // field only speaks in the margins and between sections.
+  var QUIET = [
+    ".hero .label", ".hero .brand", ".hero .sub", ".hero .frame", ".hero .note", ".hero .btn",
+    ".hosts .label", ".hosts li", ".hosts .note",
+    ".sec h2", ".sec h3", ".sec p", ".sec li", ".sec pre", ".sec table", ".sec .btn",
+    ".sec .frame", ".sec .window", ".sec .cells", ".sec .tabs", ".sec .panel", ".sec .cmd",
+    ".sec figure", ".sec dl", "footer .top", "footer .bottom"
+  ].join(",");
+  function measure() {
+    quiet.fill(0);
+    var sy = window.scrollY;
+    Array.prototype.forEach.call(document.querySelectorAll(QUIET), function (el) {
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      var x0 = Math.floor((r.left - 10) / cw), x1 = Math.ceil((r.right + 10) / cw);
+      var y0 = Math.floor((r.top + sy - 6) / LINE), y1 = Math.ceil((r.bottom + sy + 6) / LINE);
+      for (var y = Math.max(0, y0); y < Math.min(rows, y1); y++)
+        for (var x = Math.max(0, x0); x < Math.min(cols, x1); x++) quiet[y * cols + x] = 1;
+    });
+    gain.fill(AWAY);
+    var hero = document.querySelector(".hero-band");
+    if (hero) {
+      var h = hero.getBoundingClientRect();
+      var h0 = Math.floor((h.top + sy) / LINE), h1 = Math.ceil((h.bottom + sy) / LINE);
+      // The hero's strength eases into the rest of the page over a few rows
+      // rather than stopping at a line.
+      for (var y = 0; y < rows; y++) {
+        var d = y < h0 ? h0 - y : y > h1 ? y - h1 : 0;
+        gain[y] = Math.max(AWAY, 1 - d * 0.06);
       }
     }
   }
 
-  // Cells behind the hero's own words never decode, even faintly: any
-  // readable text there is read as part of the sentence in front of it. It is measured again
-  // once the entrance has settled, because the copy is still rising at first.
-  function markQuiet() {
-    quiet.fill(0);
-    var br = band.getBoundingClientRect();
-    Array.prototype.forEach.call(band.querySelectorAll(
-      ".hero .label, .hero .brand, .hero .sub, .hero .frame, .hero .note, .hero .btn, .hosts .label, .hosts li, .hosts .note"
-    ), function (el) {
-      var r = el.getBoundingClientRect();
-      if (!r.width) return;
-      var x0 = Math.floor((r.left - br.left - 10) / cw), x1 = Math.ceil((r.right - br.left + 10) / cw);
-      var y0 = Math.floor((r.top - br.top - 6) / LINE), y1 = Math.ceil((r.bottom - br.top + 6) / LINE);
-      for (var y = Math.max(0, y0); y < Math.min(rows, y1); y++)
-        for (var x = Math.max(0, x0); x < Math.min(cols, x1); x++) quiet[y * cols + x] = 1;
-    });
-  }
-
-  // Attention: where the eye is (ax, ay) and where it is heading (tx, ty).
-  var ax = 0, ay = 0, tx = 0, ty = 0, lastMove = -1e9, inside = false;
-  band.addEventListener("pointermove", function (e) {
+  // Attention, in document coordinates: where the eye is (ax, ay) and where
+  // it is heading (tx, ty). The pointer is kept in client coordinates so a
+  // scroll with a still mouse moves attention with the page underneath it.
+  var ax = 0, ay = 0, tx = 0, ty = 0, px = 0, py = 0, lastMove = -1e9, inside = false;
+  window.addEventListener("pointermove", function (e) {
     if (e.pointerType !== "mouse") return;
-    var r = band.getBoundingClientRect();
-    tx = e.clientX - r.left; ty = e.clientY - r.top;
-    lastMove = performance.now(); inside = true;
-  });
-  band.addEventListener("pointerleave", function () { inside = false; });
+    px = e.clientX; py = e.clientY; lastMove = performance.now(); inside = true;
+  }, { passive: true });
+  document.documentElement.addEventListener("pointerleave", function () { inside = false; });
 
   function wander(t) {
-    // A slow Lissajous path through the upper field, kept clear of the edges.
+    // A slow Lissajous path over the visible screen. Sine dwells at its
+    // extremes, so the focus spends its time in the margins either side of
+    // the copy and only passes through the middle.
     var s = t / 1000;
-    // Sine dwells at its extremes, so the focus spends its time in the
-    // gutters either side of the copy and only passes through the middle.
-    return [w * (0.5 + 0.42 * Math.sin(s * 0.11)), h * (0.4 + 0.28 * Math.sin(s * 0.19 + 1.3))];
+    return [vw * (0.5 + 0.42 * Math.sin(s * 0.11)), vh * (0.45 + 0.3 * Math.sin(s * 0.19 + 1.3))];
+  }
+
+  function visibleRows() {
+    var r0 = Math.max(0, Math.floor(window.scrollY / LINE));
+    return [r0, Math.min(rows, r0 + Math.ceil(vh / LINE) + 2)];
   }
 
   function step(t) {
+    var sy = window.scrollY;
     var idle = !finePointer || !inside || t - lastMove > 4000;
-    if (idle) { var p = wander(t); tx = p[0]; ty = p[1]; }
-    ax += (tx - ax) * (idle ? 0.04 : 0.18);
-    ay += (ty - ay) * (idle ? 0.04 : 0.18);
+    if (idle) { var p = wander(t); tx = p[0]; ty = p[1] + sy; }
+    else { tx = px; ty = py + sy; }
+    var k = idle ? 0.04 : 0.18;
+    // A jump of more than a screen, a scroll by the keyboard or an anchor
+    // link, moves attention at once instead of dragging a smear down the page.
+    if (Math.abs(ty - ay) > vh) { ax = tx; ay = ty; }
+    ax += (tx - ax) * k; ay += (ty - ay) * k;
 
-    var n = cols * rows, flips = (n * 0.02) | 0;
-    for (var k = 0; k < flips; k++) glyph[rand(n)] = noiseChar();
+    var vr = visibleRows(), base = vr[0] * cols, span = (vr[1] - vr[0]) * cols;
+    for (var f = (span * 0.02) | 0; f > 0; f--) glyph[base + rand(span)] = noiseChar();
 
     var R2 = R * R;
-    for (var y = 0; y < rows; y++) {
+    for (var y = vr[0]; y < vr[1]; y++) {
       var dy = y * LINE + LINE / 2 - ay;
       for (var x = 0; x < cols; x++) {
         var i = y * cols + x, dx = x * cw + cw / 2 - ax;
@@ -1180,32 +1220,35 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   }
 
   function draw(t) {
-    ctx.clearRect(0, 0, w, h);
+    var sy = window.scrollY;
+    ctx.clearRect(0, 0, vw, vh);
     // The glow marks where the field is being read.
-    var g = ctx.createRadialGradient(ax, ay, 0, ax, ay, R * 1.3);
+    var gy = ay - sy, g = ctx.createRadialGradient(ax, gy, 0, ax, gy, R * 1.3);
     g.addColorStop(0, "rgba(184,148,82,.10)"); g.addColorStop(1, "rgba(184,148,82,0)");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, vw, vh);
 
     // Draws are bucketed by colour so a frame sets fillStyle a few dozen
     // times, not once per cell.
-    var buckets = {}, s = t / 1000;
-    for (var y = 0; y < rows; y++) {
+    var buckets = {}, s = t / 1000, vr = visibleRows();
+    for (var y = vr[0]; y < vr[1]; y++) {
+      var yy = y * LINE - sy, gn = gain[y];
       for (var x = 0; x < cols; x++) {
-        var i = y * cols + x, px = x * cw, py = y * LINE, key, ch;
+        var i = y * cols + x, key, ch;
         if (level[i] > thresh[i] && !quiet[i]) {
           ch = target[i];
           if (ch === " ") continue;
-          var a = Math.min(0.85, 0.3 + (level[i] - thresh[i]) * 1.6);
+          var a = Math.min(0.85, 0.3 + (level[i] - thresh[i]) * 1.6) * gn;
           key = (level[i] > 0.97 ? "b" : "p") + Math.round(a * 10);
         } else {
           ch = glyph[i];
           if (ch === " ") continue;
           // A travelling wave of brightness is the field's breathing.
           var wave = 0.5 + 0.5 * Math.sin(x * 0.09 + y * 0.23 - s * 0.7);
-          var na = 0.06 + 0.16 * wave + level[i] * 0.15;
+          var na = (0.06 + 0.16 * wave + level[i] * 0.15) * gn;
           key = "n" + Math.round((quiet[i] ? na * 0.5 : na) * 20);
         }
-        (buckets[key] || (buckets[key] = [])).push(ch, px, py);
+        if (key.length < 2 || key.slice(1) === "0") continue;
+        (buckets[key] || (buckets[key] = [])).push(ch, x * cw, yy);
       }
     }
     for (var k in buckets) {
@@ -1218,51 +1261,50 @@ document.querySelectorAll(".copy").forEach(function (btn) {
     }
   }
 
-  var running = false, visible = true, last = 0;
+  // The field steps at about 20 frames a second, which is plenty for drift,
+  // but it redraws on every frame the page scrolls, or it would lag the
+  // content above it.
+  var running = false, last = 0, scrolled = false;
   function frame(t) {
     if (!running) return;
     requestAnimationFrame(frame);
-    if (t - last < 50) return; // ~20fps is plenty for drift, and cheap
-    last = t; step(t); draw(t);
+    if (t - last >= 50) { last = t; step(t); draw(t); scrolled = false; }
+    else if (scrolled) { draw(last); scrolled = false; }
   }
   function sync() {
-    var want = visible && !document.hidden && !reduce;
+    var want = !document.hidden && !reduce;
     if (want && !running) { running = true; requestAnimationFrame(frame); }
     if (!want) running = false;
   }
 
+  var pending = 0;
+  function remeasure() { clearTimeout(pending); pending = setTimeout(function () { layout(); if (!running) draw(last); }, 80); }
+
   function start() {
     layout();
+    // Attention opens in the left margin beside the wordmark, not on the copy.
     var mark = document.querySelector(".hero .mark");
-    var br = band.getBoundingClientRect(), mr = mark.getBoundingClientRect();
-    ax = tx = mr.left - br.left + mr.width * 0.5;
-    ay = ty = mr.bottom - br.top + 40;
-    ax = tx = w * 0.15; // open in a gutter, not on the copy
+    var mr = mark ? mark.getBoundingClientRect() : { bottom: vh / 3 };
+    ax = tx = vw * 0.15; ay = ty = mr.bottom + window.scrollY + 40;
+    window.addEventListener("scroll", function () {
+      scrolled = true;
+      if (!running) requestAnimationFrame(function () { draw(last); });
+    }, { passive: true });
+    // Anything that moves the copy moves the quiet cells: the entrance
+    // animation settling, a window resize, a tab switch in the install section.
+    document.addEventListener("animationend", remeasure);
+    document.addEventListener("click", remeasure);
+    window.addEventListener("resize", remeasure);
+    if ("ResizeObserver" in window) new ResizeObserver(remeasure).observe(document.body);
     if (reduce) {
       // One still frame, with a patch already read, so the idea is visible
-      // without anything moving.
-      for (var s = 0; s < 30; s++) step(0);
+      // without anything moving. It still scrolls with the page.
+      for (var i = 0; i < 30; i++) step(0);
       draw(0);
       return;
     }
-    if ("IntersectionObserver" in window) {
-      new IntersectionObserver(function (es) { visible = es[0].isIntersecting; sync(); }).observe(band);
-    }
     document.addEventListener("visibilitychange", sync);
-    if ("ResizeObserver" in window) {
-      var pw = w;
-      new ResizeObserver(function () {
-        var r = band.getBoundingClientRect();
-        if (Math.abs(r.width - pw) > 1 || Math.abs(r.height - h) > 1) { pw = r.width; layout(); if (!running) draw(last); }
-      }).observe(band);
-    }
     sync();
-    // The copy rises into place over a staggered entrance, so the quiet cells
-    // are measured again as each piece lands rather than after a guessed delay.
-    var pending = 0;
-    band.addEventListener("animationend", function () {
-      clearTimeout(pending); pending = setTimeout(markQuiet, 60);
-    });
   }
   (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
 })();
