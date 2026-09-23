@@ -110,8 +110,9 @@ CONTINUITY
                                       --ran, --question and --file to add more than one
     logos resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
-    logos ingest [project] [--harness N] [--path FILE] [--dry-run] [--all-projects]
+    logos ingest [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
+                                      --path is a file, or for a txcript harness a session id
     logos ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
     logos ingest status               candidates by tier, and how many can still be distilled

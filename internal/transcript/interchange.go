@@ -222,8 +222,8 @@ func (t txcriptReader) root() string {
 		return ""
 	}
 	// With txcript present but no standard on-disk location Logos knows, the
-	// reader still can't enumerate — a caller passes an explicit path to
-	// `logos ingest --harness <name> <path>`. Report available-but-empty.
+	// reader still can't enumerate — a caller names one session by its txcript
+	// id, `logos ingest --harness <name> --path <id>`. Report available-but-empty.
 	return txcriptSentinel
 }
 
