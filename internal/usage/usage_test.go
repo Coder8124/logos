@@ -79,3 +79,25 @@ func TestATornLineIsCountedRatherThanSilentlyDropped(t *testing.T) {
 		t.Errorf("Read = %d events and %d unreadable, want 1 and 1", len(events), bad)
 	}
 }
+
+// Packs were recorded under the bare project, dead ends under the worktree
+// scope, and `tried --project` under whatever was typed — so one project's
+// events sat under three keys and `logos usage kestrel` counted one of them.
+func TestOneProjectIsCountedUnderOneNameHoweverItWasSpelled(t *testing.T) {
+	vault := t.TempDir()
+	for _, p := range []string{"kestrel", "kestrel/feature-a", "/Users/x/code/kestrel", "./kestrel"} {
+		if err := Record(vault, Event{Kind: KindDeadEnd, Project: p, Rulings: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, _, err := Read(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Sum(events, "kestrel").DeadEndChecks; got != 4 {
+		t.Errorf("counted %d of kestrel's 4 checks", got)
+	}
+	if got := Sum(events, "~/code/kestrel").DeadEndChecks; got != 4 {
+		t.Errorf("asking by path counted %d of kestrel's 4 checks", got)
+	}
+}

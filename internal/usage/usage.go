@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/scope"
 	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
@@ -71,6 +72,7 @@ func Record(vault string, e Event) error {
 	if e.Kind == "" {
 		return fmt.Errorf("usage: an event needs a kind")
 	}
+	e.Project = projectKey(e.Project)
 	dir := filepath.Join(vault, Dir)
 	if err := vaultpkg.MkdirPrivate(dir); err != nil {
 		return err
@@ -158,9 +160,10 @@ func (t Totals) Saved() int { return t.Full - t.Sent }
 
 // Sum totals the events for one project, or for all of them when project is "".
 func Sum(events []Event, project string) Totals {
+	project = projectKey(project)
 	var t Totals
 	for _, e := range events {
-		if project != "" && e.Project != project {
+		if project != "" && projectKey(e.Project) != projectKey(project) {
 			continue
 		}
 		if t.Since == 0 || e.TS < t.Since {
@@ -177,4 +180,19 @@ func Sum(events []Event, project string) Totals {
 		}
 	}
 	return t
+}
+
+// projectKey is the one name an event is filed and summed under. The callers
+// spell a project three ways — the bare name a pack is built for, the worktree
+// scope a dead-end check runs in, the path someone typed after --project — and
+// recording each as given split one project's total across three keys, with
+// `logos usage kestrel` counting only one of them. A path is its project's
+// name, and a worktree's work is its project's: the total is per project.
+// Applied on read as well, so a ledger written before this still sums right.
+func projectKey(p string) string {
+	p = scope.NormalizeArg(p)
+	if i := strings.Index(p, "/"); i > 0 {
+		p = p[:i]
+	}
+	return p
 }
