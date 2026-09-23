@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Logos &mdash; Your memory. Any agent.</title>
 <meta name="description" content="Continuity for AI coding agents. One vault of markdown you own; Claude Code, Cursor and Codex are all clients of it.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20fill%3D%22%2300392F%22/%3E%3Cline%20x1%3D%224%22%20y1%3D%226%22%20x2%3D%2228%22%20y2%3D%226%22%20stroke%3D%22%23B89452%22%20stroke-width%3D%222.5%22/%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23F3EBDD%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22square%22%20stroke-linejoin%3D%22miter%22%3E%3Cpath%20d%3D%22M5.5%2011%20V21%20L9.5%2025%20H14.5%22/%3E%3Cpath%20d%3D%22M27%2011%20H18.5%20V16%20L27%2020.5%20V25%20H18.5%22/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -32,7 +33,7 @@
   --rule:           #0E5245;   /* dashed section rules, cell borders */
   --charcoal-deep:  #1A1816;   /* window title bars */
   --brass-lift:     #C9A765;
-  --brass-sunk:     #8E703B;   /* the wordmark's corner pixels once it turns brass */
+  --brass-sunk:     #8E703B;
 
   --ink:   #F3EBDD;
   --ink-2: #D9C9B4;
@@ -75,17 +76,16 @@ code { font-family: var(--f-mono); font-size: .86em; }
   display: inline-block; font-family: var(--f-mono); font-size: .6875rem;
   font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-3);
 }
-/* The heading glyph is a brass staircase of four pixels, the wordmark's
-   pixels at a smaller scale, so every section heading carries the mark. */
+/* The heading glyph is the titlo, the brass bar from the wordmark, sitting on
+   the cap line, so every section heading carries the mark. */
 h2 {
   font-weight: 600; font-size: clamp(1.6rem, 3vw, 2.2rem); line-height: 1.12;
   letter-spacing: -.02em; margin-bottom: .8rem; color: var(--ink);
   display: flex; align-items: center; gap: .75rem;
 }
 h2::before {
-  content: ""; flex: none; width: 4px; height: 4px; background: var(--brass);
-  margin: 0 8px 8px 0;
-  box-shadow: 4px -4px 0 var(--brass), 8px -8px 0 var(--brass), 8px 0 0 var(--brass-lift), 0 -8px 0 var(--verdigris-lift);
+  content: ""; flex: none; align-self: flex-start; margin-top: .14em;
+  width: .7em; height: 3px; background: var(--brass);
 }
 h3 { font-size: .9375rem; font-weight: 600; margin-bottom: .3rem; color: var(--ink); }
 .head { max-width: 40rem; margin-bottom: 2.5rem; }
@@ -150,29 +150,55 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 .masthead nav a.btn.solid, .masthead nav a.btn.solid:hover { color: var(--verdigris); }
 
 /* ── Wordmark ──────────────────────────────────────────────────────────────
-   LOGOS set in pixels, one <rect> per pixel so each can move on its own.
-   The dimmed corner pixels are the stepped anti-aliasing that keeps a pixel
-   face from reading as blocky at display size.
+   Byzantine scribes wrote the names they copied most as their first and last
+   letters under a bar, the titlo, to save parchment: compression that stays
+   readable. The mark is LOGOS written that way, L and S under a brass bar, in
+   Latin letters cut on the diagonal so the Λ and Σ are there for anyone who
+   looks. The masthead shows the contraction and decodes it on hover. The hero
+   plays the decoding once on load and rests on the whole word, because the
+   first time anyone sees the name it should be readable.
 
-   Interacting with it glosses the name: "logos" is short for logothete, the
-   Byzantine office of the scribe who kept the record. Hovering, focusing or
-   tapping the mark sweeps it to brass column by column and types out the
-   gloss. Hover and focus are pure CSS, so the gloss works without script;
-   script only adds tap-to-pin for touch screens, which have no hover. */
+   Interacting with either glosses the name: "logos" is short for logothete,
+   the Byzantine office of the scribe who kept the record. Hover and focus are
+   pure CSS, so the gloss works without script; script only adds tap-to-pin
+   for touch screens, which have no hover. */
 .brand { position: relative; display: inline-flex; flex-direction: column; align-items: center; }
 .mark {
   display: block; padding: 0; margin: 0; border: 0; background: none;
   cursor: pointer; color: inherit; line-height: 0;
 }
-.mark svg { display: block; shape-rendering: crispEdges; overflow: visible; }
-.mark rect { fill: var(--ink); transition: fill .35s var(--ease); }
-.mark rect.d { fill: var(--ink-3); }
-.brand:has(.mark:hover) rect,
-.brand:has(.mark:focus-visible) rect,
-.brand.open rect { fill: var(--brass); transition-delay: calc(var(--c) * 14ms); }
-.brand:has(.mark:hover) rect.d,
-.brand:has(.mark:focus-visible) rect.d,
-.brand.open rect.d { fill: var(--brass-sunk); }
+.mark svg { display: block; overflow: visible; }
+.mark .ltr {
+  fill: none; stroke: var(--ink); stroke-width: 8;
+  stroke-linejoin: miter; stroke-linecap: square;
+  transition: stroke .35s var(--ease);
+}
+.mark .bar { stroke: var(--brass); stroke-width: 5; transition: stroke .35s var(--ease); }
+.mark .lead, .mark .mid, .mark .sig, .mark .bar { transform-box: view-box; }
+.mark .bar { transform-origin: 16px 0; }
+/* Engaging the mark inks it in brass letter by letter and turns the bar to
+   parchment: the same two colours, traded. */
+.brand:has(.mark:hover) .ltr,
+.brand:has(.mark:focus-visible) .ltr,
+.brand.open .ltr { stroke: var(--brass); transition-delay: calc(var(--i) * 60ms); }
+.brand:has(.mark:hover) .bar,
+.brand:has(.mark:focus-visible) .bar,
+.brand.open .bar { stroke: var(--ink); }
+
+/* Masthead: the contraction, which decodes into the word. */
+.masthead .mark .mid, .masthead .mark .sig, .masthead .mark .bar {
+  transition: transform .5s cubic-bezier(.3,.7,.2,1), opacity .35s, stroke .35s var(--ease);
+}
+.masthead .mark .mid { opacity: 0; }
+.brand:has(.mark:hover) .mid,
+.brand:has(.mark:focus-visible) .mid,
+.brand.open .mid { opacity: 1; transition-delay: .12s; }
+.masthead .brand:has(.mark:hover) .sig,
+.masthead .brand:has(.mark:focus-visible) .sig,
+.masthead .brand.open .sig { transform: translateX(132px); }
+.masthead .brand:has(.mark:hover) .bar,
+.masthead .brand:has(.mark:focus-visible) .bar,
+.masthead .brand.open .bar { transform: scaleX(2.61); }
 
 .gloss {
   font-family: var(--f-mono); font-size: .8125rem; color: var(--ink-2);
@@ -198,21 +224,22 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 .brand.open .gloss .t { animation: type .9s steps(41) .12s forwards; }
 @keyframes type { to { width: 41ch; } }
 
-.hero .mark svg { width: clamp(15rem, 84vw, 40rem); height: auto; }
-/* On load the hero mark resolves out of the field: each pixel flickers in
-   at its own random moment, the way the noise decodes, and then holds. */
-.hero .mark rect { animation: assemble .6s step-end both; animation-delay: calc(var(--r) * 900ms + 150ms); }
-@keyframes assemble {
-  0%   { opacity: 0; }
-  25%  { opacity: .85; }
-  45%  { opacity: .1; }
-  70%  { opacity: .7; }
-  100% { opacity: 1; }
-}
+.hero .mark svg { width: clamp(15rem, 76vw, 34rem); height: auto; }
+/* The hero decodes once: it opens as L and S under a short bar, then the bar
+   stretches and O, G, O surface between them, ending on the word.
+   The contraction opens centred, so the L and S part from the middle. */
+.hero .mark .lead { animation: lead-open .8s cubic-bezier(.3,.7,.2,1) .55s both; }
+.hero .mark .sig  { animation: sig-open  .8s cubic-bezier(.3,.7,.2,1) .55s both; }
+.hero .mark .bar  { animation: bar-open  .8s cubic-bezier(.3,.7,.2,1) .55s both; }
+.hero .mark .mid  { animation: mid-open .5s ease-out .85s both; }
+@keyframes lead-open { from { transform: translateX(66px); } }
+@keyframes sig-open  { from { transform: translateX(-66px); } }
+@keyframes bar-open  { from { transform: translateX(66px) scaleX(.383); } }
+@keyframes mid-open { from { opacity: 0; } }
 .hero .gloss { margin-top: 1.1rem; font-size: clamp(.75rem, 2.2vw, .9375rem); }
 /* In the masthead the gloss has no room below the mark, so it becomes a
    small popover under it instead. */
-.masthead .mark svg { width: 5.2rem; height: auto; }
+.masthead .mark svg { width: 2.4rem; height: auto; }
 .masthead .gloss {
   position: absolute; top: calc(100% + .9rem); left: 0; z-index: 2;
   padding: .45rem .7rem; background: var(--charcoal); color: var(--on-charcoal-2);
@@ -366,9 +393,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 
 /* ── Community ─────────────────────────────────────────────────────────────
    The testers are anonymous at their own request, so there are no photos and
-   no names. The avatar is a pixel block rather than a silhouette: a
-   silhouette stands in for a face that has been withheld, while a pixel
-   block reads as the wordmark's own pixels. A quote that makes a number
+   no names. The avatar is the wordmark's titlo over an empty chamfered
+   frame, a name contracted all the way to nothing, rather than a silhouette,
+   which would stand in for a face that has been withheld. A quote that makes a number
    claim carries the measurement under it, because this page's argument is
    the difference between measured and claimed. */
 .quotes { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
@@ -379,9 +406,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 .quote blockquote::after  { content: "\201D"; color: var(--brass); }
 .quote .measured { font-size: .8125rem; color: var(--ink-3); margin: 1rem 0 0; }
 .who { display: flex; align-items: center; gap: .8rem; }
-.who svg { flex: none; width: 36px; height: 36px; shape-rendering: crispEdges; box-shadow: 0 0 0 1px var(--rule); }
-.who svg rect { fill: var(--brass); }
-.who svg rect.d { fill: var(--verdigris-lift); }
+.who svg { flex: none; width: 36px; height: 36px; }
+.who svg .frame-o { fill: var(--verdigris-sunk); stroke: var(--verdigris-lift); stroke-width: 2; }
+.who svg .bar { stroke: var(--brass); stroke-width: 3; }
 .who b { display: block; font-size: .875rem; font-weight: 600; color: var(--ink); }
 .who span { display: block; font-size: .8125rem; color: var(--ink-3); }
 .who .tag { font-family: var(--f-mono); font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase; }
@@ -487,7 +514,8 @@ footer .bottom a:hover { color: var(--brass); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .fade { animation: none; }
-  .hero .mark rect { animation: none; }
+  .hero .mark .lead, .hero .mark .sig, .hero .mark .bar, .hero .mark .mid { animation: none; }
+  .masthead .mark .mid, .masthead .mark .sig, .masthead .mark .bar { transition: none; }
   * { transition-duration: .01ms !important; transition-delay: 0s !important; }
   /* Without the typing, the gloss simply appears whole. */
   .brand:has(.mark:hover) .gloss .t,
@@ -529,7 +557,7 @@ footer .bottom a:hover { color: var(--brass); }
 <header class="masthead">
   <div class="wrap">
     <span class="brand">
-      <a class="mark" href="#" aria-label="Logos" aria-describedby="gloss-nav"><svg viewBox="0 0 39 7" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" style="--c:0;--r:0.45"/><rect x="1" y="0" width="1" height="1" style="--c:1;--r:0.56"/><rect x="0" y="1" width="1" height="1" style="--c:0;--r:0.92"/><rect x="1" y="1" width="1" height="1" style="--c:1;--r:0.47"/><rect x="0" y="2" width="1" height="1" style="--c:0;--r:0.51"/><rect x="1" y="2" width="1" height="1" style="--c:1;--r:0.59"/><rect x="0" y="3" width="1" height="1" style="--c:0;--r:0.18"/><rect x="1" y="3" width="1" height="1" style="--c:1;--r:0.51"/><rect x="0" y="4" width="1" height="1" style="--c:0;--r:0.63"/><rect x="1" y="4" width="1" height="1" style="--c:1;--r:0.79"/><rect x="0" y="5" width="1" height="1" style="--c:0;--r:0.09"/><rect x="1" y="5" width="1" height="1" style="--c:1;--r:0.30"/><rect x="2" y="5" width="1" height="1" style="--c:2;--r:0.09"/><rect x="3" y="5" width="1" height="1" style="--c:3;--r:0.81"/><rect x="4" y="5" width="1" height="1" style="--c:4;--r:0.69"/><rect x="5" y="5" width="1" height="1" style="--c:5;--r:0.04"/><rect x="6" y="5" width="1" height="1" style="--c:6;--r:0.98"/><rect x="0" y="6" width="1" height="1" style="--c:0;--r:0.96"/><rect x="1" y="6" width="1" height="1" style="--c:1;--r:0.65"/><rect x="2" y="6" width="1" height="1" style="--c:2;--r:0.62"/><rect x="3" y="6" width="1" height="1" style="--c:3;--r:0.16"/><rect x="4" y="6" width="1" height="1" style="--c:4;--r:0.02"/><rect x="5" y="6" width="1" height="1" style="--c:5;--r:0.53"/><rect x="6" y="6" width="1" height="1" class="d" style="--c:6;--r:0.06"/><rect x="8" y="0" width="1" height="1" class="d" style="--c:8;--r:0.19"/><rect x="9" y="0" width="1" height="1" style="--c:9;--r:0.24"/><rect x="10" y="0" width="1" height="1" style="--c:10;--r:0.03"/><rect x="11" y="0" width="1" height="1" style="--c:11;--r:0.46"/><rect x="12" y="0" width="1" height="1" style="--c:12;--r:0.44"/><rect x="13" y="0" width="1" height="1" style="--c:13;--r:0.84"/><rect x="14" y="0" width="1" height="1" class="d" style="--c:14;--r:0.52"/><rect x="8" y="1" width="1" height="1" style="--c:8;--r:0.64"/><rect x="9" y="1" width="1" height="1" style="--c:9;--r:0.50"/><rect x="10" y="1" width="1" height="1" style="--c:10;--r:0.66"/><rect x="11" y="1" width="1" height="1" style="--c:11;--r:0.46"/><rect x="12" y="1" width="1" height="1" style="--c:12;--r:0.28"/><rect x="13" y="1" width="1" height="1" style="--c:13;--r:1.00"/><rect x="14" y="1" width="1" height="1" style="--c:14;--r:1.00"/><rect x="8" y="2" width="1" height="1" style="--c:8;--r:0.84"/><rect x="9" y="2" width="1" height="1" style="--c:9;--r:0.71"/><rect x="13" y="2" width="1" height="1" style="--c:13;--r:0.32"/><rect x="14" y="2" width="1" height="1" style="--c:14;--r:0.23"/><rect x="8" y="3" width="1" height="1" style="--c:8;--r:0.29"/><rect x="9" y="3" width="1" height="1" style="--c:9;--r:0.07"/><rect x="13" y="3" width="1" height="1" style="--c:13;--r:0.77"/><rect x="14" y="3" width="1" height="1" style="--c:14;--r:0.40"/><rect x="8" y="4" width="1" height="1" style="--c:8;--r:0.85"/><rect x="9" y="4" width="1" height="1" style="--c:9;--r:0.39"/><rect x="13" y="4" width="1" height="1" style="--c:13;--r:0.96"/><rect x="14" y="4" width="1" height="1" style="--c:14;--r:0.85"/><rect x="8" y="5" width="1" height="1" style="--c:8;--r:0.00"/><rect x="9" y="5" width="1" height="1" style="--c:9;--r:0.21"/><rect x="10" y="5" width="1" height="1" style="--c:10;--r:0.91"/><rect x="11" y="5" width="1" height="1" style="--c:11;--r:0.47"/><rect x="12" y="5" width="1" height="1" style="--c:12;--r:0.98"/><rect x="13" y="5" width="1" height="1" style="--c:13;--r:0.40"/><rect x="14" y="5" width="1" height="1" style="--c:14;--r:0.07"/><rect x="8" y="6" width="1" height="1" class="d" style="--c:8;--r:0.63"/><rect x="9" y="6" width="1" height="1" style="--c:9;--r:0.78"/><rect x="10" y="6" width="1" height="1" style="--c:10;--r:0.27"/><rect x="11" y="6" width="1" height="1" style="--c:11;--r:0.09"/><rect x="12" y="6" width="1" height="1" style="--c:12;--r:0.33"/><rect x="13" y="6" width="1" height="1" style="--c:13;--r:0.96"/><rect x="14" y="6" width="1" height="1" class="d" style="--c:14;--r:0.76"/><rect x="16" y="0" width="1" height="1" class="d" style="--c:16;--r:0.12"/><rect x="17" y="0" width="1" height="1" style="--c:17;--r:0.25"/><rect x="18" y="0" width="1" height="1" style="--c:18;--r:0.10"/><rect x="19" y="0" width="1" height="1" style="--c:19;--r:0.06"/><rect x="20" y="0" width="1" height="1" style="--c:20;--r:0.80"/><rect x="21" y="0" width="1" height="1" style="--c:21;--r:0.18"/><rect x="22" y="0" width="1" height="1" class="d" style="--c:22;--r:0.56"/><rect x="16" y="1" width="1" height="1" style="--c:16;--r:0.45"/><rect x="17" y="1" width="1" height="1" style="--c:17;--r:0.19"/><rect x="18" y="1" width="1" height="1" style="--c:18;--r:0.73"/><rect x="19" y="1" width="1" height="1" style="--c:19;--r:0.13"/><rect x="20" y="1" width="1" height="1" style="--c:20;--r:0.64"/><rect x="21" y="1" width="1" height="1" style="--c:21;--r:0.12"/><rect x="22" y="1" width="1" height="1" style="--c:22;--r:0.42"/><rect x="16" y="2" width="1" height="1" style="--c:16;--r:0.21"/><rect x="17" y="2" width="1" height="1" style="--c:17;--r:0.27"/><rect x="16" y="3" width="1" height="1" style="--c:16;--r:0.97"/><rect x="17" y="3" width="1" height="1" style="--c:17;--r:0.80"/><rect x="20" y="3" width="1" height="1" style="--c:20;--r:0.30"/><rect x="21" y="3" width="1" height="1" style="--c:21;--r:0.88"/><rect x="22" y="3" width="1" height="1" style="--c:22;--r:0.21"/><rect x="16" y="4" width="1" height="1" style="--c:16;--r:0.39"/><rect x="17" y="4" width="1" height="1" style="--c:17;--r:0.85"/><rect x="21" y="4" width="1" height="1" style="--c:21;--r:0.64"/><rect x="22" y="4" width="1" height="1" style="--c:22;--r:0.10"/><rect x="16" y="5" width="1" height="1" style="--c:16;--r:0.99"/><rect x="17" y="5" width="1" height="1" style="--c:17;--r:0.21"/><rect x="18" y="5" width="1" height="1" style="--c:18;--r:0.26"/><rect x="19" y="5" width="1" height="1" style="--c:19;--r:0.77"/><rect x="20" y="5" width="1" height="1" style="--c:20;--r:0.33"/><rect x="21" y="5" width="1" height="1" style="--c:21;--r:0.30"/><rect x="22" y="5" width="1" height="1" style="--c:22;--r:0.07"/><rect x="16" y="6" width="1" height="1" class="d" style="--c:16;--r:0.09"/><rect x="17" y="6" width="1" height="1" style="--c:17;--r:0.58"/><rect x="18" y="6" width="1" height="1" style="--c:18;--r:0.24"/><rect x="19" y="6" width="1" height="1" style="--c:19;--r:0.60"/><rect x="20" y="6" width="1" height="1" style="--c:20;--r:0.37"/><rect x="21" y="6" width="1" height="1" style="--c:21;--r:0.45"/><rect x="22" y="6" width="1" height="1" class="d" style="--c:22;--r:0.96"/><rect x="24" y="0" width="1" height="1" class="d" style="--c:24;--r:0.48"/><rect x="25" y="0" width="1" height="1" style="--c:25;--r:0.57"/><rect x="26" y="0" width="1" height="1" style="--c:26;--r:0.87"/><rect x="27" y="0" width="1" height="1" style="--c:27;--r:0.18"/><rect x="28" y="0" width="1" height="1" style="--c:28;--r:0.15"/><rect x="29" y="0" width="1" height="1" style="--c:29;--r:0.91"/><rect x="30" y="0" width="1" height="1" class="d" style="--c:30;--r:0.82"/><rect x="24" y="1" width="1" height="1" style="--c:24;--r:0.25"/><rect x="25" y="1" width="1" height="1" style="--c:25;--r:0.19"/><rect x="26" y="1" width="1" height="1" style="--c:26;--r:0.74"/><rect x="27" y="1" width="1" height="1" style="--c:27;--r:0.94"/><rect x="28" y="1" width="1" height="1" style="--c:28;--r:0.20"/><rect x="29" y="1" width="1" height="1" style="--c:29;--r:0.95"/><rect x="30" y="1" width="1" height="1" style="--c:30;--r:0.88"/><rect x="24" y="2" width="1" height="1" style="--c:24;--r:0.60"/><rect x="25" y="2" width="1" height="1" style="--c:25;--r:0.42"/><rect x="29" y="2" width="1" height="1" style="--c:29;--r:0.10"/><rect x="30" y="2" width="1" height="1" style="--c:30;--r:0.04"/><rect x="24" y="3" width="1" height="1" style="--c:24;--r:0.96"/><rect x="25" y="3" width="1" height="1" style="--c:25;--r:0.24"/><rect x="29" y="3" width="1" height="1" style="--c:29;--r:0.70"/><rect x="30" y="3" width="1" height="1" style="--c:30;--r:0.26"/><rect x="24" y="4" width="1" height="1" style="--c:24;--r:0.82"/><rect x="25" y="4" width="1" height="1" style="--c:25;--r:0.60"/><rect x="29" y="4" width="1" height="1" style="--c:29;--r:0.29"/><rect x="30" y="4" width="1" height="1" style="--c:30;--r:0.18"/><rect x="24" y="5" width="1" height="1" style="--c:24;--r:0.72"/><rect x="25" y="5" width="1" height="1" style="--c:25;--r:0.07"/><rect x="26" y="5" width="1" height="1" style="--c:26;--r:0.23"/><rect x="27" y="5" width="1" height="1" style="--c:27;--r:0.56"/><rect x="28" y="5" width="1" height="1" style="--c:28;--r:0.85"/><rect x="29" y="5" width="1" height="1" style="--c:29;--r:0.61"/><rect x="30" y="5" width="1" height="1" style="--c:30;--r:0.28"/><rect x="24" y="6" width="1" height="1" class="d" style="--c:24;--r:0.92"/><rect x="25" y="6" width="1" height="1" style="--c:25;--r:0.20"/><rect x="26" y="6" width="1" height="1" style="--c:26;--r:0.02"/><rect x="27" y="6" width="1" height="1" style="--c:27;--r:0.27"/><rect x="28" y="6" width="1" height="1" style="--c:28;--r:0.45"/><rect x="29" y="6" width="1" height="1" style="--c:29;--r:0.06"/><rect x="30" y="6" width="1" height="1" class="d" style="--c:30;--r:0.18"/><rect x="32" y="0" width="1" height="1" class="d" style="--c:32;--r:0.37"/><rect x="33" y="0" width="1" height="1" style="--c:33;--r:0.57"/><rect x="34" y="0" width="1" height="1" style="--c:34;--r:0.13"/><rect x="35" y="0" width="1" height="1" style="--c:35;--r:0.36"/><rect x="36" y="0" width="1" height="1" style="--c:36;--r:0.89"/><rect x="37" y="0" width="1" height="1" style="--c:37;--r:0.98"/><rect x="38" y="0" width="1" height="1" style="--c:38;--r:0.66"/><rect x="32" y="1" width="1" height="1" style="--c:32;--r:0.69"/><rect x="33" y="1" width="1" height="1" style="--c:33;--r:0.58"/><rect x="34" y="1" width="1" height="1" style="--c:34;--r:0.14"/><rect x="35" y="1" width="1" height="1" style="--c:35;--r:0.04"/><rect x="36" y="1" width="1" height="1" style="--c:36;--r:0.02"/><rect x="37" y="1" width="1" height="1" style="--c:37;--r:0.91"/><rect x="38" y="1" width="1" height="1" style="--c:38;--r:0.70"/><rect x="32" y="2" width="1" height="1" style="--c:32;--r:0.96"/><rect x="33" y="2" width="1" height="1" style="--c:33;--r:0.02"/><rect x="34" y="2" width="1" height="1" style="--c:34;--r:0.64"/><rect x="32" y="3" width="1" height="1" class="d" style="--c:32;--r:0.48"/><rect x="33" y="3" width="1" height="1" style="--c:33;--r:0.73"/><rect x="34" y="3" width="1" height="1" style="--c:34;--r:0.32"/><rect x="35" y="3" width="1" height="1" style="--c:35;--r:1.00"/><rect x="36" y="3" width="1" height="1" style="--c:36;--r:0.08"/><rect x="37" y="3" width="1" height="1" style="--c:37;--r:0.55"/><rect x="38" y="3" width="1" height="1" class="d" style="--c:38;--r:0.74"/><rect x="36" y="4" width="1" height="1" style="--c:36;--r:0.90"/><rect x="37" y="4" width="1" height="1" style="--c:37;--r:0.74"/><rect x="38" y="4" width="1" height="1" style="--c:38;--r:0.70"/><rect x="32" y="5" width="1" height="1" style="--c:32;--r:0.79"/><rect x="33" y="5" width="1" height="1" style="--c:33;--r:0.92"/><rect x="34" y="5" width="1" height="1" style="--c:34;--r:0.35"/><rect x="35" y="5" width="1" height="1" style="--c:35;--r:0.69"/><rect x="36" y="5" width="1" height="1" style="--c:36;--r:0.90"/><rect x="37" y="5" width="1" height="1" style="--c:37;--r:0.87"/><rect x="38" y="5" width="1" height="1" style="--c:38;--r:0.42"/><rect x="32" y="6" width="1" height="1" style="--c:32;--r:0.79"/><rect x="33" y="6" width="1" height="1" style="--c:33;--r:0.86"/><rect x="34" y="6" width="1" height="1" style="--c:34;--r:0.57"/><rect x="35" y="6" width="1" height="1" style="--c:35;--r:0.62"/><rect x="36" y="6" width="1" height="1" style="--c:36;--r:0.38"/><rect x="37" y="6" width="1" height="1" style="--c:37;--r:0.58"/><rect x="38" y="6" width="1" height="1" class="d" style="--c:38;--r:0.61"/></svg></a>
+      <a class="mark" href="#" aria-label="Logos" aria-describedby="gloss-nav"><svg viewBox="14 6 86 68" aria-hidden="true" focusable="false"><line class="bar" x1="16" y1="10" x2="98" y2="10"/><path class="ltr lead" style="--i:0" d="M20 26 V56 L32 68 H50"/><g class="mid"><path class="ltr" style="--i:1" d="M74 26 H84 L94 36 V58 L84 68 H74 L64 58 V36 Z"/><path class="ltr" style="--i:2" d="M138 36 L128 26 H118 L108 36 V58 L118 68 H128 L138 58 V48 H124"/><path class="ltr" style="--i:3" d="M162 26 H172 L182 36 V58 L172 68 H162 L152 58 V36 Z"/></g><path class="ltr sig" style="--i:4" d="M94 26 H64 V40 L94 54 V68 H64"/></svg></a>
       <span class="gloss" id="gloss-nav" role="note"><span class="t">short for <b>logothete</b>: your personal scribe</span><span class="caret" aria-hidden="true"></span></span>
     </span>
     <nav>
@@ -548,7 +576,7 @@ footer .bottom a:hover { color: var(--brass); }
     <div class="wrap hero">
       <span class="label fade"><a href="https://github.com/Coder8124/logos/releases/tag/v0.4.8">v0.4.8</a> &middot; Apache 2.0 &middot; local-first</span>
       <div class="brand fade">
-        <h1><button class="mark" type="button" aria-label="Logos" aria-describedby="gloss-hero"><svg viewBox="0 0 39 7" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" style="--c:0;--r:0.45"/><rect x="1" y="0" width="1" height="1" style="--c:1;--r:0.56"/><rect x="0" y="1" width="1" height="1" style="--c:0;--r:0.92"/><rect x="1" y="1" width="1" height="1" style="--c:1;--r:0.47"/><rect x="0" y="2" width="1" height="1" style="--c:0;--r:0.51"/><rect x="1" y="2" width="1" height="1" style="--c:1;--r:0.59"/><rect x="0" y="3" width="1" height="1" style="--c:0;--r:0.18"/><rect x="1" y="3" width="1" height="1" style="--c:1;--r:0.51"/><rect x="0" y="4" width="1" height="1" style="--c:0;--r:0.63"/><rect x="1" y="4" width="1" height="1" style="--c:1;--r:0.79"/><rect x="0" y="5" width="1" height="1" style="--c:0;--r:0.09"/><rect x="1" y="5" width="1" height="1" style="--c:1;--r:0.30"/><rect x="2" y="5" width="1" height="1" style="--c:2;--r:0.09"/><rect x="3" y="5" width="1" height="1" style="--c:3;--r:0.81"/><rect x="4" y="5" width="1" height="1" style="--c:4;--r:0.69"/><rect x="5" y="5" width="1" height="1" style="--c:5;--r:0.04"/><rect x="6" y="5" width="1" height="1" style="--c:6;--r:0.98"/><rect x="0" y="6" width="1" height="1" style="--c:0;--r:0.96"/><rect x="1" y="6" width="1" height="1" style="--c:1;--r:0.65"/><rect x="2" y="6" width="1" height="1" style="--c:2;--r:0.62"/><rect x="3" y="6" width="1" height="1" style="--c:3;--r:0.16"/><rect x="4" y="6" width="1" height="1" style="--c:4;--r:0.02"/><rect x="5" y="6" width="1" height="1" style="--c:5;--r:0.53"/><rect x="6" y="6" width="1" height="1" class="d" style="--c:6;--r:0.06"/><rect x="8" y="0" width="1" height="1" class="d" style="--c:8;--r:0.19"/><rect x="9" y="0" width="1" height="1" style="--c:9;--r:0.24"/><rect x="10" y="0" width="1" height="1" style="--c:10;--r:0.03"/><rect x="11" y="0" width="1" height="1" style="--c:11;--r:0.46"/><rect x="12" y="0" width="1" height="1" style="--c:12;--r:0.44"/><rect x="13" y="0" width="1" height="1" style="--c:13;--r:0.84"/><rect x="14" y="0" width="1" height="1" class="d" style="--c:14;--r:0.52"/><rect x="8" y="1" width="1" height="1" style="--c:8;--r:0.64"/><rect x="9" y="1" width="1" height="1" style="--c:9;--r:0.50"/><rect x="10" y="1" width="1" height="1" style="--c:10;--r:0.66"/><rect x="11" y="1" width="1" height="1" style="--c:11;--r:0.46"/><rect x="12" y="1" width="1" height="1" style="--c:12;--r:0.28"/><rect x="13" y="1" width="1" height="1" style="--c:13;--r:1.00"/><rect x="14" y="1" width="1" height="1" style="--c:14;--r:1.00"/><rect x="8" y="2" width="1" height="1" style="--c:8;--r:0.84"/><rect x="9" y="2" width="1" height="1" style="--c:9;--r:0.71"/><rect x="13" y="2" width="1" height="1" style="--c:13;--r:0.32"/><rect x="14" y="2" width="1" height="1" style="--c:14;--r:0.23"/><rect x="8" y="3" width="1" height="1" style="--c:8;--r:0.29"/><rect x="9" y="3" width="1" height="1" style="--c:9;--r:0.07"/><rect x="13" y="3" width="1" height="1" style="--c:13;--r:0.77"/><rect x="14" y="3" width="1" height="1" style="--c:14;--r:0.40"/><rect x="8" y="4" width="1" height="1" style="--c:8;--r:0.85"/><rect x="9" y="4" width="1" height="1" style="--c:9;--r:0.39"/><rect x="13" y="4" width="1" height="1" style="--c:13;--r:0.96"/><rect x="14" y="4" width="1" height="1" style="--c:14;--r:0.85"/><rect x="8" y="5" width="1" height="1" style="--c:8;--r:0.00"/><rect x="9" y="5" width="1" height="1" style="--c:9;--r:0.21"/><rect x="10" y="5" width="1" height="1" style="--c:10;--r:0.91"/><rect x="11" y="5" width="1" height="1" style="--c:11;--r:0.47"/><rect x="12" y="5" width="1" height="1" style="--c:12;--r:0.98"/><rect x="13" y="5" width="1" height="1" style="--c:13;--r:0.40"/><rect x="14" y="5" width="1" height="1" style="--c:14;--r:0.07"/><rect x="8" y="6" width="1" height="1" class="d" style="--c:8;--r:0.63"/><rect x="9" y="6" width="1" height="1" style="--c:9;--r:0.78"/><rect x="10" y="6" width="1" height="1" style="--c:10;--r:0.27"/><rect x="11" y="6" width="1" height="1" style="--c:11;--r:0.09"/><rect x="12" y="6" width="1" height="1" style="--c:12;--r:0.33"/><rect x="13" y="6" width="1" height="1" style="--c:13;--r:0.96"/><rect x="14" y="6" width="1" height="1" class="d" style="--c:14;--r:0.76"/><rect x="16" y="0" width="1" height="1" class="d" style="--c:16;--r:0.12"/><rect x="17" y="0" width="1" height="1" style="--c:17;--r:0.25"/><rect x="18" y="0" width="1" height="1" style="--c:18;--r:0.10"/><rect x="19" y="0" width="1" height="1" style="--c:19;--r:0.06"/><rect x="20" y="0" width="1" height="1" style="--c:20;--r:0.80"/><rect x="21" y="0" width="1" height="1" style="--c:21;--r:0.18"/><rect x="22" y="0" width="1" height="1" class="d" style="--c:22;--r:0.56"/><rect x="16" y="1" width="1" height="1" style="--c:16;--r:0.45"/><rect x="17" y="1" width="1" height="1" style="--c:17;--r:0.19"/><rect x="18" y="1" width="1" height="1" style="--c:18;--r:0.73"/><rect x="19" y="1" width="1" height="1" style="--c:19;--r:0.13"/><rect x="20" y="1" width="1" height="1" style="--c:20;--r:0.64"/><rect x="21" y="1" width="1" height="1" style="--c:21;--r:0.12"/><rect x="22" y="1" width="1" height="1" style="--c:22;--r:0.42"/><rect x="16" y="2" width="1" height="1" style="--c:16;--r:0.21"/><rect x="17" y="2" width="1" height="1" style="--c:17;--r:0.27"/><rect x="16" y="3" width="1" height="1" style="--c:16;--r:0.97"/><rect x="17" y="3" width="1" height="1" style="--c:17;--r:0.80"/><rect x="20" y="3" width="1" height="1" style="--c:20;--r:0.30"/><rect x="21" y="3" width="1" height="1" style="--c:21;--r:0.88"/><rect x="22" y="3" width="1" height="1" style="--c:22;--r:0.21"/><rect x="16" y="4" width="1" height="1" style="--c:16;--r:0.39"/><rect x="17" y="4" width="1" height="1" style="--c:17;--r:0.85"/><rect x="21" y="4" width="1" height="1" style="--c:21;--r:0.64"/><rect x="22" y="4" width="1" height="1" style="--c:22;--r:0.10"/><rect x="16" y="5" width="1" height="1" style="--c:16;--r:0.99"/><rect x="17" y="5" width="1" height="1" style="--c:17;--r:0.21"/><rect x="18" y="5" width="1" height="1" style="--c:18;--r:0.26"/><rect x="19" y="5" width="1" height="1" style="--c:19;--r:0.77"/><rect x="20" y="5" width="1" height="1" style="--c:20;--r:0.33"/><rect x="21" y="5" width="1" height="1" style="--c:21;--r:0.30"/><rect x="22" y="5" width="1" height="1" style="--c:22;--r:0.07"/><rect x="16" y="6" width="1" height="1" class="d" style="--c:16;--r:0.09"/><rect x="17" y="6" width="1" height="1" style="--c:17;--r:0.58"/><rect x="18" y="6" width="1" height="1" style="--c:18;--r:0.24"/><rect x="19" y="6" width="1" height="1" style="--c:19;--r:0.60"/><rect x="20" y="6" width="1" height="1" style="--c:20;--r:0.37"/><rect x="21" y="6" width="1" height="1" style="--c:21;--r:0.45"/><rect x="22" y="6" width="1" height="1" class="d" style="--c:22;--r:0.96"/><rect x="24" y="0" width="1" height="1" class="d" style="--c:24;--r:0.48"/><rect x="25" y="0" width="1" height="1" style="--c:25;--r:0.57"/><rect x="26" y="0" width="1" height="1" style="--c:26;--r:0.87"/><rect x="27" y="0" width="1" height="1" style="--c:27;--r:0.18"/><rect x="28" y="0" width="1" height="1" style="--c:28;--r:0.15"/><rect x="29" y="0" width="1" height="1" style="--c:29;--r:0.91"/><rect x="30" y="0" width="1" height="1" class="d" style="--c:30;--r:0.82"/><rect x="24" y="1" width="1" height="1" style="--c:24;--r:0.25"/><rect x="25" y="1" width="1" height="1" style="--c:25;--r:0.19"/><rect x="26" y="1" width="1" height="1" style="--c:26;--r:0.74"/><rect x="27" y="1" width="1" height="1" style="--c:27;--r:0.94"/><rect x="28" y="1" width="1" height="1" style="--c:28;--r:0.20"/><rect x="29" y="1" width="1" height="1" style="--c:29;--r:0.95"/><rect x="30" y="1" width="1" height="1" style="--c:30;--r:0.88"/><rect x="24" y="2" width="1" height="1" style="--c:24;--r:0.60"/><rect x="25" y="2" width="1" height="1" style="--c:25;--r:0.42"/><rect x="29" y="2" width="1" height="1" style="--c:29;--r:0.10"/><rect x="30" y="2" width="1" height="1" style="--c:30;--r:0.04"/><rect x="24" y="3" width="1" height="1" style="--c:24;--r:0.96"/><rect x="25" y="3" width="1" height="1" style="--c:25;--r:0.24"/><rect x="29" y="3" width="1" height="1" style="--c:29;--r:0.70"/><rect x="30" y="3" width="1" height="1" style="--c:30;--r:0.26"/><rect x="24" y="4" width="1" height="1" style="--c:24;--r:0.82"/><rect x="25" y="4" width="1" height="1" style="--c:25;--r:0.60"/><rect x="29" y="4" width="1" height="1" style="--c:29;--r:0.29"/><rect x="30" y="4" width="1" height="1" style="--c:30;--r:0.18"/><rect x="24" y="5" width="1" height="1" style="--c:24;--r:0.72"/><rect x="25" y="5" width="1" height="1" style="--c:25;--r:0.07"/><rect x="26" y="5" width="1" height="1" style="--c:26;--r:0.23"/><rect x="27" y="5" width="1" height="1" style="--c:27;--r:0.56"/><rect x="28" y="5" width="1" height="1" style="--c:28;--r:0.85"/><rect x="29" y="5" width="1" height="1" style="--c:29;--r:0.61"/><rect x="30" y="5" width="1" height="1" style="--c:30;--r:0.28"/><rect x="24" y="6" width="1" height="1" class="d" style="--c:24;--r:0.92"/><rect x="25" y="6" width="1" height="1" style="--c:25;--r:0.20"/><rect x="26" y="6" width="1" height="1" style="--c:26;--r:0.02"/><rect x="27" y="6" width="1" height="1" style="--c:27;--r:0.27"/><rect x="28" y="6" width="1" height="1" style="--c:28;--r:0.45"/><rect x="29" y="6" width="1" height="1" style="--c:29;--r:0.06"/><rect x="30" y="6" width="1" height="1" class="d" style="--c:30;--r:0.18"/><rect x="32" y="0" width="1" height="1" class="d" style="--c:32;--r:0.37"/><rect x="33" y="0" width="1" height="1" style="--c:33;--r:0.57"/><rect x="34" y="0" width="1" height="1" style="--c:34;--r:0.13"/><rect x="35" y="0" width="1" height="1" style="--c:35;--r:0.36"/><rect x="36" y="0" width="1" height="1" style="--c:36;--r:0.89"/><rect x="37" y="0" width="1" height="1" style="--c:37;--r:0.98"/><rect x="38" y="0" width="1" height="1" style="--c:38;--r:0.66"/><rect x="32" y="1" width="1" height="1" style="--c:32;--r:0.69"/><rect x="33" y="1" width="1" height="1" style="--c:33;--r:0.58"/><rect x="34" y="1" width="1" height="1" style="--c:34;--r:0.14"/><rect x="35" y="1" width="1" height="1" style="--c:35;--r:0.04"/><rect x="36" y="1" width="1" height="1" style="--c:36;--r:0.02"/><rect x="37" y="1" width="1" height="1" style="--c:37;--r:0.91"/><rect x="38" y="1" width="1" height="1" style="--c:38;--r:0.70"/><rect x="32" y="2" width="1" height="1" style="--c:32;--r:0.96"/><rect x="33" y="2" width="1" height="1" style="--c:33;--r:0.02"/><rect x="34" y="2" width="1" height="1" style="--c:34;--r:0.64"/><rect x="32" y="3" width="1" height="1" class="d" style="--c:32;--r:0.48"/><rect x="33" y="3" width="1" height="1" style="--c:33;--r:0.73"/><rect x="34" y="3" width="1" height="1" style="--c:34;--r:0.32"/><rect x="35" y="3" width="1" height="1" style="--c:35;--r:1.00"/><rect x="36" y="3" width="1" height="1" style="--c:36;--r:0.08"/><rect x="37" y="3" width="1" height="1" style="--c:37;--r:0.55"/><rect x="38" y="3" width="1" height="1" class="d" style="--c:38;--r:0.74"/><rect x="36" y="4" width="1" height="1" style="--c:36;--r:0.90"/><rect x="37" y="4" width="1" height="1" style="--c:37;--r:0.74"/><rect x="38" y="4" width="1" height="1" style="--c:38;--r:0.70"/><rect x="32" y="5" width="1" height="1" style="--c:32;--r:0.79"/><rect x="33" y="5" width="1" height="1" style="--c:33;--r:0.92"/><rect x="34" y="5" width="1" height="1" style="--c:34;--r:0.35"/><rect x="35" y="5" width="1" height="1" style="--c:35;--r:0.69"/><rect x="36" y="5" width="1" height="1" style="--c:36;--r:0.90"/><rect x="37" y="5" width="1" height="1" style="--c:37;--r:0.87"/><rect x="38" y="5" width="1" height="1" style="--c:38;--r:0.42"/><rect x="32" y="6" width="1" height="1" style="--c:32;--r:0.79"/><rect x="33" y="6" width="1" height="1" style="--c:33;--r:0.86"/><rect x="34" y="6" width="1" height="1" style="--c:34;--r:0.57"/><rect x="35" y="6" width="1" height="1" style="--c:35;--r:0.62"/><rect x="36" y="6" width="1" height="1" style="--c:36;--r:0.38"/><rect x="37" y="6" width="1" height="1" style="--c:37;--r:0.58"/><rect x="38" y="6" width="1" height="1" class="d" style="--c:38;--r:0.61"/></svg></button></h1>
+        <h1><button class="mark" type="button" aria-label="Logos" aria-describedby="gloss-hero"><svg viewBox="14 6 218 68" aria-hidden="true" focusable="false"><line class="bar" x1="16" y1="10" x2="230" y2="10"/><path class="ltr lead" style="--i:0" d="M20 26 V56 L32 68 H50"/><g class="mid"><path class="ltr" style="--i:1" d="M74 26 H84 L94 36 V58 L84 68 H74 L64 58 V36 Z"/><path class="ltr" style="--i:2" d="M138 36 L128 26 H118 L108 36 V58 L118 68 H128 L138 58 V48 H124"/><path class="ltr" style="--i:3" d="M162 26 H172 L182 36 V58 L172 68 H162 L152 58 V36 Z"/></g><path class="ltr sig" style="--i:4" d="M226 26 H196 V40 L226 54 V68 H196"/></svg></button></h1>
         <p class="gloss" id="gloss-hero" role="note"><span class="t">short for <b>logothete</b>: your personal scribe</span><span class="caret" aria-hidden="true"></span></p>
       </div>
       <p class="sub fade">
@@ -719,11 +747,11 @@ a5e72a2 &middot; 2 files uncommitted
             <blockquote>Logos helped save me over 22&times; tokens.</blockquote>
             <p class="measured">Measured at the resume moment: a 717-line, ~9,000-token <code>STATE.md</code> against a 34-line, ~400-token checkpoint of the same project.</p>
           </div>
-          <figcaption class="who"><svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1" class="d"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="1" y="1" width="1" height="1" class="d"/><rect x="3" y="1" width="1" height="1" class="d"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1" class="d"/><rect x="1" y="2" width="1" height="1" class="d"/><rect x="2" y="2" width="1" height="1" class="d"/><rect x="3" y="2" width="1" height="1" class="d"/><rect x="4" y="2" width="1" height="1" class="d"/><rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="1" height="1" class="d"/><rect x="4" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1" class="d"/><rect x="2" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1" class="d"/></svg><div><b>Anon</b><span>15 years old</span><span class="tag">Beta tester</span></div></figcaption>
+          <figcaption class="who"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><path class="frame-o" d="M11 1 H25 L35 11 V25 L25 35 H11 L1 25 V11 Z"/><line class="bar" x1="10" y1="14" x2="26" y2="14"/></svg><div><b>Anon</b><span>15 years old</span><span class="tag">Beta tester</span></div></figcaption>
         </figure>
         <figure class="cell quote" style="margin:0">
           <blockquote>Logos helped me completely migrate from Claude to Copilot following internal switch-ups. Couldn&rsquo;t be happier.</blockquote>
-          <figcaption class="who"><svg viewBox="0 0 5 5" aria-hidden="true" focusable="false"><rect x="0" y="0" width="1" height="1" class="d"/><rect x="2" y="0" width="1" height="1"/><rect x="4" y="0" width="1" height="1" class="d"/><rect x="0" y="1" width="1" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1" class="d"/><rect x="3" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="1" y="2" width="1" height="1" class="d"/><rect x="3" y="2" width="1" height="1" class="d"/><rect x="0" y="3" width="1" height="1"/><rect x="1" y="3" width="1" height="1" class="d"/><rect x="2" y="3" width="1" height="1" class="d"/><rect x="3" y="3" width="1" height="1" class="d"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/></svg><div><b>Anon</b><span>Senior developer</span><span class="tag">Beta tester</span></div></figcaption>
+          <figcaption class="who"><svg viewBox="0 0 36 36" aria-hidden="true" focusable="false"><path class="frame-o" d="M11 1 H25 L35 11 V25 L25 35 H11 L1 25 V11 Z"/><line class="bar" x1="10" y1="14" x2="26" y2="14"/></svg><div><b>Anon</b><span>Senior developer</span><span class="tag">Beta tester</span></div></figcaption>
         </figure>
       </div>
     </div>
@@ -1094,8 +1122,8 @@ document.querySelectorAll(".copy").forEach(function (btn) {
     }
   }
 
-  // Cells behind the hero's own words stay quiet: decoded text there would
-  // be read as part of the sentence in front of it. It is measured again
+  // Cells behind the hero's own words never decode, even faintly: any
+  // readable text there is read as part of the sentence in front of it. It is measured again
   // once the entrance has settled, because the copy is still rising at first.
   function markQuiet() {
     quiet.fill(0);
@@ -1164,12 +1192,11 @@ document.querySelectorAll(".copy").forEach(function (btn) {
     for (var y = 0; y < rows; y++) {
       for (var x = 0; x < cols; x++) {
         var i = y * cols + x, px = x * cw, py = y * LINE, key, ch;
-        if (level[i] > thresh[i]) {
+        if (level[i] > thresh[i] && !quiet[i]) {
           ch = target[i];
           if (ch === " ") continue;
           var a = Math.min(0.85, 0.3 + (level[i] - thresh[i]) * 1.6);
-          if (quiet[i]) { a = Math.min(a, 0.2); }
-          key = (level[i] > 0.97 && !quiet[i] ? "b" : "p") + Math.round(a * 10);
+          key = (level[i] > 0.97 ? "b" : "p") + Math.round(a * 10);
         } else {
           ch = glyph[i];
           if (ch === " ") continue;
@@ -1230,7 +1257,12 @@ document.querySelectorAll(".copy").forEach(function (btn) {
       }).observe(band);
     }
     sync();
-    setTimeout(markQuiet, 1800);
+    // The copy rises into place over a staggered entrance, so the quiet cells
+    // are measured again as each piece lands rather than after a guessed delay.
+    var pending = 0;
+    band.addEventListener("animationend", function () {
+      clearTimeout(pending); pending = setTimeout(markQuiet, 60);
+    });
   }
   (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(start);
 })();
