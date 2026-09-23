@@ -197,25 +197,38 @@ func NormalizeArg(arg string) string {
 	if !looksLikePath {
 		return p
 	}
-	if base := Name(resolve(p)); base != "" {
+	if base := nameOfPath(p); base != "" {
 		return base
 	}
 	return p
 }
 
-// resolve makes a path argument absolute before Name walks up from it. Walked
-// as written, "../etc" climbs to ".." and then to "." — filepath.Dir("..") is
-// "." — so the marker search ends in the caller's own directory, and a project
-// pointed at a sibling was filed under the repository the caller stood in. A
-// leading ~ is the user's home, which no shell expanded for a quoted argument.
-func resolve(p string) string {
+// nameOfPath names a path argument from where it points, never from where the
+// caller happens to stand (#174). Name walks up looking for a marker or a .git,
+// and a relative path walked as written ends in "." — filepath.Dir("..") is
+// "." — so "../etc" and "a/code/kestrel" were both filed under whatever
+// repository the server was launched in.
+//
+// A leading ~ is the user's home, which no shell expanded for a quoted
+// argument, and makes the path absolute. An absolute path gets Name's full
+// treatment. A relative one is taken at its last segment: it was written
+// against a directory the model cannot see, so the one part of it that means
+// the same thing from anywhere is the name at its end.
+func nameOfPath(p string) string {
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
 		}
 	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
+	if filepath.IsAbs(p) {
+		return Name(p)
 	}
-	return p
+	if base := Basename(p); base != "" && base != ".." {
+		return base
+	}
+	// "./" or "../..": no name at the end, so the directory it resolves to.
+	if abs, err := filepath.Abs(p); err == nil {
+		return Name(abs)
+	}
+	return ""
 }

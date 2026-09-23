@@ -172,6 +172,7 @@ func TestAPathArgumentIsNamedFromWhereItPointsNotFromWhereTheCallerStands(t *tes
 	for arg, want := range map[string]string{
 		"../etc":         "etc",
 		"~/code/kestrel": "kestrel",
+		"a/code/kestrel": "kestrel",
 	} {
 		if got := NormalizeArg(arg); got != want {
 			t.Errorf("NormalizeArg(%q) = %q, want %q", arg, got, want)
