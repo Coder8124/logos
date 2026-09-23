@@ -78,3 +78,34 @@ func TestReindexingWritesOutAWorkingNoteTheVaultNeverGot(t *testing.T) {
 		t.Errorf("%d notes still marked as not durable after being written out", n)
 	}
 }
+
+// #170: a failed write flagged every open note in the scope, so a note already
+// safe in uncommitted.md was counted as stranded beside the one that was not —
+// doctor said two at risk and index said it wrote two, when one was missing.
+// The memory half of the same fix marks only what the file lacks; notes must too.
+func TestOnlyTheNoteTheVaultLacksIsCountedAsStranded(t *testing.T) {
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	if _, err := AddNote(db, "alpha", "claude", "the first note reached the vault"); err != nil {
+		t.Fatal(err)
+	}
+	scopeDir := filepath.Join(v, CheckpointDir, "alpha")
+	if err := os.Chmod(scopeDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(scopeDir, 0o700) })
+	if _, err := AddNote(db, "alpha", "claude", "the second note did not"); err == nil {
+		t.Fatal("adding a note to an unwritable vault reported success")
+	}
+
+	if n, err := Unflushed(db); err != nil || n != 1 {
+		t.Errorf("%d working notes counted as stranded (err %v), want 1", n, err)
+	}
+	if err := os.Chmod(scopeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, rescued, err := ImportNotes(db, v); err != nil || rescued != 1 {
+		t.Errorf("reindex reported %d notes written out (err %v), want 1", rescued, err)
+	}
+}
