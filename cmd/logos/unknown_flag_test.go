@@ -56,14 +56,31 @@ func TestANumericFlagWithAnUnusableValueIsRefused(t *testing.T) {
 	}{
 		{"context", []string{"task", "--budget", "abc"}},
 		{"context", []string{"task", "--budget", "-5"}},
-		{"context", []string{"task", "--budget", "0"}},
 		{"resume", []string{"--budget", "abc"}},
 		{"why", []string{"a.go", "--limit", "-1"}},
 		{"why", []string{"a.go", "--limit", "abc"}},
 		{"graph", []string{"--hops", "abc"}},
+		{"graph", []string{"--hops", "-1"}},
 	} {
 		if err := checkCommandFlags(c.cmd, c.args); err == nil {
 			t.Errorf("logos %s %s accepted a value it cannot use", c.cmd, strings.Join(c.args, " "))
+		}
+	}
+}
+
+// 0 is the documented way to ask for the default budget; refusing it left a
+// script with no way to say "whatever you normally use".
+func TestABudgetOfZeroAsksForTheDefaultRatherThanBeingRefused(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		args []string
+	}{
+		{"context", []string{"task", "--budget", "0"}},
+		{"context", []string{"task", "-b", "0"}},
+		{"resume", []string{"brain", "--budget", "0"}},
+	} {
+		if err := checkCommandFlags(c.cmd, c.args); err != nil {
+			t.Errorf("logos %s %s: %v", c.cmd, strings.Join(c.args, " "), err)
 		}
 	}
 }
@@ -86,6 +103,7 @@ func TestTheFlagsACommandDocumentsStillPass(t *testing.T) {
 		{"why", []string{"a.go", "--limit", "3"}},
 		{"why", []string{"a.go", "-n", "3"}},
 		{"graph", []string{"focus", "--hops", "3", "--similar"}},
+		{"graph", []string{"focus", "--hops", "0"}},
 		{"sessions", []string{"brain", "--close", "abc"}},
 		{"replay", []string{"--peek"}},
 		{"index", []string{"--watch"}},

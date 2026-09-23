@@ -397,7 +397,11 @@ func main() {
 	case cmd == "bench" && len(args) >= 1 && args[0] == "continuity":
 		err = runContinuityBench(args[1:])
 	case cmd == "graph":
-		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
+		hops := flagInt(args, "--hops", 0)
+		if hops == 0 {
+			hops = 2 // 0 asks for the default, as --budget 0 does
+		}
+		err = runGraph(firstNonFlag(args), hops, hasFlag(args, "--similar"))
 	default:
 		unknownCommand(cmd)
 	}
@@ -469,7 +473,11 @@ func isFlagToken(a string) bool {
 type flagSpec struct {
 	valued  []string // take the next word as their value
 	numeric []string // valued, and a value that is given must be a positive whole number
-	bare    []string
+	// orDefault is numeric, except that 0 is accepted and asks for the default.
+	// Refusing it read as a broken command: --budget 0 is how a script says
+	// "whatever you normally use", and a pack with no budget is no pack at all.
+	orDefault []string
+	bare      []string
 }
 
 // commandFlags covers the commands whose flags were parsed by picking out the
@@ -482,14 +490,14 @@ var commandFlags = map[string]flagSpec{
 	"index":    {bare: []string{"--watch"}},
 	"replay":   {bare: []string{"--peek"}},
 	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report"}},
-	"resume":   {valued: []string{"--since"}, numeric: []string{"--budget", "-b"}},
+	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
-	"graph":    {numeric: []string{"--hops"}, bare: []string{"--similar"}},
+	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
 		"--action", "--instead"}},
 	"context": {valued: []string{"--project", "-p", "--since", "--pin", "--exclude", "--unpin"},
-		numeric: []string{"--budget", "-b"}, bare: []string{"--rules"}},
+		orDefault: []string{"--budget", "-b"}, bare: []string{"--rules"}},
 }
 
 // checkCommandFlags refuses a flag cmd does not know, or a number it cannot
@@ -520,8 +528,15 @@ func checkFlags(what string, args []string, spec flagSpec) error {
 					return fmt.Errorf("%s needs a positive whole number, not %q", a, args[i])
 				}
 			}
+		case slices.Contains(spec.orDefault, a):
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				if n, err := strconv.Atoi(args[i]); err != nil || n < 0 {
+					return fmt.Errorf("%s needs a whole number, or 0 for the default, not %q", a, args[i])
+				}
+			}
 		case strings.HasPrefix(a, "--"):
-			known := slices.Concat(spec.valued, spec.numeric, spec.bare)
+			known := slices.Concat(spec.valued, spec.numeric, spec.orDefault, spec.bare)
 			if len(known) == 0 {
 				return fmt.Errorf("unknown flag %q — %s takes no flags; nothing was done", a, what)
 			}
