@@ -70,8 +70,13 @@ logos_runs() {
 # logos_newer answers whether $1 is a newer version than $2. Dotted numbers
 # compared field by field; anything not starting with a digit ("dev") is older
 # than anything that does, and two unversioned builds never displace each other.
+#
+# One leading v is dropped first. A release archive is stamped from its tag and
+# a `go install …@v0.4.9` build reports its module version, both with the v, so
+# without this every real release ranked as "dev": two of them never displaced
+# each other, and v0.4.9 lost to a bare 0.4.8 (#173).
 logos_newer() {
-  local a="$1" b="$2" x y
+  local a="${1#v}" b="${2#v}" x y
   case "$a" in [0-9]*) ;; *) return 1 ;; esac
   case "$b" in [0-9]*) ;; *) return 0 ;; esac
   while [ -n "$a" ] || [ -n "$b" ]; do
@@ -127,8 +132,14 @@ logos_resolve() {
       [ -x "$cand" ] && logos_consider "$cand" "$cand"
     done
   done
+  # The fixed install locations can be replaced, and exist as a variable only
+  # for the tests: they probed the real /opt/homebrew/bin whatever PATH said,
+  # and passed for months only because the brew copy's "v0.4.8" was ranked as
+  # an unversioned build and never won (#173). Unset means the real list.
+  local fixed_dirs
+  read -r -a fixed_dirs <<< "${LOGOS_RESOLVE_FIXED_DIRS-/opt/homebrew/bin /usr/local/bin}"
   for dir in "${GOBIN:-}" "${GOPATH:+$GOPATH/bin}" "$HOME/go/bin" \
-             /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; do
+             ${fixed_dirs[@]+"${fixed_dirs[@]}"} "$HOME/.local/bin"; do
     [ -n "$dir" ] || continue
     for name in logos brain; do
       cand="$dir/$name"
