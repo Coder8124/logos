@@ -383,6 +383,22 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--brass); outline
 
 /* ── Handoff ───────────────────────────────────────────────────────────── */
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+/* Attention arcs. The section's claim is that nothing the next agent reads is
+   invented: every line in the right pane was read off a line in the left. So
+   each one can point at its source, the way a model's attention does, and a
+   reader can check the claim line by line instead of taking it on trust. */
+#handoff .pair { position: relative; }
+#handoff [data-k] { border-radius: 2px; transition: background-color .25s, box-shadow .25s; }
+#handoff [data-k].lit { background: rgba(184, 148, 82, .18); box-shadow: 0 0 0 2px rgba(184, 148, 82, .18); }
+.arcs { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.arcs path { fill: none; stroke: var(--brass); stroke-width: 1.25; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: .9; }
+.arcs circle { fill: var(--brass); opacity: 0; }
+.arcs.on path { stroke-dashoffset: 0; transition: stroke-dashoffset .6s cubic-bezier(.4, 0, .2, 1); }
+.arcs.on circle { opacity: 1; transition: opacity .2s .45s; }
+@media (prefers-reduced-motion: reduce) {
+  .arcs.on path, .arcs.on circle { transition: none; }
+  #handoff [data-k] { transition: none; }
+}
 .pull {
   font-size: 1.35rem; line-height: 1.45; font-weight: 400; letter-spacing: -.01em;
   color: var(--ink); max-width: 44ch; margin: 3rem 0 0;
@@ -696,35 +712,35 @@ footer .bottom a:hover { color: var(--brass); }
             <div class="bar"><b>written by claude code</b> <span class="side">sessions/logos/&hellip;-claude.md</span></div>
 <pre><span class="g">---</span>
 <span class="g">type:</span> checkpoint
-<span class="g">project:</span> logos
-<span class="g">agent:</span> claude
-<span class="g">branch:</span> feat/bench-temporal
-<span class="g">commit:</span> a5e72a2
-<span class="g">uncommitted:</span> 2
-<span class="g">checkpointed:</span> 2026-09-01T08:57:24-07:00
+<span data-k="proj"><span class="g">project:</span> logos</span>
+<span data-k="who"><span class="g">agent:</span> claude</span>
+<span data-k="branch"><span class="g">branch:</span> feat/bench-temporal</span>
+<span data-k="commit"><span class="g">commit:</span> a5e72a2</span>
+<span data-k="commit"><span class="g">uncommitted:</span> 2</span>
+<span data-k="who"><span class="g">checkpointed:</span> 2026-09-01T08:57:24-07:00</span>
 <span class="g">---</span>
 
-<span class="br">## Didn't work</span>
+<span data-k="tried"><span class="br">## Didn't work</span></span>
 
-<span class="g">-</span> publishing under the unscoped name
-  'logos' &mdash; taken on npm at 1.0.4
-<span class="g">-</span> claiming the @logos scope &mdash; the org
-  already exists, not ours to take</pre>
+<span data-k="b1"><span class="g">-</span> publishing under the unscoped name
+  'logos' &mdash; taken on npm at 1.0.4</span>
+<span data-k="b2"><span class="g">-</span> claiming the @logos scope &mdash; the org
+  already exists, not ours to take</span></pre>
           </div>
           <div class="window">
             <div class="bar"><b>read back by cursor</b> <span class="side">1 day later</span></div>
-<pre><span class="g">#</span> Context for: resume work on logos
+<pre><span data-k="proj"><span class="g">#</span> Context for: resume work on logos</span>
 
-<span class="say">Last checkpoint by <b>claude</b>, 1d ago.</span>
+<span data-k="who"><span class="say">Last checkpoint by <b>claude</b>, 1d ago.</span></span>
 
-<span class="say">Repository was:</span> feat/bench-temporal
-a5e72a2 &middot; 2 files uncommitted
+<span data-k="branch"><span class="say">Repository was:</span> feat/bench-temporal</span>
+<span data-k="commit">a5e72a2 &middot; 2 files uncommitted</span>
 
-<span class="ok">Already tried, didn't work:</span>
-<span class="g">-</span> publishing under the unscoped name
-  'logos' &mdash; taken on npm at 1.0.4
-<span class="g">-</span> claiming the @logos scope &mdash; the org
-  already exists, not ours to take
+<span data-k="tried"><span class="ok">Already tried, didn't work:</span></span>
+<span data-k="b1"><span class="g">-</span> publishing under the unscoped name
+  'logos' &mdash; taken on npm at 1.0.4</span>
+<span data-k="b2"><span class="g">-</span> claiming the @logos scope &mdash; the org
+  already exists, not ours to take</span>
 
 <span class="g">_Context budget: ~284 of 4000 tokens._</span></pre>
           </div>
@@ -1068,6 +1084,102 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   });
 });
 </script>
+<script>
+// Handoff arcs: point at a line the next agent read, and brass arcs run back to
+// the lines in the checkpoint it came from. Idle and in view, the section
+// walks through them on its own, because a reader who never hovers should
+// still see that the right pane is derived, not written.
+(function () {
+  var pair = document.querySelector("#handoff .pair");
+  if (!pair) return;
+  var panes = pair.querySelectorAll(".window");
+  if (panes.length !== 2) return;
+  var src = panes[0], dst = panes[1];
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var NS = "http://www.w3.org/2000/svg";
+  var svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "arcs"); svg.setAttribute("aria-hidden", "true");
+  pair.appendChild(svg);
+
+  var keys = [];
+  Array.prototype.forEach.call(dst.querySelectorAll("[data-k]"), function (el) { keys.push(el.getAttribute("data-k")); });
+  var current = null;
+
+  function el(name, attrs) {
+    var n = document.createElementNS(NS, name);
+    for (var a in attrs) n.setAttribute(a, attrs[a]);
+    return n;
+  }
+
+  function show(k, animate) {
+    Array.prototype.forEach.call(pair.querySelectorAll("[data-k].lit"), function (n) { n.classList.remove("lit"); });
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.classList.remove("on");
+    current = k;
+    if (!k) return;
+    var to = dst.querySelector('[data-k="' + k + '"]');
+    var from = src.querySelectorAll('[data-k="' + k + '"]');
+    if (!to || !from.length) return;
+    var base = pair.getBoundingClientRect();
+    var sp = src.getBoundingClientRect(), dp = dst.getBoundingClientRect();
+    // Stacked on a narrow screen, the panes are one above the other, so the
+    // arcs leave and arrive at the left edge and bow out into the margin.
+    var stacked = dp.top >= sp.bottom - 1;
+    var t = to.getClientRects()[0];
+    var tx = Math.max(t.left, dp.left) - base.left - 5, ty = t.top + t.height / 2 - base.top;
+    to.classList.add("lit");
+    Array.prototype.forEach.call(from, function (f) {
+      f.classList.add("lit");
+      var r = f.getClientRects()[0], sx, d;
+      var sy = r.top + r.height / 2 - base.top;
+      if (stacked) {
+        // A line scrolled out of its pane still has an arc to its edge.
+        sx = Math.max(r.left, sp.left) - base.left - 5;
+        var c = Math.min(sx, tx) - 34;
+        d = "M" + sx + " " + sy + " C" + c + " " + sy + " " + c + " " + ty + " " + tx + " " + ty;
+      } else {
+        sx = Math.min(r.right, sp.right - 4) - base.left + 5;
+        // Every arc lifts a little, so two lines at the same height are joined
+        // by an arc rather than a rule that reads as part of the layout.
+        var dx = Math.max(40, (tx - sx) * 0.5), lift = Math.min(36, (tx - sx) * 0.08);
+        d = "M" + sx + " " + sy + " C" + (sx + dx) + " " + (sy - lift) + " " + (tx - dx) + " " + (ty - lift) + " " + tx + " " + ty;
+      }
+      svg.appendChild(el("path", { d: d, pathLength: "1" }));
+      svg.appendChild(el("circle", { cx: sx, cy: sy, r: 2.5 }));
+    });
+    svg.appendChild(el("circle", { cx: tx, cy: ty, r: 2.5 }));
+    if (animate && !reduce) void svg.getBoundingClientRect();
+    svg.classList.add("on");
+  }
+
+  // Pointing at either end of a pair lights the whole pair.
+  var hovering = false;
+  pair.addEventListener("pointerover", function (e) {
+    var n = e.target.closest && e.target.closest("[data-k]");
+    hovering = true;
+    if (n && n.getAttribute("data-k") !== current) show(n.getAttribute("data-k"), true);
+  });
+  pair.addEventListener("pointerleave", function () { hovering = false; });
+
+  // The walk: one link every few seconds, only while the section is on screen
+  // and nobody is pointing at it. Reduced motion gets no walk; hover still works.
+  var visible = false, timer = 0, i = 0;
+  function tick() {
+    if (!visible || hovering || document.hidden) return;
+    i = (keys.indexOf(current) + 1) % keys.length;
+    show(keys[i], true);
+  }
+  if (!reduce && "IntersectionObserver" in window) {
+    new IntersectionObserver(function (es) {
+      visible = es[0].isIntersecting;
+      clearInterval(timer);
+      if (visible) { tick(); timer = setInterval(tick, 2800); }
+    }, { threshold: 0.4 }).observe(pair);
+  }
+  window.addEventListener("resize", function () { if (current) show(current, false); });
+})();
+</script>
+
 <script>
 // The latent field under the whole page. Every cell holds a noise glyph and,
 // under it, one character of real text; how far a cell has decoded depends on
