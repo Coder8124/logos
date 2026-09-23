@@ -63,3 +63,33 @@ func TestUsageRefusesARateThatIsNotAPrice(t *testing.T) {
 		t.Errorf("--usd cheap = %v, want a refusal naming the unit", err)
 	}
 }
+
+// The switch announces itself both ways, and a report read while it is off
+// says so — otherwise totals that stopped growing read as Logos doing nothing.
+func TestUsageOffIsSaidWhenSetAndWhenTheTotalsAreRead(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	out := captureStdout(t, func() {
+		if err := runUsage([]string{"off"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "usage recording is off") {
+		t.Errorf("turning it off printed:\n%s", out)
+	}
+	out = captureStdout(t, func() {
+		if err := runUsage(nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "recording is off") || !strings.Contains(out, "logos usage on") {
+		t.Errorf("a report read with the ledger off did not say so:\n%s", out)
+	}
+	out = captureStdout(t, func() {
+		if err := runUsage([]string{"on"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "usage recording is on") {
+		t.Errorf("turning it on printed:\n%s", out)
+	}
+}

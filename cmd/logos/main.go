@@ -132,6 +132,7 @@ CONTINUITY
     logos usage [project] [--usd RATE]
                                       what the budget left out of context packs, and
                                       dead ends handed back before a retry
+    logos usage off | on              stop or resume counting (LOGOS_USAGE=off for one process)
     logos why <file> [--limit N]      what was being decided when this file was touched
     logos projects | project <name>   auto-detected projects and their dossiers
     logos project-name [dir]          the project name for a directory, as the hooks compute it

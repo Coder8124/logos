@@ -10,6 +10,7 @@ import (
 	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/setup"
+	usagepkg "github.com/Coder8124/logos/internal/usage"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -59,6 +60,7 @@ func doctorReport() error {
 	}
 	fmt.Println()
 	fmt.Printf("activity   %s\n", map[bool]string{true: "recording", false: "off"}[activity.Recording(v)])
+	fmt.Printf("usage      %s\n", map[bool]string{true: "counting", false: "off"}[usagepkg.Recording(v)])
 
 	// Two copies of logos on PATH, one of them stale, is the single most common
 	// cause of "I updated and nothing changed" — and it is invisible to the

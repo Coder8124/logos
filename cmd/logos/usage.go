@@ -36,6 +36,9 @@ func ledgerPack(vault, via, project string, pack contextpack.Pack) {
 //
 //	logos usage [project] [--usd RATE]
 func runUsage(args []string) error {
+	if len(args) == 1 && (args[0] == "off" || args[0] == "on") {
+		return setUsageRecording(args[0] == "on")
+	}
 	var project, rate string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -68,6 +71,11 @@ func runUsage(args []string) error {
 		return err
 	}
 	t := usagepkg.Sum(events, project)
+	if !usagepkg.Recording(v) {
+		// Totals that stopped growing read as Logos doing nothing; say why.
+		fmt.Println("· recording is off — the totals below stopped when it was turned off. `logos usage on` resumes it.")
+		fmt.Println()
+	}
 
 	who := "every project"
 	if project != "" {
@@ -96,8 +104,8 @@ func runUsage(args []string) error {
 		t.DeadEndChecks, pluralS(t.DeadEndChecks), t.Rulings, pluralS(t.Rulings))
 	fmt.Println("  (before_you_try, tried and why — dead ends returned, not mistakes proven avoided)")
 
-	fmt.Println("· handoffs: not counted — nothing yet tells a handoff that worked from one that did not")
-	fmt.Println("  without a judgment call, and a guess is not shown as a number")
+	fmt.Println("· handoffs: not counted — the alternative is a summary written or pasted by hand, and Logos")
+	fmt.Println("  never sees how long that would have been; a guess is not shown as a number")
 	printUnreadable(bad, v)
 	return nil
 }
@@ -121,4 +129,21 @@ func thousands(n int) string {
 		return "-" + s
 	}
 	return s
+}
+
+func setUsageRecording(on bool) error {
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return missingVaultError(v)
+	}
+	if err := usagepkg.SetRecording(v, on); err != nil {
+		return err
+	}
+	if on {
+		fmt.Printf("usage recording is on for %s — packs sent and dead ends handed back are counted in %s\n", v, filepath.Join(v, usagepkg.Dir))
+		return nil
+	}
+	fmt.Printf("usage recording is off for %s — nothing new is counted; what is already in %s is left alone\n", v, filepath.Join(v, usagepkg.Dir))
+	fmt.Println("  `logos usage on` resumes it. LOGOS_USAGE=off turns it off for one process.")
+	return nil
 }

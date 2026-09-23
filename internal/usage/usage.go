@@ -56,6 +56,39 @@ type Event struct {
 	Rulings int `json:"rulings,omitempty"`
 }
 
+// offMarker turns the ledger off. It sits in the vault, beside the ledger, not
+// in .logos/: deleting the index is documented as lossless, and a ledger that
+// came back on after an index rebuild would break that promise.
+const offMarker = "recording-off"
+
+// Recording reports whether this vault's ledger takes new events. On unless
+// someone said otherwise — it holds counts, never prompts or content — but
+// everything Logos writes on its own has a switch, with `logos usage off` for
+// the vault and LOGOS_USAGE=off for one process.
+func Recording(vault string) bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOGOS_USAGE")), "off") {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(vault, Dir, offMarker))
+	return err != nil
+}
+
+// SetRecording turns the ledger on or off for this vault. What is already
+// recorded is left alone either way; the files are the user's to delete.
+func SetRecording(vault string, on bool) error {
+	off := filepath.Join(vault, Dir, offMarker)
+	if on {
+		if err := os.Remove(off); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := vaultpkg.MkdirPrivate(filepath.Join(vault, Dir)); err != nil {
+		return err
+	}
+	return os.WriteFile(off, []byte("The usage ledger is off for this vault. `logos usage on` turns it back on.\n"), vaultpkg.FileMode)
+}
+
 // Record appends one event.
 //
 // Errors are returned, and a caller reports rather than swallows them: a
@@ -71,6 +104,10 @@ func Record(vault string, e Event) error {
 	}
 	if e.Kind == "" {
 		return fmt.Errorf("usage: an event needs a kind")
+	}
+	if !Recording(vault) {
+		// Off is the user's answer, not a failure: nothing to report.
+		return nil
 	}
 	e.Project = projectKey(e.Project)
 	dir := filepath.Join(vault, Dir)
