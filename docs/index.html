@@ -33,7 +33,6 @@
   --rule:           #0E5245;   /* dashed section rules, cell borders */
   --charcoal-deep:  #1A1816;   /* window title bars */
   --brass-lift:     #C9A765;
-  --brass-sunk:     #8E703B;
 
   --ink:   #F3EBDD;
   --ink-2: #D9C9B4;
@@ -1171,12 +1170,16 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   }
   if (!reduce && "IntersectionObserver" in window) {
     new IntersectionObserver(function (es) {
-      visible = es[0].isIntersecting;
+      // Entries queue up in order; only the latest says where the pair is now.
+      visible = es[es.length - 1].isIntersecting;
       clearInterval(timer);
       if (visible) { tick(); timer = setInterval(tick, 2800); }
     }, { threshold: 0.4 }).observe(pair);
   }
-  window.addEventListener("resize", function () { if (current) show(current, false); });
+  // A pane scrolled sideways on a narrow screen moves its lines under the arcs.
+  function redraw() { if (current) show(current, false); }
+  window.addEventListener("resize", redraw);
+  Array.prototype.forEach.call(pair.querySelectorAll("pre"), function (p) { p.addEventListener("scroll", redraw, { passive: true }); });
 })();
 </script>
 
@@ -1217,7 +1220,11 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   function layout() {
     vw = document.documentElement.clientWidth; vh = window.innerHeight;
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
+    // Assigning a canvas's size clears it, even to the size it already has,
+    // and the field only redraws on its next step: every click blanked it for
+    // a frame, and on a phone so did the URL bar hiding mid-scroll.
+    var w = Math.round(vw * dpr), h = Math.round(vh * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = FONT + "px 'IBM Plex Mono', ui-monospace, monospace";
     ctx.textBaseline = "top";
@@ -1390,7 +1397,7 @@ document.querySelectorAll(".copy").forEach(function (btn) {
   }
 
   var pending = 0;
-  function remeasure() { clearTimeout(pending); pending = setTimeout(function () { layout(); if (!running) draw(last); }, 80); }
+  function remeasure() { clearTimeout(pending); pending = setTimeout(function () { layout(); draw(last); }, 80); }
 
   function start() {
     layout();
