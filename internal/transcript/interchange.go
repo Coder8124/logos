@@ -244,6 +244,11 @@ func (t txcriptReader) read(id string) (*Session, error) {
 	if !txcriptOnPath() {
 		return nil, &SkipReason{Harness: t.name, Why: "txcript is not on PATH; install it for this format"}
 	}
+	// The path this returns is what a candidate records as its source, and
+	// distillation hands that back here. Exporting it verbatim asked txcript
+	// for a session named "txcript:opencode:<id>", so no txcript harvest could
+	// be distilled (#180).
+	id = strings.TrimPrefix(id, TxcriptPrefix+t.from+":")
 	var stderr strings.Builder
 	cmd := exec.Command("txcript", "export", id, "--from", t.from)
 	cmd.Stderr = &stderr
@@ -261,9 +266,17 @@ func (t txcriptReader) read(id string) (*Session, error) {
 	s.Harness = t.name
 	// Where to find it again, in the terms the source understands. The export's
 	// content hash, set by ReadInterchange, stays the change detector.
-	s.Path = "txcript:" + t.from + ":" + id
+	s.Path = TxcriptPrefix + t.from + ":" + id
 	return s, nil
 }
+
+// TxcriptPrefix marks a source held by txcript rather than a file on disk.
+// Anything that stats or copies a candidate's source has to check for it first:
+// there is no file there, and the session is not gone.
+const TxcriptPrefix = "txcript:"
+
+// IsTxcriptSource reports whether a candidate's source names a txcript session.
+func IsTxcriptSource(source string) bool { return strings.HasPrefix(source, TxcriptPrefix) }
 
 func txcriptOnPath() bool {
 	_, err := exec.LookPath("txcript")
