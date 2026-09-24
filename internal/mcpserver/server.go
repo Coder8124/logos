@@ -52,6 +52,7 @@ import (
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/untrusted"
+	"github.com/Coder8124/logos/internal/usage"
 )
 
 // protocolVersion is what this server speaks when the host asks for something
@@ -744,7 +745,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// the vault on purpose, and the project only labels which rulings came
 		// from elsewhere. Scoping it to the current folder would suppress the
 		// cross-project warnings that are the whole reason it exists.
-		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"))
+		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"), s.resolveScope(argStr(args, "project")))
 		// Counted under the current folder even though the search above is
 		// deliberately unscoped: what is being counted is that this agent is
 		// about to change something here, which is the point a session starts
@@ -754,7 +755,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		}
 		return out, err
 	case "why":
-		return s.why(argStr(args, "file"), argInt(args, "limit", 5))
+		return s.why(argStr(args, "file"), argInt(args, "limit", 5), s.resolveScope(""))
 	case "note_progress":
 		// A note since the last checkpoint is something the next one carries, so
 		// the same arguments again are no longer a retry.
@@ -1065,7 +1066,8 @@ func (s *Server) context(req contextpack.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.lead(pack) + pack.Render() + s.awaitingReview(), nil
+	body := pack.Render()
+	return s.lead(pack) + body + s.awaitingReview() + s.ledgerPack("mcp:context", req.Hint, pack), nil
 }
 
 // lead puts the receipt above the pack rather than below it. A person skimming
@@ -1095,7 +1097,10 @@ func (s *Server) lead(pack contextpack.Pack) string {
 // whether there is a known-good way to do it with a trap the obvious way falls
 // into. Which is why the tool description is written as an instruction: the
 // model has no way of knowing either on its own.
-func (s *Server) beforeYouTry(approach, project string) (string, error) {
+//
+// here is the project the check is counted under in the usage ledger, which is
+// not project: the search stays unscoped, the count belongs to the work here.
+func (s *Server) beforeYouTry(approach, project, here string) (string, error) {
 	if strings.TrimSpace(approach) == "" {
 		return "", fmt.Errorf("before_you_try needs the approach you are considering")
 	}
@@ -1131,6 +1136,9 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 		b.WriteString("\n")
 		b.WriteString(section)
 	}
+	if len(hits) > 0 {
+		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:before_you_try", Project: here, Rulings: len(hits)}))
+	}
 	return b.String(), nil
 }
 
@@ -1139,7 +1147,9 @@ func (s *Server) beforeYouTry(approach, project string) (string, error) {
 // Reads markdown out of the vault and needs no model and no index, so it works
 // on a machine with neither — which matters, because the moment it is useful is
 // the moment an agent is about to change something it does not understand.
-func (s *Server) why(file string, limit int) (string, error) {
+//
+// here is the project a returned dead end is counted under in the usage ledger.
+func (s *Server) why(file string, limit int, here string) (string, error) {
 	if strings.TrimSpace(file) == "" {
 		return "", fmt.Errorf("why needs a file path")
 	}
@@ -1161,7 +1171,9 @@ func (s *Server) why(file string, limit int) (string, error) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# What was decided around %s\n\n", file)
+	ruled := 0
 	for _, m := range mentions {
+		ruled += len(nonBlank(m.Failed))
 		when := "an unknown date"
 		if m.TS > 0 {
 			when = time.Unix(m.TS, 0).Format("2 Jan 2006")
@@ -1191,16 +1203,26 @@ func (s *Server) why(file string, limit int) (string, error) {
 	}
 	b.WriteString("This is what was recorded while the file was touched, not an analysis of " +
 		"the code. Treat it as evidence about intent, and check it still holds.\n")
+	// Counted only when a ruled-out approach came back: a why that returned
+	// decisions alone kept nobody from repeating anything.
+	if ruled > 0 {
+		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:why", Project: here, Rulings: ruled}))
+	}
 	return b.String(), nil
 }
 
-func writeList(b *strings.Builder, label string, items []string) {
+func nonBlank(items []string) []string {
 	var kept []string
 	for _, it := range items {
 		if s := strings.TrimSpace(it); s != "" {
 			kept = append(kept, s)
 		}
 	}
+	return kept
+}
+
+func writeList(b *strings.Builder, label string, items []string) {
+	kept := nonBlank(items)
 	if len(kept) == 0 {
 		return
 	}
@@ -1262,6 +1284,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		return "", err
 	}
 	out := chose + s.lead(pack) + pack.Render()
+	out += s.ledgerPack("mcp:resume", project, pack)
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and
 		// finds none will invent continuity that never existed.
