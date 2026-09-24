@@ -785,7 +785,7 @@ func doctor(probe, verbose bool) error {
 		fmt.Println("\nweb bridge: not paired — `logos mcp serve --http` will mint a token on first run")
 	}
 
-	found := provider.Discover()
+	found := provider.Resolve()
 	if len(found) == 0 {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
@@ -1053,9 +1053,12 @@ func gatherHealth() health.Report {
 			in.DB = ix.DB
 		}
 	}
-	if found := provider.Discover(); len(found) > 0 {
+	// Resolve, not Discover: doctor has to report the runtime the server will
+	// use, and with LOGOS_RUNTIME set that is never whatever is on localhost.
+	if found := provider.Resolve(); len(found) > 0 {
 		in.Runtime = found[0].Provider
 	}
+	in.Configured = os.Getenv("LOGOS_RUNTIME")
 
 	return health.Run(in)
 }
