@@ -57,7 +57,8 @@ func TestWorkAfterASessionsOwnCheckpointIsRecorded(t *testing.T) {
 	s.Turns = []transcript.Turn{
 		{Role: "user", Text: "fix the checkout crash"},
 		{Role: "tool", Tool: "edit_file", Input: "internal/cart/checkout.go"},
-		{Role: "tool", Tool: "mcp__logos__checkpoint", Input: `{"project":"shop"}`, Status: "ok"},
+		{Role: "tool", Tool: "mcp__logos__checkpoint", Input: `{"project":"shop"}`, Status: "ok",
+			Text: "✓ Logos · checkpoint saved to logos — sessions/shop/20260923-101500-claude-code.md"},
 		{Role: "tool", Tool: "edit_file", Input: "internal/cart/refund.go"},
 		{Role: "tool", Tool: "run_terminal_cmd", Input: "go test ./internal/cart", Status: "ok"},
 	}
@@ -74,6 +75,21 @@ func TestWorkAfterASessionsOwnCheckpointIsRecorded(t *testing.T) {
 	}
 	if strings.Contains(files, "checkout.go") {
 		t.Errorf("the record lists again what the agent already handed off: %v", wrote[0].Files)
+	}
+}
+
+// Another server's tool that happens to be called checkpoint handed nothing to
+// Logos. Taking it for one hid everything the session did before it.
+func TestAnotherServersCheckpointToolDoesNotHideTheWorkBeforeIt(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	s := endedAgo(now, 2*time.Hour)
+	s.Turns = append(s.Turns, transcript.Turn{Role: "tool", Tool: "mcp__notebook__save_checkpoint",
+		Input: `{"path":"model.ipynb"}`, Status: "ok", Text: "Saved checkpoint 3 of model.ipynb"})
+	onMachine(t, s)
+
+	if wrote, _, problems := Sweep(vault, "shop", now); len(wrote) != 1 || len(problems) != 0 {
+		t.Errorf("another server's checkpoint tool was taken for a Logos handoff: wrote %+v, problems %v", wrote, problems)
 	}
 }
 
@@ -107,6 +123,11 @@ func TestACheckpointCallIsRecognisedUnderEveryHostsNameForIt(t *testing.T) {
 		{transcript.Turn{Role: "tool", Tool: "edit_file", Input: "internal/session/checkpoint.go"}, false},
 		{transcript.Turn{Role: "tool", Tool: "mcp__brain__checkpoints"}, false},
 		{transcript.Turn{Role: "user", Text: "please checkpoint"}, false},
+		{transcript.Turn{Role: "tool", Tool: "mcp__plugin_logos_logos__checkpoint", Text: "✓ Logos · checkpoint saved to logos — sessions/shop/20260923-101500-claude-code.md"}, true},
+		{transcript.Turn{Role: "tool", Tool: "mcp__brain__checkpoint", Text: "Checkpoint written to sessions/shop/20260801-101500-claude-code.md in the vault."}, true},
+		{transcript.Turn{Role: "tool", Tool: "run_terminal_cmd", Input: "logos checkpoint shop --task x", Text: "checkpoint written: sessions/shop/20260923-101500-agent.md"}, true},
+		{transcript.Turn{Role: "tool", Tool: "mcp__notebook__save_checkpoint", Text: "Saved checkpoint 3 of model.ipynb"}, false},
+		{transcript.Turn{Role: "tool", Tool: "run_terminal_cmd", Input: "logos checkpoint --help", Text: "usage: logos checkpoint <project> [flags]"}, false},
 	} {
 		if got := isHandoffCall(tc.turn); got != tc.want {
 			t.Errorf("isHandoffCall(%+v) = %v, want %v", tc.turn, got, tc.want)

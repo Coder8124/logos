@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/session"
@@ -118,10 +119,24 @@ func afterHandoff(s *transcript.Session) *transcript.Session {
 // the bare tool name — and the server's part is the user's choice, so the
 // tool's own name is matched after any separator. A call that failed handed
 // nothing off.
+//
+// The name alone is not enough: any MCP server may have a tool called
+// save_checkpoint, and taking one of those as a Logos handoff hides the work
+// before it — a record lost, where a wrong guess the other way only repeats a
+// line. So where the host kept the call's result, that result must be Logos's
+// own receipt. Where it did not (Cursor keeps no tool output), the name is all
+// there is, and it is taken.
 func isHandoffCall(t transcript.Turn) bool {
 	if t.Role != "tool" || t.Status == "error" {
 		return false
 	}
+	if !handoffTool(t) {
+		return false
+	}
+	return strings.TrimSpace(t.Text) == "" || handoffReceipt.MatchString(t.Text)
+}
+
+func handoffTool(t transcript.Turn) bool {
 	name := strings.ToLower(t.Tool)
 	for _, verb := range []string{"checkpoint", "handoff"} {
 		if name == verb {
@@ -140,6 +155,13 @@ func isHandoffCall(t transcript.Turn) bool {
 	}
 	return false
 }
+
+// handoffReceipt is what every version of Logos has answered a checkpoint with:
+// "Checkpoint written to sessions/….md in the vault.", "checkpoint saved to
+// brain|logos — sessions/….md", the "already saved" of an identical retry, and
+// the CLI's "checkpoint written: sessions/….md". Each names the file it wrote,
+// which no other tool's answer will.
+var handoffReceipt = regexp.MustCompile(`(?i)\bcheckpoint (?:already )?(?:saved|written)\b[^\n]*\b` + session.CheckpointDir + `/\S+\.md`)
 
 // recorded reports whether the project's most recent checkpoint is the auto
 // record for this same transcript. Only the latest is checked: this runs at
