@@ -31,9 +31,6 @@ go build -o bin/logos ./cmd/logos
 ./bin/logos setup            # picks a vault, wires nothing without asking
 ```
 
-The desktop app is Wails v2 and lives in [`app/`](app/); it is not needed to
-work on the engine.
-
 ## Tests
 
 Three tiers, cheapest first.
@@ -119,7 +116,6 @@ cmd/logos/       the CLI
 internal/        index, memory, session, contextpack, deadend, mcpserver, …
 chaos/           fault injection, behind the `chaos` build tag
 testdata/vault/  a fixture vault — four notes; not a live one, see its README
-app/             Wails v2 desktop app
 bench/           Python adapters for the systems Logos is scored against
 docs/            the benchmark, published on GitHub Pages
 systemmd/        credits and the prompt agents are given

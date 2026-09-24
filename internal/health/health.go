@@ -204,8 +204,8 @@ func checkVault(dir string) Check {
 	//
 	// `logos setup --vault <dir>` records its target in
 	// os.UserConfigDir()/logos/vault-path, and that pointer is what every front
-	// end reads when LOGOS_VAULT is unset — including the desktop app, which
-	// inherits no shell and has no other way to find the vault. So running setup
+	// end reads when LOGOS_VAULT is unset — including a host launched from
+	// Finder, which inherits no shell and has no other way to find the vault. So running setup
 	// against a scratch vault, which CONTRIBUTING.md tells contributors to do,
 	// silently repoints the real installation at a temporary directory. Nothing
 	// then fails: index.Open creates whatever it is handed, so the vault is

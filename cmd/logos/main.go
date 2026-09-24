@@ -639,9 +639,9 @@ func embedModel() (model string, ok bool) {
 }
 
 // vaultPath resolves where the vault lives. The rule itself lives in
-// internal/vault, because the desktop app needs the same answer and having its
-// own copy is how it came to open a different vault than the CLI on the same
-// machine.
+// internal/vault, because every front end needs the same answer, and the old
+// desktop app having its own copy is how it came to open a different vault
+// than the CLI on the same machine.
 func vaultPath() string { return vault.Path() }
 
 // findProvider picks the first running local runtime. Cloud BYOK slots in here

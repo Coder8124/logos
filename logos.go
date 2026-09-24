@@ -1,7 +1,6 @@
 // Package logos is a local-first memory and continuity layer for AI agents.
 //
-// It is the same engine behind the `logos` CLI, the desktop app and the MCP
-// server, exposed for embedding directly in your own agent. Memory lives in an
+// It is the same engine behind the `logos` CLI and the MCP server, exposed for embedding directly in your own agent. Memory lives in an
 // Obsidian-compatible vault on disk that the user owns; nothing is uploaded.
 //
 //	b, err := logos.Open("/path/to/vault")

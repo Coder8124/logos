@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
@@ -86,6 +87,105 @@ func readCodexServers(path string) ([]Registration, error) {
 		out = append(out, *r)
 	}
 	return out, nil
+}
+
+// mergeTOMLServer writes logos's [mcp_servers.logos] table into a TOML config,
+// replacing the one already there and leaving every other line as it was.
+//
+// Line-based, like the reader, so it is held to the reader's limits: a file
+// that declares servers as an inline table, dotted keys or a bare
+// [mcp_servers] table is refused rather than edited, because appending a
+// second definition of the same table makes a file the host will not load at
+// all — every other server in it gone with ours. What was written is read back,
+// so a registration nobody can see is a failure, not a success.
+func mergeTOMLServer(path string, s Server) (Outcome, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return Failed, err
+	}
+	if form := unsupportedServerForm(string(raw)); form != "" {
+		return Failed, fmt.Errorf("%s declares its MCP servers as %s, which logos does not edit, so it was left alone — add the block `logos setup --print-config --format toml` prints by hand", path, form)
+	}
+	kept, had := dropServerTables(string(raw), Name)
+	out := strings.TrimRight(kept, "\n")
+	if out != "" {
+		out += "\n\n"
+	}
+	if err := writeHostFile(path, []byte(out+renderConfigTOML(s))); err != nil {
+		return Failed, err
+	}
+	regs, err := readCodexServers(path)
+	if err != nil {
+		return Failed, fmt.Errorf("wrote %s but could not read it back: %w", path, err)
+	}
+	for _, r := range regs {
+		if r.Name == Name && isLogosServer(r.Command) {
+			if had {
+				return Updated, nil
+			}
+			return Registered, nil
+		}
+	}
+	return Failed, fmt.Errorf("wrote %s but no logos server reads back from it", path)
+}
+
+// removeTOMLServer takes out the table called name when it runs logos.
+func removeTOMLServer(path, name string) (bool, error) {
+	regs, err := readCodexServers(path)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range regs {
+		if r.Name != name || !isLogosServer(r.Command) {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return false, err
+		}
+		kept, _ := dropServerTables(string(raw), name)
+		if err := writeHostFile(path, []byte(kept)); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// dropServerTables removes [mcp_servers.<name>] and its env table, each from
+// its header to the next header, and reports whether there was one.
+func dropServerTables(toml, name string) (string, bool) {
+	var b strings.Builder
+	in, had := false, false
+	for _, line := range strings.SplitAfter(toml, "\n") {
+		if t := strings.TrimSpace(stripComment(line)); strings.HasPrefix(t, "[") {
+			server, _ := codexTable(t)
+			in = server == name
+			had = had || in
+		}
+		if !in {
+			b.WriteString(line)
+		}
+	}
+	return b.String(), had
+}
+
+// unsupportedServerForm names the way toml declares servers that
+// dropServerTables cannot see, or "" when it has none.
+func unsupportedServerForm(toml string) string {
+	top := true
+	for _, line := range strings.Split(toml, "\n") {
+		t := strings.TrimSpace(stripComment(line))
+		switch {
+		case t == "[mcp_servers]":
+			return "a bare [mcp_servers] table"
+		case strings.HasPrefix(t, "["):
+			top = false
+		case top && strings.HasPrefix(t, "mcp_servers") && strings.Contains(t, "="):
+			return "an inline table or dotted keys"
+		}
+	}
+	return ""
 }
 
 // codexTable reads a table header, returning the server it belongs to and

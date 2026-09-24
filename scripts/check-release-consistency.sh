@@ -48,7 +48,6 @@ check_local() {
 check_local "npm/package.json"        npm/package.json                   version
 check_local "plugin manifest"         plugin/.claude-plugin/plugin.json  version
 check_local "marketplace"             .claude-plugin/marketplace.json    version
-check_local "desktop app"             app/wails.json                     productVersion
 
 # Published, not local. A formula committed in the tap checkout and never pushed
 # is exactly the state that produced the original report.

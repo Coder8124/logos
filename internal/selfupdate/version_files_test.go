@@ -34,7 +34,6 @@ func TestEveryFileThatStatesAVersionStatesTheSameOne(t *testing.T) {
 	want := tag[1]
 
 	version := regexp.MustCompile(`"version"\s*:\s*"([0-9][0-9.]*)"`)
-	product := regexp.MustCompile(`"productVersion"\s*:\s*"([0-9][0-9.]*)"`)
 	for _, f := range []struct {
 		path string
 		re   *regexp.Regexp
@@ -42,7 +41,6 @@ func TestEveryFileThatStatesAVersionStatesTheSameOne(t *testing.T) {
 		{"npm/package.json", version},
 		{"plugin/.claude-plugin/plugin.json", version},
 		{".claude-plugin/marketplace.json", version},
-		{"app/wails.json", product},
 	} {
 		m := f.re.FindStringSubmatch(read(f.path))
 		if m == nil {

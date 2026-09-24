@@ -22,9 +22,9 @@ import (
 //
 //	logos context "cut the BOM to target" --project kestrel-one --budget 4000 --since week
 //
-// --pin/--exclude/--unpin and --rules manage the tree-view's durable state
-// from the command line, the same file the desktop app's folder tree reads
-// and writes — one vocabulary, not a CLI copy of an app-only feature.
+// --pin/--exclude/--unpin and --rules manage the durable rules in
+// .context/rules.md, a file in the vault, so a rule survives deleting the
+// index and can be edited by hand.
 //
 //	logos context --pin sessions/old-project
 //	logos context --exclude memories/context.md

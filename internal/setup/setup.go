@@ -20,7 +20,8 @@
 // a standing bet that its format will not move, and that bet is only worth
 // taking when there is no alternative — which is the case for Claude Desktop
 // and Cursor — or when the CLI would register at the wrong scope or cannot be
-// exercised by a test, which is why Cline, Devin and GitHub Copilot are merged.
+// exercised by a test, which is why Cline, Devin, GitHub Copilot, opencode, Amp
+// and Grok Build are written as files.
 //
 // Where a file does have to be written, it is read, merged, backed up and then
 // replaced atomically. Someone's other MCP servers are not ours to lose.
@@ -311,9 +312,10 @@ func Install(s Server, hosts []Host) []Result {
 			if err := os.Remove(backup); err == nil {
 				r.Backup = ""
 			}
-		} else if raw, err := os.ReadFile(backup); err == nil && strings.HasSuffix(backup, ".json.logos-backup") {
-			// JSON hosts only: a TOML or YAML config is rewritten by its own CLI, and
-			// its comments are not ours to report on.
+		} else if raw, err := os.ReadFile(backup); err == nil && (strings.HasSuffix(backup, ".json.logos-backup") || strings.HasSuffix(backup, ".jsonc.logos-backup")) {
+			// JSON hosts only: a TOML config is either rewritten by its own CLI or
+			// edited line by line, keeping its comments, and a # is not a JSON one.
+			// opencode's .jsonc is the file most likely to hold comments at all.
 			_, r.CommentsOnlyInBackup = standardJSON(raw)
 		}
 		out = append(out, r)

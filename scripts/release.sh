@@ -9,10 +9,6 @@
 # Output lands in dist/. Everything is static: the SQLite driver is modernc's
 # pure-Go one, so there is no cgo and no libc to match — a single file that runs
 # on a machine with nothing else installed.
-#
-# The desktop app is not built here. Wails needs platform toolchains and code
-# signing that do not cross-compile, so `cd app && wails build` stays a separate,
-# per-platform step.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
