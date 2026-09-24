@@ -253,6 +253,7 @@ func runResume(args []string) error {
 		return nil
 	}
 	fmt.Print(pack.Render())
+	ledgerPack(ix.Vault, "cli:resume", project, pack)
 	// Which vault this came out of. A host config pins the MCP server with
 	// LOGOS_VAULT; the SessionStart hook inherits no such variable and falls to
 	// the recorded pointer, so the same session can restore from one vault and
