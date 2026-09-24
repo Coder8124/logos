@@ -786,6 +786,13 @@ func doctor(probe, verbose bool) error {
 	}
 
 	found := provider.Resolve()
+	if len(found) == 0 && provider.Configured() != nil {
+		// The user named a runtime and it is down. The check above already
+		// failed on it; closing on "nothing depends on one" would tell them
+		// to ignore the one failure they asked for.
+		fmt.Printf("\nLOGOS_RUNTIME names %s, and it did not answer — search is lexical until it does.\n", provider.Configured().BaseURL)
+		return doctorVerdict(failed)
+	}
 	if len(found) == 0 {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
