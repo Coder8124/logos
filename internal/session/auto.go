@@ -39,14 +39,31 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	if c.State == "" {
 		c.State = "Built from the activity log when the session ended without a checkpoint."
 	}
-	c.TS = time.Now().Unix()
-	if c.Git.Empty() {
+	// A caller's own time means a session that ended earlier, recorded late.
+	// The repository now is not the repository that session left, so no git
+	// state is read for it; and what it follows is the checkpoint before it,
+	// not the newest one.
+	past := c.TS != 0
+	if !past {
+		c.TS = time.Now().Unix()
+	}
+	if c.Git.Empty() && !past {
 		c.Git = gitstate.Read(workingDir())
 	}
 
-	prev, _ := Latest(vaultDir, c.Project)
 	var follows string
-	if prev != nil {
+	if past {
+		history, err := History(vaultDir, c.Project, 0)
+		if err != nil {
+			return Checkpoint{}, err
+		}
+		for _, h := range history {
+			if h.TS < c.TS {
+				follows = h.Session
+				break
+			}
+		}
+	} else if prev, _ := Latest(vaultDir, c.Project); prev != nil {
 		follows = prev.Session
 	}
 	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)))

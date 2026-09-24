@@ -45,6 +45,7 @@ import (
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/project"
@@ -1276,6 +1277,9 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	if err := session.Init(s.DB); err != nil {
 		return "", err
 	}
+	// Before the pack, so a session whose host was killed before the shutdown
+	// path could record it is in the handoff it is missing from (#134).
+	swept := ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project),
 		Agent: s.agentFor(map[string]any{"agent": agent}), Budget: budget, Since: since,
@@ -1283,7 +1287,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	if err != nil {
 		return "", err
 	}
-	out := chose + s.lead(pack) + pack.Render()
+	out := chose + swept + s.lead(pack) + pack.Render()
 	out += s.ledgerPack("mcp:resume", project, pack)
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and

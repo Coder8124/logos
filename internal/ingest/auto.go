@@ -31,6 +31,13 @@ const maxAutoCommands = 20
 // Returns nil when the session did no work, or when this transcript has already
 // been recorded.
 func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*session.Checkpoint, error) {
+	return autoCheckpoint(vaultDir, s, project, 0)
+}
+
+// autoCheckpoint is AutoCheckpoint dated at, or now when at is zero. The sweep
+// records sessions that ended hours ago, and dating those now would put a list
+// of files above the reviewed handoff somebody wrote after them.
+func autoCheckpoint(vaultDir string, s *transcript.Session, project string, at int64) (*session.Checkpoint, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -43,7 +50,7 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*se
 	// checkpoint whose source is invisible is one nobody can weigh. It is also
 	// what the duplicate check below reads, so two servers closing on the same
 	// transcript do not both record it.
-	state := fmt.Sprintf("Built from %s's own transcript (%s) when the session ended without a checkpoint.", s.Harness, s.ID)
+	state := autoState(s)
 	if already, err := recorded(vaultDir, project, state); err != nil || already {
 		return nil, err
 	}
@@ -59,12 +66,20 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*se
 		State:    state,
 		Files:    h.Files,
 		Commands: commands,
+		TS:       at,
 	}
 	written, err := session.WriteAuto(vaultDir, c)
 	if err != nil {
 		return nil, err
 	}
 	return &written, nil
+}
+
+// autoState is the provenance line an auto record carries. The shutdown path
+// and the sweep must write it identically: it is the only thing that tells
+// either one the other already recorded this transcript.
+func autoState(s *transcript.Session) string {
+	return fmt.Sprintf("Built from %s's own transcript (%s) when the session ended without a checkpoint.", s.Harness, s.ID)
 }
 
 // recorded reports whether the project's most recent checkpoint is the auto

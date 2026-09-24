@@ -362,3 +362,25 @@ func sortByMtimeDesc(paths []string) {
 		paths[i] = e.path
 	}
 }
+
+// MayBelongTo reports whether the transcript at path could be a session of
+// project, without reading it. It answers false only when it is sure: a
+// Claude Code transcript sits in a folder named for its launch directory with
+// every separator turned into "-", which cannot be decoded but can rule a
+// project out, and parsing a week of them to learn their cwd took over a
+// second on every resume. Other harnesses keep no project in the path, so
+// every one of theirs may belong.
+func MayBelongTo(harness, path, project string) bool {
+	if harness != "claude-code" || project == "" {
+		return true
+	}
+	fold := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+				return r
+			}
+			return '-'
+		}, strings.ToLower(s))
+	}
+	return strings.HasSuffix(fold(filepath.Base(filepath.Dir(path))), "-"+fold(project))
+}
