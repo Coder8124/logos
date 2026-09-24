@@ -110,8 +110,9 @@ CONTINUITY
                                       --ran, --question and --file to add more than one
     logos resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
-    logos ingest [project] [--harness N] [--path FILE] [--dry-run] [--all-projects]
+    logos ingest [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
+                                      --path is a file, or for a txcript harness a session id
     logos ingest review [--promote <id> | --reject <id>]
                                       review candidates before they become checkpoints
     logos ingest status               candidates by tier, and how many can still be distilled
@@ -276,6 +277,11 @@ func main() {
 		return
 	}
 
+	if err := checkCommandFlags(cmd, args); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
 	var err error
 	switch {
 	case cmd == "version", cmd == "--version", cmd == "-v":
@@ -392,7 +398,11 @@ func main() {
 	case cmd == "bench" && len(args) >= 1 && args[0] == "continuity":
 		err = runContinuityBench(args[1:])
 	case cmd == "graph":
-		err = runGraph(firstNonFlag(args), flagInt(args, "--hops", 2), hasFlag(args, "--similar"))
+		hops := flagInt(args, "--hops", 0)
+		if hops == 0 {
+			hops = 2 // 0 asks for the default, as --budget 0 does
+		}
+		err = runGraph(firstNonFlag(args), hops, hasFlag(args, "--similar"))
 	default:
 		unknownCommand(cmd)
 	}
@@ -453,6 +463,88 @@ func firstNonFlag(args []string) string {
 // A lone "-" is a value: it is the conventional name for stdin.
 func isFlagToken(a string) bool {
 	return strings.HasPrefix(a, "-") && a != "-"
+}
+
+// flagSpec is every flag one command understands. Anything else that starts
+// with -- is refused by name before the command runs: `note --agent A` filed
+// the note under a project called "agent", `memory add --kind fact` stored the
+// flag inside the fact, and `tried x --bogus` answered "nothing rules this out"
+// — each with a success message. A single dash is left alone, because "-" is
+// stdin and a note or project may legitimately start with one.
+type flagSpec struct {
+	valued  []string // take the next word as their value
+	numeric []string // valued, and a value that is given must be a positive whole number
+	// orDefault is numeric, except that 0 is accepted and asks for the default.
+	// Refusing it read as a broken command: --budget 0 is how a script says
+	// "whatever you normally use", and a pack with no budget is no pack at all.
+	orDefault []string
+	bare      []string
+}
+
+// commandFlags covers the commands whose flags were parsed by picking out the
+// known ones and ignoring the rest. Commands with their own strict parser
+// (checkpoint, setup, update, mcp install) are not listed.
+var commandFlags = map[string]flagSpec{
+	"version":  {},
+	"note":     {},
+	"reflect":  {},
+	"index":    {bare: []string{"--watch"}},
+	"replay":   {bare: []string{"--peek"}},
+	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report"}},
+	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
+	"sessions": {valued: []string{"--close"}},
+	"why":      {numeric: []string{"--limit", "-n"}},
+	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar"}},
+	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
+		"--action", "--instead"}},
+	"context": {valued: []string{"--project", "-p", "--since", "--pin", "--exclude", "--unpin"},
+		orDefault: []string{"--budget", "-b"}, bare: []string{"--rules"}},
+}
+
+// checkCommandFlags refuses a flag cmd does not know, or a number it cannot
+// use. A command not in commandFlags is not checked here.
+func checkCommandFlags(cmd string, args []string) error {
+	spec, ok := commandFlags[cmd]
+	if !ok {
+		return nil
+	}
+	return checkFlags("logos "+cmd, args, spec)
+}
+
+func checkFlags(what string, args []string, spec flagSpec) error {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case slices.Contains(spec.bare, a):
+		case slices.Contains(spec.valued, a):
+			if i+1 < len(args) && !isFlagToken(args[i+1]) {
+				i++
+			}
+		case slices.Contains(spec.numeric, a):
+			// "-5" is a value the user typed, not a flag, so it is taken and
+			// judged here rather than skipped as #116's missing value.
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				if n, err := strconv.Atoi(args[i]); err != nil || n <= 0 {
+					return fmt.Errorf("%s needs a positive whole number, not %q", a, args[i])
+				}
+			}
+		case slices.Contains(spec.orDefault, a):
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				if n, err := strconv.Atoi(args[i]); err != nil || n < 0 {
+					return fmt.Errorf("%s needs a whole number, or 0 for the default, not %q", a, args[i])
+				}
+			}
+		case strings.HasPrefix(a, "--"):
+			known := slices.Concat(spec.valued, spec.numeric, spec.orDefault, spec.bare)
+			if len(known) == 0 {
+				return fmt.Errorf("unknown flag %q — %s takes no flags; nothing was done", a, what)
+			}
+			return fmt.Errorf("unknown flag %q — %s takes %s; nothing was done", a, what, strings.Join(known, ", "))
+		}
+	}
+	return nil
 }
 
 func flagStr(args []string, name, def string) string {

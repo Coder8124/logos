@@ -29,15 +29,20 @@ type interchange struct {
 	Project   string `json:"project"`
 	Cwd       string `json:"cwd"`
 	Started   int64  `json:"started"`
+	Timestamp string `json:"timestamp"`
 	Ended     int64  `json:"ended"`
 	Messages  []struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-		Text    string `json:"text"`
-		Name    string `json:"name"`
-		Tool    string `json:"tool"`
-		Status  string `json:"status"`
-		Input   string `json:"input"`
+		Role string `json:"role"`
+		// Content is a string at txcript's L0 and an array of Anthropic-style
+		// blocks from L1 on — which is every session with a tool call in it,
+		// so every real export. Typed as a string, the whole document failed
+		// to decode the moment one block appeared (#172).
+		Content json.RawMessage `json:"content"`
+		Text    string          `json:"text"`
+		Name    string          `json:"name"`
+		Tool    string          `json:"tool"`
+		Status  string          `json:"status"`
+		Input   string          `json:"input"`
 	} `json:"messages"`
 }
 
@@ -64,15 +69,28 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 		Started: ic.Started,
 		Ended:   ic.Ended,
 	}
+	if s.Started == 0 {
+		s.Started = parseRFC3339(ic.Timestamp)
+	}
 	sum := hashBytes(raw)
 	s.Hash = sum
 	if s.ID == "" {
 		s.ID = sum[:12]
 	}
+	var calls toolCalls
 	for _, m := range ic.Messages {
-		text := firstNonEmpty(m.Content, m.Text)
-		role := m.Role
-		switch role {
+		// Only a non-empty array is blocks. JSON null and [] both unmarshal
+		// into a slice without error, and taking this path for them dropped the
+		// message's text and tool fields — everything such a message had to say.
+		var blocks []claudeBlock
+		if json.Unmarshal(m.Content, &blocks) == nil && len(blocks) > 0 {
+			s.Turns = append(s.Turns, calls.turns(strings.ToLower(m.Role), blocks)...)
+			continue
+		}
+		var content string
+		json.Unmarshal(m.Content, &content)
+		text := firstNonEmpty(content, m.Text)
+		switch strings.ToLower(m.Role) {
 		case "assistant":
 			s.Turns = append(s.Turns, Turn{Role: "assistant", Text: strings.TrimSpace(text)})
 		case "tool", "tool_result", "function_call_output":
@@ -90,6 +108,90 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 	return s, nil
 }
 
+// toolCalls pairs Simple's tool_result blocks with the tool_use they answer.
+// Simple lets both ids be left out, and then a result pairs with the oldest
+// call not yet answered — txcript's own rule, so a document that pairs under
+// txcript pairs the same way here. Without it an id-less result became a tool
+// turn with no tool name and no command, which is the half a harvest reads.
+type toolCalls struct {
+	pending []pendingCall
+}
+
+type pendingCall struct {
+	id, name, input string
+}
+
+// turns maps one message's blocks the way the Claude Code reader maps its own
+// (Simple is Anthropic's block convention): text is a turn, a tool_result is a
+// tool turn carrying the call's name and invocation, thinking is left out.
+func (c *toolCalls) turns(role string, blocks []claudeBlock) []Turn {
+	var out []Turn
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if t := strings.TrimSpace(b.Text); t != "" {
+				out = append(out, Turn{Role: normRole(role), Text: t})
+			}
+		case "tool_use":
+			c.pending = append(c.pending, pendingCall{b.ID, b.Name, toolInvocation(b.Name, b.Input)})
+		case "tool_result":
+			call := c.answer(b.ToolUseID)
+			out = append(out, Turn{
+				Role:   "tool",
+				Tool:   call.name,
+				Text:   flattenResult(b.Content),
+				Status: okOrError(b.IsError),
+				Input:  call.input,
+			})
+		case "thinking", "redacted_thinking":
+			// Not part of what happened; a distiller must not treat internal
+			// reasoning as an observed fact.
+		}
+	}
+	return out
+}
+
+// answer removes and returns the call a result belongs to: the one with its id
+// when it names one that is pending, otherwise the oldest pending call.
+func (c *toolCalls) answer(id string) pendingCall {
+	i := -1
+	if id != "" {
+		for j, p := range c.pending {
+			if p.id == id {
+				i = j
+				break
+			}
+		}
+	}
+	if i < 0 {
+		for j, p := range c.pending {
+			// An id-less result takes the oldest call; one naming an id nobody
+			// issued takes the oldest id-less call rather than stealing another
+			// result's partner.
+			if id == "" || p.id == "" {
+				i = j
+				break
+			}
+		}
+	}
+	if i < 0 {
+		return pendingCall{}
+	}
+	call := c.pending[i]
+	c.pending = append(c.pending[:i], c.pending[i+1:]...)
+	return call
+}
+
+// flattenResult is flattenContent plus Simple's third shape: a tool_result's
+// content may be any JSON, and dropping it would leave a tool turn that says
+// nothing about what the tool returned.
+func flattenResult(raw json.RawMessage) string {
+	if t := flattenContent(raw); t != "" || len(raw) == 0 || string(raw) == "null" {
+		return t
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 func normStatus(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "ok", "success", "completed":
@@ -105,8 +207,8 @@ func normStatus(s string) string {
 // like any other so A3 is not a special case; it just reports "install txcript"
 // as its skip reason until the binary is on PATH.
 type txcriptReader struct {
-	name   string // harness name, as both Logos and txcript spell it
-	format string // txcript --format value
+	name string // harness name as Logos spells it
+	from string // txcript's harness id, passed to export --from
 }
 
 func (t txcriptReader) harness() string { return t.name }
@@ -119,8 +221,8 @@ func (t txcriptReader) root() string {
 		return ""
 	}
 	// With txcript present but no standard on-disk location Logos knows, the
-	// reader still can't enumerate — a caller passes an explicit path to
-	// `logos ingest --harness <name> <path>`. Report available-but-empty.
+	// reader still can't enumerate — a caller names one session by its txcript
+	// id, `logos ingest --harness <name> --path <id>`. Report available-but-empty.
 	return txcriptSentinel
 }
 
@@ -133,23 +235,33 @@ func (t txcriptReader) discover() ([]string, error) {
 	return nil, nil
 }
 
-func (t txcriptReader) read(path string) (*Session, error) {
+// read takes a txcript session id, not a path: txcript owns discovery for these
+// formats, and `txcript export` finds a session by id (or any unambiguous
+// prefix, or its title) and writes it as a Simple document. It has no --format
+// flag and does not take a path; the call this replaced passed both, and so
+// failed for every session it was ever handed (#172).
+func (t txcriptReader) read(id string) (*Session, error) {
 	if !txcriptOnPath() {
 		return nil, &SkipReason{Harness: t.name, Why: "txcript is not on PATH; install it for this format"}
 	}
-	out, err := exec.Command("txcript", "export", "--format", "json", path).Output()
+	var stderr strings.Builder
+	cmd := exec.Command("txcript", "export", id, "--from", t.from)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("txcript export %s: %w", path, err)
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("txcript export %s --from %s: %w: %s", id, t.from, err, msg)
+		}
+		return nil, fmt.Errorf("txcript export %s --from %s: %w", id, t.from, err)
 	}
 	s, err := ReadInterchange(strings.NewReader(string(out)))
 	if err != nil {
 		return nil, err
 	}
 	s.Harness = t.name
-	s.Path = mustAbs(path)
-	if h, herr := hashFile(path); herr == nil {
-		s.Hash = h
-	}
+	// Where to find it again, in the terms the source understands. The export's
+	// content hash, set by ReadInterchange, stays the change detector.
+	s.Path = "txcript:" + t.from + ":" + id
 	return s, nil
 }
 
@@ -158,14 +270,16 @@ func txcriptOnPath() bool {
 	return err == nil
 }
 
-// registerTxcriptReaders adds the formats txcript covers that matter to this
-// project's users. The list is deliberately short — it is not a claim to
-// support all 16, only the ones worth naming in `logos doctor`.
+// registerTxcriptReaders adds the formats txcript covers that Logos does not
+// read natively. The list is deliberately short — it is not a claim to support
+// all 16, only the ones worth naming in `logos doctor` — and every name on it
+// is one txcript actually reads. It used to name aider, cline and windsurf,
+// none of which txcript has ever supported (#172).
 func registerTxcriptReaders() {
 	for _, f := range []txcriptReader{
-		{name: "aider", format: "aider"},
-		{name: "cline", format: "cline"},
-		{name: "windsurf", format: "windsurf"},
+		{name: "opencode", from: "opencode"},
+		{name: "amp", from: "amp"},
+		{name: "grok", from: "grok"},
 	} {
 		if _, taken := registry[f.name]; !taken {
 			register(f)

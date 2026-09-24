@@ -90,29 +90,53 @@ func flushNotes(db *sql.DB, scope string) error {
 	// about to be handed. AddNoteAt returns both the note and the failure, and
 	// that is correct — but the caller then exits, and every reader after it
 	// has only the database to go on. See Note.Unflushed.
-	markNotes(db, scope, err != nil)
+	markNotes(db, dir, scope, err != nil)
 	return err
 }
 
 // markNotes flags or clears the open notes of one scope, after an attempt to
 // write that scope's uncommitted.md.
 //
-// Scope-wide in both directions because the file is rewritten whole: if the
-// write failed, nothing in it is durable, and if it succeeded, everything in it
-// is — including lines a previous failure stranded. That is also why a single
-// later note repairs the whole backlog once the vault is writable again.
+// A success clears the whole scope: the file is rewritten whole, so everything
+// in it is durable — including lines a previous failure stranded. That is also
+// why a single later note repairs the whole backlog once the vault is writable
+// again.
+//
+// A failure flags only the notes the file on disk does not already hold. It
+// used to flag the whole scope, and a note written out an hour earlier was
+// counted as stranded beside the one that was not — doctor named two at risk
+// when one was, which is the over-count markUnflushed in internal/memory is
+// written to avoid, and a count that cries wolf is one nobody reads.
 //
 // Errors are dropped: this runs on the failure path of a write already
 // reporting a more useful error, and replacing that one with an error about
 // bookkeeping would hide what actually went wrong.
-func markNotes(db *sql.DB, scope string, stranded bool) {
-	v := 0
-	if stranded {
-		v = 1
+func markNotes(db *sql.DB, dir, scope string, stranded bool) {
+	if !stranded {
+		db.Exec(`UPDATE session_notes SET unflushed = 0
+		         WHERE session IN (SELECT id FROM sessions WHERE project = ? AND ended = 0)`,
+			safeScope(scope))
+		return
 	}
-	db.Exec(`UPDATE session_notes SET unflushed = ?
-	         WHERE session IN (SELECT id FROM sessions WHERE project = ? AND ended = 0)`,
-		v, safeScope(scope))
+	onDisk := map[string]bool{}
+	if raw, err := os.ReadFile(notesPath(dir, scope)); err == nil {
+		for _, line := range strings.Split(string(raw), "\n") {
+			if m := notePattern.FindStringSubmatch(line); m != nil {
+				onDisk[m[1]+"\x00"+m[2]] = true
+			}
+		}
+	}
+	notes, err := Uncommitted(db, scope)
+	if err != nil {
+		return
+	}
+	for _, n := range notes {
+		// Keyed as renderNotes writes the line, so a note is found exactly when
+		// the file would read it back.
+		if !onDisk[oneLine(n.Text)+"\x00"+strconv.FormatInt(n.TS, 10)] {
+			db.Exec("UPDATE session_notes SET unflushed = 1 WHERE id = ?", n.ID)
+		}
+	}
 }
 
 // Unflushed counts the working notes the cache holds that the vault does not,
@@ -268,7 +292,7 @@ func rescueNotes(db *sql.DB, vaultDir string) (int, error) {
 			// cache, which is what the flag is for; the next run tries again.
 			return rescued, fmt.Errorf("working notes are in the cache that the vault still will not take: %w", err)
 		}
-		markNotes(db, scope, false)
+		markNotes(db, vaultDir, scope, false)
 		rescued += n
 	}
 	return rescued, nil

@@ -87,7 +87,7 @@ func SavePlan(vaultDir string, p Plan) (string, error) {
 // that happened to start with 8 digits would reintroduce the uncommitted.md
 // bug this session already fixed once, in a new place.
 func planFilename(ts int64, agent string) string {
-	return fmt.Sprintf("plan-%s-%s.md", time.Unix(ts, 0).Format("20060102-150405"), safeScope(agent))
+	return fmt.Sprintf("plan-%s-%s.md", time.Unix(ts, 0).Format("20060102-150405"), agentPart(agent))
 }
 
 // claimPlan reserves a plan filename the same way claimCheckpoint reserves a

@@ -50,17 +50,31 @@ func projectsCmd(args []string) error {
 		// from a worktree reported fewer checkpoints than it holds, and the
 		// scope carrying the work was not among the names offered.
 		if names, err := session.Scopes(vault); err == nil && len(names) > 0 {
+			// A scope holding only working notes is a project to `continuity`
+			// but has no checkpoint, so it is named apart: counted into the
+			// checkpoint sentence, "2 checkpoints across 2 projects" named a
+			// project that had none.
 			checkpoints := 0
+			var withCheckpoints, notesOnly []string
 			for _, n := range names {
 				h, err := session.History(vault, n, 0)
-				if err != nil {
+				if err != nil || len(h) == 0 {
+					notesOnly = append(notesOnly, n)
 					continue
 				}
 				checkpoints += len(h)
+				withCheckpoints = append(withCheckpoints, n)
 			}
-			fmt.Printf("no rollup dossiers yet, but the vault holds %d %s across %d %s: %s\n",
-				checkpoints, plural(checkpoints, "checkpoint"), len(names), plural(len(names), "project"),
-				strings.Join(names, ", "))
+			if len(withCheckpoints) > 0 {
+				fmt.Printf("no rollup dossiers yet, but the vault holds %d %s across %d %s: %s\n",
+					checkpoints, plural(checkpoints, "checkpoint"), len(withCheckpoints),
+					plural(len(withCheckpoints), "project"), strings.Join(withCheckpoints, ", "))
+			} else {
+				fmt.Println("no rollup dossiers yet, and no checkpoints.")
+			}
+			if len(notesOnly) > 0 {
+				fmt.Printf("working notes, never checkpointed: %s\n", strings.Join(notesOnly, ", "))
+			}
 			fmt.Println("dossiers emerge as the rollup files your activity into project notes; `logos sessions <name>` reads the checkpoints directly in the meantime.")
 			return nil
 		}

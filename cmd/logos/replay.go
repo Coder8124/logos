@@ -90,15 +90,17 @@ func printReplay(res replay.Result) {
 	}
 }
 
-// humanizeAway renders a gap as a coarse, friendly span.
+// humanizeAway renders a gap as a coarse, friendly span. Every branch is a
+// phrase that reads after "Since you've been away": the bare "hour" and "day"
+// it used to return printed "(hour)" and read as a typo.
 func humanizeAway(d time.Duration) string {
 	switch {
 	case d < time.Hour:
-		return "hour"
+		return "under an hour"
 	case d < 24*time.Hour:
 		return fmt.Sprintf("%d hours", int(d.Hours()))
 	case d < 48*time.Hour:
-		return "day"
+		return "a day"
 	case d < 14*24*time.Hour:
 		return fmt.Sprintf("%d days", int(d.Hours()/24))
 	default:

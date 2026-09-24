@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/Coder8124/logos/internal/text"
 )
 
 // The memory relationship graph. The note graph (internal/graph) shows how your
@@ -298,8 +301,9 @@ func mermaidID(id string) string {
 func sanitizeLabel(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\"", "'")
-	if len(s) > 48 {
-		s = s[:47] + "…"
+	if utf8.RuneCountInString(s) > 48 {
+		// By characters: a byte cut split a non-Latin label mid-character (#177).
+		s = text.Ellipsize(s, 48)
 	}
 	// Mermaid node text in ()/[] dislikes some chars; quote defensively.
 	return "\"" + s + "\""

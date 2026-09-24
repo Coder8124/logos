@@ -12,6 +12,7 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/scope"
 )
 
 // memoryCmd inspects and edits the assistant's persistent memory — the facts it
@@ -76,7 +77,15 @@ func memoryCmd(args []string) error {
 	case "health":
 		return memoryHealth(ix.DB)
 	case "add":
-		project := strings.TrimSpace(flagStr(args, "--project", ""))
+		// Any other flag would fall through into the fact: `--kind fact` is
+		// the MCP tool's parameter and the vault's file layout, so it is the
+		// one a user reaches for, and it was stored as the start of the fact.
+		if err := checkFlags("logos memory add", args[1:], flagSpec{valued: []string{"--project"}}); err != nil {
+			return err
+		}
+		// A path is reduced to the project it names, as the MCP server does:
+		// `--project ../etc` was filed under a project literally called "../etc".
+		project := scope.NormalizeArg(flagStr(args, "--project", ""))
 		// The flag and its value have to come out of the words, or they end up
 		// *inside* the fact: "the build runs on arm only --project harrier" was
 		// stored verbatim, and the memory then belonged to no project while

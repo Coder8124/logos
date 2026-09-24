@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // A Session is one agent's working stretch on one project. It exists to give
@@ -103,7 +104,17 @@ func Init(db *sql.DB) error {
 // idFor builds a session id that sorts by time and names its author. Seconds
 // are included because two agents can easily check in within the same minute.
 func idFor(agent string, t time.Time) string {
-	return t.Format("20060102-150405") + "-" + safe(agent)
+	return t.Format("20060102-150405") + "-" + agentPart(agent)
+}
+
+// agentPart is the agent as it appears inside a filename. safe caps a name at
+// the filesystem's 255 bytes, which is right for a directory that is the whole
+// segment and wrong here: a checkpoint puts a timestamp in front and ".md"
+// after, a plan adds "plan-" too, and an agent named in the last 24 bytes of
+// that range started a session and then failed every checkpoint with "file
+// name too long". The frontmatter keeps the full name; only the filename is cut.
+func agentPart(agent string) string {
+	return capAt(safe(agent), maxNameLen-len("plan-20060102-150405-.md"))
 }
 
 // Start opens a session. Agent defaults to "agent" rather than erroring: a
@@ -425,15 +436,31 @@ func safe(s string) string {
 // past 255 bytes, and a project name long enough to hit that reached the vault
 // as a raw `mkdir …: file name too long` handed straight to the model — an
 // error about the filesystem, for a name the product accepted without comment.
-// 120 leaves room for the timestamp-and-agent filename beneath it on the
-// path-length-limited filesystems too.
-const maxNameLen = 120
+//
+// The cap is the filesystem's own limit and not something tighter, because it
+// applies on lookup as well as on write: it was 120 for a while, and a project
+// named in 121–255 bytes — which every filesystem accepts and every earlier
+// version wrote — was then looked up under a key its history is not filed
+// under (#176). Only a name that could never have been written is cut. Path
+// length beneath it is not a reason to cut tighter: macOS allows 1024, and Go
+// lifts Windows's 260 for absolute paths on its own.
+const maxNameLen = 255
 
-func capName(s string) string {
-	if len(s) <= maxNameLen {
+// capName cuts at a character boundary. safe keeps letters in every script, and
+// a cut by bytes alone could end inside one — invalid UTF-8, which APFS refuses
+// as a directory name, trading "file name too long" for "illegal byte
+// sequence" (#175).
+func capName(s string) string { return capAt(s, maxNameLen) }
+
+func capAt(s string, n int) string {
+	if len(s) <= n {
 		return s
 	}
-	return strings.Trim(s[:maxNameLen], "-")
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.Trim(s[:cut], "-")
 }
 
 // safeScope is safe for a scope rather than a plain name: "kestrel" is one, and

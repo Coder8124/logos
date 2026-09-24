@@ -85,3 +85,14 @@ func TestHelpAllNamesTheUniversalMCPInstallFlags(t *testing.T) {
 		}
 	}
 }
+
+// #172 changed what a txcript harness's --path is — txcript finds a session by
+// its id, not a file — and the help kept saying FILE, which sends the user to
+// hunt for a file that the command then hands txcript as an id and fails on.
+func TestIngestHelpSaysATxcriptHarnessTakesASessionID(t *testing.T) {
+	var b bytes.Buffer
+	helpAll(&b)
+	if !strings.Contains(b.String(), "session id") {
+		t.Error("logos help all still tells a txcript user that --path is a file")
+	}
+}

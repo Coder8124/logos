@@ -28,7 +28,9 @@ func runResolver(t *testing.T, path string, script string) (string, error) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/bash", "-c", ". '"+resolver+"'; "+script)
-	cmd.Env = []string{"PATH=" + path, "HOME=" + t.TempDir(), "GOBIN=", "GOPATH="}
+	// No fixed install locations: the machine's own brew or /usr/local copy
+	// would otherwise be a candidate in every test.
+	cmd.Env = []string{"PATH=" + path, "HOME=" + t.TempDir(), "GOBIN=", "GOPATH=", "LOGOS_RESOLVE_FIXED_DIRS="}
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
@@ -237,5 +239,30 @@ func TestAtTheSameVersionLogosBeatsThePreRenameBrain(t *testing.T) {
 	}
 	if filepath.Base(got) != "logos" {
 		t.Errorf("the resolver chose %q at equal versions", got)
+	}
+}
+
+// #173: a version with a leading v was ranked as an unversioned dev build,
+// older than everything. `go install …@v0.4.9` reports v0.4.9, and a release
+// archive is stamped from the tag, v included — so a v0.4.9 lost to 0.4.8, and
+// two tagged releases never displaced each other at all.
+func TestAVersionWrittenWithAVIsRankedByItsNumber(t *testing.T) {
+	for _, c := range []struct{ older, newer string }{
+		{"0.4.8", "v0.4.9"},
+		{"v0.4.1", "v0.4.8"},
+		{"v0.4.8", "0.4.9"},
+	} {
+		stale, fresh := t.TempDir(), t.TempDir()
+		fakeProgram(t, stale, "logos", `echo "logos `+c.older+` darwin/arm64 go1.26"`)
+		fakeProgram(t, fresh, "logos", `echo "logos `+c.newer+` darwin/arm64 go1.26"`)
+
+		got, err := runResolver(t, stale+":"+fresh+":/usr/bin:/bin",
+			`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
+		if err != nil {
+			t.Fatalf("resolver failed: %v\n%s", err, got)
+		}
+		if !strings.HasPrefix(got, fresh) {
+			t.Errorf("%s was kept over %s", c.older, c.newer)
+		}
 	}
 }
