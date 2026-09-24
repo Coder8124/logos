@@ -163,7 +163,8 @@ gets a `.logos-backup` beside it.
 
 Where a host ships its own registration command (Claude Code, Codex) logos uses
 it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
-Devin and GitHub Copilot get their JSON merged instead.
+Devin, GitHub Copilot, opencode and Amp get their JSON merged instead, and
+Grok Build gets its `[mcp_servers.logos]` table written into `config.toml`.
 
 Hosts differ in how much they can do, and setup names the tier beside each one:
 
@@ -306,12 +307,14 @@ itself.
 | Devin for Terminal | wired | yes | merges `~/.config/devin/mcp_config.json` (user scope) | ❓ **help wanted** |
 | GitHub Copilot CLI | wired | yes | merges `~/.copilot/mcp-config.json`, or `$COPILOT_HOME/mcp-config.json` when set | ❓ **help wanted** |
 | GitHub Copilot in VS Code | wired | yes | merges VS Code's user `mcp.json` (`servers`) | ❓ **help wanted** |
+| opencode | wired | yes | merges `~/.config/opencode/opencode.json` (`mcp`), or `opencode.jsonc` when that is the one there | ❓ **help wanted** |
+| Amp | wired | yes (macOS, Linux) | merges `~/.config/amp/settings.json` (`amp.mcpServers`) | ❓ **help wanted** |
+| Grok Build | wired | yes | writes `[mcp_servers.logos]` in `~/.grok/config.toml`, or `$GROK_HOME/config.toml` when set | ❓ **help wanted** |
 | Aider | not possible | no | Aider has no MCP client | — |
 | Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Zed | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Gemini CLI | planned | not yet | manual JSON below | ❓ **help wanted** |
-| OpenCode | planned | not yet | manual JSON below | ❓ **help wanted** |
 | JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Continue.dev | planned | not yet | manual JSON below | ❓ **help wanted** |
 
