@@ -103,9 +103,9 @@ func (p *Pack) renderHeader(b *strings.Builder) {
 	case p.Checkpoint != nil:
 		// No project note, but there is a record of work. Saying "no project
 		// matched" here would tell the agent to disregard the very thing it is
-		// about to be handed.
-		fmt.Fprintf(b, "\nProject **%s** — no note in the vault yet, but there is a work history below.\n",
-			p.scope())
+		// about to be handed; saying the note is missing promised one nothing
+		// in the product writes (#133).
+		fmt.Fprintf(b, "\nProject **%s** — its work history is below.\n", p.scope())
 	default:
 		hint := p.Hint
 		if hint == "" {
