@@ -153,20 +153,35 @@ func removeTOMLServer(path, name string) (bool, error) {
 }
 
 // dropServerTables removes [mcp_servers.<name>] and its env table, each from
-// its header to the next header, and reports whether there was one.
+// its header to its last key, and reports whether there was one.
+//
+// Comments and blank lines after a dropped table's last key are held back
+// rather than dropped with it: in a file someone edits by hand they are the
+// note on the table below, and a re-run of setup that deletes them does so with
+// nothing to say — the TOML hosts are not checked for lost comments, because
+// this is meant to keep them.
 func dropServerTables(toml, name string) (string, bool) {
-	var b strings.Builder
+	var b, held strings.Builder
 	in, had := false, false
 	for _, line := range strings.SplitAfter(toml, "\n") {
-		if t := strings.TrimSpace(stripComment(line)); strings.HasPrefix(t, "[") {
+		t := strings.TrimSpace(stripComment(line))
+		if strings.HasPrefix(t, "[") {
 			server, _ := codexTable(t)
 			in = server == name
 			had = had || in
 		}
-		if !in {
+		switch {
+		case !in:
+			b.WriteString(held.String())
+			held.Reset()
 			b.WriteString(line)
+		case t == "":
+			held.WriteString(line)
+		default:
+			held.Reset()
 		}
 	}
+	b.WriteString(held.String())
 	return b.String(), had
 }
 

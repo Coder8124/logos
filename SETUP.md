@@ -165,6 +165,9 @@ Where a host ships its own registration command (Claude Code, Codex) logos uses
 it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
 Devin, GitHub Copilot, opencode and Amp get their JSON merged instead, and
 Grok Build gets its `[mcp_servers.logos]` table written into `config.toml`.
+Grok Build is wired once it has run — its `config.toml` or `sessions/` is
+there. A `grok` command alone is not taken for it, because the community
+grok-cli installs one too.
 
 Hosts differ in how much they can do, and setup names the tier beside each one:
 
