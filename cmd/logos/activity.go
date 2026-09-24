@@ -353,6 +353,18 @@ func isWork(tool string) bool {
 	return false
 }
 
+// hookSessionID is the session id in a hook payload, as the host sent it, or
+// "" when it sent none — and then the record says only where it was built from.
+func hookSessionID(raw []byte) string {
+	var p struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return ""
+	}
+	return strings.TrimSpace(p.SessionID)
+}
+
 // planText pulls ExitPlanMode's plan text straight out of the raw hook
 // payload. activity.FromHook already parses tool_input into Event.Extra, but
 // as an opaque map with no guarantee "plan" survives whatever the host sends
@@ -420,7 +432,10 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	if err != nil {
 		return nil, err
 	}
-	c := session.Checkpoint{Project: project, Agent: end.Agent}
+	// The host's own id for the session, whole: end.Session is cut short for
+	// people to read, and this is for the sweep to match against the name of
+	// the transcript, which is the whole id.
+	c := session.Checkpoint{Project: project, Agent: end.Agent, State: session.ActivityLogStateFor(hookSessionID(raw))}
 	work := false
 	seen := map[string]bool{}
 	for _, e := range events {

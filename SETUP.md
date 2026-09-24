@@ -163,7 +163,11 @@ gets a `.logos-backup` beside it.
 
 Where a host ships its own registration command (Claude Code, Codex) logos uses
 it, so their config format stays their problem. Claude Desktop, Cursor, Cline,
-Devin and GitHub Copilot get their JSON merged instead.
+Devin, GitHub Copilot, opencode and Amp get their JSON merged instead, and
+Grok Build gets its `[mcp_servers.logos]` table written into `config.toml`.
+Grok Build is wired once it has run — its `config.toml` or `sessions/` is
+there. A `grok` command alone is not taken for it, because the community
+grok-cli installs one too.
 
 Hosts differ in how much they can do, and setup names the tier beside each one:
 
@@ -197,12 +201,6 @@ Want something to point it at? `./scripts/seed-demo-vault.sh` builds a synthetic
 vault (`~/vaults/kestrel`) with interlocking constraints — a BOM that doesn't
 close, a factory missing yield, a schedule with a critical path — so you can ask
 hard questions that have findable answers and tell retrieval from autocomplete.
-
-The desktop app is Wails v2:
-
-```sh
-cd app && wails dev        # or: wails build
-```
 
 ### Removing Logos
 
@@ -312,12 +310,14 @@ itself.
 | Devin for Terminal | wired | yes | merges `~/.config/devin/mcp_config.json` (user scope) | ❓ **help wanted** |
 | GitHub Copilot CLI | wired | yes | merges `~/.copilot/mcp-config.json`, or `$COPILOT_HOME/mcp-config.json` when set | ❓ **help wanted** |
 | GitHub Copilot in VS Code | wired | yes | merges VS Code's user `mcp.json` (`servers`) | ❓ **help wanted** |
+| opencode | wired | yes | merges `~/.config/opencode/opencode.json` (`mcp`), or `opencode.jsonc` when that is the one there | ❓ **help wanted** |
+| Amp | wired | yes (macOS, Linux) | merges `~/.config/amp/settings.json` (`amp.mcpServers`) | ❓ **help wanted** |
+| Grok Build | wired | yes | writes `[mcp_servers.logos]` in `~/.grok/config.toml`, or `$GROK_HOME/config.toml` when set | ❓ **help wanted** |
 | Aider | not possible | no | Aider has no MCP client | — |
 | Windsurf | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Roo Code | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Zed | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Gemini CLI | planned | not yet | manual JSON below | ❓ **help wanted** |
-| OpenCode | planned | not yet | manual JSON below | ❓ **help wanted** |
 | JetBrains AI | planned | not yet | manual JSON below | ❓ **help wanted** |
 | Continue.dev | planned | not yet | manual JSON below | ❓ **help wanted** |
 
@@ -675,11 +675,10 @@ cmd/logos/       the CLI — one engine, two front ends
 internal/        index, memory, session, contextpack, deadend, graph, setup,
                  dream, secretary, router, mcpserver
 chaos/           fault injection: SIGKILL mid-write, full disks, racing processes
-app/             Wails v2 desktop app (vault browser: memory, graph, sessions)
 bench/           Python adapters for the systems logos is scored against
 docs/            the benchmark, plus per-subsystem notes
 systemmd/        design, credits, and the prompt agents are given
-scripts/         demo vault seeding, icon build, MCP probe
+scripts/         demo vault seeding, MCP probe
 ```
 
 Tests run with `go test ./...`. The chaos tier is opt-in and slower:

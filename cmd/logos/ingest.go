@@ -409,7 +409,7 @@ func runIngestStatus() error {
 		return nil
 	}
 
-	harvest, distilled, stranded := 0, 0, 0
+	harvest, distilled, stranded, held := 0, 0, 0, 0
 	damaged := 0
 	for _, c := range all {
 		// A candidate whose frontmatter or timestamps would not read back is
@@ -431,6 +431,13 @@ func runIngestStatus() error {
 			stranded++
 			continue
 		}
+		// txcript re-reads these by session id from the harness's own
+		// storage; there is no file to stat, and stat-ing the string counted
+		// every opencode, amp and grok harvest as lost (#180).
+		if transcript.IsTxcriptSource(c.Source) {
+			held++
+			continue
+		}
 		// Not the raw string: Cursor names a session as <storage file>#<chat
 		// id>, and stat-ing that reported every Cursor candidate as deleted
 		// while its database sat untouched.
@@ -441,8 +448,11 @@ func runIngestStatus() error {
 
 	fmt.Printf("%d candidate(s) in %s\n", len(all), v)
 	fmt.Printf("  %d distilled  ·  %d harvest\n", distilled, harvest)
-	if harvest > 0 {
-		fmt.Printf("  %d of the %d harvests still have their source transcript on disk\n", harvest-stranded, harvest)
+	if harvest-held > 0 {
+		fmt.Printf("  %d of the %d harvests still have their source transcript on disk\n", harvest-stranded-held, harvest-held)
+	}
+	if held > 0 {
+		fmt.Printf("  %d harvest(s) are held by txcript, which re-reads them from their harness by session id\n", held)
 	}
 	if damaged > 0 {
 		fmt.Printf("\n%d candidate(s) have frontmatter or a timestamp that cannot be read back.\n", damaged)

@@ -639,9 +639,9 @@ func embedModel() (model string, ok bool) {
 }
 
 // vaultPath resolves where the vault lives. The rule itself lives in
-// internal/vault, because the desktop app needs the same answer and having its
-// own copy is how it came to open a different vault than the CLI on the same
-// machine.
+// internal/vault, because every front end needs the same answer, and the old
+// desktop app having its own copy is how it came to open a different vault
+// than the CLI on the same machine.
 func vaultPath() string { return vault.Path() }
 
 // findProvider picks the first running local runtime. Cloud BYOK slots in here
@@ -785,7 +785,14 @@ func doctor(probe, verbose bool) error {
 		fmt.Println("\nweb bridge: not paired — `logos mcp serve --http` will mint a token on first run")
 	}
 
-	found := provider.Discover()
+	found := provider.Resolve()
+	if len(found) == 0 && provider.Configured() != nil {
+		// The user named a runtime and it is down. The check above already
+		// failed on it; closing on "nothing depends on one" would tell them
+		// to ignore the one failure they asked for.
+		fmt.Printf("\nLOGOS_RUNTIME names %s, and it did not answer — search is lexical until it does.\n", provider.Configured().BaseURL)
+		return doctorVerdict(failed)
+	}
 	if len(found) == 0 {
 		// Not an error. Every continuity tool works without a model, and search
 		// falls back to lexical; the report above already said so.
@@ -1053,9 +1060,12 @@ func gatherHealth() health.Report {
 			in.DB = ix.DB
 		}
 	}
-	if found := provider.Discover(); len(found) > 0 {
+	// Resolve, not Discover: doctor has to report the runtime the server will
+	// use, and with LOGOS_RUNTIME set that is never whatever is on localhost.
+	if found := provider.Resolve(); len(found) > 0 {
 		in.Runtime = found[0].Provider
 	}
+	in.Configured = os.Getenv("LOGOS_RUNTIME")
 
 	return health.Run(in)
 }

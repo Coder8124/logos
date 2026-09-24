@@ -108,8 +108,11 @@ type Input struct {
 	// DB is an open index. Nil means the index could not be opened, so anything
 	// derived from it is unknown rather than absent.
 	DB *sql.DB
-	// Runtime is the discovered local model runtime, or nil if none answered.
-	Runtime    *provider.Provider
+	// Runtime is the runtime the server would use, or nil if none answered.
+	Runtime *provider.Provider
+	// Configured is LOGOS_RUNTIME, when set. With Runtime nil it means the
+	// runtime the user named is down, which is not the same as having none.
+	Configured string
 	EmbedModel string
 	// Hosts drives the duplicate-registration check. Nil means "not asked" —
 	// distinct from "asked and found nothing" — and reports Unknown, because
@@ -134,7 +137,7 @@ func Run(in Input) Report {
 	r.Add(checkDurability(in.DB))
 	r.Add(checkFreshness(in.Vault, in.DB))
 	r.Add(checkEmbeddings(in.DB, in.Runtime))
-	r.Add(checkRuntime(in.Runtime, in.EmbedModel))
+	r.Add(checkRuntime(in.Runtime, in.Configured, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
 	r.Add(checkIngest(in.Vault))
 	r.Add(checkAbandonment(in.DB))
@@ -204,8 +207,8 @@ func checkVault(dir string) Check {
 	//
 	// `logos setup --vault <dir>` records its target in
 	// os.UserConfigDir()/logos/vault-path, and that pointer is what every front
-	// end reads when LOGOS_VAULT is unset — including the desktop app, which
-	// inherits no shell and has no other way to find the vault. So running setup
+	// end reads when LOGOS_VAULT is unset — including a host launched from
+	// Finder, which inherits no shell and has no other way to find the vault. So running setup
 	// against a scratch vault, which CONTRIBUTING.md tells contributors to do,
 	// silently repoints the real installation at a temporary directory. Nothing
 	// then fails: index.Open creates whatever it is handed, so the vault is
@@ -583,14 +586,23 @@ func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 	return c
 }
 
-func checkRuntime(rt *provider.Provider, model string) Check {
+func checkRuntime(rt *provider.Provider, configured, model string) Check {
 	c := Check{Name: "model runtime"}
+	if rt == nil && configured != "" {
+		// Failed, unlike having none: the user named this runtime, the server
+		// will not fall back to localhost, and "install Ollama" would be
+		// advice about a runtime they never asked logos to use.
+		c.State = Failed
+		c.Detail = "none — LOGOS_RUNTIME is " + configured + " and nothing answers there; memories and notes are matched by keyword, not meaning"
+		c.Fix = "start the runtime at " + configured + ", or unset LOGOS_RUNTIME to use one on this machine"
+		return c
+	}
 	if rt == nil {
 		// Optional by design, so this is not Failed. Under the coding-agent
 		// framing the host's own model does the generating and logos only ever
 		// wanted embeddings.
 		c.State = OK
-		c.Detail = "none — continuity is unaffected, search is lexical"
+		c.Detail = "none — continuity is unaffected; memories and notes are matched by keyword, not meaning"
 		c.Fix = "install Ollama and pull " + model + " (274 MB) for semantic search"
 		return c
 	}

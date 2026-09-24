@@ -284,7 +284,11 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// Vault prose. This is the piece context_pack never had: it listed a
 	// project's files but never the content, so an agent still had to go read
 	// them one by one.
-	if embed != nil && query != "" {
+	//
+	// Not guarded on embed: HybridSearch ranks by keyword alone without one.
+	// Guarding here emptied this section, and the memories below, on every
+	// machine with no model runtime — the default state of a fresh install.
+	if query != "" {
 		// Over-fetched because the scoping below drops hits, and a pack that
 		// asked for exactly maxNotes would come back short by however many
 		// belonged to somebody else.
@@ -305,7 +309,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 			}
 		}
 	}
-	if embed != nil && query != "" {
+	if query != "" {
 		// Scoped, not global: Recall ranks the whole vault by similarity alone,
 		// so a fact from an unrelated project with the right vocabulary
 		// outranks one from this project with the wrong phrasing. Measured on a

@@ -123,3 +123,32 @@ func TestAMessageWithNullOrEmptyContentKeepsItsTextAndTool(t *testing.T) {
 		t.Errorf("null content lost the message's own fields: %+v", s.Turns)
 	}
 }
+
+// #180: read records a txcript session's path as txcript:<from>:<id>, and that
+// string becomes the candidate's source — which distillation hands straight
+// back to read. The reader then asked txcript to export a session called
+// "txcript:opencode:ses_4f2a", so no txcript harvest could ever be distilled.
+func TestATxcriptSourceRecordedByTheReaderReadsBackThroughIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("stand-in txcript is a shell script")
+	}
+	bin := t.TempDir()
+	argsFile := filepath.Join(bin, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\nprintf '%s' '" + simpleL1 + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "txcript"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+
+	first, err := transcript.ReadFile("opencode", "ses_4f2a")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if _, err := transcript.ReadFile("opencode", first.Path); err != nil {
+		t.Fatalf("re-reading the recorded source %q: %v", first.Path, err)
+	}
+	raw, _ := os.ReadFile(argsFile)
+	if got := strings.Join(strings.Fields(string(raw)), " "); got != "export ses_4f2a --from opencode" {
+		t.Errorf("re-reading %q called txcript as %q, want export ses_4f2a --from opencode", first.Path, got)
+	}
+}

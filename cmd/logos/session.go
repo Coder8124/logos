@@ -8,8 +8,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
@@ -240,6 +242,11 @@ func runResume(args []string) error {
 		model, _ = rt.Model(router.T0)
 		embed = rt.Local()
 	}
+
+	// Before the pack, so a session that ended without a checkpoint is in the
+	// handoff it is missing from. The SessionStart hook runs this command, so
+	// every Claude Code session start sweeps too.
+	fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
 
 	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Agent: agentName(), Budget: budget, Since: contextpack.Since(since),

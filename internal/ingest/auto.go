@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/session"
@@ -31,34 +32,26 @@ const maxAutoCommands = 20
 // Returns nil when the session did no work, or when this transcript has already
 // been recorded.
 func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*session.Checkpoint, error) {
+	return autoCheckpoint(vaultDir, s, project, 0)
+}
+
+// autoCheckpoint is AutoCheckpoint dated at, or now when at is zero. The sweep
+// records sessions that ended hours ago, and dating those now would put a list
+// of files above the reviewed handoff somebody wrote after them.
+func autoCheckpoint(vaultDir string, s *transcript.Session, project string, at int64) (*session.Checkpoint, error) {
 	if s == nil {
 		return nil, nil
 	}
-	h := Harvest(s)
-	if len(h.Files) == 0 && len(h.Commands) == 0 {
+	c, ok := autoRecord(s, project, at)
+	if !ok {
 		return nil, nil
 	}
-
 	// Provenance in the record itself, not only in a log: an unverified
 	// checkpoint whose source is invisible is one nobody can weigh. It is also
 	// what the duplicate check below reads, so two servers closing on the same
 	// transcript do not both record it.
-	state := fmt.Sprintf("Built from %s's own transcript (%s) when the session ended without a checkpoint.", s.Harness, s.ID)
-	if already, err := recorded(vaultDir, project, state); err != nil || already {
+	if already, err := recorded(vaultDir, project, c.State); err != nil || already {
 		return nil, err
-	}
-
-	commands := h.Commands
-	if n := len(commands); n > maxAutoCommands {
-		commands = commands[n-maxAutoCommands:]
-	}
-	c := session.Checkpoint{
-		Project:  project,
-		Agent:    s.Harness,
-		Task:     firstPrompt(s),
-		State:    state,
-		Files:    h.Files,
-		Commands: commands,
 	}
 	written, err := session.WriteAuto(vaultDir, c)
 	if err != nil {
@@ -66,6 +59,109 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*se
 	}
 	return &written, nil
 }
+
+// autoRecord is the record of what s did that its agent did not hand off, and
+// false when that was no work at all.
+func autoRecord(s *transcript.Session, project string, at int64) (session.Checkpoint, bool) {
+	h := Harvest(afterHandoff(s))
+	if len(h.Files) == 0 && len(h.Commands) == 0 {
+		return session.Checkpoint{}, false
+	}
+	commands := h.Commands
+	if n := len(commands); n > maxAutoCommands {
+		commands = commands[n-maxAutoCommands:]
+	}
+	return session.Checkpoint{
+		Project:  project,
+		Agent:    s.Harness,
+		Task:     firstPrompt(s),
+		State:    autoState(s),
+		Files:    h.Files,
+		Commands: commands,
+		TS:       at,
+	}, true
+}
+
+// autoState is the provenance line an auto record carries. The shutdown path
+// and the sweep must write it identically: it is the only thing that tells
+// either one the other already recorded this transcript.
+func autoState(s *transcript.Session) string {
+	return fmt.Sprintf("Built from %s's own transcript (%s) when the session ended without a checkpoint.", s.Harness, s.ID)
+}
+
+// afterHandoff is the part of a session its agent has not already handed off:
+// the turns after its last checkpoint or handoff call that went through.
+//
+// Read from the transcript because the transcript is the only thing that knows.
+// The checkpoint a session wrote does not say which transcript it came from, so
+// the sweep once took any checkpoint dated inside a session's span as that
+// session's own — and a checkpoint from a second window open on the same
+// project hid a session that was lost, while a session that checkpointed at
+// noon and worked until six was taken as handed off in full.
+func afterHandoff(s *transcript.Session) *transcript.Session {
+	last := -1
+	for i, t := range s.Turns {
+		if isHandoffCall(t) {
+			last = i
+		}
+	}
+	if last < 0 {
+		return s
+	}
+	rest := *s
+	rest.Turns = s.Turns[last+1:]
+	return &rest
+}
+
+// isHandoffCall is a checkpoint or handoff through Logos's MCP tool, under
+// whatever name the host gives it, or through the CLI in a shell. Each host
+// names an MCP tool its own way — Claude Code mcp__<server>__checkpoint, Codex
+// the bare tool name — and the server's part is the user's choice, so the
+// tool's own name is matched after any separator. A call that failed handed
+// nothing off.
+//
+// The name alone is not enough: any MCP server may have a tool called
+// save_checkpoint, and taking one of those as a Logos handoff hides the work
+// before it — a record lost, where a wrong guess the other way only repeats a
+// line. So where the host kept the call's result, that result must be Logos's
+// own receipt. Where it did not (Cursor keeps no tool output), the name is all
+// there is, and it is taken.
+func isHandoffCall(t transcript.Turn) bool {
+	if t.Role != "tool" || t.Status == "error" {
+		return false
+	}
+	if !handoffTool(t) {
+		return false
+	}
+	return strings.TrimSpace(t.Text) == "" || handoffReceipt.MatchString(t.Text)
+}
+
+func handoffTool(t transcript.Turn) bool {
+	name := strings.ToLower(t.Tool)
+	for _, verb := range []string{"checkpoint", "handoff"} {
+		if name == verb {
+			return true
+		}
+		if rest, ok := strings.CutSuffix(name, verb); ok && strings.ContainsAny(rest[len(rest)-1:], "_./:") {
+			return true
+		}
+	}
+	if isShellTool(t.Tool) {
+		for _, verb := range []string{"logos checkpoint", "logos handoff", "brain checkpoint", "brain handoff"} {
+			if strings.Contains(t.Input, verb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// handoffReceipt is what every version of Logos has answered a checkpoint with:
+// "Checkpoint written to sessions/….md in the vault.", "checkpoint saved to
+// brain|logos — sessions/….md", the "already saved" of an identical retry, and
+// the CLI's "checkpoint written: sessions/….md". Each names the file it wrote,
+// which no other tool's answer will.
+var handoffReceipt = regexp.MustCompile(`(?i)\bcheckpoint (?:already )?(?:saved|written)\b[^\n]*\b` + session.CheckpointDir + `/\S+\.md`)
 
 // recorded reports whether the project's most recent checkpoint is the auto
 // record for this same transcript. Only the latest is checked: this runs at

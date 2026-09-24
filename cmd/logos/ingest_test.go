@@ -395,3 +395,32 @@ func TestIngestArchiveRefusesAFlagAsItsDestination(t *testing.T) {
 		}
 	}
 }
+
+// #180: status stat-ed every harvest's source, and a txcript harvest cites
+// txcript:<from>:<id>, so every opencode, amp and grok harvest was counted as
+// having lost its transcript and told the user it could never be distilled.
+func TestIngestStatusDoesNotCountATxcriptHarvestAsStranded(t *testing.T) {
+	vaultDir := scratchIngest(t)
+	if _, err := ingest.Put(vaultDir, ingest.Candidate{
+		Harness:   "opencode",
+		SessionID: "ses_4f2a",
+		Source:    "txcript:opencode:ses_4f2a",
+		Hash:      "hash-ses_4f2a",
+		Project:   "gadgets",
+		Tier:      ingest.TierHarvest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runIngestStatus(); err != nil {
+			t.Fatalf("status: %v", err)
+		}
+	})
+	if strings.Contains(out, "can no longer be distilled") {
+		t.Errorf("status reports a txcript harvest as having lost its transcript:\n%s", out)
+	}
+	if !strings.Contains(out, "txcript") {
+		t.Errorf("status does not say where a txcript harvest's source lives:\n%s", out)
+	}
+}

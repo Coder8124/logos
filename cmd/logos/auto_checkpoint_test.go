@@ -130,3 +130,23 @@ esac`)
 		t.Errorf("the hook did not pass its payload through or did not report the auto checkpoint:\n%s", out)
 	}
 }
+
+// The hook's record is dated when the session closed, which can be long after
+// its transcript's last line; the sweep matched it by time and recorded the
+// session a second time when the close ran late. The record names the session
+// in full — the id the transcript's own file is called — so it is matched
+// exactly.
+func TestTheHookRecordNamesTheSessionItCameFrom(t *testing.T) {
+	standIn(t, "elsewhere")
+	id := "6f1c2a9e-3b7d-4e2a-9c11-5d0e8f7a4b21"
+	hookEvent(t, "PostToolUse", `{"session_id":"`+id+`","tool_name":"Edit","tool_input":{"file_path":"cart.go"}}`)
+	endSession(t, id)
+
+	c, err := session.Latest(vaultPath(), "shop")
+	if err != nil || c == nil {
+		t.Fatalf("no checkpoint: %v", err)
+	}
+	if !strings.Contains(c.State, "("+id+")") {
+		t.Errorf("the hook record does not name its session in full: %q", c.State)
+	}
+}

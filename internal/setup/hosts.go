@@ -23,6 +23,7 @@ func Hosts() []Host {
 	return []Host{
 		claudeCode(), claudeDesktop(), cursor(), codex(),
 		cline("Cline", "Code"), cline("Cline in Cursor", "Cursor"), cline("Cline in Windsurf", "Windsurf"), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
+		opencode(), amp(), grokBuild(),
 	}
 }
 
@@ -239,7 +240,13 @@ func jsonHost(name, path, root string, detect func() bool, entry func(Server) an
 
 // removeJSON deletes the entry called name under root when it runs logos.
 func removeJSON(path, root, name string) (bool, error) {
-	regs, err := readServerBlock(path, root)
+	return removeEntry(path, root, name, func() ([]Registration, error) { return readServerBlock(path, root) })
+}
+
+// removeEntry is removeJSON for a host whose entries read back through read,
+// because not every host keeps a command as one string.
+func removeEntry(path, root, name string, read func() ([]Registration, error)) (bool, error) {
+	regs, err := read()
 	if err != nil {
 		return false, err
 	}
@@ -353,6 +360,137 @@ func copilotVSCode() Host {
 				serverEntry
 			}{"stdio", serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env}}
 		})
+}
+
+// opencode keeps its servers under "mcp", each typed, with the command and its
+// arguments in one array and the environment under "environment". An entry in
+// the mcpServers shape is not an error to opencode; it is simply never started.
+//
+// The global config is read from the XDG config directory on every platform.
+// opencode.jsonc is written only when it is the one there: a second file
+// beside it would be a config the user never opens.
+func opencode() Host {
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		dir = inHome(".config")
+	}
+	if dir != "" {
+		dir = joinPath(dir, "opencode")
+	}
+	path := ""
+	if dir != "" {
+		path = joinPath(dir, "opencode.json")
+		if jsonc := joinPath(dir, "opencode.jsonc"); !exists(path) && exists(jsonc) {
+			path = jsonc
+		}
+	}
+	read := func() ([]Registration, error) { return readOpencodeServers(path) }
+	return Host{
+		Name: "opencode",
+		// Its installer puts the binary in ~/.opencode/bin, which a shell that
+		// started logos may not have on PATH.
+		Detect: func() bool {
+			return path != "" && (onPath("opencode") || exists(dir) || exists(inHome(".opencode")))
+		},
+		Where:  func() string { return path },
+		Config: func() string { return path },
+		Register: func(s Server) (Outcome, error) {
+			return mergeServers(path, "mcp", opencodeEntry{
+				Type: "local", Command: append([]string{s.Bin}, s.Args...), Enabled: true, Environment: s.Env,
+			})
+		},
+		List:   read,
+		Remove: func(name string) (bool, error) { return removeEntry(path, "mcp", name, read) },
+	}
+}
+
+type opencodeEntry struct {
+	Type        string            `json:"type"`
+	Command     []string          `json:"command,omitempty"`
+	Enabled     bool              `json:"enabled"`
+	Environment map[string]string `json:"environment,omitempty"`
+}
+
+// readOpencodeServers is readServerBlock for opencode's shape. A remote server
+// has a url and no command, and reads back with an empty one.
+func readOpencodeServers(path string) ([]Registration, error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, nil
+	}
+	cfg := mcpConfig{}
+	std, _ := standardJSON(raw)
+	if err := json.Unmarshal(std, &cfg); err != nil {
+		return nil, err
+	}
+	servers := map[string]opencodeEntry{}
+	if block, ok := cfg["mcp"]; ok && len(block) > 0 {
+		if err := json.Unmarshal(block, &servers); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]Registration, 0, len(servers))
+	for name, s := range servers {
+		out = append(out, Registration{Name: name, Command: strings.Join(s.Command, " "), Vault: s.Environment["LOGOS_VAULT"]})
+	}
+	return out, nil
+}
+
+// amp is Sourcegraph's Amp. Its user settings file holds the whole of Amp's
+// configuration, with the servers under the literal key "amp.mcpServers" — a
+// dotted name, not a nested object. Amp documents no Windows location, so it is
+// not guessed at there; --print-config covers it.
+func amp() Host {
+	path := inHome(".config", "amp", "settings.json")
+	if runtime.GOOS == "windows" {
+		path = ""
+	}
+	return jsonHost("Amp", path, "amp.mcpServers", func() bool {
+		return onPath("amp") || exists(parent(path))
+	}, plainEntry)
+}
+
+// grokBuild is xAI's Grok Build CLI, whose user config is TOML with servers in
+// the [mcp_servers.<name>] tables Codex uses. GROK_HOME moves its whole home,
+// sessions and config alike. Written as a file rather than through `grok mcp
+// add`, for the reason copilotCLI gives.
+//
+// It also reads Claude Code's ~/.claude.json, beneath its own config, so a
+// machine with Claude Code wired already had a logos in Grok. Its own entry is
+// still written: the one in config.toml is the one it prefers, and the only one
+// that survives someone turning the Claude compatibility off.
+func grokBuild() Host {
+	dir := os.Getenv("GROK_HOME")
+	if dir == "" {
+		dir = inHome(".grok")
+	}
+	path := ""
+	if dir != "" {
+		path = joinPath(dir, "config.toml")
+	}
+	return Host{
+		Name: "Grok Build",
+		// Neither ~/.grok nor a grok command is evidence: the unrelated
+		// community grok-cli keeps its settings there and installs a grok of its
+		// own, and taking it for Grok Build writes a config.toml nothing reads —
+		// reported as registered, and detected on every run after. Grok Build's
+		// config or its sessions are. A Grok Build not yet run once is skipped,
+		// and says so, rather than guessed at.
+		Detect: func() bool {
+			return path != "" && (exists(path) || exists(joinPath(dir, "sessions")))
+		},
+		Where:    func() string { return path },
+		Config:   func() string { return path },
+		Register: func(s Server) (Outcome, error) { return mergeTOMLServer(path, s) },
+		List:     func() ([]Registration, error) { return readCodexServers(path) },
+		Remove:   func(name string) (bool, error) { return removeTOMLServer(path, name) },
+	}
 }
 
 // vscodeUserDir is VS Code's per-user settings directory, per platform.

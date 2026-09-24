@@ -82,6 +82,15 @@ func Archive(vaultDir, destDir string) (ArchiveResult, []string, error) {
 			problems = append(problems, fmt.Sprintf("%s: the candidate cites no transcript, so there is nothing to archive", note.path))
 			continue
 		}
+		if transcript.IsTxcriptSource(c.Source) {
+			// Not missing, and not ours to copy: txcript re-reads the session
+			// from its harness's own storage by id, so a copy here is a file
+			// nothing reads. Stat-ing it counted every such harvest as already
+			// gone (#180). Named, because the storage it lives in can still be
+			// wiped, and archiving that is the user's to do.
+			problems = append(problems, fmt.Sprintf("%s: held by txcript in %s's own storage, not a file logos can copy — archive that harness's storage to keep it", c.Source, c.Harness))
+			continue
+		}
 		file, frag := splitSourceFragment(c.Source)
 		if under(file, dest) {
 			res.Already++
