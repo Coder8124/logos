@@ -122,8 +122,8 @@ func newMCPServer(db *sql.DB, vault string) (*mcpserver.Server, error) {
 		// stderr, not stdout: stdout is the JSON-RPC transport and anything
 		// written there corrupts the stream. The host surfaces this in its logs.
 		fmt.Fprintln(os.Stderr,
-			"logos: no local model runtime found — serving with lexical retrieval; "+
-				"checkpoint, resume and before_you_try are unaffected")
+			"logos: no local model runtime found — memories and notes are matched by keyword, "+
+				"not meaning; checkpoint, resume and before_you_try are unaffected")
 	}
 	srv := mcpserver.New(db, rt, vault)
 	// LOGOS_EMBED chooses the model `logos index` embeds the vault with, so the

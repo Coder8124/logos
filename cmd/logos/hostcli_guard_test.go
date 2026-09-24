@@ -5,9 +5,12 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/health"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/testenv"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // runMainEnv makes the test binary run logos's own main with the arguments it
@@ -18,6 +21,12 @@ func TestMain(m *testing.M) {
 	// The developer's own Homebrew logos would be reported by every setup and
 	// doctor a test runs; a test that wants one supplies its own prefix.
 	health.HomebrewPrefixes = func() []string { return nil }
+	// Every resume sweeps transcripts, and the developer's own would be filed
+	// into the test's vault whenever a project name matched a folder they
+	// worked in. A test that wants a sweep supplies its own transcripts.
+	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool) ([]*transcript.Session, []string) {
+		return nil, nil
+	}
 	if args, ok := os.LookupEnv(runMainEnv); ok {
 		os.Args = append([]string{"logos"}, strings.Split(args, "\x1f")...)
 		main()

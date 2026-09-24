@@ -345,3 +345,35 @@ func TestArchivingASqliteTranscriptTakesItsWriteAheadLogToo(t *testing.T) {
 		}
 	}
 }
+
+// #180: a harvest read through txcript cites txcript:<from>:<id>, not a file.
+// Archive stat-ed it, found nothing, and reported the transcript as already
+// gone — telling the user to stop looking for a session that opencode still
+// holds. It is not logos's to copy, and the user is told so by name.
+func TestATxcriptHarvestIsNotReportedAsAlreadyGone(t *testing.T) {
+	vault := t.TempDir()
+	if _, err := ingest.Put(vault, ingest.Candidate{
+		Harness:   "opencode",
+		SessionID: "ses_4f2a",
+		Source:    "txcript:opencode:ses_4f2a",
+		Hash:      "hash-ses_4f2a",
+		Project:   "gadgets",
+		Tier:      ingest.TierHarvest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, problems, err := ingest.Archive(vault, filepath.Join(t.TempDir(), "keep"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Missing != 0 || res.Failed != 0 {
+		t.Errorf("a txcript source was counted missing %d, failed %d; it is neither", res.Missing, res.Failed)
+	}
+	if len(problems) != 1 || !strings.Contains(problems[0], "txcript") {
+		t.Errorf("the txcript harvest the archive cannot copy was not named as such: %v", problems)
+	}
+	if got := sourceOf(t, vault, "ses_4f2a"); got != "txcript:opencode:ses_4f2a" {
+		t.Errorf("the candidate was repointed to %q", got)
+	}
+}

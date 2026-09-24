@@ -101,9 +101,12 @@ is absorbed by the units that ship.
 func TestGraphReachPullsInALinkedNoteRetrievalWouldMiss(t *testing.T) {
 	ix := seedVault(t)
 
-	// Embedding is nil, so HybridSearch is skipped entirely: whatever appears
-	// here arrived purely through the graph.
-	p, err := Build(ix, nil, "", Request{Task: "reduce the bill of materials", Hint: "kestrel-one"})
+	// Embedding is nil, so retrieval is keyword-only, and no word of the task
+	// appears in yield-rate: whatever brings it here is the graph. The task
+	// used to say "reduce the bill…", which only worked while a nil embedder
+	// skipped retrieval altogether (#142) — lexical search ORs every word, and
+	// yield-rate says "the units".
+	p, err := Build(ix, nil, "", Request{Task: "reduce bill of materials", Hint: "kestrel-one"})
 	if err != nil {
 		t.Fatal(err)
 	}

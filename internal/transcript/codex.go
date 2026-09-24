@@ -156,7 +156,7 @@ func (codexReader) read(path string) (*Session, error) {
 				s.ID = id
 			}
 			if p.Cwd != "" {
-				s.Project = projectFromDir(p.Cwd)
+				s.Project, s.Cwd = projectFromDir(p.Cwd), p.Cwd
 			}
 			continue
 		}

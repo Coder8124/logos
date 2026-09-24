@@ -109,10 +109,12 @@ func readsAsFailure(s string) bool {
 	return false
 }
 
-// depth is how many checkpoints back to read per project. Dead ends do not
-// expire, so this is generous — the whole point is reaching work old enough
-// that nobody remembers it.
-const depth = 50
+// depth is how many checkpoints back to read per project: all of them. Dead
+// ends do not expire — the whole point is reaching work old enough that nobody
+// remembers it. It was 50, and a project a few months old went blind to its
+// own oldest rulings, the ones this package exists for (#185). Reading every
+// checkpoint is a directory of small markdown files, milliseconds per hundred.
+const depth = 0
 
 // Collect gathers every recorded dead end. An empty project means the whole
 // vault, which is the interesting case: the approach that failed on one project
