@@ -31,6 +31,10 @@ type Session struct {
 	ID      string // harness-native session id
 	Path    string // absolute path to the source file
 	Project string // best-effort repo/dir the session ran in
+	// Cwd is the directory the host recorded the session running in, "" when
+	// it recorded none. Project is only its basename; a caller that names
+	// projects the way the server does needs the directory itself.
+	Cwd     string
 	Started int64
 	Ended   int64
 	Turns   []Turn

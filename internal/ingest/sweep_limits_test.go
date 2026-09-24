@@ -286,3 +286,48 @@ func ourStart(t *testing.T) string {
 	}
 	return at.UTC().Format("Mon Jan _2 15:04:05 2006")
 }
+
+// The server names a project by its repository root, so a host started in
+// shop/cart files its checkpoints under shop. The sweep named the transcript
+// after cart, and the one session that most needed recording was the one it
+// never looked at.
+func TestASessionStartedInASubdirectoryOfTheRepositoryIsSwept(t *testing.T) {
+	now := time.Now()
+	repo := filepath.Join(t.TempDir(), "shop")
+	cwd := filepath.Join(repo, "cart")
+	for _, d := range []string{filepath.Join(repo, ".git"), cwd} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := filepath.Join(t.TempDir(), "projects")
+	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
+	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
+
+	start, end := now.Add(-3*time.Hour), now.Add(-2*time.Hour)
+	line := func(kind string, at time.Time, message string) string {
+		return `{"type":"` + kind + `","sessionId":"lost-1","cwd":` + strconv.Quote(cwd) +
+			`,"timestamp":"` + at.UTC().Format(time.RFC3339) + `","message":` + message + `}`
+	}
+	lines := []string{
+		line("user", start, `{"role":"user","content":"fix the checkout crash"}`),
+		line("assistant", start, `{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./cart"}}]}`),
+		line("user", end, `{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}`),
+	}
+	dir := filepath.Join(root, strings.NewReplacer("/", "-", ".", "-").Replace(cwd))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "lost-1.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, end, end); err != nil {
+		t.Fatal(err)
+	}
+
+	if wrote, _, problems := Sweep(t.TempDir(), "shop", now); len(wrote) != 1 || len(problems) != 0 {
+		t.Errorf("a session started in a subdirectory of shop was not recorded under shop: wrote %+v, problems %v", wrote, problems)
+	}
+}

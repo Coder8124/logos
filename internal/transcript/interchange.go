@@ -66,6 +66,7 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 		ID:      firstNonEmpty(ic.ID, ic.SessionID),
 		Path:    "(stdin)",
 		Project: firstNonEmpty(ic.Project, projectFromDir(ic.Cwd)),
+		Cwd:     ic.Cwd,
 		Started: ic.Started,
 		Ended:   ic.Ended,
 	}

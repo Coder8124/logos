@@ -15,6 +15,8 @@ func TestAPathRulesOutOnlyTranscriptsThatCannotBeTheProjects(t *testing.T) {
 		{"claude-code", "/h/.claude/projects/-Users-a-code-My-App/s.jsonl", "my-app", true},
 		{"claude-code", "/h/.claude/projects/-Users-a-code-my-app-v2/s.jsonl", "my_app.v2", true},
 		{"claude-code", "/h/.claude/projects/-Users-a-code-kestrel/s.jsonl", "brain", false},
+		{"claude-code", "/h/.claude/projects/-Users-a-code-shop-cart/s.jsonl", "shop", true},
+		{"claude-code", "/h/.claude/projects/-Users-a-code-shopping/s.jsonl", "shop", false},
 		{"claude-code", "/h/.claude/projects/-Users-a-code-debrain/s.jsonl", "brain", false},
 		{"cursor", "/h/cursor/state.vscdb#abc", "brain", true},
 	} {

@@ -159,7 +159,7 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		// guessed; a hyphenated project name survives only this way.
 		if ln.Cwd != "" && !cwdApplied {
 			if p := projectFromDir(ln.Cwd); p != "" {
-				s.Project = p
+				s.Project, s.Cwd = p, ln.Cwd
 				cwdApplied = true
 			}
 		}
@@ -382,5 +382,8 @@ func MayBelongTo(harness, path, project string) bool {
 			return '-'
 		}, strings.ToLower(s))
 	}
-	return strings.HasSuffix(fold(filepath.Base(filepath.Dir(path))), "-"+fold(project))
+	// Anywhere in the path, not only at its end: a host started in shop/cart
+	// is a session of shop once the server names it by its repository root.
+	slug, p := fold(filepath.Base(filepath.Dir(path))), "-"+fold(project)
+	return strings.HasSuffix(slug, p) || strings.Contains(slug, p+"-")
 }

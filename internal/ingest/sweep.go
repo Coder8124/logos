@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
@@ -124,7 +125,7 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 	for _, s := range found {
 		// The window again, on the session's own end: the file's time only
 		// says it was touched, and a host touches old transcripts.
-		if bareProject(s.Project) == project && s.Ended >= now.Add(-sweepWindow).Unix() && s.Ended <= now.Add(-sweepQuiet).Unix() {
+		if belongsTo(s, project) && s.Ended >= now.Add(-sweepWindow).Unix() && s.Ended <= now.Add(-sweepQuiet).Unix() {
 			mine = append(mine, s)
 		}
 	}
@@ -279,6 +280,19 @@ func transcriptID(path string) string {
 	}
 	base := filepath.Base(path)
 	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// belongsTo reports whether s is a session of project. The transcript's own
+// Project is the basename of where the host started; the server names the
+// same place by its marker or repository root (scope.Name), so a session
+// started in shop/cart checkpoints under shop and has to be swept under shop.
+// The directory is read now, not when the session ran: one since deleted
+// falls back to its basename, which is what the transcript already said.
+func belongsTo(s *transcript.Session, project string) bool {
+	if bareProject(s.Project) == project {
+		return true
+	}
+	return s.Cwd != "" && bareProject(scope.Name(s.Cwd)) == project
 }
 
 // bareProject is the project half of a scope. A transcript names the folder it
