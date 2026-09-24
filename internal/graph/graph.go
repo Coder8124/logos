@@ -69,10 +69,34 @@ func resolveObj(db *sql.DB, obj string) (string, bool) {
 // edge are followed — a note you are linked *from* is as much a neighbour as one
 // you link *to*.
 func Ego(db *sql.DB, focus string, hops int, withSimilarity bool) (Graph, error) {
+	return Around(db, focus, hops, Options{Similarity: withSimilarity})
+}
+
+// Options says what Around draws besides the notes and their edges.
+type Options struct {
+	// Similarity adds the view-time embedding edges.
+	Similarity bool
+	// Memories adds what the assistant learned and the projects work was
+	// filed under. Off for Ego, whose other caller is the context pack: a
+	// memory there would be handed to an agent through a door that was
+	// never meant to carry one.
+	Memories bool
+}
+
+// Around is Ego with the choice of layers spelled out.
+func Around(db *sql.DB, focus string, hops int, opt Options) (Graph, error) {
 	if hops < 1 {
 		hops = 1
 	}
 	g := Graph{Focus: focus}
+
+	var layer memoryLayer
+	if opt.Memories {
+		var err error
+		if layer, err = loadMemoryLayer(db); err != nil {
+			return g, err
+		}
+	}
 
 	// BFS outward, recording the hop distance the first time each node is seen.
 	dist := map[string]int{focus: 0}
@@ -109,6 +133,12 @@ func Ego(db *sql.DB, focus string, hops int, withSimilarity bool) (Graph, error)
 
 			for _, r := range outs {
 				dst, ok := resolveObj(db, r.obj)
+				if !ok && opt.Memories && r.pred == "checkpoint_of" {
+					// A project with no note of its own. Dropping the edge
+					// left every checkpoint joined only to the one before
+					// it: a vault of 45 checkpoints drew as a line of four.
+					dst, ok = layer.hub(r.obj), true
+				}
 				if !ok || dst == cur {
 					continue
 				}
@@ -153,6 +183,17 @@ func Ego(db *sql.DB, focus string, hops int, withSimilarity bool) (Graph, error)
 					next = append(next, r.srcSlug)
 				}
 			}
+			for _, e := range layer.edges[cur] {
+				edgeSet[edgeKey(e.Src, e.Dst, e.Pred)] = e
+				other := e.Src
+				if other == cur {
+					other = e.Dst
+				}
+				if _, seen := dist[other]; !seen {
+					dist[other] = h + 1
+					next = append(next, other)
+				}
+			}
 		}
 		frontier = next
 	}
@@ -173,11 +214,18 @@ func Ego(db *sql.DB, focus string, hops int, withSimilarity bool) (Graph, error)
 
 	// Hydrate nodes with their metadata.
 	for slug, h := range dist {
+		if n, ok := layer.nodes[slug]; ok {
+			n.Degree, n.Hops = degree[slug], h
+			g.Nodes = append(g.Nodes, n)
+			continue
+		}
 		var title, kind string
 		var firstSeen int64
 		err := db.QueryRow(`SELECT title, kind, first_seen FROM notes WHERE slug = ?`, slug).
 			Scan(&title, &kind, &firstSeen)
-		if err != nil {
+		if err != nil && layer.hubs[slug] != "" {
+			title, kind = layer.hubs[slug], "project"
+		} else if err != nil {
 			// A linked-to note that does not exist yet is a real thing in a
 			// wikilink vault; show it as a ghost node rather than dropping the edge.
 			title, kind = trailing(slug), "missing"
@@ -187,7 +235,7 @@ func Ego(db *sql.DB, focus string, hops int, withSimilarity bool) (Graph, error)
 		})
 	}
 
-	if withSimilarity {
+	if opt.Similarity {
 		g.addSimilarity(db)
 	}
 
