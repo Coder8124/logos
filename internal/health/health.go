@@ -590,7 +590,7 @@ func checkRuntime(rt *provider.Provider, model string) Check {
 		// framing the host's own model does the generating and logos only ever
 		// wanted embeddings.
 		c.State = OK
-		c.Detail = "none — continuity is unaffected, search is lexical"
+		c.Detail = "none — continuity is unaffected; memories and notes are matched by keyword, not meaning"
 		c.Fix = "install Ollama and pull " + model + " (274 MB) for semantic search"
 		return c
 	}
