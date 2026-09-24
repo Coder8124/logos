@@ -74,11 +74,11 @@ func TestGraphOfAFocusThatIsNotInTheVaultSaysSo(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", t.TempDir())
 	t.Setenv("LOGOS_EMBED", "off")
 
-	err := runGraph("nonexistent", 2, false)
+	err := runGraph("nonexistent", 2, false, false)
 	if err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Errorf("an unknown focus should be refused by name, got %v", err)
 	}
-	if err := runGraph("", 2, false); err == nil {
+	if err := runGraph("", 2, false, false); err == nil {
 		t.Errorf("an empty vault drew a graph of today's missing daily note")
 	}
 }
