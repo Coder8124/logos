@@ -211,7 +211,7 @@ func saveSwept(vaultDir string, cache map[string]map[string]int64) {
 	}
 }
 
-// recordOf finds the auto record the vault already has for a transcript, and
+// recordOf finds the record the vault already has for a transcript, and
 // reports whether it covers the whole session. Each path that records a
 // session — the Claude Code session-end hook, the server's shutdown, an
 // earlier sweep — names the transcript it came from in the record's state, so
@@ -228,10 +228,19 @@ func saveSwept(vaultDir string, cache map[string]map[string]int64) {
 func recordOf(history []session.Checkpoint, s *transcript.Session) (*session.Checkpoint, bool) {
 	var rec *session.Checkpoint
 	for i, c := range history {
+		names := s.ID != "" && strings.Contains(c.State, "("+s.ID+")")
+		// A record somebody took on as their own has lost its auto marker and
+		// kept the state naming its session. It covers the session however
+		// much the session went on to do: GrowAuto will not write over what
+		// they reviewed, and a second record beside it lists the same work
+		// again. Only the swept cache stopped that, and the cache may be lost.
 		if !c.Auto {
+			if names {
+				return &history[i], true
+			}
 			continue
 		}
-		if s.ID != "" && strings.Contains(c.State, "("+s.ID+")") && (rec == nil || c.TS > rec.TS) {
+		if names && (rec == nil || c.TS > rec.TS) {
 			rec = &history[i]
 		}
 		if c.State == session.ActivityLogState && c.Agent == s.Harness &&

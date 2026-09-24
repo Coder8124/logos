@@ -331,3 +331,33 @@ func TestASessionStartedInASubdirectoryOfTheRepositoryIsSwept(t *testing.T) {
 		t.Errorf("a session started in a subdirectory of shop was not recorded under shop: wrote %+v, problems %v", wrote, problems)
 	}
 }
+
+// A record somebody took on as their own is no longer marked auto, and the
+// sweep only looked for auto records. With the swept cache there, nobody saw
+// it; with the cache lost, the same session was recorded a second time beside
+// the one they had reviewed.
+func TestARecordSomebodyMadeTheirOwnIsNotRecordedAgainWhenTheSweepCacheIsLost(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	onMachine(t, endedAgo(now, 2*time.Hour))
+	wrote, _, problems := Sweep(vault, "shop", now)
+	if len(wrote) != 1 || len(problems) != 0 {
+		t.Fatalf("the first sweep: wrote %+v, problems %v", wrote, problems)
+	}
+	path := filepath.Join(vault, filepath.FromSlash(wrote[0].Slug)+".md")
+	raw, _ := os.ReadFile(path)
+	reviewed := strings.Replace(string(raw), "auto: true\n", "", 1)
+	if reviewed == string(raw) {
+		t.Fatal("the record has no auto marker to remove")
+	}
+	if err := os.WriteFile(path, []byte(reviewed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(sweptPath(vault)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	if wrote, grew, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(grew) != 0 || len(problems) != 0 {
+		t.Errorf("a reviewed record did not cover its session: wrote %+v, grew %+v, problems %v", wrote, grew, problems)
+	}
+}
