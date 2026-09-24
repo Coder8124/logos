@@ -68,10 +68,10 @@ func setupCmd(args []string) error {
 	// three parts of it anyway: it created the vault directory, it *recorded*
 	// that directory as this machine's vault, and it built an index inside it.
 	//
-	// The recording is the one that hurts. It is what the desktop app reads to
-	// find the vault, and it has no environment to fall back on — so someone
-	// who ran `logos setup --dry-run --vault /tmp/try-it` to see what would
-	// happen had just repointed their app at an empty directory, and got a
+	// The recording is the one that hurts. It is what a host launched from
+	// Finder reads to find the vault, and it has no environment to fall back on
+	// — so someone who ran `logos setup --dry-run --vault /tmp/try-it` to see
+	// what would happen had just repointed their hosts at an empty directory, and got a
 	// healthy zero of everything with their real memory sitting untouched
 	// somewhere else. That is the exact failure internal/vault/path.go was
 	// written to end, reintroduced by the flag people use precisely because
@@ -92,9 +92,9 @@ func setupCmd(args []string) error {
 	fmt.Println()
 	switch {
 	case opts.dryRun && rec == recordedHere:
-		fmt.Println("             would be recorded — the desktop app opens this vault too")
+		fmt.Println("             would be recorded — hosts started without LOGOS_VAULT open this vault too")
 	case rec == recordedHere && vault.Recorded() == dir:
-		fmt.Println("             recorded — the desktop app opens this vault too")
+		fmt.Println("             recorded — hosts started without LOGOS_VAULT open this vault too")
 	case rec == recordSkipMove:
 		fmt.Println("             not recorded — this machine's vault already holds work and was left where it is")
 		fmt.Println("             → pass --move-vault to move it here")
@@ -124,7 +124,7 @@ func setupCmd(args []string) error {
 		fmt.Printf("  index      failed: %v\n", err)
 		// The pointer was written before the index was tried; a directory that
 		// exists but cannot be written gets that far. Named, so nobody finds out
-		// from the desktop app opening an empty vault.
+		// from a host opening an empty vault.
 		if rec == recordedHere && vault.Recorded() == dir {
 			return fmt.Errorf("no hosts were wired: the index could not be built in %s, which is now recorded as this machine's vault — fix the error above and run setup again, or pass --vault somewhere else", dir)
 		}
@@ -351,11 +351,11 @@ func chooseVault(args []string, dryRun bool) (dir string, created bool, rec reco
 			return abs, created, recordSkipMove, nil
 		}
 	}
-	// Write the choice down where a front end with no shell can read it. The
-	// desktop app is launched from Finder and inherits no LOGOS_VAULT, so
-	// without this it can only ever find a vault at the default location.
+	// Write the choice down where a process with no shell can read it. A host
+	// launched from Finder, such as Claude Desktop, inherits no LOGOS_VAULT, so
+	// without this the server it starts can only find a vault at the default.
 	if err := vault.Record(abs); err != nil {
-		fmt.Printf("             could not record this vault for the desktop app: %v\n", err)
+		fmt.Printf("             could not record this vault for hosts started without LOGOS_VAULT: %v\n", err)
 		return abs, created, recordFailed, nil
 	}
 	return abs, created, recordedHere, nil

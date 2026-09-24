@@ -63,7 +63,6 @@ give you, makes no such call.
 - Read-only tools annotated as such, so they stay available in read-only chat modes
 - A CLI equivalent for every tool, for agents that only have a shell
 - A Go package to embed the engine directly — `import "github.com/Coder8124/logos"`
-- A Wails v2 desktop app: menubar orb, panel, graph canvas
 
 ## Does it work?
 

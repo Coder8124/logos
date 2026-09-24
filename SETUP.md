@@ -198,12 +198,6 @@ vault (`~/vaults/kestrel`) with interlocking constraints — a BOM that doesn't
 close, a factory missing yield, a schedule with a critical path — so you can ask
 hard questions that have findable answers and tell retrieval from autocomplete.
 
-The desktop app is Wails v2:
-
-```sh
-cd app && wails dev        # or: wails build
-```
-
 ### Removing Logos
 
 ```sh
@@ -675,11 +669,10 @@ cmd/logos/       the CLI — one engine, two front ends
 internal/        index, memory, session, contextpack, deadend, graph, setup,
                  dream, secretary, router, mcpserver
 chaos/           fault injection: SIGKILL mid-write, full disks, racing processes
-app/             Wails v2 desktop app (vault browser: memory, graph, sessions)
 bench/           Python adapters for the systems logos is scored against
 docs/            the benchmark, plus per-subsystem notes
 systemmd/        design, credits, and the prompt agents are given
-scripts/         demo vault seeding, icon build, MCP probe
+scripts/         demo vault seeding, MCP probe
 ```
 
 Tests run with `go test ./...`. The chaos tier is opt-in and slower:
