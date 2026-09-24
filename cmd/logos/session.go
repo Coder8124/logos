@@ -246,8 +246,7 @@ func runResume(args []string) error {
 	// Before the pack, so a session that ended without a checkpoint is in the
 	// handoff it is missing from. The SessionStart hook runs this command, so
 	// every Claude Code session start sweeps too.
-	wrote, problems := ingest.Sweep(ix.Vault, project, time.Now())
-	fmt.Print(ingest.SweepNotice(wrote, problems))
+	fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
 
 	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Agent: agentName(), Budget: budget, Since: contextpack.Since(since),

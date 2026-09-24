@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 			}
 			continue
 		}
+		open := transcript.StillOpen(h)
 		for _, p := range paths {
 			// Stat before parsing: a host keeps every transcript it ever
 			// wrote, and reading them all on each resume is the cost that
@@ -69,7 +71,7 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 				continue
 			}
 			fi, err := os.Stat(transcript.SourceFile(p))
-			if err != nil || fi.ModTime().Before(since) || fi.ModTime().After(until) || settled(p, fi.ModTime()) {
+			if err != nil || fi.ModTime().Before(since) || fi.ModTime().After(until) || settled(p, fi.ModTime()) || open(p) {
 				continue
 			}
 			s, err := transcript.ReadFile(h, p)
@@ -89,25 +91,23 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 }
 
 // Sweep records every recent session of project that ended without a
-// checkpoint, and returns what it wrote with a line for each transcript it
-// could not read or record. The caller announces both (invariants 3 and 4).
-func Sweep(vaultDir, project string, now time.Time) ([]session.Checkpoint, []string) {
+// checkpoint, and brings up to date the record of one that went on working
+// after it was recorded. It returns the records it wrote, the ones it grew, and
+// a line for each transcript it could not read or record; the caller announces
+// all three (invariants 3 and 4).
+func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Checkpoint, problems []string) {
 	project = bareProject(project)
 	if project == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	history, err := session.History(vaultDir, project, 0)
 	if err != nil {
-		return nil, []string{fmt.Sprintf("reading %s's checkpoints: %v", project, err)}
+		return nil, nil, []string{fmt.Sprintf("reading %s's checkpoints: %v", project, err)}
 	}
-	// A transcript already recorded, or with a checkpoint at its last write,
-	// is settled before it is read: one week of a single project's transcripts
-	// was 158 MB here, most of it one session, and parsing it again on every
-	// resume after it had been recorded cost a second each time. The id is the
-	// file's own name, which is what each reader takes it from when the content
-	// does not say otherwise; the time rule is covered's with the session's
-	// start guessed as coverSlack before its end, which a shorter session can
-	// get wrong — toward writing nothing, as covered does.
+	// A transcript judged by an earlier sweep and not written since is settled
+	// before it is read: one week of a single project's transcripts was 158 MB
+	// here, most of it one session, and parsing it again on every resume cost a
+	// second each time.
 	cache := loadSwept(vaultDir)
 	judged := cache[project]
 	kept := map[string]int64{}
@@ -115,13 +115,6 @@ func Sweep(vaultDir, project string, now time.Time) ([]session.Checkpoint, []str
 		if at, ok := judged[path]; ok && at == lastWrite.UnixNano() {
 			kept[path] = at
 			return true
-		}
-		id := "(" + transcriptID(path) + ")"
-		lo, hi := lastWrite.Add(-coverSlack).Unix(), lastWrite.Add(coverSlack).Unix()
-		for _, c := range history {
-			if (c.TS >= lo && c.TS <= hi) || (c.Auto && strings.Contains(c.State, id)) {
-				return true
-			}
 		}
 		return false
 	}
@@ -136,27 +129,42 @@ func Sweep(vaultDir, project string, now time.Time) ([]session.Checkpoint, []str
 		}
 	}
 
-	var wrote []session.Checkpoint
 	failed := map[*transcript.Session]bool{}
 	for _, s := range mine {
-		if covered(history, s) {
+		rec, done := recordOf(history, s)
+		if done {
 			continue
 		}
-		c, err := autoCheckpoint(vaultDir, s, project, s.Ended)
+		var c *session.Checkpoint
+		if rec == nil {
+			c, err = autoCheckpoint(vaultDir, s, project, s.Ended)
+		} else {
+			c, err = growRecord(vaultDir, history, *rec, s)
+		}
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s session %s: %v", s.Harness, s.ID, err))
 			failed[s] = true
 			continue
 		}
-		if c != nil {
+		switch {
+		case c == nil:
+		case rec != nil && c.Slug == rec.Slug:
+			grew = append(grew, *c)
+			for i := range history {
+				if history[i].Slug == c.Slug {
+					history[i] = *c
+				}
+			}
+		default:
 			wrote = append(wrote, *c)
 			history = append(history, *c)
 		}
 	}
 
-	// Every transcript read and not failed on is judged: recorded, covered,
+	// Every transcript read and not failed on is judged: recorded, handed off,
 	// empty, too old or someone else's. A session that failed to record is
-	// left out so the next resume tries it again.
+	// left out so the next resume tries it again, and one written to since has
+	// a new file time and is read again.
 	for _, s := range found {
 		if failed[s] {
 			continue
@@ -169,7 +177,7 @@ func Sweep(vaultDir, project string, now time.Time) ([]session.Checkpoint, []str
 		cache[project] = kept
 		saveSwept(vaultDir, cache)
 	}
-	return wrote, problems
+	return wrote, grew, problems
 }
 
 // The swept cache is .logos/swept.json: per project, each transcript the sweep
@@ -202,24 +210,65 @@ func saveSwept(vaultDir string, cache map[string]map[string]int64) {
 	}
 }
 
-// covered reports whether a session already has a checkpoint: its own auto
-// record, or any checkpoint written while it ran. The second is how a session
-// the agent checkpointed, or the Claude Code session-end hook recorded, is
-// told apart from one that was lost — neither says which transcript it came
-// from. It errs toward writing nothing: a checkpoint from a parallel session
-// in the same window hides this one, which leaves a gap where the other
-// choice would leave a second record of work already handed off.
-func covered(history []session.Checkpoint, s *transcript.Session) bool {
-	state := autoState(s)
-	for _, c := range history {
-		if c.Auto && c.State == state {
-			return true
+// recordOf finds the auto record the vault already has for a transcript, and
+// reports whether it covers the whole session. Each path that records a
+// session — the Claude Code session-end hook, the server's shutdown, an
+// earlier sweep — names the transcript it came from in the record's state, so
+// this is a match on the id, not a guess from when things were written. What
+// the agent handed off itself is not looked for here: afterHandoff reads that
+// from the transcript, which is the only place that says which session a
+// checkpoint came from.
+//
+// A hook record written before the hook named its session is matched as the
+// sweep used to match everything, by time: the one written as this session's
+// harness closed. Without that, every Claude Code session the hook recorded in
+// the week before an upgrade would be recorded again by the first resume
+// after it.
+func recordOf(history []session.Checkpoint, s *transcript.Session) (*session.Checkpoint, bool) {
+	var rec *session.Checkpoint
+	for i, c := range history {
+		if !c.Auto {
+			continue
 		}
-		if c.TS >= s.Started && c.TS <= s.Ended+int64(coverSlack/time.Second) {
-			return true
+		if s.ID != "" && strings.Contains(c.State, "("+s.ID+")") && (rec == nil || c.TS > rec.TS) {
+			rec = &history[i]
+		}
+		if c.State == session.ActivityLogState && c.Agent == s.Harness &&
+			c.TS >= s.Ended && c.TS <= s.Ended+int64(coverSlack/time.Second) {
+			return &history[i], true
 		}
 	}
-	return false
+	if rec == nil {
+		return nil, false
+	}
+	return rec, s.Ended <= rec.TS
+}
+
+// growRecord brings rec up to date with a session that went on after it was
+// recorded, and returns the record, or nil when nothing it did since is work.
+//
+// In place when it can be: the record keeps its file, so nothing that links to
+// it loses it. Not when another checkpoint was written in between — records
+// are ordered by their file's name, and a record rewritten to end after a
+// checkpoint that sorts after it would put the older of the two on top in
+// resume. A new record is written for the session then, which lists again
+// whatever of rec's work came after the agent's last handoff: a repeated line
+// is the lesser cost next to a history out of order.
+func growRecord(vaultDir string, history []session.Checkpoint, rec session.Checkpoint, s *transcript.Session) (*session.Checkpoint, error) {
+	c, ok := autoRecord(s, rec.Project, s.Ended)
+	if !ok || (slices.Equal(c.Files, rec.Files) && slices.Equal(c.Commands, rec.Commands)) {
+		return nil, nil
+	}
+	for _, h := range history {
+		if h.Slug != rec.Slug && h.TS > rec.TS && h.TS <= s.Ended {
+			return autoCheckpoint(vaultDir, s, rec.Project, s.Ended)
+		}
+	}
+	grown, err := session.GrowAuto(vaultDir, rec, c)
+	if err != nil {
+		return nil, err
+	}
+	return &grown, nil
 }
 
 // transcriptID is a transcript's id as its path gives it: the part after a
@@ -243,19 +292,24 @@ func bareProject(p string) string {
 // to say. Both resumes print it: a checkpoint that appears in the history with
 // nobody having written one reads as a bug, and a transcript that could not be
 // read is a session that may still be lost.
-func SweepNotice(wrote []session.Checkpoint, problems []string) string {
+func SweepNotice(wrote, grew []session.Checkpoint, problems []string) string {
 	var b strings.Builder
+	ids := func(cs []session.Checkpoint) string {
+		out := make([]string, len(cs))
+		for i, c := range cs {
+			out[i] = c.Session
+		}
+		return strings.Join(out, ", ")
+	}
 	if n := len(wrote); n > 0 {
-		ids := make([]string, n)
-		for i, c := range wrote {
-			ids[i] = c.Session
-		}
-		s := "s"
-		if n == 1 {
-			s = ""
-		}
 		fmt.Fprintf(&b, "_Recorded %d earlier session%s that ended without a checkpoint, from the host's own transcript — auto, unverified, files and commands only: %s_\n\n",
-			n, s, strings.Join(ids, ", "))
+			n, plural(n), ids(wrote))
+	}
+	// A record that changed under a reader with nobody having touched it reads
+	// as the vault being unstable, so this says which, and why.
+	if n := len(grew); n > 0 {
+		fmt.Fprintf(&b, "_Brought %d auto record%s up to date with work its session did after it was recorded — still auto, unverified: %s_\n\n",
+			n, plural(n), ids(grew))
 	}
 	if n := len(problems); n > 0 {
 		// A few are enough to act on; a broken harness can fail on every file
@@ -269,7 +323,14 @@ func SweepNotice(wrote []session.Checkpoint, problems []string) string {
 			more = fmt.Sprintf("; and %d more", n-len(shown))
 		}
 		fmt.Fprintf(&b, "_Could not check %d transcript source%s for sessions that ended without a checkpoint: %s%s_\n\n",
-			n, map[bool]string{true: "", false: "s"}[n == 1], strings.Join(shown, "; "), more)
+			n, plural(n), strings.Join(shown, "; "), more)
 	}
 	return b.String()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

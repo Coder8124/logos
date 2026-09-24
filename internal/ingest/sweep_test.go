@@ -54,7 +54,7 @@ func TestASessionKilledBeforeItCouldBeRecordedIsRecordedByTheNextResume(t *testi
 	lost := endedAgo(now, 2*time.Hour)
 	onMachine(t, lost)
 
-	wrote, problems := Sweep(vault, "shop", now)
+	wrote, _, problems := Sweep(vault, "shop", now)
 	if len(problems) != 0 {
 		t.Fatalf("problems: %v", problems)
 	}
@@ -93,7 +93,7 @@ func TestASweptSessionDoesNotOutrankTheCheckpointWrittenAfterIt(t *testing.T) {
 	// covers it.
 	onMachine(t, endedAgo(now, 3*time.Hour))
 
-	wrote, problems := Sweep(vault, "shop", now)
+	wrote, _, problems := Sweep(vault, "shop", now)
 	if len(problems) != 0 || len(wrote) != 1 {
 		t.Fatalf("wrote %d, problems %v", len(wrote), problems)
 	}
@@ -113,13 +113,15 @@ func TestASweptSessionDoesNotOutrankTheCheckpointWrittenAfterIt(t *testing.T) {
 	}
 }
 
-// A session the agent checkpointed, or the Claude Code session-end hook
-// recorded, has a checkpoint dated inside it. Sweeping it anyway would put a
-// second, unreviewed record of the same work beside the first.
-func TestASessionWithACheckpointInsideItIsNotSwept(t *testing.T) {
+// The Claude Code session-end hook's records did not always say which session
+// they came from. One written as the session closed is still that session's,
+// or the first resume after an upgrade would record a week of hooked sessions
+// a second time.
+func TestASessionTheHookRecordedBeforeItNamedSessionsIsNotSweptAgain(t *testing.T) {
 	vault := t.TempDir()
 	now := time.Now()
 	s := endedAgo(now, 2*time.Hour)
+	s.Harness = "claude-code"
 	if _, err := session.WriteAuto(vault, session.Checkpoint{
 		Project: "shop", Agent: "claude-code", Files: []string{"x.go"},
 		TS: s.Ended + 60, // the hook, a minute after the window closed
@@ -128,7 +130,7 @@ func TestASessionWithACheckpointInsideItIsNotSwept(t *testing.T) {
 	}
 	onMachine(t, s)
 
-	wrote, problems := Sweep(vault, "shop", now)
+	wrote, _, problems := Sweep(vault, "shop", now)
 	if len(wrote) != 0 || len(problems) != 0 {
 		t.Errorf("a session that already had a checkpoint was swept: wrote %+v, problems %v", wrote, problems)
 	}
@@ -142,7 +144,7 @@ func TestSweepingTwiceRecordsASessionOnce(t *testing.T) {
 	onMachine(t, endedAgo(now, 2*time.Hour))
 
 	Sweep(vault, "shop", now)
-	wrote, _ := Sweep(vault, "shop", now.Add(time.Minute))
+	wrote, _, _ := Sweep(vault, "shop", now.Add(time.Minute))
 	if len(wrote) != 0 {
 		t.Errorf("the second resume recorded the same session again: %+v", wrote)
 	}
@@ -159,7 +161,7 @@ func TestASessionThatMayStillBeRunningIsLeftAlone(t *testing.T) {
 	now := time.Now()
 	onMachine(t, endedAgo(now, 5*time.Minute))
 
-	if wrote, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
 		t.Errorf("a transcript written five minutes ago was recorded as a finished session: %+v", wrote)
 	}
 }
@@ -173,7 +175,7 @@ func TestASessionFromAnotherProjectIsNotSwept(t *testing.T) {
 	other.Project = "kestrel"
 	onMachine(t, other)
 
-	if wrote, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
 		t.Errorf("resume on shop recorded a kestrel session: %+v", wrote)
 	}
 	if all, _ := session.History(vault, "kestrel", 0); len(all) != 0 {
@@ -192,7 +194,7 @@ func TestASessionTheShutdownPathRecordedIsNotSweptAgain(t *testing.T) {
 	}
 	onMachine(t, s)
 
-	if wrote, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
 		t.Errorf("the sweep recorded a session the shutdown path already had: %+v", wrote)
 	}
 }
@@ -206,7 +208,7 @@ func TestASessionThatEndedBeforeTheWindowIsNotSweptBecauseItsFileWasTouched(t *t
 	now := time.Now()
 	onMachine(t, endedAgo(now, 30*24*time.Hour))
 
-	if wrote, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 0 {
 		t.Errorf("a month-old session was recorded because its file was touched: %+v", wrote)
 	}
 }
@@ -216,7 +218,12 @@ func TestASessionThatEndedBeforeTheWindowIsNotSweptBecauseItsFileWasTouched(t *t
 // touches old transcripts. withTool gives it a command the record can list.
 func onDisk(t *testing.T, now, start, end time.Time, withTool bool) string {
 	t.Helper()
-	root := t.TempDir()
+	// A folder of its own, as ~/.claude/projects is, so a test can put
+	// Claude Code's sessions/ beside it.
+	root := filepath.Join(t.TempDir(), "projects")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
@@ -268,7 +275,7 @@ func TestASweptTranscriptIsFoundOnDiskAndNotReadAgain(t *testing.T) {
 	path := onDisk(t, now, now.Add(-3*time.Hour), end, true)
 
 	vault := t.TempDir()
-	wrote, problems := Sweep(vault, "shop", now)
+	wrote, _, problems := Sweep(vault, "shop", now)
 	if len(problems) != 0 || len(wrote) != 1 {
 		t.Fatalf("first resume: wrote %d, problems %v", len(wrote), problems)
 	}
@@ -277,7 +284,7 @@ func TestASweptTranscriptIsFoundOnDiskAndNotReadAgain(t *testing.T) {
 	}
 
 	unreadable(t, path)
-	wrote, problems = Sweep(vault, "shop", now)
+	wrote, _, problems = Sweep(vault, "shop", now)
 	if len(wrote) != 0 || len(problems) != 0 {
 		t.Errorf("second resume read a transcript it had already recorded: wrote %+v, problems %v", wrote, problems)
 	}
@@ -292,11 +299,11 @@ func TestATranscriptThatGaveNoRecordIsNotReadAgain(t *testing.T) {
 	path := onDisk(t, now, now.Add(-3*time.Hour), now.Add(-2*time.Hour), false)
 
 	vault := t.TempDir()
-	if wrote, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
+	if wrote, _, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
 		t.Fatalf("first resume: wrote %+v, problems %v", wrote, problems)
 	}
 	unreadable(t, path)
-	if wrote, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
+	if wrote, _, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
 		t.Errorf("second resume read a transcript it had already judged: wrote %+v, problems %v", wrote, problems)
 	}
 }
@@ -332,10 +339,10 @@ func TestATranscriptJudgedForOneProjectIsStillReadForAnother(t *testing.T) {
 	}
 
 	vault := t.TempDir()
-	if wrote, problems := Sweep(vault, "kestrel", now); len(wrote) != 0 || len(problems) != 0 {
+	if wrote, _, problems := Sweep(vault, "kestrel", now); len(wrote) != 0 || len(problems) != 0 {
 		t.Fatalf("kestrel's resume: wrote %+v, problems %v", wrote, problems)
 	}
-	if wrote, problems := Sweep(vault, "shop", now); len(wrote) != 1 || len(problems) != 0 {
+	if wrote, _, problems := Sweep(vault, "shop", now); len(wrote) != 1 || len(problems) != 0 {
 		t.Errorf("shop's session was skipped after kestrel's resume read it: wrote %+v, problems %v", wrote, problems)
 	}
 }
@@ -346,13 +353,13 @@ func TestLosingTheSweepCacheCostsAReadNotASecondRecord(t *testing.T) {
 	now := time.Now()
 	onDisk(t, now, now.Add(-3*time.Hour), now.Add(-2*time.Hour), true)
 	vault := t.TempDir()
-	if wrote, _ := Sweep(vault, "shop", now); len(wrote) != 1 {
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 1 {
 		t.Fatalf("first resume wrote %d", len(wrote))
 	}
 	if err := os.RemoveAll(filepath.Join(vault, ".logos")); err != nil {
 		t.Fatal(err)
 	}
-	if wrote, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
+	if wrote, _, problems := Sweep(vault, "shop", now); len(wrote) != 0 || len(problems) != 0 {
 		t.Errorf("after the cache went: wrote %+v, problems %v", wrote, problems)
 	}
 }
