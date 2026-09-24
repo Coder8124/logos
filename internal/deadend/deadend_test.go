@@ -2,6 +2,7 @@ package deadend
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -390,5 +391,42 @@ func TestATypedRulingInANoteIsFoundWithoutAnyFailureWord(t *testing.T) {
 	}
 	if hits[0].Record.Layer != LayerDesign || hits[0].Record.Scope != ScopeLocal {
 		t.Errorf("the typing should survive the note: %+v", hits[0].Record)
+	}
+}
+
+// #185: Collect read only the newest 50 checkpoints per project, so after a
+// few months of work the intercept went blind to exactly the old dead ends it
+// exists for — the ones nobody remembers. Dead ends do not expire.
+func TestADeadEndMoreThanFiftyCheckpointsBackIsStillFound(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ix.Close() })
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(task string, failed []string) {
+		if err := session.Commit(ix.DB, dir, &session.Checkpoint{
+			Project: "atlas", Agent: "claude", Task: task, Failed: failed, Next: "carry on",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("partitioning", []string{"Sharding the ledger table by tenant id — cross-tenant reports need a scatter-gather nobody will maintain"})
+	for i := range 60 {
+		commit(fmt.Sprintf("later work %d", i), nil)
+	}
+	if h, _ := session.History(dir, "atlas", 0); len(h) < 61 {
+		t.Fatalf("only %d checkpoints on disk; the test needs the ruling more than 50 back", len(h))
+	}
+
+	hits, err := Check(dir, ix.DB, nil, "", "shard the ledger table by tenant id", "atlas", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 || !strings.Contains(hits[0].Text, "ledger table") {
+		t.Errorf("a dead end 61 checkpoints back was not found: %+v", hits)
 	}
 }
