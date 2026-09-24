@@ -476,10 +476,14 @@ func grokBuild() Host {
 	}
 	return Host{
 		Name: "Grok Build",
-		// ~/.grok alone is not evidence: the unrelated community grok-cli keeps
-		// its settings there too. Grok Build's config or its sessions are.
+		// Neither ~/.grok nor a grok command is evidence: the unrelated
+		// community grok-cli keeps its settings there and installs a grok of its
+		// own, and taking it for Grok Build writes a config.toml nothing reads —
+		// reported as registered, and detected on every run after. Grok Build's
+		// config or its sessions are. A Grok Build not yet run once is skipped,
+		// and says so, rather than guessed at.
 		Detect: func() bool {
-			return path != "" && (onPath("grok") || exists(path) || exists(joinPath(dir, "sessions")))
+			return path != "" && (exists(path) || exists(joinPath(dir, "sessions")))
 		},
 		Where:    func() string { return path },
 		Config:   func() string { return path },

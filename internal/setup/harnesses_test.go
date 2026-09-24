@@ -253,3 +253,56 @@ func TestUninstallTakesOnlyLogosOutOfOpencodeAmpAndGrokBuild(t *testing.T) {
 		}
 	}
 }
+
+// The community grok-cli installs a `grok` command too. A machine with only
+// that one must not be told Grok Build was registered, in a config.toml
+// nothing reads and that then makes every later run think Grok Build is there.
+func TestAGrokCommandAloneIsNotGrokBuild(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	writeFile(t, filepath.Join(bin, "grok"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(bin, "grok"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := fakeHome(t)
+	if hostNamed(t, "Grok Build").Detect() {
+		t.Error("a bare grok command was taken for Grok Build")
+	}
+	if r := Install(server(), []Host{hostNamed(t, "Grok Build")}); r[0].Outcome != Skipped {
+		t.Errorf("outcome %q, want skipped", r[0].Outcome)
+	}
+	if exists(filepath.Join(home, ".grok", "config.toml")) {
+		t.Error("setup created a config.toml for a Grok Build that is not installed")
+	}
+}
+
+// A comment the user put above the table after logos's belongs to that table.
+// Re-running setup replaces logos's table, not the note on the next one.
+func TestRerunningSetupKeepsTheCommentAboveTheTableAfterLogos(t *testing.T) {
+	isolatePath(t)
+	home := fakeHome(t, ".grok")
+	path := filepath.Join(home, ".grok", "config.toml")
+	writeFile(t, path, `model = "grok-code"
+
+[mcp_servers.logos]
+command = "/old/logos"
+args = ["mcp", "serve"]
+
+[mcp_servers.logos.env]
+LOGOS_VAULT = "/old/vault"
+
+# rotates monthly
+[mcp_servers.github]
+command = "github-mcp"
+`)
+	if r := Install(server(), []Host{hostNamed(t, "Grok Build")}); r[0].Outcome != Updated {
+		t.Fatalf("outcome %q (%v)", r[0].Outcome, r[0].Err)
+	}
+	got := readFile(t, path)
+	if !strings.Contains(got, "# rotates monthly\n[mcp_servers.github]") {
+		t.Errorf("the comment on the user's github table was lost:\n%s", got)
+	}
+	if strings.Contains(got, "/old/") {
+		t.Errorf("the old entry survived:\n%s", got)
+	}
+}
