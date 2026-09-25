@@ -124,7 +124,7 @@ func migrateCmd(args []string) error {
 			chosen = logosE
 			// Install's Remove takes brain out whatever it names; one on
 			// another vault is somebody's choice, not a leftover of this one.
-			if brainE != nil && !isOld(brainE) {
+			if brainE != nil && vaultOf(*brainE) != "" && !isOld(brainE) {
 				h.Remove = nil
 			}
 		case isOld(brainE) && logosE != nil:

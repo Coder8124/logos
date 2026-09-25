@@ -610,6 +610,24 @@ func TestMigrateKeepsABrainEntryThatUsesAnotherVault(t *testing.T) {
 	}
 }
 
+// A brain entry with no pin follows the machine's vault, which migrate records
+// as ~/logos: it is a leftover of the vault being moved, and keeping it ran two
+// servers on one vault, with nothing said.
+func TestMigrateStillReplacesAnUnpinnedBrainEntry(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	servers := hostServers(t, h.Config())
+	servers[setup.OldName] = map[string]any{"command": "/opt/old", "args": []string{"mcp", "serve"}}
+	writeHostServers(t, h.Config(), servers)
+	hostsOnMachine(t, h)
+
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	if _, ok := hostServers(t, h.Config())[setup.OldName]; ok {
+		t.Errorf("the unpinned brain entry was kept beside logos\n%s", out)
+	}
+}
+
 // LOGOS_VAULT scopes a run to another vault — the scratch-vault habit, or a
 // BRAIN_VAULT carried over from a 0.4 profile — and a run scoped elsewhere
 // moving the real ~/brain is the one thing it must not do.
