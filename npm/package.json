@@ -1,6 +1,6 @@
 {
   "name": "@noeton/logos",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Logos — cross-tool memory and continuity for AI coding agents, over MCP. Your vault is markdown on your own disk.",
   "keywords": [
     "logos",
