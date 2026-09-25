@@ -69,6 +69,9 @@ func migrateCmd(args []string) error {
 	if v := os.Getenv("LOGOS_VAULT"); v != "" && filepath.Clean(expandHome(v)) != from && !(moved && filepath.Clean(expandHome(v)) == to) {
 		return fmt.Errorf("this run's vault is %s (LOGOS_VAULT), not %s — migrate moves only the 0.4 default, so nothing was moved", v, from)
 	}
+	// A shell that exports the old path is not a host config, but it names
+	// ~/brain all the same, and only the link lets it find the vault.
+	shellOld := os.Getenv("LOGOS_VAULT") != "" && filepath.Clean(expandHome(os.Getenv("LOGOS_VAULT"))) == from
 	// The pointer decides which vault this machine uses. Naming another one, it
 	// means ~/brain is not in use, and moving it would change nothing anyone
 	// reads while announcing that it had.
@@ -200,9 +203,9 @@ func migrateCmd(args []string) error {
 		}
 	}
 	record := pointer != to
-	if moved && !record && len(pinned) == 0 && unfinished == 0 {
+	if moved && !record && len(pinned) == 0 && unfinished == 0 && !(relink && shellOld) {
 		if relink {
-			fmt.Printf("  vault      already at %s; nothing names %s any more\n", to, from)
+			fmt.Printf("  vault      already at %s; nothing that runs names %s any more\n", to, from)
 		} else {
 			fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
 		}
@@ -259,7 +262,8 @@ func migrateCmd(args []string) error {
 			// On a relink the link is only for the hosts this run re-pins or
 			// reports, so it is not a failure of its own: a machine that
 			// refuses every link would otherwise never finish a run cleanly.
-			if !relink {
+			// A shell naming ~/brain has nothing else to report it.
+			if !relink || shellOld {
 				problems = append(problems, fmt.Sprintf("%s is not linked to it", from))
 			}
 		} else {

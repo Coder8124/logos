@@ -920,3 +920,38 @@ func TestMigrateSaysAlreadyDoneWhenOnlyADisabledEntryIsLeft(t *testing.T) {
 		t.Errorf("it stopped saying it left the disabled entry:\n%s", out)
 	}
 }
+
+// A 0.4 profile's BRAIN_VAULT reaches migrate as LOGOS_VAULT. After a move
+// whose link failed, that shell still names ~/brain, and the link is the only
+// thing that lets it find the vault — so a re-run makes it, host or no host.
+func TestMigrateRunAgainLinksForAShellThatStillNamesBrain(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	symlink = func(string, string) error { return errors.New("operation not permitted") }
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	symlink = os.Symlink
+
+	t.Setenv("LOGOS_VAULT", filepath.Join(home, "brain"))
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Errorf("the second run failed: %v\n%s", err, out)
+	}
+	if dest, _ := filepath.EvalSymlinks(filepath.Join(home, "brain")); dest != filepath.Join(home, "logos") {
+		t.Errorf("a shell still naming ~/brain was left without the link:\n%s", out)
+	}
+}
+
+// A disabled entry still names ~/brain; the finished move must not claim
+// nothing does in the line above the one that says it.
+func TestMigrateDoesNotSayNothingNamesBrainWhileADisabledEntryDoes(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	opencodeOnMachine(t, home, `{"mcp": {"logos": {"type": "local", "command": ["/opt/logos", "mcp", "serve"], "enabled": false, "environment": {"LOGOS_VAULT": "`+filepath.Join(home, "brain")+`"}}}}`)
+	symlink = func(string, string) error { return errors.New("operation not permitted") }
+	t.Cleanup(func() { symlink = os.Symlink })
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	if strings.Contains(out, "nothing names") {
+		t.Errorf("it said nothing names ~/brain beside an entry that does:\n%s", out)
+	}
+}
