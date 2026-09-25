@@ -197,7 +197,9 @@ Logos was developed as `brain`. Through 0.4.x this package still installs a
 `brain` command, and `BRAIN_*` variables and an existing `~/brain` vault still
 work. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault to
 `~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that named the
-old path (`--dry-run` shows the plan first).
+old path (`--dry-run` shows the plan first). Run `logos doctor` afterwards —
+[Moving a 0.4 vault](https://github.com/Coder8124/logos/blob/main/SETUP.md#moving-a-04-vault)
+covers what it may still ask you to do.
 
 ---
 

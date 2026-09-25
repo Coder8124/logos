@@ -29,7 +29,8 @@ this project dies, you keep a vault.
 > existing `~/brain` vault or `.brain/` directory — so an existing install keeps
 > running. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault
 > to `~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that
-> named the old path (`--dry-run` shows the plan first).
+> named the old path (`--dry-run` shows the plan first); see
+> [Moving a 0.4 vault](#moving-a-04-vault).
 
 ---
 
@@ -203,6 +204,38 @@ Want something to point it at? `./scripts/seed-demo-vault.sh` builds a synthetic
 vault (`~/vaults/kestrel`) with interlocking constraints — a BOM that doesn't
 close, a factory missing yield, a schedule with a critical path — so you can ask
 hard questions that have findable answers and tell retrieval from autocomplete.
+
+### Moving a 0.4 vault
+
+A vault made before the rename lives in `~/brain`. It keeps working there
+through 0.4.x, and one command moves it:
+
+```sh
+logos migrate --dry-run             # the plan; nothing is changed
+logos migrate --yes                 # do it
+```
+
+It moves `~/brain` to `~/logos` with every session and checkpoint in it,
+leaves `~/brain` as a link so anything still naming the old path finds the
+vault, records `~/logos` as this machine's vault, and re-pins each host that
+named `~/brain`. It copies each host config it rewrites aside first, as
+`<config>.logos-backup`. Running it again finishes a move that stopped partway,
+and says so when there is nothing left to do. Restart any open agent sessions
+afterwards: a running session still has the old path.
+
+Then run `logos doctor`. In 0.4.9, a Claude Code that had both the Logos plugin
+and a 0.4 `brain` entry comes out of the move with the vault registered twice,
+and the leftover entry keeps whatever binary the old one ran, which may be a
+0.4 `brain` build. One command fixes both. It leaves the plugin as the only
+registration:
+
+```sh
+logos mcp install --host claude-code --yes
+```
+
+Once nothing is running an older build, the `.brain/` directory inside the
+vault can be deleted. Logos reads `.logos/`, and says so while `.brain/` is
+still there.
 
 ### Removing Logos
 
@@ -578,6 +611,7 @@ definitions, which makes them part of the contract rather than a copy that drift
 
 ```text
 logos setup [--vault DIR] [--yes]               connect logos to every agent here
+logos migrate [--dry-run] [--yes]               move a 0.4 vault from ~/brain to ~/logos
 logos mcp serve | mcp install                   serve the memory; wire up the hosts
 logos ask <q> | search <q>                      query what it knows
 logos replay [--peek]                           what changed since you were last here
