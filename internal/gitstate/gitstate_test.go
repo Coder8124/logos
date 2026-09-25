@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The contract that matters most is not what this reads when git cooperates —
@@ -364,4 +365,49 @@ func TestReadingARepositoryDoesNotRunASubmodulesFilter(t *testing.T) {
 	}
 	Read(dir)
 	assertNotRun(t, marker, "the submodule's filter.sv.clean")
+}
+
+// #197, second review: status and diff refresh the index and write it back
+// when a file's stat data is stale — which every file's is after an archive is
+// unpacked — and writing the index runs the post-index-change hook the
+// repository ships in .git/hooks.
+func TestReadingARepositoryDoesNotRunItsIndexHook(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	script, marker := trap(t)
+	body, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "hooks", "post-index-change"), body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "a.txt"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	Read(dir)
+	assertNotRun(t, marker, "post-index-change")
+}
+
+// The user's own filters are not the threat: git-lfs installs filter.lfs in
+// the global config, and blanking it makes every LFS file with stale stat data
+// read as modified — the whole binary counted as an uncommitted change.
+func TestAFilterFromTheUsersOwnConfigStillRuns(t *testing.T) {
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	cfg := "[filter \"up\"]\n\tclean = tr a-z A-Z\n\tsmudge = cat\n"
+	if err := os.WriteFile(global, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	dir := repo(t)
+	commit(t, dir, ".gitattributes", "*.bin filter=up\n", "attributes")
+	commit(t, dir, "f.bin", "abc\n", "a filtered file")
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "f.bin"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	if s := Read(dir); s.Dirty != 0 {
+		t.Fatalf("Dirty = %d (%v), want the untouched filtered file clean", s.Dirty, s.Files)
+	}
 }

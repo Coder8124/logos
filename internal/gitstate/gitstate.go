@@ -24,7 +24,6 @@ package gitstate
 
 import (
 	"net/url"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -259,33 +258,11 @@ func git(dir string, args ...string) string {
 // gitLines is git without trimming leading whitespace, for output whose columns
 // carry meaning. Only the trailing newline is removed.
 func gitLines(dir string, args ...string) string {
-	safe, ok := SafeArgs(dir)
-	if !ok {
-		return ""
-	}
-	full := append(append(safe, "-C", dir), args...)
-	cmd := exec.Command("git", full...)
-	// A repository on a slow mount, or one whose index is locked by another
-	// process, must not hold up a checkpoint.
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.Output()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(gitTimeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		return ""
-	}
+	out, err := SafeGit(dir, gitTimeout, args...)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimRight(string(out), "\n")
+	return strings.TrimRight(out, "\n")
 }
 
 // Summary renders the state as one line for a checkpoint's frontmatter or a

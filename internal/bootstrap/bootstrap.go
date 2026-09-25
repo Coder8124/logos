@@ -24,7 +24,6 @@ package bootstrap
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -395,31 +394,9 @@ func git(dir string, args ...string) string {
 }
 
 func gitLines(dir string, args ...string) string {
-	// #197: the same overrides gitstate reads with — log runs gpg.program on
-	// a signed commit when the repository sets log.showSignature.
-	safe, ok := gitstate.SafeArgs(dir)
-	if !ok {
-		return ""
-	}
-	full := append(append(safe, "-C", dir), args...)
-	cmd := exec.Command("git", full...)
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.Output()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(gitTimeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		return ""
-	}
+	out, err := gitstate.SafeGit(dir, gitTimeout, args...)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimRight(string(out), "\n")
+	return strings.TrimRight(out, "\n")
 }
