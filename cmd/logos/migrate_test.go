@@ -546,8 +546,10 @@ func TestMigrateRepinsAnEntryThatPinsTheVaultAsBrainVault(t *testing.T) {
 	home, _ := oldVaultHome(t)
 	var cursor string
 	h := pinnedHostAs(t, "Cursor", setup.OldName, filepath.Join(home, "brain"), &cursor)
+	// A logos binary, so this is about the variable alone; a brain binary is
+	// replaced as well (#208, TestMigrateRepinsAnEntryRunningA04BrainBinaryOntoThisLogos).
 	writeHostServers(t, h.Config(), map[string]any{setup.OldName: map[string]any{
-		"command": "/opt/brain", "args": []string{"mcp", "serve"},
+		"command": "/opt/logos", "args": []string{"mcp", "serve"},
 		"env": map[string]string{"BRAIN_VAULT": filepath.Join(home, "brain")},
 	}})
 	hostsOnMachine(t, h)

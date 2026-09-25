@@ -94,7 +94,11 @@ func migrateCmd(args []string) error {
 	type repin struct {
 		host  setup.Host
 		srv   setup.Server
-		drops bool // Install will remove the host's 0.4 brain entry
+		drops bool   // Install will remove the host's 0.4 brain entry
+		was   string // the 0.4 binary the entry ran, replaced by this logos
+		// dropOnly removes the host's 0.4 brain entry and registers nothing,
+		// because the Logos plugin already connects that host.
+		dropOnly bool
 	}
 	type leave struct {
 		host setup.Host
@@ -180,7 +184,28 @@ func migrateCmd(args []string) error {
 			}
 			continue
 		}
+		// #207: beside the plugin, a brain entry re-pinned as logos was a
+		// second logos server, and the next doctor failed on the duplicate
+		// after a migrate that looked clean. The plugin reads the vault this
+		// run records, so Claude Code stays on the same vault without it.
+		if chosen == brainE && h.Name == "Claude Code" && h.Remove != nil && setup.LogosPluginRecord().Connects {
+			pinned = append(pinned, repin{host: h, dropOnly: true})
+			continue
+		}
 		srv := chosen.Server
+		// #208: the command is kept because it is the install the user chose
+		// — unless it is a pre-rename brain build, which reads BRAIN_VAULT and
+		// would ignore the pin, reaching the vault only through the ~/brain
+		// link while migrate said "re-pinned". What setup writes replaces it.
+		was := ""
+		if isBrainBinary(srv.Bin) {
+			if self, err := logosServer(to); err == nil && !inGoBuildDir(self.Bin) {
+				was, srv.Bin, srv.Args = srv.Bin, self.Bin, self.Args
+			} else {
+				kept = append(kept, leave{h, fmt.Sprintf("its %s entry runs the 0.4 binary %s, which does not read LOGOS_VAULT, and this logos is a temporary build to replace it with — run migrate again from an installed logos", chosen.Name, srv.Bin), false})
+				continue
+			}
+		}
 		env := map[string]string{}
 		for k, val := range srv.Env {
 			env[k] = val
@@ -191,7 +216,7 @@ func migrateCmd(args []string) error {
 		// Install removes brain whenever h.Remove is left set: the entry being
 		// re-pinned, which comes back as logos, or a leftover beside it.
 		drops := h.Remove != nil && brainE != nil
-		pinned = append(pinned, repin{h, srv, drops})
+		pinned = append(pinned, repin{host: h, srv: srv, drops: drops, was: was})
 	}
 
 	// A disabled entry left on purpose is not work left over: a finished move
@@ -227,7 +252,14 @@ func migrateCmd(args []string) error {
 		fmt.Printf("  record     %s as this machine's vault\n", to)
 	}
 	for _, p := range pinned {
+		if p.dropOnly {
+			fmt.Printf("  remove     %s's 0.4 %s entry — the Logos plugin already connects it, and follows the vault this records\n", p.host.Name, setup.OldName)
+			continue
+		}
 		fmt.Printf("  re-pin     %s, pinned to %s\n", p.host.Name, from)
+		if p.was != "" {
+			fmt.Printf("             and run %s in place of the 0.4 binary %s\n", p.srv.Bin, p.was)
+		}
 		if p.drops {
 			fmt.Printf("             and remove its 0.4 %s entry\n", setup.OldName)
 		}
@@ -285,9 +317,18 @@ func migrateCmd(args []string) error {
 	for _, p := range pinned {
 		// Through Install for what setup already gets right on a rewrite: the
 		// config is copied aside first, and a 0.4 entry under brain is replaced
-		// rather than left running beside logos on the old path. Install writes
-		// the entry from its command, arguments and environment, so any other
-		// key it carried goes; the backup keeps it.
+		// rather than left running beside logos on the old path. Install
+		// rewrites the entry's command, arguments and environment and keeps
+		// any other key the user set on it (#205).
+		if p.dropOnly {
+			if _, err := p.host.Remove(setup.OldName); err != nil {
+				fmt.Printf("  ✗ remove   %s's 0.4 %s entry: %v\n", p.host.Name, setup.OldName, err)
+				problems = append(problems, fmt.Sprintf("%s is still pinned to %s", p.host.Name, from))
+				continue
+			}
+			fmt.Printf("  ✓ removed  %s's 0.4 %s entry; the Logos plugin connects it to %s\n", p.host.Name, setup.OldName, to)
+			continue
+		}
 		r := setup.Install(p.srv, []setup.Host{p.host})[0]
 		err := r.Err
 		if err == nil && r.Outcome == setup.Failed {
@@ -299,6 +340,9 @@ func migrateCmd(args []string) error {
 			continue
 		}
 		fmt.Printf("  ✓ re-pinned %s to %s\n", p.host.Name, to)
+		if p.was != "" {
+			fmt.Printf("             it runs %s now, not the 0.4 binary %s, which reads only BRAIN_VAULT\n", p.srv.Bin, p.was)
+		}
 		if r.Replaced {
 			fmt.Printf("             replaced its 0.4 %s entry\n", setup.OldName)
 		}
@@ -350,4 +394,11 @@ func migrateHint(stderr io.Writer) {
 		return
 	}
 	fmt.Fprintf(stderr, "logos: your vault is still at %s — `logos migrate` moves it to %s\n", old, filepath.Join(home, "logos"))
+}
+
+// isBrainBinary reports whether a host's command is a pre-rename build, by the
+// name 0.4 installed it under.
+func isBrainBinary(bin string) bool {
+	name := strings.TrimSuffix(filepath.Base(bin), ".exe")
+	return name == setup.OldName
 }
