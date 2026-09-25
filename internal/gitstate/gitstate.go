@@ -259,7 +259,11 @@ func git(dir string, args ...string) string {
 // gitLines is git without trimming leading whitespace, for output whose columns
 // carry meaning. Only the trailing newline is removed.
 func gitLines(dir string, args ...string) string {
-	full := append([]string{"-C", dir}, args...)
+	// #197: status and diff run whatever core.fsmonitor names, and a folder
+	// unpacked from an archive brings its own .git/config. This runs from a
+	// hook, in whatever folder the user opened, so that program would run
+	// unasked. Nothing here needs the speed-up it offers.
+	full := append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)
 	cmd := exec.Command("git", full...)
 	// A repository on a slow mount, or one whose index is locked by another
 	// process, must not hold up a checkpoint.

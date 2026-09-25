@@ -234,3 +234,31 @@ func TestWorktreeNameDegradesToNothing(t *testing.T) {
 		}
 	}
 }
+
+// #197: git status and git diff consult core.fsmonitor, and a repository
+// unpacked from an archive carries its own .git/config. Reading the state of a
+// folder the user merely opened must not run a program that folder names.
+func TestReadingARepositoryDoesNotRunItsFsmonitor(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	marker := filepath.Join(t.TempDir(), "ran")
+	hook := filepath.Join(t.TempDir(), "monitor.sh")
+	script := "#!/bin/sh\ntouch " + strconv.Quote(marker) + "\n"
+	if err := os.WriteFile(hook, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", dir, "config", "core.fsmonitor", hook)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if s := Read(dir); s.Empty() {
+		t.Fatal("the repository reported no state")
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("reading the repository ran the command its core.fsmonitor names")
+	}
+}

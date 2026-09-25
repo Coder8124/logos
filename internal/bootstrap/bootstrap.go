@@ -394,7 +394,7 @@ func git(dir string, args ...string) string {
 }
 
 func gitLines(dir string, args ...string) string {
-	full := append([]string{"-C", dir}, args...)
+	full := append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)
 	cmd := exec.Command("git", full...)
 	done := make(chan struct{})
 	var out []byte
