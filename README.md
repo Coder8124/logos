@@ -149,7 +149,9 @@ Logos was developed as `brain`. Through 0.4.x the old names still work — the
 or `.brain/` directory — so an existing install keeps running. Use `logos` for
 anything new. `logos migrate` moves a `~/brain` vault, with its sessions and
 checkpoints, to `~/logos`, leaves `~/brain` as a link to it, and re-pins the
-hosts that named the old path (`--dry-run` shows the plan first).
+hosts that named the old path (`--dry-run` shows the plan first). Run `logos
+doctor` afterwards — [Moving a 0.4 vault](SETUP.md#moving-a-04-vault) covers
+what it may still ask you to do.
 
 ## Contact
 
