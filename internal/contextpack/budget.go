@@ -1,6 +1,9 @@
 package contextpack
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Token budgeting.
 //
@@ -160,7 +163,14 @@ func fit(text string, budget int) (string, bool) {
 	}
 	out := strings.TrimRight(b.String(), "\n")
 	if out == "" { // one very long line: hard cut rather than return nothing
-		out = text[:min(len(text), budget*4)]
+		cut := min(len(text), budget*4)
+		// #199: a byte count can land inside a multi-byte character, and the
+		// half left behind is invalid UTF-8 in what the agent reads. Back up
+		// to the start of the character instead.
+		for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		out = text[:cut]
 	}
 	return out + "\n\n_[trimmed to fit the budget]_", true
 }

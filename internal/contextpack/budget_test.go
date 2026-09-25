@@ -3,6 +3,7 @@ package contextpack
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/memory"
 )
@@ -174,5 +175,22 @@ func TestPinnedMemoryIsNotDuplicatedInTheRankedTail(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("a pinned-and-ranked memory should render once, rendered %d times: %v", count, kept)
+	}
+}
+
+// #199: a single line too long to keep is cut by byte count, and a cut that
+// lands inside a multi-byte character hands the agent invalid UTF-8.
+func TestAHardCutNeverSplitsACharacter(t *testing.T) {
+	for _, r := range []string{"é", "日", "🙂"} {
+		text := strings.Repeat(r, 200)
+		for budget := 1; budget <= 8; budget++ {
+			got, trimmed := fit(text, budget)
+			if !trimmed {
+				t.Fatalf("fit(%q×200, %d) was not trimmed", r, budget)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("fit(%q×200, %d) cut a character in half: %q", r, budget, got)
+			}
+		}
 	}
 }
