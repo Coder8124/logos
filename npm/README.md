@@ -187,7 +187,7 @@ logos tried "<approach>"       # has this already been ruled out?
 logos mcp serve                # the MCP server, over stdio
 ```
 
-`logos` is installed as an alias for `logos` — same command, either spelling.
+`brain`, the 0.4 name, is installed as an alias for `logos` — same command, either spelling.
 
 ---
 
