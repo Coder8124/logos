@@ -32,7 +32,7 @@ func worked() *transcript.Session {
 func TestASessionThatEndedWithoutACheckpointIsRecordedFromTheHostsOwnTranscript(t *testing.T) {
 	vault := t.TempDir()
 
-	c, err := AutoCheckpoint(vault, worked(), "shop")
+	c, _, err := AutoCheckpoint(vault, worked(), "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestATranscriptWithNoWorkWritesNoAutoCheckpoint(t *testing.T) {
 		{Role: "assistant", Text: "it parses transcripts"},
 	}
 
-	c, err := AutoCheckpoint(vault, s, "shop")
+	c, _, err := AutoCheckpoint(vault, s, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestATranscriptWithNoWorkWritesNoAutoCheckpoint(t *testing.T) {
 func TestTheSameTranscriptIsNotRecordedTwice(t *testing.T) {
 	vault := t.TempDir()
 
-	first, err := AutoCheckpoint(vault, worked(), "shop")
+	first, _, err := AutoCheckpoint(vault, worked(), "shop")
 	if err != nil || first == nil {
 		t.Fatalf("first = %v, err = %v", first, err)
 	}
-	second, err := AutoCheckpoint(vault, worked(), "shop")
+	second, _, err := AutoCheckpoint(vault, worked(), "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestAnAgentsOwnCheckpointIsNotFollowedByAnAutoOne(t *testing.T) {
 	// Written as auto above only because that is the cheap way to get a
 	// checkpoint on disk here; what matters is that it does not name this
 	// transcript, so it is somebody else's record and must not be extended.
-	c, err := AutoCheckpoint(vault, worked(), "shop")
+	c, _, err := AutoCheckpoint(vault, worked(), "shop")
 	if err != nil {
 		t.Fatal(err)
 	}

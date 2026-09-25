@@ -29,10 +29,32 @@ const maxAutoCommands = 20
 // failed and next stay empty, because the next agent treats a failed entry as a
 // paid-for ruling and will not re-try what it names.
 //
+// The transcript's existing record is looked for by id, as the sweep looks,
+// not only among the latest checkpoint: a resume sweeps a window left idle, and
+// that record, dated when the window went quiet, is what shutdown finds when
+// the window goes on and closes. Taking it as the whole session lost what came
+// after it (#192); it is grown instead, and grew says so.
+//
 // Returns nil when the session did no work, or when this transcript has already
 // been recorded.
-func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (*session.Checkpoint, error) {
-	return autoCheckpoint(vaultDir, s, project, 0)
+func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (c *session.Checkpoint, grew bool, err error) {
+	if s == nil {
+		return nil, false, nil
+	}
+	history, err := session.History(vaultDir, project, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	rec, done := recordOf(history, s)
+	switch {
+	case done:
+		return nil, false, nil
+	case rec != nil:
+		c, err = growRecord(vaultDir, history, *rec, s)
+		return c, c != nil && c.Slug == rec.Slug, err
+	}
+	c, err = autoCheckpoint(vaultDir, s, project, 0)
+	return c, false, err
 }
 
 // autoCheckpoint is AutoCheckpoint dated at, or now when at is zero. The sweep
@@ -164,10 +186,10 @@ func handoffTool(t transcript.Turn) bool {
 var handoffReceipt = regexp.MustCompile(`(?i)\bcheckpoint (?:already )?(?:saved|written)\b[^\n]*\b` + session.CheckpointDir + `/\S+\.md`)
 
 // recorded reports whether the project's most recent checkpoint is the auto
-// record for this same transcript. Only the latest is checked: this runs at
-// host shutdown, so a match is the sibling server that closed a moment ago, and
-// walking the whole project's history to rule out an ancient one would cost
-// every shutdown for a case that cannot happen.
+// record for this same transcript: a sibling server that recorded it a moment
+// ago. Only the latest is checked, because both callers have already looked
+// for the transcript's record across the whole history with recordOf; this is
+// the last check before the write.
 func recorded(vaultDir, project, state string) (bool, error) {
 	prev, err := session.Latest(vaultDir, project)
 	if err != nil || prev == nil {

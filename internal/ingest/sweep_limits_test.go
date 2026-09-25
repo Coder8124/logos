@@ -361,3 +361,43 @@ func TestARecordSomebodyMadeTheirOwnIsNotRecordedAgainWhenTheSweepCacheIsLost(t 
 		t.Errorf("a reviewed record did not cover its session: wrote %+v, grew %+v, problems %v", wrote, grew, problems)
 	}
 }
+
+// A window idle past the quiet period is swept by a resume and then goes on.
+// When it closed, shutdown found the sweep's record still the latest, with the
+// same state line its own record would carry, took the transcript as recorded,
+// and the work after the sweep was lost unless another resume within the week
+// happened to grow it (#192).
+func TestASessionSweptWhileIdleHasItsRecordBroughtUpToDateWhenItEnds(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	s := endedAgo(now, 3*time.Hour)
+	onMachine(t, s)
+	wrote, _, _ := Sweep(vault, "shop", now)
+	if len(wrote) != 1 {
+		t.Fatalf("the resume wrote %d records", len(wrote))
+	}
+
+	later := *s
+	later.Turns = append(append([]transcript.Turn{}, s.Turns...),
+		transcript.Turn{Role: "tool", Tool: "edit_file", Input: "internal/cart/refund.go"})
+	later.Ended = now.Unix()
+
+	c, grew, err := AutoCheckpoint(vault, &later, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil || !grew || c.Slug != wrote[0].Slug {
+		t.Fatalf("shutdown returned %+v (grew %v), want the swept record %s grown", c, grew, wrote[0].Slug)
+	}
+	all, _ := session.History(vault, "shop", 0)
+	if len(all) != 1 {
+		t.Fatalf("%d checkpoints on disk, want the one record", len(all))
+	}
+	if !strings.Contains(strings.Join(all[0].Files, " "), "refund.go") {
+		t.Errorf("the work after the sweep is not in the record: %+v", all[0])
+	}
+
+	if c, _, err := AutoCheckpoint(vault, &later, "shop"); err != nil || c != nil {
+		t.Errorf("a second server closing on the same transcript wrote %+v, err %v", c, err)
+	}
+}

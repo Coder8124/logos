@@ -71,12 +71,14 @@ func (s *Session) recordUnsaved() {
 		fmt.Fprintf(os.Stderr, "logos: this session did work and saved no checkpoint, and no project could be inferred to record it under\n")
 		return
 	}
-	c, err := ingest.AutoCheckpoint(s.vault, ts, project)
+	c, grew, err := ingest.AutoCheckpoint(s.vault, ts, project)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logos: could not record this session: %v\n", err)
 		return
 	}
-	if c != nil {
+	if c != nil && grew {
+		fmt.Fprintf(os.Stderr, "logos: this session went on after a resume recorded it — brought %s.md up to date from %s's transcript, unverified\n", c.Slug, harness)
+	} else if c != nil {
 		// Announced even though the host has gone: this is the line that tells
 		// anyone reading the host's server log why a checkpoint they did not
 		// write is in the vault (invariant 3).

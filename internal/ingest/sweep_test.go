@@ -189,7 +189,7 @@ func TestASessionTheShutdownPathRecordedIsNotSweptAgain(t *testing.T) {
 	vault := t.TempDir()
 	now := time.Now()
 	s := endedAgo(now, 2*time.Hour)
-	if c, err := AutoCheckpoint(vault, s, "shop"); err != nil || c == nil {
+	if c, _, err := AutoCheckpoint(vault, s, "shop"); err != nil || c == nil {
 		t.Fatalf("shutdown path: %+v, %v", c, err)
 	}
 	onMachine(t, s)
