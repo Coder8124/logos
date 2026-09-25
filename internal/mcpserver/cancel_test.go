@@ -94,12 +94,15 @@ func TestACallCancelledBeforeItStartsDoesNotRun(t *testing.T) {
 func checkpointFiles(t *testing.T, vault string) []string {
 	t.Helper()
 	var files []string
-	paths, _ := filepath.Glob(filepath.Join(vault, "sessions", "*", "*"))
-	for _, p := range paths {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && session.IsCheckpointFile(filepath.Base(p)) {
+	// Walked, not globbed one level down: from a linked git worktree the
+	// server files a checkpoint under sessions/<project>/<worktree>/, and a
+	// one-level glob counted the correct single file as none (#188).
+	filepath.WalkDir(filepath.Join(vault, "sessions"), func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && session.IsCheckpointFile(d.Name()) {
 			files = append(files, p)
 		}
-	}
+		return nil
+	})
 	return files
 }
 

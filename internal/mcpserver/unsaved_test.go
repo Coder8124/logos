@@ -59,7 +59,9 @@ func TestASessionThatNeverCheckpointedIsRecordedWhenTheHostCloses(t *testing.T) 
 
 	sess.recordUnsaved()
 
-	c, err := session.Latest(vault, "shop")
+	// Read where the server files it: from a linked git worktree that is
+	// shop/<worktree>, and asking for "shop" found nothing (#188).
+	c, err := session.Latest(vault, sess.resolveScope("shop"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +151,7 @@ func TestAProjectWorkedOnAfterCheckpointingAnotherIsStillRecorded(t *testing.T) 
 
 	sess.recordUnsaved()
 
-	c, err := session.Latest(vault, "billing")
+	c, err := session.Latest(vault, sess.resolveScope("billing"))
 	if err != nil {
 		t.Fatal(err)
 	}
