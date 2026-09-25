@@ -50,6 +50,13 @@ func pinnedHost(t *testing.T, name, pin string, got *string) setup.Host {
 // hosts do, so what migrate leaves in it can be read back.
 func pinnedHostAs(t *testing.T, name, entry, pin string, got *string) setup.Host {
 	t.Helper()
+	return pinnedHostWith(t, name, map[string]string{entry: pin}, got)
+}
+
+// pinnedHostWith is a host whose config holds one logos entry per name in
+// entries, each pinned to the vault it maps to.
+func pinnedHostWith(t *testing.T, name string, entries map[string]string, got *string) setup.Host {
+	t.Helper()
 	cfg := filepath.Join(t.TempDir(), name+".json")
 	write := func(servers map[string]any) {
 		raw, _ := json.Marshal(map[string]any{"mcpServers": servers})
@@ -57,10 +64,14 @@ func pinnedHostAs(t *testing.T, name, entry, pin string, got *string) setup.Host
 			t.Fatal(err)
 		}
 	}
-	write(map[string]any{entry: map[string]any{
-		"command": "/opt/logos", "args": []string{"mcp", "serve"},
-		"env": map[string]string{"LOGOS_VAULT": pin, "LOGOS_EMBED": "off"},
-	}})
+	servers := map[string]any{}
+	for entry, pin := range entries {
+		servers[entry] = map[string]any{
+			"command": "/opt/logos", "args": []string{"mcp", "serve"},
+			"env": map[string]string{"LOGOS_VAULT": pin, "LOGOS_EMBED": "off"},
+		}
+	}
+	write(servers)
 	h := fakeHost(name, true, nil)
 	h.Config = func() string { return cfg }
 	h.Register = func(s setup.Server) (setup.Outcome, error) {
@@ -429,6 +440,93 @@ func TestMigrateDryRunWorksFromAGoRunBuild(t *testing.T) {
 	out := captureStdout(t, func() { err = migrateCmd([]string{"--dry-run"}) })
 	if err != nil {
 		t.Errorf("a dry run from a go run build failed: %v\n%s", err, out)
+	}
+}
+
+// Only an entry under logos or 0.4's brain can be re-pinned: Install writes
+// logos and removes brain. A server the user named themselves used to be copied
+// into a new logos entry and left where it was, so the host ran two, one still
+// on ~/brain — reported as re-pinned.
+func TestMigrateLeavesAnEntryUnderAnotherNameAloneAndSaysSo(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHostAs(t, "Cursor", "memory", filepath.Join(home, "brain"), &cursor)
+	hostsOnMachine(t, h)
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil || !strings.Contains(err.Error(), "Cursor") {
+		t.Errorf("migrate succeeded with Cursor's memory entry still on ~/brain: %v\n%s", err, out)
+	}
+	if _, ok := hostServers(t, h.Config())[setup.Name]; ok || cursor != "" {
+		t.Errorf("migrate added a logos entry beside the user's own: %v", hostServers(t, h.Config()))
+	}
+	if !strings.Contains(out, "memory") {
+		t.Errorf("the report does not name the entry it left:\n%s", out)
+	}
+}
+
+// A leftover brain entry on ~/brain beside a logos entry on another vault: the
+// vault the user chose is the logos one, and re-pinning wrote ~/logos over it,
+// on the runs where map order picked brain first.
+func TestMigrateNeverRepinsALogosEntryThatUsesAnotherVault(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	work := filepath.Join(home, "work")
+	var cursor string
+	h := pinnedHostWith(t, "Cursor", map[string]string{
+		setup.Name: work, setup.OldName: filepath.Join(home, "brain"),
+	}, &cursor)
+	hostsOnMachine(t, h)
+
+	for i := 0; i < 5; i++ { // map order: once is not proof
+		captureStdout(t, func() { _ = migrateCmd([]string{"--dry-run"}) })
+	}
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	entry, _ := hostServers(t, h.Config())[setup.Name].(map[string]any)
+	env, _ := entry["env"].(map[string]any)
+	if env["LOGOS_VAULT"] != work {
+		t.Errorf("Cursor's logos entry moved off %s to %v\n%s", work, env["LOGOS_VAULT"], out)
+	}
+}
+
+// Install adds the session-start hook where there was none, as setup does, and
+// a change migrate makes is a change it says it made.
+func TestMigrateSaysWhenItAddsAHostsHook(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	h.Hooks = func(setup.Server) (setup.Outcome, error) { return setup.Registered, nil }
+	hostsOnMachine(t, h)
+
+	out := captureStdout(t, func() {
+		if err := migrateCmd([]string{"--yes"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "hook") {
+		t.Errorf("migrate added Cursor's hook without saying so:\n%s", out)
+	}
+}
+
+// Claude Code's check for a brain entry runs `claude mcp list`, which can fail
+// with nothing to remove. The host was re-pinned; saying it is "still pinned"
+// to the old path sends the user to fix something that is not broken.
+func TestMigrateDoesNotCallAHostStillPinnedWhenOnlyTheOldEntryCheckFailed(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	h.Remove = func(string) (bool, error) { return false, errors.New("claude mcp list: exit status 1") }
+	hostsOnMachine(t, h)
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil {
+		t.Errorf("a failed check for the brain entry was not reported as a failure\n%s", out)
+	} else if strings.Contains(err.Error(), "still pinned") {
+		t.Errorf("migrate calls a re-pinned host still pinned: %v", err)
+	}
+	if !strings.Contains(out, "re-pinned Cursor") {
+		t.Errorf("the re-pin that did happen is not reported:\n%s", out)
 	}
 }
 

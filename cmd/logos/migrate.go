@@ -67,27 +67,62 @@ func migrateCmd(args []string) error {
 	// Each host is re-registered with the entry it already has and only the
 	// vault changed. The binary running migrate is the wrong thing to pin: it
 	// may be npx, which asks the registry on every launch, a copy `brew upgrade`
-	// never reaches, an older release, or a `go run` build Go deletes on exit —
-	// and the entry may set more than the vault. Not through wireHosts either:
-	// that is setup, and under one --yes it installed the plugin and copied
-	// this binary onto PATH.
+	// never reaches, an older release, or a `go run` build Go deletes on exit.
+	// Not through wireHosts either: that is setup, and under one --yes it
+	// installed the plugin and copied this binary onto PATH.
 	type repin struct {
 		host setup.Host
 		srv  setup.Server
 	}
+	type leave struct {
+		host setup.Host
+		why  string
+	}
 	var pinned []repin
+	var kept []leave
 	for _, h := range detectHosts() {
 		if h.Detect == nil || !h.Detect() {
 			continue
 		}
-		v := expandHome(setup.PinnedVault([]setup.Host{h}, h.Name))
-		if v == "" || filepath.Clean(v) != from {
+		var onOld []setup.Registration
+		elsewhere := ""
+		for _, e := range setup.PinnedEntries(h) {
+			switch v := filepath.Clean(expandHome(e.Vault)); {
+			case e.Vault == "":
+			case v == from:
+				onOld = append(onOld, e)
+			case e.Name == setup.Name:
+				elsewhere = e.Vault
+			}
+		}
+		// Install writes the logos entry and removes brain, so those are the
+		// two names a re-pin can reach. The logos entry wins; with none on the
+		// old path, brain is re-pinned as logos — unless logos is already there
+		// on another vault, which is the one the user chose and is not ours to
+		// overwrite.
+		var chosen *setup.Registration
+		for _, name := range []string{setup.Name, setup.OldName} {
+			for i := range onOld {
+				if chosen == nil && onOld[i].Name == name {
+					chosen = &onOld[i]
+				}
+			}
+		}
+		if chosen != nil && chosen.Name == setup.OldName && elsewhere != "" {
+			kept = append(kept, leave{h, fmt.Sprintf("its logos entry uses %s, and the 0.4 %s entry beside it still names %s — remove that one by hand if it is not wanted", elsewhere, setup.OldName, from)})
+			chosen = nil
+			onOld = nil
+		}
+		for _, e := range onOld {
+			if chosen != nil && (e.Name == chosen.Name || e.Name == setup.OldName) {
+				continue // re-pinned, or removed by Install once logos is in
+			}
+			kept = append(kept, leave{h, fmt.Sprintf("its %q entry names %s, and migrate re-pins only logos and 0.4's %s — change its LOGOS_VAULT by hand", e.Name, from, setup.OldName)})
+		}
+		if chosen == nil {
 			continue
 		}
-		srv, ok := setup.PinnedServer(h)
-		if !ok {
-			continue
-		}
+		srv := chosen.Server
 		env := map[string]string{}
 		for k, val := range srv.Env {
 			env[k] = val
@@ -102,6 +137,9 @@ func migrateCmd(args []string) error {
 	fmt.Printf("  record     %s as this machine's vault\n", to)
 	for _, p := range pinned {
 		fmt.Printf("  re-pin     %s, pinned to %s\n", p.host.Name, from)
+	}
+	for _, k := range kept {
+		fmt.Printf("  leave      %s: %s\n", k.host.Name, k.why)
 	}
 	if dryRun {
 		fmt.Println("\n  --dry-run: nothing was changed")
@@ -131,27 +169,29 @@ func migrateCmd(args []string) error {
 	} else {
 		fmt.Printf("  ✓ recorded %s as this machine's vault\n", to)
 	}
-	var left []string
+	var problems []string
 	for _, p := range pinned {
 		// Through Install for what setup already gets right on a rewrite: the
 		// config is copied aside first, and a 0.4 entry under brain is replaced
-		// rather than left running beside logos on the old path.
+		// rather than left running beside logos on the old path. Install writes
+		// the entry from its command, arguments and environment, so any other
+		// key it carried goes; the backup keeps it.
 		r := setup.Install(p.srv, []setup.Host{p.host})[0]
 		err := r.Err
 		if err == nil && r.Outcome == setup.Failed {
 			err = errors.New("the host reported a failure")
 		}
-		if err == nil && r.ReplaceErr != nil {
-			err = fmt.Errorf("re-pinned, but its 0.4 %s entry, still on %s, could not be removed: %w", setup.OldName, from, r.ReplaceErr)
-		}
 		if err != nil {
 			fmt.Printf("  ✗ re-pin   %s: %v\n", p.host.Name, err)
-			left = append(left, p.host.Name)
+			problems = append(problems, fmt.Sprintf("%s is still pinned to %s", p.host.Name, from))
 			continue
 		}
 		fmt.Printf("  ✓ re-pinned %s to %s\n", p.host.Name, to)
 		if r.Replaced {
 			fmt.Printf("             replaced its 0.4 %s entry\n", setup.OldName)
+		}
+		if r.Hooked == setup.Registered {
+			fmt.Printf("             added its session-start hook, as setup does\n")
 		}
 		if r.Backup != "" {
 			fmt.Printf("             the config as it was is at %s\n", r.Backup)
@@ -159,16 +199,22 @@ func migrateCmd(args []string) error {
 		if r.HookErr != nil {
 			fmt.Printf("  ✗ hook     %s: %v\n", p.host.Name, r.HookErr)
 		}
+		// Re-pinned either way; what is unknown is whether a 0.4 entry is
+		// still there beside it — Claude Code's check runs `claude mcp list`,
+		// which fails for reasons that have nothing to do with it.
+		if r.ReplaceErr != nil {
+			fmt.Printf("  ✗ old entry %s: could not check for or remove its 0.4 %s entry: %v\n", p.host.Name, setup.OldName, r.ReplaceErr)
+			problems = append(problems, fmt.Sprintf("%s may still have its 0.4 %s entry", p.host.Name, setup.OldName))
+		}
+	}
+	for _, k := range kept {
+		problems = append(problems, fmt.Sprintf("%s was left on %s", k.host.Name, from))
 	}
 	fmt.Println("\n  restart any open agent sessions so they pick up the new path")
-	if len(left) > 0 {
+	if len(problems) > 0 {
 		// The vault moved, so this is not "nothing happened" — but a host left
 		// on the old path is a failure, and exiting 0 would hide it.
-		verb := "is"
-		if len(left) > 1 {
-			verb = "are"
-		}
-		return fmt.Errorf("moved the vault to %s, but %s %s still pinned to %s — `logos mcp install` re-pins it", to, strings.Join(left, ", "), verb, from)
+		return fmt.Errorf("moved the vault to %s, but %s — see above", to, strings.Join(problems, "; "))
 	}
 	return nil
 }

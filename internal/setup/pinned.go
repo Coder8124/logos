@@ -73,17 +73,19 @@ func pinInConfig(path string) string {
 	return ""
 }
 
-// PinnedServer is the logos entry in h's config file as it is written there —
-// its binary, arguments and whole environment — and whether there is one.
+// PinnedEntries is every logos entry in h's config file as it is written
+// there — name, vault, binary, arguments and whole environment.
 //
-// It is for re-pinning a host onto a moved vault, which must change the vault
-// and nothing else. Registering the running binary instead swapped every host
-// onto whatever ran the command: npx, which asks the registry on each launch,
-// or a copy `brew upgrade` never reaches, or an older release. The entry named
-// logos wins over 0.4's brain, which Install removes once logos is in.
-func PinnedServer(h Host) (Server, bool) {
+// It is for re-pinning a host onto a moved vault, which must keep the command
+// the host runs. Registering the running binary instead swapped every host onto
+// whatever ran the command: npx, which asks the registry on each launch, or a
+// copy `brew upgrade` never reaches, or an older release. All of them, not the
+// first: a host can hold a logos entry beside 0.4's brain, each on its own
+// vault, and which one a caller means is decided by the vault, not by the order
+// a JSON object happens to decode in.
+func PinnedEntries(h Host) []Registration {
 	if h.Config == nil {
-		return Server{}, false
+		return nil
 	}
 	path := h.Config()
 	var regs []Registration
@@ -96,14 +98,13 @@ func PinnedServer(h Host) (Server, bool) {
 			}
 		}
 	}
-	for _, name := range []string{Name, OldName, ""} {
-		for _, r := range regs {
-			if (name == "" || r.Name == name) && isLogosServer(r.Command) && r.Server.Bin != "" {
-				return r.Server, true
-			}
+	var out []Registration
+	for _, r := range regs {
+		if isLogosServer(r.Command) && r.Server.Bin != "" {
+			out = append(out, r)
 		}
 	}
-	return Server{}, false
+	return out
 }
 
 // logosPin picks the vault off the logos entry among a host's registrations.
