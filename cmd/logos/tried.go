@@ -8,6 +8,7 @@ import (
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
@@ -122,7 +123,8 @@ func recordRuledOut(ix *index.Index, args []string, proposed string) error {
 		fields = append(fields, "alternative: "+alt)
 	}
 
-	if _, err := session.AddNote(ix.DB, project, agentName(), strings.Join(fields, " | ")); err != nil {
+	n, err := session.AddNote(ix.DB, project, agentName(), strings.Join(fields, " | "))
+	if err != nil {
 		return err
 	}
 
@@ -132,6 +134,9 @@ func recordRuledOut(ix *index.Index, args []string, proposed string) error {
 	fmt.Printf("ruled out on %s: %s\n", project, proposed)
 	fmt.Printf("  because: %s\n", why)
 	fmt.Printf("  the next `logos tried` or before_you_try on this approach will find it; it is folded into the next checkpoint.\n")
+	if said := secret.Summary(n.Redactions); said != "" {
+		fmt.Println("  " + said + ".")
+	}
 	return nil
 }
 

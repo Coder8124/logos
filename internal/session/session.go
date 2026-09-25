@@ -26,6 +26,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Coder8124/logos/internal/secret"
 )
 
 // A Session is one agent's working stretch on one project. It exists to give
@@ -63,6 +65,9 @@ type Note struct {
 	// agent's context running out, and a line held only in a deletable cache
 	// does not. See flushNotes.
 	Unflushed bool
+	// Redactions is what AddNote masked before storing Text. Set only on the
+	// note AddNote returns, for the receipt.
+	Redactions []secret.Redaction
 }
 
 const Schema = `
@@ -258,7 +263,11 @@ func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, er
 	if ts == 0 {
 		ts = time.Now().Unix()
 	}
-	n := Note{Session: s.ID, Agent: s.Agent, Text: strings.TrimSpace(text), TS: ts}
+	// Masked before the insert, not at flush or checkpoint: the row is read
+	// back by resume and folded into State, and uncommitted.md is in the vault
+	// the moment this returns (#209).
+	masked, redactions := secret.Mask("note", strings.TrimSpace(text))
+	n := Note{Session: s.ID, Agent: s.Agent, Text: masked, TS: ts, Redactions: redactions}
 	res, err := db.Exec(
 		`INSERT INTO session_notes (session, text, ts) VALUES (?,?,?)`, n.Session, n.Text, n.TS)
 	if err != nil {

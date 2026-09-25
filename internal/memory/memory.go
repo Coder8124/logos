@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/textmatch"
 )
 
@@ -226,6 +227,8 @@ type Receipt struct {
 	// opening is which existing memory is now in dispute.
 	Contested     int64  `json:"contested,omitempty"`
 	ContestedText string `json:"contested_text,omitempty"`
+	// Redactions is what Store masked out of the text before keeping it.
+	Redactions []secret.Redaction `json:"redactions,omitempty"`
 }
 
 // OutcomeNoop means nothing was stored — there was nothing to store.
@@ -249,6 +252,12 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	if strings.TrimSpace(m.Text) == "" {
 		return Receipt{Outcome: OutcomeNoop}, nil
 	}
+	// Before the dedup fingerprint and the embedding see the text, so the
+	// credential is not in the index, the file, or a vector derived from it
+	// (#209). Every source is masked, not just mcp: `logos remember` is typed
+	// by a person who pasted the same key.
+	var redactions []secret.Redaction
+	m.Text, redactions = secret.Mask("memory", m.Text)
 	if m.Created == 0 {
 		m.Created = time.Now().Unix()
 	}
@@ -272,6 +281,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 		receipt, err = storeLocked(db, p, embedModel, m)
 		return err
 	})
+	receipt.Redactions = redactions
 	return receipt, err
 }
 

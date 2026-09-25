@@ -51,6 +51,7 @@ import (
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/untrusted"
 	"github.com/Coder8124/logos/internal/usage"
@@ -832,21 +833,29 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	if project != "" {
 		where = project
 	}
+	msg := s.rememberReceipt(r, kind, where)
+	if said := secret.Summary(r.Redactions); said != "" {
+		msg += " " + said + "."
+	}
+	return msg, nil
+}
+
+func (s *Session) rememberReceipt(r memory.Receipt, kind memory.Kind, where string) string {
 	// A receipt rather than "Remembered." — the host is about to tell the user
 	// what happened, and creating a fact is not the same as confirming one it
 	// already had, or queuing one that still needs a yes.
 	switch r.Outcome {
 	case memory.EvReinforced:
 		if r.StillQueued {
-			return s.receipt(fmt.Sprintf("still queued — memory #%d (%s, %s) is waiting for review; the user runs `%s review` to accept or reject it", r.Ref, kind, where, s.shell())), nil
+			return s.receipt(fmt.Sprintf("still queued — memory #%d (%s, %s) is waiting for review; the user runs `%s review` to accept or reject it", r.Ref, kind, where, s.shell()))
 		}
-		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)), nil
+		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where))
 	case memory.EvQuarantined:
-		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where, r)), nil
+		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where, r))
 	case memory.EvCreated:
-		return s.receipt(fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where)), nil
+		return s.receipt(fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where))
 	}
-	return "Nothing stored.", nil
+	return "Nothing stored."
 }
 
 // trustMCP and reviewEverythingMCP are the two ends of how much scrutiny a
@@ -1335,10 +1344,15 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 	if err := session.Init(s.DB); err != nil {
 		return "", err
 	}
-	if _, err := session.AddNote(s.DB, project, agent, text); err != nil {
+	n, err := session.AddNote(s.DB, project, agent, text)
+	if err != nil {
 		return "", err
 	}
-	return s.receipt("noted in logos — uncommitted until you checkpoint"), nil
+	msg := s.receipt("noted in logos — uncommitted until you checkpoint")
+	if said := secret.Summary(n.Redactions); said != "" {
+		msg += " " + said + "."
+	}
+	return msg, nil
 }
 
 // receipt marks a line as ours so the person watching the transcript can find
@@ -1427,6 +1441,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	s.lastCheckpoint.key, s.lastCheckpoint.slug, s.lastCheckpoint.at = string(key), c.Slug, time.Now()
 	s.checkpointed(c.Project)
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
+	if said := secret.Summary(c.Redactions); said != "" {
+		msg += " " + said + "."
+	}
 	if dropped > 0 {
 		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
 			dropped, map[bool]string{true: "entry", false: "entries"}[dropped == 1])

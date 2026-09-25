@@ -15,6 +15,7 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
 )
@@ -94,10 +95,14 @@ func runNote(args []string) error {
 			return nil
 		}
 	}
-	if _, err := session.AddNote(ix.DB, project, agentName(), text); err != nil {
+	n, err := session.AddNote(ix.DB, project, agentName(), text)
+	if err != nil {
 		return err
 	}
 	fmt.Println("noted — uncommitted until you checkpoint.")
+	if said := secret.Summary(n.Redactions); said != "" {
+		fmt.Println(said + ".")
+	}
 	return nil
 }
 
@@ -178,6 +183,9 @@ func runCheckpoint(args []string) error {
 		return err
 	}
 	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	if said := secret.Summary(c.Redactions); said != "" {
+		fmt.Println(said + ".")
+	}
 	if dropped > 0 {
 		// Said out loud so the agent knows its "none" was not kept as a dead end.
 		fmt.Printf("dropped %d placeholder failed entr%s — leave failed empty when nothing was ruled out.\n",

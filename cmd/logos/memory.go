@@ -13,6 +13,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/scope"
+	"github.com/Coder8124/logos/internal/secret"
 )
 
 // memoryCmd inspects and edits the assistant's persistent memory — the facts it
@@ -131,6 +132,9 @@ func memoryCmd(args []string) error {
 			fmt.Printf("already knew that%s — reinforced memory #%d.\n", where, r.Ref)
 		default:
 			fmt.Println("nothing to remember.")
+		}
+		if said := secret.Summary(r.Redactions); said != "" {
+			fmt.Println(said + ".")
 		}
 	case "consolidate":
 		rt, err := openRouter()

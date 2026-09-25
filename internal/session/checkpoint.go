@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -64,8 +65,11 @@ type Checkpoint struct {
 	// without one — see WriteAuto. It records what ran, never what was learned,
 	// so a reader must be able to tell it apart from an agent's own.
 	Auto bool
-	Slug string // vault slug, set once written
-	TS   int64
+	// Redactions is what Commit masked before writing, so the caller can say
+	// so. Not written to the file: the file carries the marker in place.
+	Redactions []secret.Redaction
+	Slug       string // vault slug, set once written
+	TS         int64
 }
 
 // CheckpointDir is where checkpoints live inside the vault. A visible folder,
@@ -182,6 +186,11 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 			c.State = strings.TrimSpace(c.State) + "\n\n" + recorded
 		}
 	}
+	// An agent debugging an upload pastes the token into what it verified, and
+	// the checkpoint is the file this product exists to keep and sync (#209).
+	// Masked here, after the notes are folded and before anything is written,
+	// so no path to the file skips it.
+	c.Redactions = c.maskSecrets()
 	if c.Empty() {
 		return fmt.Errorf("nothing to checkpoint — record some progress first")
 	}
@@ -222,6 +231,33 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// Written after the markdown, never before: a failure above this line must
 	// leave the notes where they were.
 	return flushNotesIn(db, vaultDir, c.Project)
+}
+
+// maskSecrets masks credential-shaped text in every field the agent wrote,
+// in place, and reports what it masked.
+func (c *Checkpoint) maskSecrets() []secret.Redaction {
+	var found []secret.Redaction
+	one := func(field string, s *string) {
+		var r []secret.Redaction
+		*s, r = secret.Mask(field, *s)
+		found = append(found, r...)
+	}
+	all := func(field string, items []string) {
+		for i := range items {
+			one(field, &items[i])
+		}
+	}
+	one("Task", &c.Task)
+	one("State", &c.State)
+	all("Decisions", c.Decisions)
+	all("Didn't work", c.Failed)
+	all("Verified", c.Verified)
+	all("Blockers", c.Blockers)
+	all("Commands", c.Commands)
+	all("Questions", c.Questions)
+	all("Files", c.Files)
+	one("Next", &c.Next)
+	return found
 }
 
 // claimCheckpoint reserves a checkpoint filename and returns the id that goes
