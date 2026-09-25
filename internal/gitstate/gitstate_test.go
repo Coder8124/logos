@@ -600,8 +600,9 @@ func TestReadingAPartialCloneFetchesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := exec.Command("git", append(append(args, "-C", dir), "diff-index", "--numstat", "HEAD")...)
-	old.Env = os.Environ()
-	for _, kv := range safeEnv {
+	// Dropped from the user's environment as well as safeEnv's, or a machine
+	// that exports it would pass without ever taking the old-git path.
+	for _, kv := range append(os.Environ(), safeEnv...) {
 		if !strings.HasPrefix(kv, "GIT_NO_LAZY_FETCH=") {
 			old.Env = append(old.Env, kv)
 		}
