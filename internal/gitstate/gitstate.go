@@ -229,9 +229,12 @@ func dirtyFiles(dir string) ([]string, int) {
 // diff-index, not diff: diff refreshes a stale index and writes it back even
 // with optional locks off, and that write runs post-index-change (#197).
 // -M because diff finds renames by default and diff-index does not: without
-// it, a moved file counts as deleted and added whole.
+// it, a moved file counts as deleted and added whole. -l1 keeps it to exact
+// moves: scoring every deleted file against every added one took nine seconds
+// on a 900-file restructuring, past the timeout, and a timed-out diff counts
+// as no change at all.
 func diffStat(dir string) (insertions, deletions int) {
-	out := git(dir, "diff-index", "-M", "--numstat", "--ignore-submodules=all", "HEAD")
+	out := git(dir, "diff-index", "-M", "-l1", "--numstat", "--ignore-submodules=all", "HEAD")
 	if out == "" {
 		return 0, 0
 	}

@@ -2,6 +2,7 @@ package gitstate
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -491,5 +492,38 @@ func TestAnLFSExtensionSpelledInAnotherCaseStillTurnsTheLFSFilterOff(t *testing.
 	}
 	if !strings.Contains(strings.Join(args, " "), "filter.lfs.process=") {
 		t.Errorf("filter.lfs left live beside lfs.Extension.evil: %v", args)
+	}
+}
+
+// Rename detection that compares every deleted file with every added one ran
+// past the timeout on a large restructuring, and a timed-out diff reads as no
+// change at all: the biggest change a session made was recorded as +0/-0.
+func TestALargeRestructuringIsStillCounted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes several thousand files")
+	}
+	dir := repo(t)
+	// Every line unique to its file, so no pair is similar and rename
+	// detection has to score all of them.
+	write := func(kind string, n int) {
+		for i := 0; i < n; i++ {
+			var body strings.Builder
+			for j := 0; j < 2000; j++ {
+				fmt.Fprintf(&body, "%s %d line %d\n", kind, i, j)
+			}
+			name := filepath.Join(dir, fmt.Sprintf("%s%d.txt", kind, i))
+			if err := os.WriteFile(name, []byte(body.String()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	write("old", 900)
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "the old layout")
+	gitRun(t, dir, "rm", "-q", "old*.txt")
+	write("new", 900)
+	gitRun(t, dir, "add", ".")
+	if s := Read(dir); s.Insertions == 0 && s.Deletions == 0 {
+		t.Error("a 900-file restructuring was recorded as +0/-0")
 	}
 }
