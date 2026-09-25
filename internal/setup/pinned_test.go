@@ -262,3 +262,27 @@ LOGOS_VAULT = "/Users/bob/brain"
 		t.Errorf("Codex's pin was read as %q", got)
 	}
 }
+
+// #206: opencode keeps its servers under "mcp" with "environment", and Amp
+// under "amp.mcpServers". Read as mcpServers both came back empty, so their
+// hooks took the machine pointer while their server used the pin.
+func TestOpencodeAndAmpPinsAreReadFromTheirOwnConfigShapes(t *testing.T) {
+	for _, tc := range []struct{ name, file, body string }{
+		{"opencode", "opencode.json", `{"mcp":{"logos":{"type":"local","command":["logos","mcp","serve"],"environment":{"LOGOS_VAULT":"/Users/bob/brain"}}}}`},
+		{"amp", "settings.json", `{"amp.mcpServers":{"logos":{"command":"logos","args":["mcp","serve"],"env":{"LOGOS_VAULT":"/Users/bob/brain"}}}}`},
+	} {
+		cfg := filepath.Join(t.TempDir(), tc.file)
+		if err := os.WriteFile(cfg, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		hosts := []setup.Host{{
+			Name:   tc.name,
+			Detect: func() bool { return true },
+			Where:  func() string { return cfg },
+			Config: func() string { return cfg },
+		}}
+		if got := setup.PinnedVault(hosts, tc.name); got != "/Users/bob/brain" {
+			t.Errorf("%s: pinned vault = %q, want the one its config names", tc.name, got)
+		}
+	}
+}

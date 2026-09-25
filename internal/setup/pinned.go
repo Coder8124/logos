@@ -46,10 +46,11 @@ func PinnedVault(hosts []Host, name string) string {
 //
 // Claude Code is the host the plugin's hooks run inside, and reading its file
 // is the only way to see the pin: `claude mcp list` prints name, command and
-// status and no environment at all. Both spellings
-// of the server map are tried because VS Code calls it "servers" where everyone
-// else calls it "mcpServers". A file that is missing, unparseable or somebody
-// else's shape is "nothing to say" — the caller keeps the machine pointer.
+// status and no environment at all. Every spelling of the server map is tried,
+// because VS Code calls it "servers", Amp "amp.mcpServers" and opencode "mcp",
+// where everyone else calls it "mcpServers". A file that is missing,
+// unparseable or somebody else's shape is "nothing to say" — the caller keeps
+// the machine pointer.
 func pinInConfig(path string) string {
 	if path == "" {
 		return ""
@@ -61,7 +62,10 @@ func pinInConfig(path string) string {
 		}
 		return logosPin(regs)
 	}
-	for _, root := range []string{"mcpServers", "servers"} {
+	// The same roots PinnedEntries reads (#206): opencode's "mcp" and Amp's
+	// "amp.mcpServers" read as mcpServers came back empty, and those hosts'
+	// hooks fell back to the machine pointer while their server used the pin.
+	for _, root := range []string{"mcpServers", "servers", "amp.mcpServers"} {
 		regs, err := readServerBlock(path, root)
 		if err != nil {
 			continue
@@ -69,6 +73,9 @@ func pinInConfig(path string) string {
 		if v := logosPin(regs); v != "" {
 			return v
 		}
+	}
+	if regs, err := readOpencodeServers(path); err == nil {
+		return logosPin(regs)
 	}
 	return ""
 }
