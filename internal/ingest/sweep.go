@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/scope"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
@@ -333,6 +334,15 @@ func SweepNotice(wrote, grew []session.Checkpoint, problems []string) string {
 	if n := len(grew); n > 0 {
 		fmt.Fprintf(&b, "_Brought %d auto record%s up to date with work its session did after it was recorded — still auto, unverified: %s_\n\n",
 			n, plural(n), ids(grew))
+	}
+	// Nobody chose to write these records, so nobody else will say that a
+	// credential the transcript carried was masked on its way in.
+	var found []Redaction
+	for _, c := range append(slices.Clone(wrote), grew...) {
+		found = append(found, c.Redactions...)
+	}
+	if len(found) > 0 {
+		fmt.Fprintf(&b, "_%s_\n\n", secret.Summary(found))
 	}
 	if n := len(problems); n > 0 {
 		// A few are enough to act on; a broken harness can fail on every file

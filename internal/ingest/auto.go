@@ -93,14 +93,27 @@ func autoRecord(s *transcript.Session, project string, at int64) (session.Checkp
 	if n := len(commands); n > maxAutoCommands {
 		commands = commands[n-maxAutoCommands:]
 	}
+	// Masked here, where the record is built, and not where it is written: the
+	// sweep rebuilds this record to ask whether its session did more since, and
+	// a record masked only on the way to disk would never compare equal to its
+	// own rebuild. Files are left alone, as a harvest leaves them — the entropy
+	// rule reads a long relative path as a key.
+	task, found := redactText("Task", firstPrompt(s))
+	masked := make([]string, len(commands))
+	for i, cmd := range commands {
+		var r []Redaction
+		masked[i], r = redactText("Commands run", cmd)
+		found = append(found, r...)
+	}
 	return session.Checkpoint{
-		Project:  project,
-		Agent:    s.Harness,
-		Task:     firstPrompt(s),
-		State:    autoState(s),
-		Files:    h.Files,
-		Commands: commands,
-		TS:       at,
+		Project:    project,
+		Agent:      s.Harness,
+		Task:       task,
+		State:      autoState(s),
+		Files:      h.Files,
+		Commands:   masked,
+		TS:         at,
+		Redactions: found,
 	}, true
 }
 

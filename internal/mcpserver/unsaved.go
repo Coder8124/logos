@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -83,6 +84,9 @@ func (s *Session) recordUnsaved() {
 		// anyone reading the host's server log why a checkpoint they did not
 		// write is in the vault (invariant 3).
 		fmt.Fprintf(os.Stderr, "logos: this session ended without a checkpoint — recorded %s.md from %s's transcript, unverified\n", c.Slug, harness)
+	}
+	if c != nil && len(c.Redactions) > 0 {
+		fmt.Fprintf(os.Stderr, "logos: %s\n", secret.Summary(c.Redactions))
 	}
 }
 
