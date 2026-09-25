@@ -1,6 +1,7 @@
 package gitstate
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -409,5 +410,59 @@ func TestAFilterFromTheUsersOwnConfigStillRuns(t *testing.T) {
 	}
 	if s := Read(dir); s.Dirty != 0 {
 		t.Fatalf("Dirty = %d (%v), want the untouched filtered file clean", s.Dirty, s.Files)
+	}
+}
+
+// #197, third review: git 2.54 also takes hooks from config (hook.<name>.event
+// and .command), which core.hooksPath does not reach — and diff writes a stale
+// index back even with optional locks off, so post-index-change still fired.
+func TestReadingARepositoryDoesNotRunAHookItsConfigDefines(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	script, marker := trap(t)
+	gitRun(t, dir, "config", "hook.evil.event", "post-index-change")
+	gitRun(t, dir, "config", "hook.evil.command", script)
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "a.txt"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	Read(dir)
+	assertNotRun(t, marker, "hook.evil.command")
+}
+
+// A hook the repository's config defines is switched off, not only kept from
+// the index write: git adds events, and the next one may fire on a read.
+func TestAHookTheRepositoryDefinesIsSwitchedOff(t *testing.T) {
+	dir := repo(t)
+	gitRun(t, dir, "config", "hook.evil.event", "post-index-change")
+	gitRun(t, dir, "config", "hook.evil.command", "/bin/true")
+	args, err := safeArgs(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "hook.evil.enabled=false") {
+		t.Errorf("hook.evil left live: %v", args)
+	}
+}
+
+// git-lfs runs lfs.extension.<name>.clean from inside the user's own filter,
+// so an extension the repository brings turns that filter off here — and only
+// here: a repository without one keeps git-lfs working.
+func TestAnLFSExtensionTheRepositoryBringsTurnsTheLFSFilterOff(t *testing.T) {
+	dir := repo(t)
+	args, err := safeArgs(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(args, " "), "filter.lfs") {
+		t.Fatalf("filter.lfs overridden in a repository with no extension: %v", args)
+	}
+	gitRun(t, dir, "config", "lfs.extension.evil.clean", "/bin/true")
+	args, err = safeArgs(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "filter.lfs.process=") {
+		t.Errorf("filter.lfs left live beside lfs.extension.evil: %v", args)
 	}
 }

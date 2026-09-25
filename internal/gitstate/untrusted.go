@@ -18,8 +18,11 @@ import (
 //     changed file the attributes map to that filter;
 //   - gpg.program, run by log to verify a signature when log.showSignature is
 //     set — the commit only has to carry a signature, not a valid one;
-//   - .git/hooks/post-index-change, run when status or diff writes back an
-//     index whose stat data is stale, which after unpacking is all of it;
+//   - post-index-change, run when diff writes back an index whose stat data
+//     is stale, which after unpacking is all of it — from .git/hooks, and from
+//     hook.<name>.command in the config, which core.hooksPath does not reach;
+//   - lfs.extension.<name>.clean, which the user's own git-lfs filter reads
+//     from the repository's config and runs;
 //   - any of the above in a submodule, whose config under .git/modules the
 //     overrides here do not reach, so status and diff are given
 //     --ignore-submodules=all and a changed submodule goes uncounted.
@@ -29,7 +32,7 @@ import (
 
 // ErrUnsafe is returned when git cannot be told to leave the repository's
 // programs alone, so it was not run.
-var ErrUnsafe = errors.New("git: a filter in this repository cannot be overridden")
+var ErrUnsafe = errors.New("git: a filter or hook in this repository cannot be overridden")
 
 // waitDelay caps the wait for output after a timeout kills git: a child it
 // started can hold the pipe open, and the kill is meant to end the wait.
@@ -45,8 +48,8 @@ func SafeGit(dir string, timeout time.Duration, args ...string) (string, error) 
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, "git", append(append(safe, "-C", dir), args...)...)
-	// Without optional locks, status and diff never write the index back, so
-	// the hook that runs on an index write has nothing to run on.
+	// Without optional locks status never writes the index back. diff ignores
+	// the setting, which is why diffStat uses diff-index, which never writes.
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
@@ -63,11 +66,11 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 	// Reading config runs nothing, whatever the config says. It is bounded all
 	// the same: a .git/config on a hung mount blocks the read like any other.
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "config", "--show-scope",
-		"--name-only", "--get-regexp", `^filter\.`)
+		"--name-only", "--get-regexp", `^(filter|hook|lfs\.extension)\.`)
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	if err != nil {
-		// Exit 1 is "no filter configured", the ordinary case.
+		// Exit 1 is "nothing configured", the ordinary case.
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) || exit.ExitCode() != 1 || ctx.Err() != nil {
 			return nil, err
@@ -76,28 +79,44 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		scope, key, _ := strings.Cut(line, "\t")
-		// The user's own filters are not the threat, and git-lfs keeps
-		// filter.lfs in the global config: blanked, every LFS file with stale
-		// stat data reads as modified. Only what the repository brought is.
+		// The user's own filters and hooks are not the threat, and git-lfs
+		// keeps filter.lfs in the global config: blanked, every LFS file with
+		// stale stat data reads as modified. Only what the repository brought is.
 		if scope != "local" && scope != "worktree" {
 			continue
 		}
-		rest, found := strings.CutPrefix(key, "filter.")
-		dot := strings.LastIndex(rest, ".")
-		if !found || dot <= 0 || seen[rest[:dot]] {
+		section, name := "", ""
+		switch {
+		case strings.HasPrefix(key, "lfs.extension."):
+			// An extension runs inside git-lfs's filter, so it is that
+			// filter which is turned off — in this repository only.
+			section, name = "filter", "lfs"
+		default:
+			sec, rest, _ := strings.Cut(key, ".")
+			dot := strings.LastIndex(rest, ".")
+			if dot <= 0 {
+				continue
+			}
+			section, name = sec, rest[:dot]
+		}
+		if seen[section+"."+name] {
 			continue
 		}
-		name := rest[:dot]
-		seen[name] = true
-		// -c splits at the first =, so a driver whose name contains one
-		// cannot be overridden; refuse rather than read with it live.
+		seen[section+"."+name] = true
+		// -c splits at the first =, so a driver or hook whose name contains
+		// one cannot be overridden; refuse rather than read with it live.
 		if strings.Contains(name, "=") {
 			return nil, ErrUnsafe
 		}
 		// An empty command is git's "no filter". required has to go too, or
 		// git refuses the read of a file whose required filter did not run.
-		for _, kv := range []string{".clean=", ".smudge=", ".process=", ".required=false"} {
-			args = append(args, "-c", "filter."+name+kv)
+		// A hook is switched off whole: an empty command is an error, not off.
+		overrides := []string{".clean=", ".smudge=", ".process=", ".required=false"}
+		if section == "hook" {
+			overrides = []string{".enabled=false"}
+		}
+		for _, kv := range overrides {
+			args = append(args, "-c", section+"."+name+kv)
 		}
 	}
 	return args, nil

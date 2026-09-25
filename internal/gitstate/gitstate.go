@@ -225,8 +225,11 @@ func dirtyFiles(dir string) ([]string, int) {
 // diffStat totals the uncommitted change. Tracked files only — an untracked
 // file has no diff to measure, and counting its whole length as insertions
 // would overstate the change.
+//
+// diff-index, not diff: diff refreshes a stale index and writes it back even
+// with optional locks off, and that write runs post-index-change (#197).
 func diffStat(dir string) (insertions, deletions int) {
-	out := git(dir, "diff", "--numstat", "--ignore-submodules=all", "HEAD")
+	out := git(dir, "diff-index", "--numstat", "--ignore-submodules=all", "HEAD")
 	if out == "" {
 		return 0, 0
 	}
