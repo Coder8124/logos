@@ -195,7 +195,9 @@ logos mcp serve                # the MCP server, over stdio
 
 Logos was developed as `brain`. Through 0.4.x this package still installs a
 `brain` command, and `BRAIN_*` variables and an existing `~/brain` vault still
-work. Use `logos` for anything new.
+work. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault to
+`~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that named the
+old path (`--dry-run` shows the plan first).
 
 ---
 

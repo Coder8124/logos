@@ -27,7 +27,9 @@ this project dies, you keep a vault.
 > **Formerly brain.** Logos was developed as `brain`. Through 0.4.x the old
 > names still work — the `brain` command from npm, `BRAIN_*` variables, and an
 > existing `~/brain` vault or `.brain/` directory — so an existing install keeps
-> running. Use `logos` for anything new.
+> running. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault
+> to `~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that
+> named the old path (`--dry-run` shows the plan first).
 
 ---
 
