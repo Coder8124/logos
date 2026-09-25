@@ -204,6 +204,35 @@ func TestARecordIsNotRewrittenPastACheckpointWrittenAfterIt(t *testing.T) {
 	}
 }
 
+// Shutdown writes when the session is closing, so its record describes the
+// repository as it is now, and carries its git state as any shutdown record
+// does. When a checkpoint landed after the sweep's record, the new record was
+// dated at the transcript's end, read as a session recorded late, and written
+// with no git state at all (#203).
+func TestShutdownsNewRecordForASweptSessionCarriesGitState(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	s := endedAgo(now, 3*time.Hour)
+	onMachine(t, s)
+	if wrote, _, _ := Sweep(vault, "shop", now); len(wrote) != 1 {
+		t.Fatalf("first resume wrote %d", len(wrote))
+	}
+	agentCheckpointAt(t, vault, now.Add(-2*time.Hour).Unix(), "the other window's handoff")
+
+	later := *s
+	later.Turns = append(append([]transcript.Turn{}, s.Turns...),
+		transcript.Turn{Role: "tool", Tool: "edit_file", Input: "internal/cart/refund.go"})
+	later.Ended = now.Unix()
+
+	c, grew, err := AutoCheckpoint(vault, &later, "shop")
+	if err != nil || c == nil || grew {
+		t.Fatalf("recorded %+v, grew %v, err %v; want a new record", c, grew, err)
+	}
+	if c.Git.Empty() {
+		t.Error("shutdown's record for a session closing now carries no git state")
+	}
+}
+
 // The hook writes its record when the session closes, which after a long
 // SessionEnd, or a machine that slept, is well after its transcript's last
 // line. It names its session, so it is matched however late it ran.

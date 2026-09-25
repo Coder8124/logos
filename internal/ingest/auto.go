@@ -50,7 +50,7 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (c *
 	case done:
 		return nil, false, nil
 	case rec != nil:
-		c, err = growRecord(vaultDir, history, *rec, s)
+		c, err = growRecord(vaultDir, history, *rec, s, 0)
 		return c, c != nil && c.Slug == rec.Slug, err
 	}
 	c, err = autoCheckpoint(vaultDir, s, project, 0)

@@ -64,7 +64,7 @@ func TestAnAutoRecordWithAMaskedTokenIsNotRewrittenByEverySweep(t *testing.T) {
 	if err != nil || len(history) == 0 {
 		t.Fatalf("history %v, %v", history, err)
 	}
-	if grown, err := growRecord(vault, history, history[0], s); err != nil || grown != nil {
+	if grown, err := growRecord(vault, history, history[0], s, s.Ended); err != nil || grown != nil {
 		t.Errorf("an unchanged session was grown: %v, %v", grown, err)
 	}
 }

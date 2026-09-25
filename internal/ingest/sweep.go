@@ -141,7 +141,7 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 		if rec == nil {
 			c, err = autoCheckpoint(vaultDir, s, project, s.Ended)
 		} else {
-			c, err = growRecord(vaultDir, history, *rec, s)
+			c, err = growRecord(vaultDir, history, *rec, s, s.Ended)
 		}
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s session %s: %v", s.Harness, s.ID, err))
@@ -265,14 +265,19 @@ func recordOf(history []session.Checkpoint, s *transcript.Session) (*session.Che
 // resume. A new record is written for the session then, which lists again
 // whatever of rec's work came after the agent's last handoff: a repeated line
 // is the lesser cost next to a history out of order.
-func growRecord(vaultDir string, history []session.Checkpoint, rec session.Checkpoint, s *transcript.Session) (*session.Checkpoint, error) {
+//
+// That new record is dated at, as autoCheckpoint dates it. The sweep passes the
+// transcript's end, hours ago; shutdown passes zero, because its session is
+// closing now, and a record dated in the past is written without the git state
+// of a repository that has moved on since (#203).
+func growRecord(vaultDir string, history []session.Checkpoint, rec session.Checkpoint, s *transcript.Session, at int64) (*session.Checkpoint, error) {
 	c, ok := autoRecord(s, rec.Project, s.Ended)
 	if !ok || (slices.Equal(c.Files, rec.Files) && slices.Equal(c.Commands, rec.Commands)) {
 		return nil, nil
 	}
 	for _, h := range history {
 		if h.Slug != rec.Slug && h.TS > rec.TS && h.TS <= s.Ended {
-			return autoCheckpoint(vaultDir, s, rec.Project, s.Ended)
+			return autoCheckpoint(vaultDir, s, rec.Project, at)
 		}
 	}
 	grown, err := session.GrowAuto(vaultDir, rec, c)
