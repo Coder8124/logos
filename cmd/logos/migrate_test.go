@@ -530,6 +530,86 @@ func TestMigrateDoesNotCallAHostStillPinnedWhenOnlyTheOldEntryCheckFailed(t *tes
 	}
 }
 
+// writeHostServers replaces the mcpServers map in a host config.
+func writeHostServers(t *testing.T, cfg string, servers map[string]any) {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{"mcpServers": servers})
+	if err := os.WriteFile(cfg, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 0.4.0 to 0.4.2 setup pinned BRAIN_VAULT, before the rename. Read only as
+// LOGOS_VAULT, those entries had no vault at all: migrate moved ~/brain, left
+// them on it, and exited 0 without naming them.
+func TestMigrateRepinsAnEntryThatPinsTheVaultAsBrainVault(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHostAs(t, "Cursor", setup.OldName, filepath.Join(home, "brain"), &cursor)
+	writeHostServers(t, h.Config(), map[string]any{setup.OldName: map[string]any{
+		"command": "/opt/brain", "args": []string{"mcp", "serve"},
+		"env": map[string]string{"BRAIN_VAULT": filepath.Join(home, "brain")},
+	}})
+	hostsOnMachine(t, h)
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("migrate failed: %v\n%s", err, out)
+	}
+	servers := hostServers(t, h.Config())
+	entry, _ := servers[setup.Name].(map[string]any)
+	env, _ := entry["env"].(map[string]any)
+	if env["LOGOS_VAULT"] != filepath.Join(home, "logos") || env["BRAIN_VAULT"] != nil {
+		t.Errorf("Cursor's BRAIN_VAULT entry was not re-pinned: %v\n%s", servers, out)
+	}
+	if _, ok := servers[setup.OldName]; ok {
+		t.Errorf("the brain entry is still there: %v", servers)
+	}
+}
+
+// A logos entry with no pin follows the machine's vault, which migrate records
+// as ~/logos. Re-pinning a leftover brain entry beside it wrote brain's binary
+// over the one the user runs.
+func TestMigrateKeepsTheCommandOfALogosEntryThatFollowsTheMachinesVault(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	writeHostServers(t, h.Config(), map[string]any{
+		setup.Name: map[string]any{"command": "/opt/new", "args": []string{"mcp", "serve"}},
+		setup.OldName: map[string]any{"command": "/opt/old", "args": []string{"mcp", "serve"},
+			"env": map[string]string{"LOGOS_VAULT": filepath.Join(home, "brain")}},
+	})
+	hostsOnMachine(t, h)
+
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	if entry, _ := hostServers(t, h.Config())[setup.Name].(map[string]any); entry["command"] != "/opt/new" {
+		t.Errorf("Cursor's logos entry now runs %v, not /opt/new\n%s", entry["command"], out)
+	}
+	if !strings.Contains(out, "leave") {
+		t.Errorf("the brain entry left on ~/brain is not named:\n%s", out)
+	}
+}
+
+// Re-pinning the logos entry goes through Install, which removes 0.4's brain
+// entry — right when that entry was on ~/brain too, and a lost vault choice
+// when it named another.
+func TestMigrateKeepsABrainEntryThatUsesAnotherVault(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	work := filepath.Join(home, "work")
+	var cursor string
+	h := pinnedHostWith(t, "Cursor", map[string]string{
+		setup.Name: filepath.Join(home, "brain"), setup.OldName: work,
+	}, &cursor)
+	hostsOnMachine(t, h)
+
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	entry, _ := hostServers(t, h.Config())[setup.OldName].(map[string]any)
+	if env, _ := entry["env"].(map[string]any); env["LOGOS_VAULT"] != work {
+		t.Errorf("Cursor's brain entry on %s is gone or changed: %v\n%s", work, hostServers(t, h.Config()), out)
+	}
+}
+
 // LOGOS_VAULT scopes a run to another vault — the scratch-vault habit, or a
 // BRAIN_VAULT carried over from a 0.4 profile — and a run scoped elsewhere
 // moving the real ~/brain is the one thing it must not do.

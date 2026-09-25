@@ -84,40 +84,60 @@ func migrateCmd(args []string) error {
 		if h.Detect == nil || !h.Detect() {
 			continue
 		}
-		var onOld []setup.Registration
-		elsewhere := ""
-		for _, e := range setup.PinnedEntries(h) {
-			switch v := filepath.Clean(expandHome(e.Vault)); {
-			case e.Vault == "":
-			case v == from:
-				onOld = append(onOld, e)
-			case e.Name == setup.Name:
-				elsewhere = e.Vault
+		// 0.4.0 to 0.4.2 pinned BRAIN_VAULT, before the rename; the readers
+		// know only LOGOS_VAULT, and legacy reads the old name until 0.5.0.
+		vaultOf := func(e setup.Registration) string {
+			if e.Vault != "" {
+				return e.Vault
 			}
+			return e.Server.Env["BRAIN_VAULT"]
 		}
-		// Install writes the logos entry and removes brain, so those are the
-		// two names a re-pin can reach. The logos entry wins; with none on the
-		// old path, brain is re-pinned as logos — unless logos is already there
-		// on another vault, which is the one the user chose and is not ours to
-		// overwrite.
-		var chosen *setup.Registration
-		for _, name := range []string{setup.Name, setup.OldName} {
-			for i := range onOld {
-				if chosen == nil && onOld[i].Name == name {
-					chosen = &onOld[i]
+		isOld := func(e *setup.Registration) bool {
+			return e != nil && vaultOf(*e) != "" && filepath.Clean(expandHome(vaultOf(*e))) == from
+		}
+		var logosE, brainE *setup.Registration
+		var others []setup.Registration
+		for _, e := range setup.PinnedEntries(h) {
+			switch e.Name {
+			case setup.Name:
+				if logosE == nil {
+					logosE = &e
+				}
+			case setup.OldName:
+				if brainE == nil {
+					brainE = &e
+				}
+			default:
+				if isOld(&e) {
+					others = append(others, e)
 				}
 			}
 		}
-		if chosen != nil && chosen.Name == setup.OldName && elsewhere != "" {
-			kept = append(kept, leave{h, fmt.Sprintf("its logos entry uses %s, and the 0.4 %s entry beside it still names %s — remove that one by hand if it is not wanted", elsewhere, setup.OldName, from)})
-			chosen = nil
-			onOld = nil
-		}
-		for _, e := range onOld {
-			if chosen != nil && (e.Name == chosen.Name || e.Name == setup.OldName) {
-				continue // re-pinned, or removed by Install once logos is in
+		// Install writes the logos entry and removes brain, so those are the
+		// two names a re-pin can reach. The logos entry is re-pinned when it
+		// is on the old path. Otherwise brain is re-pinned as logos — unless a
+		// logos entry exists, pinned elsewhere or following the machine's
+		// vault: that is the one the user runs, not ours to overwrite.
+		var chosen *setup.Registration
+		switch {
+		case isOld(logosE):
+			chosen = logosE
+			// Install's Remove takes brain out whatever it names; one on
+			// another vault is somebody's choice, not a leftover of this one.
+			if brainE != nil && !isOld(brainE) {
+				h.Remove = nil
 			}
-			kept = append(kept, leave{h, fmt.Sprintf("its %q entry names %s, and migrate re-pins only logos and 0.4's %s — change its LOGOS_VAULT by hand", e.Name, from, setup.OldName)})
+		case isOld(brainE) && logosE != nil:
+			uses := "follows this machine's vault"
+			if v := vaultOf(*logosE); v != "" {
+				uses = "uses " + v
+			}
+			kept = append(kept, leave{h, fmt.Sprintf("its logos entry %s, and the 0.4 %s entry beside it still names %s — remove that one by hand if it is not wanted", uses, setup.OldName, from)})
+		case isOld(brainE):
+			chosen = brainE
+		}
+		for _, e := range others {
+			kept = append(kept, leave{h, fmt.Sprintf("its %q entry names %s, and migrate re-pins only logos and 0.4's %s — change its vault by hand", e.Name, from, setup.OldName)})
 		}
 		if chosen == nil {
 			continue
@@ -127,6 +147,7 @@ func migrateCmd(args []string) error {
 		for k, val := range srv.Env {
 			env[k] = val
 		}
+		delete(env, "BRAIN_VAULT")
 		env["LOGOS_VAULT"] = to
 		srv.Env = env
 		pinned = append(pinned, repin{h, srv})
