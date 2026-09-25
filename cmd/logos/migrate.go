@@ -64,36 +64,44 @@ func migrateCmd(args []string) error {
 	if _, err := os.Lstat(to); err == nil {
 		return fmt.Errorf("%s already exists — move or merge it yourself first; nothing was moved", to)
 	}
-	var pinned []setup.Host
+	// Each host is re-registered with the entry it already has and only the
+	// vault changed. The binary running migrate is the wrong thing to pin: it
+	// may be npx, which asks the registry on every launch, a copy `brew upgrade`
+	// never reaches, an older release, or a `go run` build Go deletes on exit —
+	// and the entry may set more than the vault. Not through wireHosts either:
+	// that is setup, and under one --yes it installed the plugin and copied
+	// this binary onto PATH.
+	type repin struct {
+		host setup.Host
+		srv  setup.Server
+	}
+	var pinned []repin
 	for _, h := range detectHosts() {
 		if h.Detect == nil || !h.Detect() {
 			continue
 		}
-		if v := expandHome(setup.PinnedVault([]setup.Host{h}, h.Name)); v != "" && filepath.Clean(v) == from {
-			pinned = append(pinned, h)
+		v := expandHome(setup.PinnedVault([]setup.Host{h}, h.Name))
+		if v == "" || filepath.Clean(v) != from {
+			continue
 		}
-	}
-	// Each host is re-registered directly rather than through wireHosts: that
-	// is setup, and under one --yes it installed the plugin, copied this binary
-	// onto PATH, and left Claude Code out whenever the plugin connected it —
-	// announcing a re-pin it never did. A re-pin changes the vault and nothing
-	// else the user did not ask for.
-	var srv setup.Server
-	if len(pinned) > 0 {
-		if srv, err = logosServer(to); err != nil {
-			return err
+		srv, ok := setup.PinnedServer(h)
+		if !ok {
+			continue
 		}
-		// Decided before the move, so a refusal leaves everything as it was.
-		if goRunBinary(srv.Bin) {
-			return fmt.Errorf("%s is a `go run` build that Go deletes when this command exits, and the hosts would be re-pinned to it — run migrate from an installed logos; nothing was moved", srv.Bin)
+		env := map[string]string{}
+		for k, val := range srv.Env {
+			env[k] = val
 		}
+		env["LOGOS_VAULT"] = to
+		srv.Env = env
+		pinned = append(pinned, repin{h, srv})
 	}
 
 	fmt.Printf("  move       %s → %s\n", from, to)
 	fmt.Printf("  link       %s → %s, so anything still naming the old path finds it\n", from, to)
 	fmt.Printf("  record     %s as this machine's vault\n", to)
-	for _, h := range pinned {
-		fmt.Printf("  re-pin     %s, pinned to %s\n", h.Name, from)
+	for _, p := range pinned {
+		fmt.Printf("  re-pin     %s, pinned to %s\n", p.host.Name, from)
 	}
 	if dryRun {
 		fmt.Println("\n  --dry-run: nothing was changed")
@@ -124,17 +132,33 @@ func migrateCmd(args []string) error {
 		fmt.Printf("  ✓ recorded %s as this machine's vault\n", to)
 	}
 	var left []string
-	for _, h := range pinned {
-		outcome, err := h.Register(srv)
-		if err == nil && outcome == setup.Failed {
+	for _, p := range pinned {
+		// Through Install for what setup already gets right on a rewrite: the
+		// config is copied aside first, and a 0.4 entry under brain is replaced
+		// rather than left running beside logos on the old path.
+		r := setup.Install(p.srv, []setup.Host{p.host})[0]
+		err := r.Err
+		if err == nil && r.Outcome == setup.Failed {
 			err = errors.New("the host reported a failure")
 		}
+		if err == nil && r.ReplaceErr != nil {
+			err = fmt.Errorf("re-pinned, but its 0.4 %s entry, still on %s, could not be removed: %w", setup.OldName, from, r.ReplaceErr)
+		}
 		if err != nil {
-			fmt.Printf("  ✗ re-pin   %s: %v\n", h.Name, err)
-			left = append(left, h.Name)
+			fmt.Printf("  ✗ re-pin   %s: %v\n", p.host.Name, err)
+			left = append(left, p.host.Name)
 			continue
 		}
-		fmt.Printf("  ✓ re-pinned %s to %s\n", h.Name, to)
+		fmt.Printf("  ✓ re-pinned %s to %s\n", p.host.Name, to)
+		if r.Replaced {
+			fmt.Printf("             replaced its 0.4 %s entry\n", setup.OldName)
+		}
+		if r.Backup != "" {
+			fmt.Printf("             the config as it was is at %s\n", r.Backup)
+		}
+		if r.HookErr != nil {
+			fmt.Printf("  ✗ hook     %s: %v\n", p.host.Name, r.HookErr)
+		}
 	}
 	fmt.Println("\n  restart any open agent sessions so they pick up the new path")
 	if len(left) > 0 {

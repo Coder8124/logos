@@ -73,6 +73,39 @@ func pinInConfig(path string) string {
 	return ""
 }
 
+// PinnedServer is the logos entry in h's config file as it is written there —
+// its binary, arguments and whole environment — and whether there is one.
+//
+// It is for re-pinning a host onto a moved vault, which must change the vault
+// and nothing else. Registering the running binary instead swapped every host
+// onto whatever ran the command: npx, which asks the registry on each launch,
+// or a copy `brew upgrade` never reaches, or an older release. The entry named
+// logos wins over 0.4's brain, which Install removes once logos is in.
+func PinnedServer(h Host) (Server, bool) {
+	if h.Config == nil {
+		return Server{}, false
+	}
+	path := h.Config()
+	var regs []Registration
+	if strings.HasSuffix(path, ".toml") {
+		regs, _ = readCodexServers(path)
+	} else {
+		for _, root := range []string{"mcpServers", "servers"} {
+			if r, err := readServerBlock(path, root); err == nil {
+				regs = append(regs, r...)
+			}
+		}
+	}
+	for _, name := range []string{Name, OldName, ""} {
+		for _, r := range regs {
+			if (name == "" || r.Name == name) && isLogosServer(r.Command) && r.Server.Bin != "" {
+				return r.Server, true
+			}
+		}
+	}
+	return Server{}, false
+}
+
 // logosPin picks the vault off the logos entry among a host's registrations.
 func logosPin(regs []Registration) string {
 	for _, r := range regs {

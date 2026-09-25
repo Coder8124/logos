@@ -42,21 +42,61 @@ func oldVaultHome(t *testing.T) (home, checkpoint string) {
 // records the vault it is re-registered with.
 func pinnedHost(t *testing.T, name, pin string, got *string) setup.Host {
 	t.Helper()
+	return pinnedHostAs(t, name, setup.Name, pin, got)
+}
+
+// pinnedHostAs is pinnedHost with the entry registered under entry — brain for
+// a host 0.4 setup wired. Register and Remove rewrite the file the way the JSON
+// hosts do, so what migrate leaves in it can be read back.
+func pinnedHostAs(t *testing.T, name, entry, pin string, got *string) setup.Host {
+	t.Helper()
 	cfg := filepath.Join(t.TempDir(), name+".json")
-	raw, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"logos": map[string]any{
-		"command": "/opt/logos", "args": []string{"mcp", "serve"},
-		"env": map[string]string{"LOGOS_VAULT": pin},
-	}}})
-	if err := os.WriteFile(cfg, raw, 0o600); err != nil {
-		t.Fatal(err)
+	write := func(servers map[string]any) {
+		raw, _ := json.Marshal(map[string]any{"mcpServers": servers})
+		if err := os.WriteFile(cfg, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
+	write(map[string]any{entry: map[string]any{
+		"command": "/opt/logos", "args": []string{"mcp", "serve"},
+		"env": map[string]string{"LOGOS_VAULT": pin, "LOGOS_EMBED": "off"},
+	}})
 	h := fakeHost(name, true, nil)
 	h.Config = func() string { return cfg }
 	h.Register = func(s setup.Server) (setup.Outcome, error) {
 		*got = s.Env["LOGOS_VAULT"]
+		servers := hostServers(t, cfg)
+		servers[setup.Name] = map[string]any{"command": s.Bin, "args": s.Args, "env": s.Env}
+		write(servers)
 		return setup.Updated, nil
 	}
+	h.Remove = func(n string) (bool, error) {
+		servers := hostServers(t, cfg)
+		_, had := servers[n]
+		delete(servers, n)
+		write(servers)
+		return had, nil
+	}
 	return h
+}
+
+// hostServers reads the mcpServers map out of a host config.
+func hostServers(t *testing.T, cfg string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.MCPServers == nil {
+		c.MCPServers = map[string]any{}
+	}
+	return c.MCPServers
 }
 
 // The point of the command: an early adopter's sessions and checkpoints end up
@@ -304,10 +344,81 @@ func TestMigrateRepinsClaudeCodeWhenThePluginAlreadyConnectsIt(t *testing.T) {
 	}
 }
 
-// --yes is consent to the move, not to wiring every host to a binary Go
-// deletes the moment `go run` exits; after that no re-pinned host could start.
-func TestMigrateFromAGoRunBuildMovesNothing(t *testing.T) {
-	home, cp := oldVaultHome(t)
+// A re-pin changes the vault. Registering the binary that ran migrate instead
+// swapped every host onto it — npx, which asks the registry on every launch,
+// a copy `brew upgrade` never reaches, an older release, or a `go run` build
+// Go deletes on exit — and dropped whatever else the entry set.
+func TestMigrateRepinKeepsTheCommandAndEnvironmentTheHostAlreadyRuns(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	hostsOnMachine(t, h)
+	old := executable
+	executable = func() (string, error) { return filepath.Join(home, "go-build123", "b001", "exe", "logos"), nil }
+	t.Cleanup(func() { executable = old })
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("migrate failed: %v\n%s", err, out)
+	}
+	entry, _ := hostServers(t, h.Config())[setup.Name].(map[string]any)
+	env, _ := entry["env"].(map[string]any)
+	if entry["command"] != "/opt/logos" {
+		t.Errorf("Cursor now runs %v, not the /opt/logos it ran before\n%s", entry["command"], out)
+	}
+	if env["LOGOS_VAULT"] != filepath.Join(home, "logos") || env["LOGOS_EMBED"] != "off" {
+		t.Errorf("Cursor's environment after migrate is %v, want the old one with LOGOS_VAULT=~/logos", env)
+	}
+}
+
+// A host 0.4 setup wired has its entry under brain. Registering logos beside it
+// left the host running two servers, one of them still on ~/brain, every tool
+// listed twice — and migrate saying it had re-pinned the host.
+func TestMigrateReplacesAHostsOldBrainEntryRatherThanAddingASecondServer(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHostAs(t, "Cursor", setup.OldName, filepath.Join(home, "brain"), &cursor)
+	hostsOnMachine(t, h)
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("migrate failed: %v\n%s", err, out)
+	}
+	servers := hostServers(t, h.Config())
+	if _, ok := servers[setup.OldName]; ok {
+		t.Errorf("the 0.4 brain entry is still registered beside logos: %v\n%s", servers, out)
+	}
+	if entry, _ := servers[setup.Name].(map[string]any); entry["command"] != "/opt/logos" {
+		t.Errorf("the logos entry does not run what the brain entry ran: %v", servers)
+	}
+}
+
+// A host's own CLI replaces an entry outright, and the copy set aside is the
+// only way back from a re-pin somebody did not want.
+func TestMigrateKeepsABackupOfEachHostConfigItRewrites(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	hostsOnMachine(t, h)
+
+	captureStdout(t, func() {
+		if err := migrateCmd([]string{"--yes"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	raw, err := os.ReadFile(h.Config() + ".logos-backup")
+	if err != nil || !strings.Contains(string(raw), filepath.Join(home, "brain")) {
+		t.Errorf("no backup of Cursor's config as it was before the re-pin (%v)", err)
+	}
+}
+
+// A preview changes nothing and keeps no binary, so how it was built is beside
+// the point — and `go run ./cmd/logos migrate --dry-run` is how a contributor
+// looks first.
+func TestMigrateDryRunWorksFromAGoRunBuild(t *testing.T) {
+	home, _ := oldVaultHome(t)
 	var cursor string
 	hostsOnMachine(t, pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor))
 	old := executable
@@ -315,15 +426,9 @@ func TestMigrateFromAGoRunBuildMovesNothing(t *testing.T) {
 	t.Cleanup(func() { executable = old })
 
 	var err error
-	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
-	if err == nil {
-		t.Errorf("migrate from a go run build succeeded:\n%s", out)
-	}
-	if cursor != "" {
-		t.Errorf("Cursor was wired to a go run build: %q", cursor)
-	}
-	if _, err := os.Stat(filepath.Join(home, "brain", cp)); err != nil {
-		t.Errorf("the vault was moved before the refusal: %v", err)
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--dry-run"}) })
+	if err != nil {
+		t.Errorf("a dry run from a go run build failed: %v\n%s", err, out)
 	}
 }
 

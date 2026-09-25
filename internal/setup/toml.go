@@ -70,11 +70,16 @@ func readCodexServers(path string) ([]Registration, error) {
 		r := server(name)
 		switch {
 		case env:
+			if r.Server.Env == nil {
+				r.Server.Env = map[string]string{}
+			}
+			r.Server.Env[key] = tomlUnquote(val)
 			if key == "LOGOS_VAULT" {
 				r.Vault = tomlUnquote(val)
 			}
 		case key == "command":
 			r.Command = tomlUnquote(val)
+			r.Server.Bin = r.Command
 		case key == "args":
 			args[name] = tomlArray(val)
 		}
@@ -83,6 +88,7 @@ func readCodexServers(path string) ([]Registration, error) {
 	out := make([]Registration, 0, len(order))
 	for _, n := range order {
 		r := byName[n]
+		r.Server.Args = args[n]
 		r.Command = strings.TrimSpace(strings.Join(append([]string{r.Command}, args[n]...), " "))
 		out = append(out, *r)
 	}
