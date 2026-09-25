@@ -39,7 +39,8 @@ func migrateCmd(args []string) error {
 	// that failed part-way ends up here, and running migrate again is the
 	// retry its failure invites — so this finishes what is left, the record
 	// and the hosts, rather than calling it done.
-	moved := false
+	moved, relink := false, false
+	toFi, toErr := os.Stat(to)
 	fi, err := os.Lstat(from)
 	switch {
 	case err == nil && fi.Mode()&os.ModeSymlink != 0:
@@ -48,6 +49,11 @@ func migrateCmd(args []string) error {
 			return fmt.Errorf("%s is a link, not a vault — nothing to move", from)
 		}
 		moved = true
+	// A run whose link failed — Windows without Developer Mode refuses
+	// one — leaves no ~/brain at all, and hosts it could not re-pin still
+	// name it. The recorded ~/logos says that run happened.
+	case os.IsNotExist(err) && toErr == nil && toFi.IsDir() && filepath.Clean(vault.Pointer()) == to:
+		moved, relink = true, true
 	case os.IsNotExist(err):
 		return fmt.Errorf("there is no vault at %s to move", from)
 	case err != nil:
@@ -88,6 +94,7 @@ func migrateCmd(args []string) error {
 	type leave struct {
 		host setup.Host
 		why  string
+		fine bool // left on purpose, not a failure to report
 	}
 	var pinned []repin
 	var kept []leave
@@ -138,19 +145,27 @@ func migrateCmd(args []string) error {
 			if brainE != nil && vaultOf(*brainE) != "" && !isOld(brainE) {
 				h.Remove = nil
 			}
+		// logos already on ~/logos beside brain on ~/brain is a move whose
+		// removal of brain failed; brain is its leftover, not somebody's choice.
+		case isOld(brainE) && logosE != nil && vaultOf(*logosE) != "" && filepath.Clean(expandHome(vaultOf(*logosE))) == to:
+			chosen = logosE
 		case isOld(brainE) && logosE != nil:
 			uses := "follows this machine's vault"
 			if v := vaultOf(*logosE); v != "" {
 				uses = "uses " + v
 			}
-			kept = append(kept, leave{h, fmt.Sprintf("its logos entry %s, and the 0.4 %s entry beside it still names %s — remove that one by hand if it is not wanted", uses, setup.OldName, from)})
+			kept = append(kept, leave{h, fmt.Sprintf("its logos entry %s, and the 0.4 %s entry beside it still names %s — remove that one by hand if it is not wanted", uses, setup.OldName, from), false})
 		case isOld(brainE):
 			chosen = brainE
 		}
 		for _, e := range others {
-			kept = append(kept, leave{h, fmt.Sprintf("its %q entry names %s, and migrate re-pins only logos and 0.4's %s — change its vault by hand", e.Name, from, setup.OldName)})
+			kept = append(kept, leave{h, fmt.Sprintf("its %q entry names %s, and migrate re-pins only logos and 0.4's %s — change its vault by hand", e.Name, from, setup.OldName), false})
 		}
 		if chosen == nil {
+			continue
+		}
+		if chosen.Disabled {
+			kept = append(kept, leave{h, fmt.Sprintf("its %s entry is disabled; re-pinning would switch it on — enable it and run migrate again to re-pin it", chosen.Name), true})
 			continue
 		}
 		srv := chosen.Server
@@ -168,11 +183,14 @@ func migrateCmd(args []string) error {
 	}
 
 	record := pointer != to
-	if moved && !record && len(pinned) == 0 && len(kept) == 0 {
+	if moved && !relink && !record && len(pinned) == 0 && len(kept) == 0 {
 		fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
 		return nil
 	}
-	if moved {
+	if relink {
+		fmt.Printf("  vault      already at %s — finishing what is left\n", to)
+		fmt.Printf("  link       %s → %s, so anything still naming the old path finds it\n", from, to)
+	} else if moved {
 		fmt.Printf("  vault      already at %s; %s links to it — finishing what is left\n", to, from)
 	} else {
 		fmt.Printf("  move       %s → %s\n", from, to)
@@ -210,6 +228,8 @@ func migrateCmd(args []string) error {
 			return fmt.Errorf("could not move %s to %s: %w — nothing was changed", from, to, err)
 		}
 		fmt.Printf("  ✓ moved    %s → %s\n", from, to)
+	}
+	if !moved || relink {
 		if linkErr = symlink(to, from); linkErr != nil {
 			fmt.Printf("  ✗ link     could not link %s to it: %v — anything still naming %s will not find the vault\n", from, linkErr, from)
 			problems = append(problems, fmt.Sprintf("%s is not linked to it", from))
@@ -267,6 +287,9 @@ func migrateCmd(args []string) error {
 		}
 	}
 	for _, k := range kept {
+		if k.fine {
+			continue
+		}
 		problems = append(problems, fmt.Sprintf("%s was left on %s", k.host.Name, from))
 	}
 	fmt.Println("\n  restart any open agent sessions so they pick up the new path")

@@ -435,9 +435,18 @@ func readOpencodeServers(path string) ([]Registration, error) {
 			return nil, err
 		}
 	}
+	// enabled is read apart because opencode starts an entry that leaves it
+	// out; as a plain bool, absent would read as switched off.
+	enabled := map[string]struct {
+		Enabled *bool `json:"enabled"`
+	}{}
+	_ = json.Unmarshal(cfg["mcp"], &enabled)
 	out := make([]Registration, 0, len(servers))
 	for name, s := range servers {
 		r := Registration{Name: name, Command: strings.Join(s.Command, " "), Vault: s.Environment["LOGOS_VAULT"]}
+		if e := enabled[name].Enabled; e != nil && !*e {
+			r.Disabled = true
+		}
 		if len(s.Command) > 0 {
 			r.Server = Server{Bin: s.Command[0], Args: s.Command[1:], Env: s.Environment}
 		}

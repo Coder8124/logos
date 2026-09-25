@@ -158,6 +158,10 @@ type Registration struct {
 	// caller that rewrites the entry needs the binary, the arguments and the
 	// whole environment apart, or a path with a space in it is split.
 	Server Server
+	// Disabled is an entry the host keeps but does not start — opencode's
+	// "enabled": false. Registering writes it enabled, so a rewrite of one
+	// would switch on a server the user switched off.
+	Disabled bool
 }
 
 // Plan reports what Install would do, without doing any of it.

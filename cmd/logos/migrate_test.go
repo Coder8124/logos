@@ -723,3 +723,94 @@ func TestMigrateFailsWhenItCouldNotLinkTheOldPath(t *testing.T) {
 		t.Errorf("migrate exited 0 with the old path left unlinked:\n%s", out)
 	}
 }
+
+// A first run that re-pinned logos but could not take out the 0.4 brain entry
+// says so; the second run has to take it out. It read the pair as a logos
+// entry the user chose beside a brain entry to remove by hand, and failed on
+// every run after.
+func TestMigrateRunAgainRemovesABrainEntryTheFirstRunCouldNot(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	old := filepath.Join(home, "brain")
+	h := pinnedHostWith(t, "Cursor", map[string]string{setup.Name: old, setup.OldName: old}, &cursor)
+	stuck := h
+	stuck.Remove = func(string) (bool, error) { return false, errors.New("mcp.json is locked") }
+	hostsOnMachine(t, stuck)
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+
+	hostsOnMachine(t, h)
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("the second run failed: %v\n%s", err, out)
+	}
+	if _, left := hostServers(t, h.Config())[setup.OldName]; left {
+		t.Errorf("the second run left Cursor's brain entry in place:\n%s", out)
+	}
+}
+
+// Where a link cannot be made — Windows without Developer Mode — a first run
+// moves the vault and leaves no ~/brain at all. The second run read that as
+// "no vault to move", and a host the first could not re-pin was stuck on a
+// path that no longer exists.
+func TestMigrateRunAgainFinishesAMoveWhoseLinkFailed(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	broken := h
+	broken.Register = func(setup.Server) (setup.Outcome, error) {
+		return setup.Failed, errors.New("mcp.json is locked")
+	}
+	hostsOnMachine(t, broken)
+	symlink = func(string, string) error { return errors.New("operation not permitted") }
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	symlink = os.Symlink
+
+	hostsOnMachine(t, h)
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("the second run failed: %v\n%s", err, out)
+	}
+	if cursor != filepath.Join(home, "logos") {
+		t.Errorf("the second run left Cursor pinned to %q:\n%s", cursor, out)
+	}
+	if dest, _ := filepath.EvalSymlinks(filepath.Join(home, "brain")); dest != filepath.Join(home, "logos") {
+		t.Errorf("the second run did not make the link: ~/brain resolves to %q", dest)
+	}
+}
+
+// opencode's own switch for a server. Re-registering writes enabled: true, so
+// re-pinning a disabled entry would turn it back on; it is left as it is, and
+// said so, and a run that leaves only that is not a failure.
+func TestMigrateLeavesADisabledOpencodeEntryOffAndSaysSo(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	t.Setenv("PATH", t.TempDir())
+	dir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "opencode.json")
+	body := `{"mcp": {"logos": {"type": "local", "command": ["/opt/logos", "mcp", "serve"], "enabled": false, "environment": {"LOGOS_VAULT": "` + filepath.Join(home, "brain") + `"}}}}`
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range setup.Hosts() {
+		if h.Name == "opencode" {
+			hostsOnMachine(t, h)
+		}
+	}
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Errorf("migrate failed over a disabled entry: %v\n%s", err, out)
+	}
+	raw, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(raw), `"enabled": false`) {
+		t.Errorf("opencode's disabled logos entry was changed:\n%s", raw)
+	}
+	if !strings.Contains(out, "disabled") {
+		t.Errorf("migrate did not say it left the disabled entry:\n%s", out)
+	}
+}
