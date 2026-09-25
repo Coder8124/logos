@@ -65,18 +65,19 @@ func nrem(db *sql.DB, rt *router.Router, dryRun bool, res *Result) error {
 // and reports how many rows would actually move. Deliberately *not* logged per
 // memory: it touches every row, and a memory_log line each would bury the
 // timeline the log exists to keep legible. Only structural events (merge,
-// supersede) leave a trace.
+// supersede) leave a trace. A memory in quarantine is skipped, as decay skips
+// it: nothing waiting for review has earned an opinion of its importance.
 func downscale(db *sql.DB, dryRun bool) (int, error) {
 	var n int
 	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM memories WHERE superseded = 0 AND salience > ?`, SalienceFloor).Scan(&n); err != nil {
+		`SELECT COUNT(*) FROM memories WHERE superseded = 0 AND quarantined = 0 AND salience > ?`, SalienceFloor).Scan(&n); err != nil {
 		return 0, err
 	}
 	if dryRun || n == 0 {
 		return n, nil
 	}
 	_, err := db.Exec(
-		`UPDATE memories SET salience = MAX(?, salience * ?) WHERE superseded = 0 AND salience > ?`,
+		`UPDATE memories SET salience = MAX(?, salience * ?) WHERE superseded = 0 AND quarantined = 0 AND salience > ?`,
 		SalienceFloor, DownscaleFactor, SalienceFloor)
 	return n, err
 }

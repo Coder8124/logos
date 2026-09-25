@@ -145,6 +145,23 @@ func TestDownscaleDryRunWritesNothing(t *testing.T) {
 	}
 }
 
+// A memory in the review queue has not been accepted, so it has not earned an
+// opinion about its own importance yet; the nightly downscale lowered it 2% a
+// night anyway, while decay already left it alone (#136).
+func TestDownscaleLeavesAMemoryWaitingForReviewAlone(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created, quarantined) VALUES ('held','context',1.0,0.7,'manual',1,1)`)
+	n, err := downscale(db, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s float64
+	db.QueryRow(`SELECT salience FROM memories WHERE text='held'`).Scan(&s)
+	if n != 0 || s != 1.0 {
+		t.Errorf("downscale counted %d and left a quarantined memory at %v, want 0 and 1.0", n, s)
+	}
+}
+
 // ---------- a night that fails says so ----------
 
 // Consolidation used to be called as `if err == nil { record it }`, so a broken
