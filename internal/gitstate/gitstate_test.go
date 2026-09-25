@@ -610,3 +610,44 @@ func TestReadingAPartialCloneFetchesNothing(t *testing.T) {
 	_ = old.Run()
 	assertNotRun(t, marker, "remote.origin.uploadpack, without GIT_NO_LAZY_FETCH")
 }
+
+func TestATreeGitCannotReadIsNotRecordedAsClean(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	// A truncated index makes status exit 128 while HEAD still resolves, so
+	// the branch and commit are known and the working tree is not.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("DIRC"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := Read(dir)
+	if s.Commit == "" {
+		t.Fatal("HEAD should still resolve with a broken index")
+	}
+	if !s.Unreadable {
+		t.Error("a status git refused is not marked unreadable")
+	}
+	if got := s.Summary(); strings.Contains(got, "clean") || !strings.Contains(got, "unreadable") {
+		t.Errorf("summary = %q; a tree git could not read is not clean", got)
+	}
+}
+
+func TestADiffAPartialCloneCannotReadIsSaidToBeUnreadable(t *testing.T) {
+	server := repo(t)
+	commit(t, server, "a.txt", "one\n", "the first commit")
+	gitRun(t, server, "config", "uploadpack.allowFilter", "true")
+	dir := filepath.Join(t.TempDir(), "clone")
+	gitRun(t, server, "clone", "-q", "--no-checkout", "--filter=blob:none", "file://"+server, dir)
+	gitRun(t, dir, "reset", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := Read(dir)
+	if s.Dirty != 1 {
+		t.Fatalf("dirty = %d, want 1", s.Dirty)
+	}
+	// Without the old blob there is nothing to count against, and +0/-0 would
+	// claim the edit changed nothing.
+	if !s.Unreadable || !strings.Contains(s.Summary(), "unreadable") {
+		t.Errorf("summary = %q, unreadable = %v; a diff git could not compute was recorded as no change", s.Summary(), s.Unreadable)
+	}
+}

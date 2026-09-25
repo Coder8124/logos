@@ -54,6 +54,10 @@ func commitTo(t *testing.T, dir, path, subject, author string) {
 	run(t, dir, "commit", "-m", subject, "--author", author)
 }
 
+// found drops FromGitHistory's unread list for the tests that read a whole,
+// healthy repository.
+func found(cs []Candidate, _ []string) []Candidate { return cs }
+
 func texts(cs []Candidate) string {
 	var b strings.Builder
 	for _, c := range cs {
@@ -73,7 +77,7 @@ func find(cs []Candidate, substr string) (Candidate, bool) {
 }
 
 func TestNotARepositorySaysNothing(t *testing.T) {
-	if got := FromGitHistory(t.TempDir(), 12); got != nil {
+	if got := found(FromGitHistory(t.TempDir(), 12)); got != nil {
 		t.Fatalf("a directory that is not a repository produced %d candidates", len(got))
 	}
 }
@@ -86,7 +90,7 @@ func TestYoungRepositorySaysNothing(t *testing.T) {
 	for i := 0; i < minCommits-1; i++ {
 		commitTo(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), "Ada Lovelace <ada@example.com>")
 	}
-	if got := FromGitHistory(dir, 12); got != nil {
+	if got := found(FromGitHistory(dir, 12)); got != nil {
 		t.Fatalf("a repository below the floor produced %d candidates:\n%s", len(got), texts(got))
 	}
 }
@@ -99,7 +103,7 @@ func TestDominantAuthorIsNamed(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitTo(t, dir, fmt.Sprintf("docs/d%d.md", i), fmt.Sprintf("doc %d", i), "Grace Hopper <grace@example.com>")
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	c, ok := find(got, "Ada Lovelace")
 	if !ok {
 		t.Fatalf("dominant author not named:\n%s", texts(got))
@@ -128,7 +132,7 @@ func TestSplitAuthorshipIsNotGivenAnOwner(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		commitTo(t, dir, fmt.Sprintf("core/f%d.go", i), fmt.Sprintf("add f%d", i), authors[i%3])
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	if _, ok := find(got, "writes most of this codebase"); ok {
 		t.Fatalf("an evenly split repository was given a main author:\n%s", texts(got))
 	}
@@ -145,7 +149,7 @@ func TestHotspotsNameTheBusyAreas(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		commitTo(t, dir, fmt.Sprintf("docs/d%d.md", i), fmt.Sprintf("doc %d", i), "Ada Lovelace <ada@example.com>")
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	c, ok := find(got, "Change concentrates in")
 	if !ok {
 		t.Fatalf("no hot spot reported:\n%s", texts(got))
@@ -171,9 +175,9 @@ func TestOutputIsStableAcrossRuns(t *testing.T) {
 		}
 		commitTo(t, dir, fmt.Sprintf("%s/pkg/f%d.go", area, i), fmt.Sprintf("add f%d", i), "Ada Lovelace <ada@example.com>")
 	}
-	first := texts(FromGitHistory(dir, 12))
+	first := texts(found(FromGitHistory(dir, 12)))
 	for i := 0; i < 3; i++ {
-		if again := texts(FromGitHistory(dir, 12)); again != first {
+		if again := texts(found(FromGitHistory(dir, 12))); again != first {
 			t.Fatalf("output is not stable:\nfirst:\n%s\nlater:\n%s", first, again)
 		}
 	}
@@ -184,7 +188,7 @@ func TestConventionalCommitsDetected(t *testing.T) {
 	for i := 0; i < 24; i++ {
 		commitTo(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("feat(core): add f%d", i), "Ada Lovelace <ada@example.com>")
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	if _, ok := find(got, "Conventional Commits"); !ok {
 		t.Fatalf("conventional commits not detected:\n%s", texts(got))
 	}
@@ -202,7 +206,7 @@ func TestMixedCommitStyleIsNotReported(t *testing.T) {
 		}
 		commitTo(t, dir, fmt.Sprintf("src/f%d.go", i), subject, "Ada Lovelace <ada@example.com>")
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	if _, ok := find(got, "Conventional Commits"); ok {
 		t.Errorf("a 50/50 repository was reported as conventional:\n%s", texts(got))
 	}
@@ -216,7 +220,7 @@ func TestEveryCandidateCarriesEvidenceAndSubHumanConfidence(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		commitTo(t, dir, fmt.Sprintf("internal/x/f%d.go", i), fmt.Sprintf("Add f%d", i), "Ada Lovelace <ada@example.com>")
 	}
-	got := FromGitHistory(dir, 12)
+	got := found(FromGitHistory(dir, 12))
 	if len(got) == 0 {
 		t.Fatal("nothing produced for a repository well past the floor")
 	}
@@ -269,4 +273,33 @@ func TestTopDirs(t *testing.T) {
 			t.Errorf("topDirs(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
+}
+
+func TestFileHistoryGitCannotReadIsNamedRatherThanReportedEmpty(t *testing.T) {
+	dir := repo(t)
+	for i := 0; i < 25; i++ {
+		commitTo(t, dir, fmt.Sprintf("internal/store/f%d.go", i), fmt.Sprintf("Add store file %d", i), "Ada Lovelace <ada@example.com>")
+	}
+	// Remove one old commit's root tree, as a treeless clone lacks it: the
+	// commits still list, and the files they changed cannot.
+	tree := strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD~5^{tree}"))
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", tree[:2], tree[2:])); err != nil {
+		t.Fatal(err)
+	}
+	got, unread := FromGitHistory(dir, 12)
+	if _, ok := find(got, "Ada Lovelace"); !ok {
+		t.Errorf("authorship needs no trees and should still be read:\n%s", texts(got))
+	}
+	if len(unread) != 1 || !strings.Contains(unread[0], "files") {
+		t.Errorf("unread = %q; the file history git refused is not named", unread)
+	}
+}
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
 }

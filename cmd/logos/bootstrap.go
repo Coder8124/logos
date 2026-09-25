@@ -47,7 +47,15 @@ func runBootstrap(args []string) error {
 		project = filepath.Base(filepath.Clean(dir))
 	}
 
-	found := bootstrap.FromGitHistory(dir, months)
+	found, unread := bootstrap.FromGitHistory(dir, months)
+	// Before either verdict: "nothing to seed" about a repository git refused
+	// to read is a claim about its history that nobody checked (#204).
+	for _, what := range unread {
+		fmt.Printf("git refused to read %s here, so nothing below is drawn from it.\n", what)
+	}
+	if len(unread) > 0 {
+		fmt.Println()
+	}
 	if len(found) == 0 {
 		// Not an error. A shallow clone, a young repository, or a directory that
 		// is not a repository at all are all legitimate — and seeding something

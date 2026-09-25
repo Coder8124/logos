@@ -62,6 +62,11 @@ func (c Checkpoint) Markdown(follows string) string {
 		if c.Git.Dirty > 0 {
 			fmt.Fprintf(&b, "uncommitted: %d\n", c.Git.Dirty)
 		}
+		// Kept so a rebuilt index does not turn "could not read" back into
+		// "clean", which is what the missing uncommitted line would say (#204).
+		if c.Git.Unreadable {
+			b.WriteString("uncommitted_unreadable: true\n")
+		}
 		if c.Git.Worktree != "" {
 			fmt.Fprintf(&b, "worktree: %s\n", yamlStr(c.Git.Worktree))
 		}
@@ -221,6 +226,7 @@ type checkpointFM struct {
 	Commit        string   `yaml:"commit"`
 	CommitSubject string   `yaml:"commit_subject"`
 	Uncommitted   int      `yaml:"uncommitted"`
+	Unreadable    bool     `yaml:"uncommitted_unreadable"`
 	Worktree      string   `yaml:"worktree"`
 	Remote        string   `yaml:"remote"`
 	RepoRoot      string   `yaml:"repo_root"`
@@ -246,14 +252,15 @@ func ParseCheckpoint(raw string) Checkpoint {
 		AutoClosed: fm.AutoClosed,
 		Auto:       fm.Auto,
 		Git: gitstate.State{
-			Branch:   fm.Branch,
-			Commit:   fm.Commit,
-			Subject:  fm.CommitSubject,
-			Dirty:    fm.Uncommitted,
-			Worktree: fm.Worktree,
-			Remote:   fm.Remote,
-			Root:     fm.RepoRoot,
-			Files:    fm.Touched,
+			Branch:     fm.Branch,
+			Commit:     fm.Commit,
+			Subject:    fm.CommitSubject,
+			Dirty:      fm.Uncommitted,
+			Unreadable: fm.Unreadable,
+			Worktree:   fm.Worktree,
+			Remote:     fm.Remote,
+			Root:       fm.RepoRoot,
+			Files:      fm.Touched,
 		},
 	}
 	// Prefer the precise instant; fall back to the date for checkpoints written

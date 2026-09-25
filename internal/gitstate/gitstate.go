@@ -19,7 +19,9 @@
 // Everything here degrades to the zero value. A directory that is not a repo, a
 // git that is not installed, a detached HEAD, a repo with no commits: each
 // returns an empty State and no error, because a checkpoint that refuses to save
-// because git was unavailable would be worse than one without a sha.
+// because git was unavailable would be worse than one without a sha. The one
+// exception is the working tree: a status or diff git refused is marked
+// Unreadable, because its zero value would otherwise read as "clean".
 package gitstate
 
 import (
@@ -59,6 +61,11 @@ type State struct {
 	// is origin's URL; Root is the main checkout, shared by its worktrees.
 	Remote string
 	Root   string
+	// Unreadable is set when git refused the status or the diff: a corrupt
+	// index, or a partial clone missing the objects a diff needs. Without it
+	// the zero Dirty and zero diffstat such a read leaves behind would be
+	// recorded as "clean", a claim nothing checked (#204).
+	Unreadable bool
 }
 
 // Empty reports whether anything was learned. Callers use it to decide whether
@@ -99,8 +106,14 @@ func Read(dir string) State {
 	}
 
 	s.Remote, s.Root = Identity(dir)
-	s.Files, s.Dirty = dirtyFiles(dir)
-	s.Insertions, s.Deletions = diffStat(dir)
+	var statusErr, diffErr error
+	s.Files, s.Dirty, statusErr = dirtyFiles(dir)
+	// A repository with no commits has no HEAD to diff against, which is an
+	// answer and not a refusal.
+	if s.Commit != "" {
+		s.Insertions, s.Deletions, diffErr = diffStat(dir)
+	}
+	s.Unreadable = statusErr != nil || diffErr != nil
 	return s
 }
 
@@ -189,7 +202,7 @@ func isRepo(dir string) bool {
 // dirtyFiles lists paths with uncommitted changes. The count is the true total
 // even when the list is capped, because "3 of 47 files" and "3 files" are
 // different situations and the second would be a lie.
-func dirtyFiles(dir string) ([]string, int) {
+func dirtyFiles(dir string) ([]string, int, error) {
 	// gitLines, not git: porcelain output is column-significant, and the
 	// leading status column is a space for an unstaged change (" M a.txt").
 	// Trimming the whole output strips that space off the first line only, so
@@ -197,9 +210,9 @@ func dirtyFiles(dir string) ([]string, int) {
 	// filename — "a.txt" became ".txt", on exactly one line of the output.
 	// status finds renames among staged changes like diff does, at the same
 	// cost, so it gets the same limit diffStat explains.
-	out := gitLines(dir, "-c", "status.renameLimit="+renameLimit, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all")
-	if out == "" {
-		return nil, 0
+	out, err := gitLines(dir, "-c", "status.renameLimit="+renameLimit, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all")
+	if err != nil || out == "" {
+		return nil, 0, err
 	}
 	var files []string
 	total := 0
@@ -222,7 +235,7 @@ func dirtyFiles(dir string) ([]string, int) {
 			files = append(files, path)
 		}
 	}
-	return files, total
+	return files, total, nil
 }
 
 // renameLimit bounds the renamed-and-edited search to 200 files a side. Git
@@ -240,10 +253,10 @@ const renameLimit = "200"
 // with optional locks off, and that write runs post-index-change (#197).
 // -M because diff finds renames by default and diff-index does not: without
 // it, a moved file counts as deleted and added whole.
-func diffStat(dir string) (insertions, deletions int) {
-	out := git(dir, "diff-index", "-M", "-l"+renameLimit, "--numstat", "--ignore-submodules=all", "HEAD")
-	if out == "" {
-		return 0, 0
+func diffStat(dir string) (insertions, deletions int, err error) {
+	out, err := gitLines(dir, "diff-index", "-M", "-l"+renameLimit, "--numstat", "--ignore-submodules=all", "HEAD")
+	if err != nil || out == "" {
+		return 0, 0, err
 	}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
@@ -258,26 +271,29 @@ func diffStat(dir string) (insertions, deletions int) {
 			deletions += n
 		}
 	}
-	return insertions, deletions
+	return insertions, deletions, nil
 }
 
 // git runs one command and returns trimmed stdout, or "" on any failure.
 //
-// Errors are swallowed deliberately. Every caller here treats "could not find
-// out" and "there is nothing to find out" identically, and a checkpoint is not
-// the place to surface that git exited 128 because the repo has no commits yet.
+// Errors are swallowed deliberately for the identity reads — branch, commit,
+// remote — where "could not find out" and "there is nothing to find out" are
+// the same answer, and a checkpoint is not the place to surface that git
+// exited 128 because the repo has no commits yet. The status and the diff use
+// gitLines and keep the error, because there an empty answer is a claim: clean.
 func git(dir string, args ...string) string {
-	return strings.TrimSpace(gitLines(dir, args...))
+	out, _ := gitLines(dir, args...)
+	return strings.TrimSpace(out)
 }
 
 // gitLines is git without trimming leading whitespace, for output whose columns
 // carry meaning. Only the trailing newline is removed.
-func gitLines(dir string, args ...string) string {
+func gitLines(dir string, args ...string) (string, error) {
 	out, err := SafeGit(dir, gitTimeout, args...)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return strings.TrimRight(out, "\n")
+	return strings.TrimRight(out, "\n"), nil
 }
 
 // Summary renders the state as one line for a checkpoint's frontmatter or a
@@ -294,6 +310,8 @@ func (s State) Summary() string {
 		parts = append(parts, s.Commit)
 	}
 	switch {
+	case s.Unreadable && s.Dirty == 0:
+		parts = append(parts, "uncommitted changes unreadable")
 	case s.Dirty == 0 && s.Commit != "":
 		parts = append(parts, "clean")
 	case s.Dirty == 1:
@@ -301,7 +319,11 @@ func (s State) Summary() string {
 	case s.Dirty > 1:
 		parts = append(parts, strconv.Itoa(s.Dirty)+" files uncommitted")
 	}
-	if s.Insertions > 0 || s.Deletions > 0 {
+	if s.Unreadable && s.Dirty > 0 {
+		// The status was read and the diff was not, so the files are known and
+		// how much they changed is not.
+		parts = append(parts, "diff unreadable")
+	} else if s.Insertions > 0 || s.Deletions > 0 {
 		parts = append(parts, "+"+strconv.Itoa(s.Insertions)+"/-"+strconv.Itoa(s.Deletions))
 	}
 	return strings.Join(parts, " · ")

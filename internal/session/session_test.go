@@ -2,6 +2,7 @@ package session
 
 import (
 	"database/sql"
+	"github.com/Coder8124/logos/internal/gitstate"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -564,5 +565,16 @@ func TestEachParallelAgentsCheckpointCarriesItsOwnNotes(t *testing.T) {
 				t.Errorf("%s's checkpoint took %s's note:\n%s", a, other, c.State)
 			}
 		}
+	}
+}
+
+func TestAnUnreadableTreeIsStillUnreadableAfterTheIndexIsRebuilt(t *testing.T) {
+	c := Checkpoint{
+		Project: "shop", Agent: "claude", Task: "t", TS: 1755172800,
+		Git: gitstate.State{Branch: "main", Commit: "a3f9c2e", Unreadable: true},
+	}
+	got := ParseCheckpoint(c.Markdown(""))
+	if !got.Git.Unreadable {
+		t.Fatalf("parsed git state %+v says clean; the note was written when git could not read the tree", got.Git)
 	}
 }

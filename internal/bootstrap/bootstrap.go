@@ -67,12 +67,17 @@ type Candidate struct {
 // the project. An empty slice is a legitimate answer: a repository with three
 // commits has nothing worth seeding, and inventing something for it would be
 // worse than starting cold.
-func FromGitHistory(dir string, months int) []Candidate {
+//
+// unread names each part of the history git refused to give — a treeless
+// clone cannot list the files a commit changed — so the caller can say which
+// question went unanswered rather than let it read as a repository with no
+// file history (#204).
+func FromGitHistory(dir string, months int) (found []Candidate, unread []string) {
 	if months <= 0 {
 		months = 12
 	}
 	if !isRepo(dir) {
-		return nil
+		return nil, nil
 	}
 	since := fmt.Sprintf("--since=%d months ago", months)
 
@@ -84,21 +89,21 @@ func FromGitHistory(dir string, months int) []Candidate {
 	// Counting them only in the denominator would report "132 of the last 152"
 	// for an author who in fact wrote 132 of 132 — a ratio understated by
 	// exactly the merges nobody typed.
-	total := countLines(gitLines(dir, "log", since, "--no-merges", "--format=%H"))
+	total := countLines(read(dir, &unread, "the commit log", "log", since, "--no-merges", "--format=%H"))
 	if total < minCommits {
-		return nil
+		return nil, unread
 	}
 
 	var out []Candidate
-	out = append(out, authors(dir, since, total)...)
-	out = append(out, hotspots(dir, since, total)...)
-	if c, ok := commitStyle(dir, since, total); ok {
+	out = append(out, authors(dir, since, total, &unread)...)
+	out = append(out, hotspots(dir, since, total, &unread)...)
+	if c, ok := commitStyle(dir, since, total, &unread); ok {
 		out = append(out, c)
 	}
 	if c, ok := cadence(dir, since, total, months); ok {
 		out = append(out, c)
 	}
-	return out
+	return out, unread
 }
 
 // minCommits is the floor below which history says nothing generalisable.
@@ -109,14 +114,14 @@ const minCommits = 20
 // authors names who actually writes this code, and only while that is a fact
 // rather than a tie. A repository where the top author holds 12% of commits has
 // no "main author", and saying it does would send an agent to the wrong person.
-func authors(dir, since string, total int) []Candidate {
+func authors(dir, since string, total int, unread *[]string) []Candidate {
 	// HEAD explicitly, and not --all. Two reasons, both learned the hard way:
 	// --all counts every ref including branches never merged, while the total
 	// this is a share of comes from HEAD — mixing them prints "132 of the last
 	// 129 commits" and destroys trust in every other number on the page. And
 	// shortlog with no revision at all reads *stdin*, so dropping --all without
 	// naming HEAD silently yields nothing.
-	lines := strings.Split(gitLines(dir, "shortlog", "-sn", "--no-merges", "HEAD", since), "\n")
+	lines := strings.Split(read(dir, unread, "who wrote the commits", "shortlog", "-sn", "--no-merges", "HEAD", since), "\n")
 	type author struct {
 		name string
 		n    int
@@ -170,8 +175,8 @@ func authors(dir, since string, total int) []Candidate {
 // hotspots names the directories change concentrates in. This is the item that
 // most earns its place: "where does work happen here" is the question a new
 // agent asks first, and the answer is measurable rather than guessable.
-func hotspots(dir, since string, total int) []Candidate {
-	raw := gitLines(dir, "log", since, "--no-merges", "--name-only", "--format=")
+func hotspots(dir, since string, total int, unread *[]string) []Candidate {
+	raw := read(dir, unread, "which files the commits changed", "log", since, "--no-merges", "--name-only", "--format=")
 	counts := map[string]int{}
 	for _, f := range strings.Split(raw, "\n") {
 		f = strings.TrimSpace(f)
@@ -228,8 +233,8 @@ func hotspots(dir, since string, total int) []Candidate {
 // matches the repository instead of its own defaults. Only reported when the
 // pattern actually dominates — a repository that is 55% one style has no style,
 // and telling an agent otherwise makes its commits look wrong half the time.
-func commitStyle(dir, since string, total int) (Candidate, bool) {
-	subjects := strings.Split(gitLines(dir, "log", since, "--no-merges", "--format=%s"), "\n")
+func commitStyle(dir, since string, total int, unread *[]string) (Candidate, bool) {
+	subjects := strings.Split(read(dir, unread, "the commit subjects", "log", since, "--no-merges", "--format=%s"), "\n")
 	var conventional, imperativeCap, n int
 	for _, s := range subjects {
 		s = strings.TrimSpace(s)
@@ -385,17 +390,24 @@ func isRepo(dir string) bool {
 	return git(dir, "rev-parse", "--is-inside-work-tree") == "true"
 }
 
-// git and gitLines mirror internal/gitstate: errors are swallowed because every
-// caller treats "could not find out" and "there is nothing to find out" the
-// same, and a bootstrap that reported git's exit codes would be reporting on
-// repositories it was never going to seed anyway.
+// git swallows errors, for the reads where "could not find out" and "there is
+// nothing to find out" are the same answer: is this a repository, when was the
+// last commit.
 func git(dir string, args ...string) string {
-	return strings.TrimSpace(gitLines(dir, args...))
-}
-
-func gitLines(dir string, args ...string) string {
 	out, err := gitstate.SafeGit(dir, gitTimeout, args...)
 	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// read is for the history itself, where an empty answer is a claim — no
+// authors, no file history — and a refusal must not be mistaken for one. On
+// failure it adds what to unread and returns "".
+func read(dir string, unread *[]string, what string, args ...string) string {
+	out, err := gitstate.SafeGit(dir, gitTimeout, args...)
+	if err != nil {
+		*unread = append(*unread, what)
 		return ""
 	}
 	return strings.TrimRight(out, "\n")
