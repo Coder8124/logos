@@ -70,8 +70,9 @@ func (s State) Empty() bool { return s.Commit == "" && s.Branch == "" }
 const maxFiles = 20
 
 // gitTimeout bounds every call. A checkpoint must not hang because a repository
-// is on a slow network mount or an index lock is held.
-const gitTimeout = 3 * time.Second
+// is on a slow network mount or an index lock is held. A variable only so a
+// test can reach it with a repository a tenth the size.
+var gitTimeout = 3 * time.Second
 
 // Read gathers the repository state at dir. Never returns an error: absence of
 // git state is a normal condition, not a failure.
@@ -194,7 +195,9 @@ func dirtyFiles(dir string) ([]string, int) {
 	// Trimming the whole output strips that space off the first line only, so
 	// the fixed-offset parse below silently eats a character of the first
 	// filename — "a.txt" became ".txt", on exactly one line of the output.
-	out := gitLines(dir, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all")
+	// status finds renames among staged changes like diff does, at the same
+	// cost, so it gets the same limit diffStat explains.
+	out := gitLines(dir, "-c", "status.renameLimit="+renameLimit, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all")
 	if out == "" {
 		return nil, 0
 	}
@@ -222,6 +225,13 @@ func dirtyFiles(dir string) ([]string, int) {
 	return files, total
 }
 
+// renameLimit bounds the renamed-and-edited search to 200 files a side. Git
+// scores every deleted file against every added one, and unbounded that took
+// nine seconds on a 900-file restructuring — past gitTimeout, where a timed-out
+// read counts as no change at all. Exact moves are found at any size; past the
+// limit only an edited rename reads as a delete and an add.
+const renameLimit = "200"
+
 // diffStat totals the uncommitted change. Tracked files only — an untracked
 // file has no diff to measure, and counting its whole length as insertions
 // would overstate the change.
@@ -229,12 +239,9 @@ func dirtyFiles(dir string) ([]string, int) {
 // diff-index, not diff: diff refreshes a stale index and writes it back even
 // with optional locks off, and that write runs post-index-change (#197).
 // -M because diff finds renames by default and diff-index does not: without
-// it, a moved file counts as deleted and added whole. -l1 keeps it to exact
-// moves: scoring every deleted file against every added one took nine seconds
-// on a 900-file restructuring, past the timeout, and a timed-out diff counts
-// as no change at all.
+// it, a moved file counts as deleted and added whole.
 func diffStat(dir string) (insertions, deletions int) {
-	out := git(dir, "diff-index", "-M", "-l1", "--numstat", "--ignore-submodules=all", "HEAD")
+	out := git(dir, "diff-index", "-M", "-l"+renameLimit, "--numstat", "--ignore-submodules=all", "HEAD")
 	if out == "" {
 		return 0, 0
 	}

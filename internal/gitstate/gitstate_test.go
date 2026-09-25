@@ -496,19 +496,20 @@ func TestAnLFSExtensionSpelledInAnotherCaseStillTurnsTheLFSFilterOff(t *testing.
 }
 
 // Rename detection that compares every deleted file with every added one ran
-// past the timeout on a large restructuring, and a timed-out diff reads as no
-// change at all: the biggest change a session made was recorded as +0/-0.
+// past the timeout on a large restructuring, and a timed-out read reads as no
+// change at all: the biggest change a session made was recorded as a clean
+// tree with +0/-0. The timeout is lowered so the repository can be small —
+// unbounded, this one takes about twice the lowered timeout; bounded, a tenth.
 func TestALargeRestructuringIsStillCounted(t *testing.T) {
-	if testing.Short() {
-		t.Skip("writes several thousand files")
-	}
+	defer func(d time.Duration) { gitTimeout = d }(gitTimeout)
+	gitTimeout = 750 * time.Millisecond
 	dir := repo(t)
 	// Every line unique to its file, so no pair is similar and rename
 	// detection has to score all of them.
-	write := func(kind string, n int) {
-		for i := 0; i < n; i++ {
+	write := func(kind string) {
+		for i := 0; i < 900; i++ {
 			var body strings.Builder
-			for j := 0; j < 2000; j++ {
+			for j := 0; j < 600; j++ {
 				fmt.Fprintf(&body, "%s %d line %d\n", kind, i, j)
 			}
 			name := filepath.Join(dir, fmt.Sprintf("%s%d.txt", kind, i))
@@ -517,13 +518,47 @@ func TestALargeRestructuringIsStillCounted(t *testing.T) {
 			}
 		}
 	}
-	write("old", 900)
+	write("old")
 	gitRun(t, dir, "add", ".")
 	gitRun(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "the old layout")
 	gitRun(t, dir, "rm", "-q", "old*.txt")
-	write("new", 900)
+	write("new")
 	gitRun(t, dir, "add", ".")
-	if s := Read(dir); s.Insertions == 0 && s.Deletions == 0 {
+	s := Read(dir)
+	if s.Insertions == 0 && s.Deletions == 0 {
 		t.Error("a 900-file restructuring was recorded as +0/-0")
+	}
+	// status finds renames too, at the same cost, and a timed-out status
+	// reads as a clean tree.
+	if s.Dirty == 0 {
+		t.Error("a 900-file restructuring was recorded as a clean tree")
+	}
+}
+
+// Exact moves are not the only renames worth finding: two files renamed with a
+// line added to each are a two-line change, not two files rewritten.
+func TestRenamingAFewFilesWithSmallEditsCountsTheEditsOnly(t *testing.T) {
+	dir := repo(t)
+	var body strings.Builder
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&body, "line %d\n", i)
+	}
+	commit(t, dir, "a.go", "a\n"+body.String(), "the first commit")
+	commit(t, dir, "b.go", "b\n"+body.String(), "the second commit")
+	gitRun(t, dir, "mv", "a.go", "a_v2.go")
+	gitRun(t, dir, "mv", "b.go", "b_v2.go")
+	for _, f := range []string{"a_v2.go", "b_v2.go"} {
+		p := filepath.Join(dir, f)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, append(b, "added\n"...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitRun(t, dir, "add", ".")
+	if s := Read(dir); s.Insertions != 2 || s.Deletions != 0 {
+		t.Errorf("diffstat = +%d/-%d, want +2/-0", s.Insertions, s.Deletions)
 	}
 }
