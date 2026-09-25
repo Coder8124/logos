@@ -126,12 +126,23 @@ func mergeTOMLServer(path string, s Server) (Outcome, error) {
 	if form := unsupportedServerForm(string(raw)); form != "" {
 		return Failed, fmt.Errorf("%s declares its MCP servers as %s, which logos does not edit, so it was left alone — add the block `logos setup --print-config --format toml` prints by hand", path, form)
 	}
+	own := userTOMLKeys(string(raw), Name)
 	kept, had := dropServerTables(string(raw), Name)
 	out := strings.TrimRight(kept, "\n")
 	if out != "" {
 		out += "\n\n"
 	}
-	if err := writeHostFile(path, []byte(out+renderConfigTOML(s))); err != nil {
+	table := renderConfigTOML(s)
+	if own != "" {
+		// Into the server's own table: after the env header they would be
+		// read as environment variables.
+		if i := strings.Index(table, "\n\n["); i >= 0 {
+			table = table[:i+1] + own + table[i+1:]
+		} else {
+			table += own
+		}
+	}
+	if err := writeHostFile(path, []byte(out+table)); err != nil {
 		return Failed, err
 	}
 	regs, err := readCodexServers(path)
@@ -147,6 +158,88 @@ func mergeTOMLServer(path string, s Server) (Outcome, error) {
 		}
 	}
 	return Failed, fmt.Errorf("wrote %s but no logos server reads back from it", path)
+}
+
+// userTOMLKeys is every key in the [mcp_servers.<name>] table that setup does
+// not write, verbatim and with any lines its value runs on to.
+//
+// #205: the table was dropped and rendered afresh, so enabled = false and
+// startup_timeout_sec went on every re-run of setup — a server the user had
+// switched off came back on. command, args and env are setup's and are left
+// for the render; everything else is the user's.
+func userTOMLKeys(toml, name string) string {
+	var b strings.Builder
+	var v tomlValue
+	in, keep := false, false
+	for _, line := range strings.SplitAfter(toml, "\n") {
+		if v.open() {
+			v.scan(line)
+			if keep {
+				b.WriteString(line)
+			}
+			continue
+		}
+		t := strings.TrimSpace(stripComment(line))
+		if strings.HasPrefix(t, "[") {
+			server, env := codexTable(t)
+			in = server == name && !env
+			continue
+		}
+		if !in || t == "" {
+			continue
+		}
+		key, _, _ := strings.Cut(t, "=")
+		key = strings.TrimSpace(key)
+		keep = key != "command" && key != "args" && key != "env"
+		v.scan(line)
+		if keep {
+			b.WriteString(strings.TrimRight(line, "\n") + "\n")
+		}
+	}
+	return b.String()
+}
+
+// tomlValue follows a value across lines — an array or inline table left
+// open, or a triple-quoted string — so one written over several lines is
+// carried whole rather than cut after its first into a file the host will not
+// parse.
+type tomlValue struct {
+	depth  int
+	triple string
+}
+
+func (v *tomlValue) open() bool { return v.depth > 0 || v.triple != "" }
+
+func (v *tomlValue) scan(line string) {
+	for i := 0; i < len(line); i++ {
+		rest := line[i:]
+		if v.triple != "" {
+			if strings.HasPrefix(rest, v.triple) {
+				i += 2
+				v.triple = ""
+			} else if line[i] == '\\' && v.triple == `"""` {
+				i++
+			}
+			continue
+		}
+		switch c := line[i]; {
+		case strings.HasPrefix(rest, `"""`) || strings.HasPrefix(rest, `'''`):
+			v.triple = rest[:3]
+			i += 2
+		case c == '"' || c == '\'':
+			for i++; i < len(line) && line[i] != c; i++ {
+				if line[i] == '\\' && c == '"' {
+					i++
+				}
+			}
+		case c == '#':
+			return
+		case c == '[' || c == '{':
+			v.depth++
+		case c == ']' || c == '}':
+			v.depth--
+		}
+	}
 }
 
 // removeTOMLServer takes out the table called name when it runs logos.

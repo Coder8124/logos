@@ -559,12 +559,12 @@ func mergeServers(path, root string, entry any) (Outcome, error) {
 		return Failed, err
 	}
 
-	_, had := servers[Name]
+	old, had := servers[Name]
 	encodedEntry, err := json.Marshal(entry)
 	if err != nil {
 		return Failed, err
 	}
-	servers[Name] = encodedEntry
+	servers[Name] = keepUserKeys(old, encodedEntry)
 
 	if err := saveServers(path, root, cfg, servers); err != nil {
 		return Failed, err
@@ -573,6 +573,41 @@ func mergeServers(path, root string, entry any) (Outcome, error) {
 		return Updated, nil
 	}
 	return Registered, nil
+}
+
+// keepUserKeys lays logos's entry over the one already in the file, so what
+// setup owns is rewritten and everything else the user put there stays.
+//
+// #205: the entry used to be replaced whole, and every re-run of setup, and
+// migrate's re-pin through it, dropped disabled, autoApprove, cwd and timeout —
+// a server the user had switched off came back on, and their approvals went,
+// with the .logos-backup the only copy.
+//
+// How the server starts is setup's, and is cleared before the overlay: env is
+// omitted when there is no pin, and keeping the old one would leave the host on
+// a vault the user just unpinned. Whether it runs and which tools it may call
+// are the user's once they have said so, even though opencode's entry always
+// carries enabled: true and Copilot's tools: ["*"] — those are only the right
+// defaults for an entry nobody has touched yet.
+func keepUserKeys(old, entry json.RawMessage) json.RawMessage {
+	var was, now map[string]json.RawMessage
+	if json.Unmarshal(old, &was) != nil || was == nil || json.Unmarshal(entry, &now) != nil {
+		return entry
+	}
+	for _, k := range []string{"type", "command", "args", "env", "environment", "url"} {
+		delete(was, k)
+	}
+	for k, v := range now {
+		if _, set := was[k]; set && (k == "enabled" || k == "disabled" || k == "tools") {
+			continue
+		}
+		was[k] = v
+	}
+	merged, err := json.Marshal(was)
+	if err != nil {
+		return entry
+	}
+	return merged
 }
 
 // loadServers reads a host config and the server map under root. A file that

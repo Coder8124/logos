@@ -1302,9 +1302,9 @@ func wireHosts(vault string, opts wireOpts) error {
 					fmt.Printf("    %-*s    approve it in Codex's /hooks before it runs\n", hostColumn, "")
 				}
 			}
-			// A registration replaces what was there — `codex mcp add` drops
-			// the whole previous entry, environment and all. Naming the copy is
-			// what makes a wrong --vault recoverable.
+			// A registration rewrites the entry's command and environment, so
+			// a wrong --vault replaces the right one. Naming the copy is what
+			// makes that recoverable.
 			if r.Backup != "" {
 				fmt.Printf("    %-*s    previous config saved as %s\n", hostColumn, "", r.Backup)
 				if r.CommentsOnlyInBackup {

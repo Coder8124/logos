@@ -43,9 +43,11 @@ func TestCodexInstalledAsTheDesktopAppIsWiredThroughItsBundledCLI(t *testing.T) 
 	if r[0].Outcome == Skipped {
 		t.Fatalf("Codex with only the desktop app installed was reported %q", r[0].Outcome)
 	}
-	calls, _ := os.ReadFile(filepath.Join(home, "calls"))
-	if !strings.Contains(string(calls), app+" mcp add "+Name) {
-		t.Errorf("setup did not register through the app's codex:\n%s", calls)
+	// Registration is an edit of Codex's file (#205); the bundled CLI is what
+	// finds Codex installed at all.
+	regs, _ := readCodexServers(filepath.Join(home, ".codex", "config.toml"))
+	if len(regs) != 1 || regs[0].Name != Name {
+		t.Errorf("setup did not register logos with the app's Codex: %+v", regs)
 	}
 }
 

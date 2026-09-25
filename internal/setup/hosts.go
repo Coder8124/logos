@@ -112,14 +112,19 @@ func parseClaudeMCPList(out []byte) []Registration {
 	return regs
 }
 
-// codex registers through `codex mcp add`.
+// codex registers by editing ~/.codex/config.toml, as Grok Build does.
 //
-// Codex takes environment as a repeated --env flag before the -- separator.
+// It went through `codex mcp add` until #205: that replaces the whole table,
+// so enabled = false and startup_timeout_sec went on every re-run of setup and
+// a server the user had switched off came back on. The CLI is kept for a file
+// written in a form the line editor refuses, where losing those keys is better
+// than not registering. Codex takes environment there as a repeated --env flag
+// before the -- separator.
 func codex() Host {
 	return Host{
 		Name:   "Codex",
 		Detect: func() bool { return codexCLI() != "" },
-		Where:  func() string { return "codex mcp add" },
+		Where:  func() string { return inHome(".codex", "config.toml") },
 		Config: func() string { return inHome(".codex", "config.toml") },
 		// Read off the file, not `codex mcp list`: the file is where the
 		// environment is written down, and asking a host's own CLI at doctor
@@ -128,6 +133,14 @@ func codex() Host {
 		// binary or an npx cache path passed every check (#90).
 		List: func() ([]Registration, error) { return readCodexServers(inHome(".codex", "config.toml")) },
 		Register: func(s Server) (Outcome, error) {
+			path := inHome(".codex", "config.toml")
+			raw, err := os.ReadFile(path)
+			if err != nil && !os.IsNotExist(err) {
+				return Failed, err
+			}
+			if unsupportedServerForm(string(raw)) == "" {
+				return mergeTOMLServer(path, s)
+			}
 			args := []string{"mcp", "add", Name}
 			for k, v := range s.Env {
 				args = append(args, "--env", k+"="+v)
