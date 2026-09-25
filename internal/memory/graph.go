@@ -60,6 +60,8 @@ const MemSimilarityThreshold = 0.60
 // never-stored) similarity edges; they are the densest, so they are opt-in.
 func BuildGraph(db *sql.DB, withSimilarity bool) (MemGraph, error) {
 	// 1. Load every memory (active and superseded), fully, before any other query.
+	// Not a quarantined one: it is waiting for review because it may carry
+	// instructions, and its text would be the label (#186).
 	type mem struct {
 		id           int64
 		text, kind   string
@@ -70,7 +72,7 @@ func BuildGraph(db *sql.DB, withSimilarity bool) (MemGraph, error) {
 		supersededBy int64
 		vec          []float32
 	}
-	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, superseded, superseded_by, vec FROM memories`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, superseded, superseded_by, vec FROM memories WHERE quarantined = 0`)
 	if err != nil {
 		return MemGraph{}, err
 	}
