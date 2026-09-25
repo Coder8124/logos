@@ -12,6 +12,10 @@ import (
 	"github.com/Coder8124/logos/internal/vault"
 )
 
+// symlink is os.Symlink, swapped in tests: a link that cannot be made is
+// otherwise impossible to arrange once the rename has emptied its path.
+var symlink = os.Symlink
+
 // migrateCmd moves a 0.4 vault from ~/brain to ~/logos.
 //
 // Through 0.4.x legacy.Vault adopts ~/brain in place, and that keeps working
@@ -31,15 +35,19 @@ func migrateCmd(args []string) error {
 	}
 	from, to := filepath.Join(home, "brain"), filepath.Join(home, "logos")
 
+	// moved is a vault already at ~/logos with ~/brain linking to it. A run
+	// that failed part-way ends up here, and running migrate again is the
+	// retry its failure invites — so this finishes what is left, the record
+	// and the hosts, rather than calling it done.
+	moved := false
 	fi, err := os.Lstat(from)
 	switch {
 	case err == nil && fi.Mode()&os.ModeSymlink != 0:
 		dest, _ := filepath.EvalSymlinks(from)
-		if real, _ := filepath.EvalSymlinks(to); dest != "" && dest == real {
-			fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
-			return nil
+		if real, _ := filepath.EvalSymlinks(to); dest == "" || dest != real {
+			return fmt.Errorf("%s is a link, not a vault — nothing to move", from)
 		}
-		return fmt.Errorf("%s is a link, not a vault — nothing to move", from)
+		moved = true
 	case os.IsNotExist(err):
 		return fmt.Errorf("there is no vault at %s to move", from)
 	case err != nil:
@@ -50,18 +58,20 @@ func migrateCmd(args []string) error {
 	// LOGOS_VAULT scopes this run to one vault, and a 0.4 profile's BRAIN_VAULT
 	// arrives here as LOGOS_VAULT too. A run scoped elsewhere — the scratch-vault
 	// habit — would otherwise pass the pointer check below and move the real one.
-	if v := os.Getenv("LOGOS_VAULT"); v != "" && filepath.Clean(expandHome(v)) != from {
+	if v := os.Getenv("LOGOS_VAULT"); v != "" && filepath.Clean(expandHome(v)) != from && !(moved && filepath.Clean(expandHome(v)) == to) {
 		return fmt.Errorf("this run's vault is %s (LOGOS_VAULT), not %s — migrate moves only the 0.4 default, so nothing was moved", v, from)
 	}
 	// The pointer decides which vault this machine uses. Naming another one, it
 	// means ~/brain is not in use, and moving it would change nothing anyone
 	// reads while announcing that it had.
-	if p := vault.Pointer(); p != "" && filepath.Clean(p) != from {
+	p := vault.Pointer()
+	pointer := filepath.Clean(p)
+	if p != "" && pointer != from && !(moved && pointer == to) {
 		return fmt.Errorf("this machine's vault is %s, not %s — migrate moves only the 0.4 default, so nothing was moved", p, from)
 	}
 	// A rename cannot merge two vaults, and os.Rename onto an empty directory
 	// succeeds on some systems, which would be the same loss without an error.
-	if _, err := os.Lstat(to); err == nil {
+	if _, err := os.Lstat(to); err == nil && !moved {
 		return fmt.Errorf("%s already exists — move or merge it yourself first; nothing was moved", to)
 	}
 	// Each host is re-registered with the entry it already has and only the
@@ -157,9 +167,20 @@ func migrateCmd(args []string) error {
 		pinned = append(pinned, repin{h, srv, drops})
 	}
 
-	fmt.Printf("  move       %s → %s\n", from, to)
-	fmt.Printf("  link       %s → %s, so anything still naming the old path finds it\n", from, to)
-	fmt.Printf("  record     %s as this machine's vault\n", to)
+	record := pointer != to
+	if moved && !record && len(pinned) == 0 && len(kept) == 0 {
+		fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
+		return nil
+	}
+	if moved {
+		fmt.Printf("  vault      already at %s; %s links to it — finishing what is left\n", to, from)
+	} else {
+		fmt.Printf("  move       %s → %s\n", from, to)
+		fmt.Printf("  link       %s → %s, so anything still naming the old path finds it\n", from, to)
+	}
+	if record {
+		fmt.Printf("  record     %s as this machine's vault\n", to)
+	}
 	for _, p := range pinned {
 		fmt.Printf("  re-pin     %s, pinned to %s\n", p.host.Name, from)
 		if p.drops {
@@ -173,21 +194,32 @@ func migrateCmd(args []string) error {
 		fmt.Println("\n  --dry-run: nothing was changed")
 		return nil
 	}
-	if !yes && !confirmNo("\nmove the vault?") {
+	ask := "\nmove the vault?"
+	if moved {
+		ask = "\nfinish the move?"
+	}
+	if !yes && !confirmNo(ask) {
 		return errors.New("nothing was moved — pass --yes to move it without asking")
 	}
 
-	if err := os.Rename(from, to); err != nil {
-		return fmt.Errorf("could not move %s to %s: %w — nothing was changed", from, to, err)
+	var problems []string
+	var linkErr error
+	fmt.Println()
+	if !moved {
+		if err := os.Rename(from, to); err != nil {
+			return fmt.Errorf("could not move %s to %s: %w — nothing was changed", from, to, err)
+		}
+		fmt.Printf("  ✓ moved    %s → %s\n", from, to)
+		if linkErr = symlink(to, from); linkErr != nil {
+			fmt.Printf("  ✗ link     could not link %s to it: %v — anything still naming %s will not find the vault\n", from, linkErr, from)
+			problems = append(problems, fmt.Sprintf("%s is not linked to it", from))
+		} else {
+			fmt.Printf("  ✓ linked   %s → %s\n", from, to)
+		}
 	}
-	fmt.Printf("\n  ✓ moved    %s → %s\n", from, to)
-	linkErr := os.Symlink(to, from)
-	if linkErr != nil {
-		fmt.Printf("  ✗ link     could not link %s to it: %v — anything still naming %s will not find the vault\n", from, linkErr, from)
-	} else {
-		fmt.Printf("  ✓ linked   %s → %s\n", from, to)
-	}
-	if err := vault.Record(to); err != nil {
+	if !record {
+		// Already recorded, by the run that moved it.
+	} else if err := vault.Record(to); err != nil {
 		// With the link, the old pointer still reaches the vault; without it,
 		// the pointer names a path that is gone and every run opens it empty.
 		if linkErr != nil {
@@ -197,7 +229,6 @@ func migrateCmd(args []string) error {
 	} else {
 		fmt.Printf("  ✓ recorded %s as this machine's vault\n", to)
 	}
-	var problems []string
 	for _, p := range pinned {
 		// Through Install for what setup already gets right on a rewrite: the
 		// config is copied aside first, and a 0.4 entry under brain is replaced

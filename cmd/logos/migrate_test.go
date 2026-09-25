@@ -665,3 +665,61 @@ func TestMigrateRefusesWhenThisRunIsScopedToAnotherVault(t *testing.T) {
 		t.Errorf("~/brain was moved by a run scoped to another vault: %v", err)
 	}
 }
+
+// A failed re-pin says to fix it, and running migrate again is the fix anyone
+// tries first. With ~/brain already a link, the second run said "already at"
+// and exited 0 while the host was still pinned to the old path.
+func TestMigrateRunAgainRepinsAHostTheFirstRunCouldNot(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	broken := h
+	broken.Register = func(setup.Server) (setup.Outcome, error) {
+		return setup.Failed, errors.New("mcp.json is locked")
+	}
+	hostsOnMachine(t, broken)
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+
+	hostsOnMachine(t, h)
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("the second run failed: %v\n%s", err, out)
+	}
+	if cursor != filepath.Join(home, "logos") {
+		t.Errorf("the second run left Cursor pinned to %q:\n%s", cursor, out)
+	}
+}
+
+// The same for the record: a first run that could not write the pointer left
+// it naming ~/brain, and a second run has to write it, not call it done.
+func TestMigrateRunAgainRecordsTheVaultTheFirstRunCouldNot(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+	if err := vault.Record(filepath.Join(home, "brain")); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("the second run failed: %v\n%s", err, out)
+	}
+	if p := vault.Pointer(); filepath.Clean(p) != filepath.Join(home, "logos") {
+		t.Errorf("the pointer still names %q after a second run:\n%s", p, out)
+	}
+}
+
+// Without the link, a profile still exporting BRAIN_VAULT=~/brain opens a vault
+// that is gone, in every shell after this one; that is not a success.
+func TestMigrateFailsWhenItCouldNotLinkTheOldPath(t *testing.T) {
+	oldVaultHome(t)
+	symlink = func(string, string) error { return errors.New("operation not permitted") }
+	t.Cleanup(func() { symlink = os.Symlink })
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil {
+		t.Errorf("migrate exited 0 with the old path left unlinked:\n%s", out)
+	}
+}

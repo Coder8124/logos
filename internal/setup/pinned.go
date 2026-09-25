@@ -92,10 +92,16 @@ func PinnedEntries(h Host) []Registration {
 	if strings.HasSuffix(path, ".toml") {
 		regs, _ = readCodexServers(path)
 	} else {
-		for _, root := range []string{"mcpServers", "servers"} {
+		// Every host's root, not only the common two: read as mcpServers,
+		// opencode's "mcp" and Amp's "amp.mcpServers" came back empty, and
+		// migrate left those hosts on the old vault without naming them.
+		for _, root := range []string{"mcpServers", "servers", "amp.mcpServers"} {
 			if r, err := readServerBlock(path, root); err == nil {
 				regs = append(regs, r...)
 			}
+		}
+		if r, err := readOpencodeServers(path); err == nil {
+			regs = append(regs, r...)
 		}
 	}
 	var out []Registration

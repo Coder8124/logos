@@ -70,6 +70,7 @@ func readCodexServers(path string) ([]Registration, error) {
 		r := server(name)
 		switch {
 		case env:
+			key = tomlUnquote(key)
 			if r.Server.Env == nil {
 				r.Server.Env = map[string]string{}
 			}

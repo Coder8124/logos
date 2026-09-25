@@ -148,3 +148,27 @@ env = { BRAIN_VAULT = "/Users/x/other, vault", "LOGOS_VAULT" = 'C:\v' }
 		t.Errorf("the inline env came back as %v, vault %q", env, regs[0].Vault)
 	}
 }
+
+// TOML allows a quoted key, and a hand-edited env table may use one. Kept with
+// its quotes, the entry's vault read as unset — following the machine's — so
+// migrate took a brain entry pinned elsewhere for a leftover and removed it.
+func TestAQuotedKeyInAnEnvTableIsReadWithoutItsQuotes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := `[mcp_servers.brain]
+command = "/opt/brain"
+args = ["mcp", "serve"]
+
+[mcp_servers.brain.env]
+"LOGOS_VAULT" = "/Users/x/other"
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	regs, err := readCodexServers(path)
+	if err != nil || len(regs) != 1 {
+		t.Fatalf("read %+v, %v", regs, err)
+	}
+	if regs[0].Vault != "/Users/x/other" || regs[0].Server.Env["LOGOS_VAULT"] != "/Users/x/other" {
+		t.Errorf("the quoted key came back as %v, vault %q", regs[0].Server.Env, regs[0].Vault)
+	}
+}

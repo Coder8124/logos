@@ -437,7 +437,11 @@ func readOpencodeServers(path string) ([]Registration, error) {
 	}
 	out := make([]Registration, 0, len(servers))
 	for name, s := range servers {
-		out = append(out, Registration{Name: name, Command: strings.Join(s.Command, " "), Vault: s.Environment["LOGOS_VAULT"]})
+		r := Registration{Name: name, Command: strings.Join(s.Command, " "), Vault: s.Environment["LOGOS_VAULT"]}
+		if len(s.Command) > 0 {
+			r.Server = Server{Bin: s.Command[0], Args: s.Command[1:], Env: s.Environment}
+		}
+		out = append(out, r)
 	}
 	return out, nil
 }
