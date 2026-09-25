@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/memory"
 )
 
@@ -394,7 +395,13 @@ func git(dir string, args ...string) string {
 }
 
 func gitLines(dir string, args ...string) string {
-	full := append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)
+	// #197: the same overrides gitstate reads with — log runs gpg.program on
+	// a signed commit when the repository sets log.showSignature.
+	safe, ok := gitstate.SafeArgs(dir)
+	if !ok {
+		return ""
+	}
+	full := append(append(safe, "-C", dir), args...)
 	cmd := exec.Command("git", full...)
 	done := make(chan struct{})
 	var out []byte

@@ -195,7 +195,7 @@ func dirtyFiles(dir string) ([]string, int) {
 	// Trimming the whole output strips that space off the first line only, so
 	// the fixed-offset parse below silently eats a character of the first
 	// filename — "a.txt" became ".txt", on exactly one line of the output.
-	out := gitLines(dir, "status", "--porcelain=v1", "--untracked-files=normal")
+	out := gitLines(dir, "status", "--porcelain=v1", "--untracked-files=normal", "--ignore-submodules=all")
 	if out == "" {
 		return nil, 0
 	}
@@ -227,7 +227,7 @@ func dirtyFiles(dir string) ([]string, int) {
 // file has no diff to measure, and counting its whole length as insertions
 // would overstate the change.
 func diffStat(dir string) (insertions, deletions int) {
-	out := git(dir, "diff", "--numstat", "HEAD")
+	out := git(dir, "diff", "--numstat", "--ignore-submodules=all", "HEAD")
 	if out == "" {
 		return 0, 0
 	}
@@ -259,11 +259,11 @@ func git(dir string, args ...string) string {
 // gitLines is git without trimming leading whitespace, for output whose columns
 // carry meaning. Only the trailing newline is removed.
 func gitLines(dir string, args ...string) string {
-	// #197: status and diff run whatever core.fsmonitor names, and a folder
-	// unpacked from an archive brings its own .git/config. This runs from a
-	// hook, in whatever folder the user opened, so that program would run
-	// unasked. Nothing here needs the speed-up it offers.
-	full := append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)
+	safe, ok := SafeArgs(dir)
+	if !ok {
+		return ""
+	}
+	full := append(append(safe, "-C", dir), args...)
 	cmd := exec.Command("git", full...)
 	// A repository on a slow mount, or one whose index is locked by another
 	// process, must not hold up a checkpoint.

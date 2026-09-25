@@ -262,3 +262,106 @@ func TestReadingARepositoryDoesNotRunItsFsmonitor(t *testing.T) {
 		t.Fatal("reading the repository ran the command its core.fsmonitor names")
 	}
 }
+
+// trap writes a script that leaves a marker when run and passes stdin through,
+// so a filter that runs it still hands git back the file.
+func trap(t *testing.T) (script, marker string) {
+	t.Helper()
+	marker = filepath.Join(t.TempDir(), "ran")
+	script = filepath.Join(t.TempDir(), "trap.sh")
+	body := "#!/bin/sh\ntouch " + strconv.Quote(marker) + "\ncat\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return script, marker
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "protocol.file.allow=always"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func assertNotRun(t *testing.T, marker, what string) {
+	t.Helper()
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("reading the repository ran the command %s names", what)
+	}
+}
+
+// #197, found reviewing the fsmonitor fix: status and diff also pass every
+// changed file through the clean filter its attributes name, and the filter's
+// command comes from the same .git/config. Declared required, too, so a fix
+// that only blanks the command makes git refuse the read instead.
+func TestReadingARepositoryDoesNotRunItsCleanFilter(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	script, marker := trap(t)
+	gitRun(t, dir, "config", "filter.ev.clean", script)
+	gitRun(t, dir, "config", "filter.ev.required", "true")
+	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "attributes"), []byte("*.txt filter=ev\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Read(dir)
+	assertNotRun(t, marker, "filter.ev.clean")
+	if s.Dirty != 1 {
+		t.Fatalf("Dirty = %d, want the changed file still counted", s.Dirty)
+	}
+}
+
+// #197: with log.showSignature set, reading HEAD's subject verifies its
+// signature by running gpg.program — and the signature only has to be present,
+// not valid, so a hand-made commit object is enough.
+func TestReadingARepositoryDoesNotRunItsSignatureProgram(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	body := "tree " + gitRun(t, dir, "rev-parse", "HEAD^{tree}") + "\n" +
+		"parent " + gitRun(t, dir, "rev-parse", "HEAD") + "\n" +
+		"author t <t@t> 1 +0000\ncommitter t <t@t> 1 +0000\n" +
+		"gpgsig -----BEGIN PGP SIGNATURE-----\n \n -----END PGP SIGNATURE-----\n\nsigned\n"
+	obj := filepath.Join(t.TempDir(), "commit")
+	if err := os.WriteFile(obj, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "update-ref", "refs/heads/main", gitRun(t, dir, "hash-object", "-t", "commit", "-w", obj))
+	script, marker := trap(t)
+	gitRun(t, dir, "config", "log.showSignature", "true")
+	gitRun(t, dir, "config", "gpg.program", script)
+	s := Read(dir)
+	assertNotRun(t, marker, "gpg.program")
+	if s.Subject != "signed" {
+		t.Fatalf("Subject = %q, want the signed commit's", s.Subject)
+	}
+}
+
+// #197: status and diff recurse into submodules, and a submodule's config
+// lives under .git/modules — where the overrides for the outer repository's
+// filters do not reach.
+func TestReadingARepositoryDoesNotRunASubmodulesFilter(t *testing.T) {
+	sub := repo(t)
+	commit(t, sub, "s.txt", "one\n", "the submodule")
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	gitRun(t, dir, "submodule", "add", sub, "sm")
+	gitRun(t, dir, "commit", "-m", "add the submodule")
+	script, marker := trap(t)
+	gitRun(t, filepath.Join(dir, "sm"), "config", "filter.sv.clean", script)
+	if err := os.MkdirAll(filepath.Join(dir, ".git", "modules", "sm", "info"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "modules", "sm", "info", "attributes"), []byte("*.txt filter=sv\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sm", "s.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	Read(dir)
+	assertNotRun(t, marker, "the submodule's filter.sv.clean")
+}
