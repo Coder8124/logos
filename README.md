@@ -32,7 +32,8 @@ activity off` are the switch, `logos activity` shows it, `logos index` keeps it
 out of the vault's git, and a month's entries are deleted 30 days after that
 month ends. The one network call Logos ever makes
 on its own is `logos update` checking for a new release, and only when you type it; nothing
-else leaves the machine, ever. A host wired to run Logos through `npx` is the one
+else leaves the machine unless you turn on the T3 cloud tier, which is off by default and
+sends a request to Anthropic with a key you supply. A host wired to run Logos through `npx` is the one
 exception: npm itself asks the registry for the package on every start — the
 package name, none of your data — and without a connection it waits and then
 fails. An installed binary, which is what `brew install` and `npm i -g` both

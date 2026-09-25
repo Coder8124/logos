@@ -22,13 +22,42 @@ func GetKey(ref string) (string, error) {
 }
 
 func SetKey(ref, secret string) error {
-	// -U updates in place if the entry already exists.
-	cmd := exec.Command("security", "add-generic-password",
-		"-s", keychainService, "-a", ref, "-w", secret, "-U")
+	if strings.ContainsAny(secret, "\n\r\x00") {
+		return fmt.Errorf("storing key: a key cannot contain a line break")
+	}
+	cmd := setKeyCommand(ref, secret)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("storing key: %s", strings.TrimSpace(string(out)))
 	}
+	// security -i exits 0 when the command it read fails, and says nothing, so
+	// its exit status cannot tell a stored key from a refused one. Reading the
+	// key back is the only way to know it is there.
+	got, err := GetKey(ref)
+	if err != nil || got != strings.TrimSpace(secret) {
+		return fmt.Errorf("storing key: the keychain did not keep it (logos key set %s to retry)", ref)
+	}
 	return nil
+}
+
+// setKeyCommand stores the key through security's interactive mode, which
+// reads the command from stdin.
+//
+// #198: passed as -w <secret>, the key sat in argv, where every process on the
+// machine can read it with ps for as long as security runs. On stdin it is
+// visible only to the process it was written to.
+func setKeyCommand(ref, secret string) *exec.Cmd {
+	// -U updates in place if the entry already exists.
+	line := fmt.Sprintf("add-generic-password -s %s -a %s -w %s -U\n",
+		securityQuote(keychainService), securityQuote(ref), securityQuote(secret))
+	cmd := exec.Command("security", "-i")
+	cmd.Stdin = strings.NewReader(line)
+	return cmd
+}
+
+// securityQuote quotes one argument for security -i, whose tokenizer takes a
+// double-quoted string with backslash escapes.
+func securityQuote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 func DeleteKey(ref string) error {
