@@ -562,3 +562,29 @@ func TestRenamingAFewFilesWithSmallEditsCountsTheEditsOnly(t *testing.T) {
 		t.Errorf("diffstat = +%d/-%d, want +2/-0", s.Insertions, s.Deletions)
 	}
 }
+
+// A partial clone fetches a missing blob on demand, and diff-index needs the
+// old contents of every changed file. The fetch runs the upload-pack command
+// the repository's own config names — and is a network call besides.
+func TestReadingAPartialCloneFetchesNothing(t *testing.T) {
+	server := repo(t)
+	commit(t, server, "a.txt", "one\n", "the first commit")
+	gitRun(t, server, "config", "uploadpack.allowFilter", "true")
+	dir := filepath.Join(t.TempDir(), "clone")
+	gitRun(t, server, "clone", "-q", "--no-checkout", "--filter=blob:none", "file://"+server, dir)
+	// Populate the index from HEAD without checking out, so a.txt's blob
+	// stays unfetched, then change the file in the working tree.
+	gitRun(t, dir, "reset", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "ran")
+	pack := filepath.Join(t.TempDir(), "pack.sh")
+	body := "#!/bin/sh\ntouch " + strconv.Quote(marker) + "\nexec git-upload-pack \"$@\"\n"
+	if err := os.WriteFile(pack, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "config", "remote.origin.uploadpack", pack)
+	Read(dir)
+	assertNotRun(t, marker, "remote.origin.uploadpack")
+}

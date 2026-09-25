@@ -23,6 +23,9 @@ import (
 //     hook.<name>.command in the config, which core.hooksPath does not reach;
 //   - lfs.extension.<name>.clean, which the user's own git-lfs filter reads
 //     from the repository's config and runs;
+//   - remote.<name>.uploadpack or core.sshCommand, run when a partial clone
+//     fetches a missing blob on demand — which diff-index does for the old
+//     side of a changed file, and which is a network call besides;
 //   - any of the above in a submodule, whose config under .git/modules the
 //     overrides here do not reach, so status and diff are given
 //     --ignore-submodules=all and a changed submodule goes uncounted.
@@ -50,7 +53,10 @@ func SafeGit(dir string, timeout time.Duration, args ...string) (string, error) 
 	cmd := exec.CommandContext(ctx, "git", append(append(safe, "-C", dir), args...)...)
 	// Without optional locks status never writes the index back. diff ignores
 	// the setting, which is why diffStat uses diff-index, which never writes.
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	// GIT_NO_LAZY_FETCH makes a partial clone's missing blob an error rather
+	// than a fetch; protocol.allow=never refuses every transport for a git
+	// older than 2.45, which does not know the variable.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1")
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	return string(out), err
@@ -62,6 +68,7 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 		"-c", "core.fsmonitor=false",
 		"-c", "log.showSignature=false",
 		"-c", "core.hooksPath=/dev/null",
+		"-c", "protocol.allow=never",
 	}
 	// Reading config runs nothing, whatever the config says. It is bounded all
 	// the same: a .git/config on a hung mount blocks the read like any other.
