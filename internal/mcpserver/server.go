@@ -1251,6 +1251,16 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	// honoured as asked — there the caller asserted something, and is told it
 	// was wrong below rather than handed another project's work.
 	guess := s.inferredProject()
+	swept, sweptFor := "", ""
+	if strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
+		// The folder's own project is swept before it is judged unknown. One
+		// with no checkpoint yet is the one whose killed sessions are recorded
+		// nowhere else, and falling back first swept the other project instead:
+		// in a host with no hooks they were never recorded, and after a week
+		// they were gone (#193). If the sweep recorded one, the project exists
+		// now and there is nothing to fall back from.
+		swept, sweptFor = ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now())), project
+	}
 	if strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
 		if ps := s.checkpointedProjects(); len(ps) > 0 {
 			chose = fmt.Sprintf("_Nothing in this vault is filed under %s, the folder this host was launched in — resuming %s, the most recently checkpointed project%s. Pass project to resume a different one, or checkpoint to start %s._\n\n",
@@ -1279,7 +1289,9 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	}
 	// Before the pack, so a session whose host was killed before the shutdown
 	// path could record it is in the handoff it is missing from (#134).
-	swept := ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
+	if project != sweptFor {
+		swept += ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
+	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project),
 		Agent: s.agentFor(map[string]any{"agent": agent}), Budget: budget, Since: since,

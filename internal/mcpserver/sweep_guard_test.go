@@ -2,11 +2,13 @@ package mcpserver
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
 
@@ -51,5 +53,39 @@ func TestResumeRecordsAndAnnouncesASessionThatEndedWithoutACheckpoint(t *testing
 	}
 	if !strings.Contains(out, "fix the checkout crash") {
 		t.Errorf("the recorded session is not in the handoff it was missing from:\n%s", out)
+	}
+}
+
+// A project with no checkpoint yet is exactly the one whose killed sessions
+// are nowhere else. Resume with no project fell back to the most recently
+// checkpointed project first and swept that, so in a host with no hooks the
+// folder's own sessions were never recorded and after a week were gone (#193).
+func TestResumeSweepsTheFoldersOwnProjectBeforeFallingBackToAnother(t *testing.T) {
+	t.Setenv("LOGOS_PROJECT", "")
+	here := filepath.Join(t.TempDir(), "scratchfolder")
+	if err := os.Mkdir(here, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
+	c, db, vault := startServer(t)
+	handshake(t, c)
+	if err := session.Init(db); err != nil {
+		t.Fatal(err)
+	}
+	cp := session.Checkpoint{Project: "kestrel", Agent: "claude-code", Next: "quote the extruded option", TS: time.Now().Add(-time.Hour).Unix()}
+	if err := session.Commit(db, vault, &cp); err != nil {
+		t.Fatal(err)
+	}
+	sweepable(t, "scratchfolder")
+
+	out, isErr := c.callText(t, "resume", map[string]any{"agent": "codex"})
+	if isErr {
+		t.Fatalf("resume errored: %s", out)
+	}
+	if !strings.Contains(out, "Recorded 1 earlier session that ended without a checkpoint") {
+		t.Errorf("the folder's own killed session was not recorded:\n%s", out)
+	}
+	if strings.Contains(out, "resuming kestrel") || !strings.Contains(out, "fix the checkout crash") {
+		t.Errorf("resume fell back to another project over the one it had just recorded:\n%s", out)
 	}
 }
