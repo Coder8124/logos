@@ -82,6 +82,19 @@ func readCodexServers(path string) ([]Registration, error) {
 			r.Server.Bin = r.Command
 		case key == "args":
 			args[name] = tomlArray(val)
+		// The form Codex's own documentation uses. Skipped, an entry pinned
+		// this way read as unpinned, and migrate removes an unpinned 0.4 brain
+		// entry as a leftover of the vault it moves.
+		case key == "env" && strings.HasPrefix(val, "{"):
+			for k, v := range tomlInlineTable(val) {
+				if r.Server.Env == nil {
+					r.Server.Env = map[string]string{}
+				}
+				r.Server.Env[k] = v
+				if k == "LOGOS_VAULT" {
+					r.Vault = v
+				}
+			}
 		}
 	}
 
@@ -243,6 +256,54 @@ func tomlArray(v string) []string {
 		}
 	}
 	return out
+}
+
+// tomlInlineTable reads a one-line { key = "value", ... } of string values.
+// Commas and equals signs are split on only outside quotes: a vault path may
+// hold either.
+func tomlInlineTable(v string) map[string]string {
+	v, ok := strings.CutPrefix(strings.TrimSpace(v), "{")
+	if !ok {
+		return nil
+	}
+	v, ok = strings.CutSuffix(strings.TrimSpace(v), "}")
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	for _, pair := range splitUnquoted(v, ',') {
+		kv := splitUnquoted(pair, '=')
+		if len(kv) != 2 {
+			continue
+		}
+		if k := tomlUnquote(kv[0]); k != "" {
+			out[k] = tomlUnquote(kv[1])
+		}
+	}
+	return out
+}
+
+// splitUnquoted splits s at each sep that is not inside a quoted string. A
+// backslash escapes the next byte in a basic string only; a literal string
+// has no escapes.
+func splitUnquoted(s string, sep byte) []string {
+	var parts []string
+	quote, start := byte(0), 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case quote == '"' && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == sep:
+			parts, start = append(parts, s[start:i]), i+1
+		}
+	}
+	return append(parts, s[start:])
 }
 
 // tomlUnquote is the inverse of tomlString, and covers what tomlString can

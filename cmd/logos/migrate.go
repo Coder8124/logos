@@ -71,8 +71,9 @@ func migrateCmd(args []string) error {
 	// Not through wireHosts either: that is setup, and under one --yes it
 	// installed the plugin and copied this binary onto PATH.
 	type repin struct {
-		host setup.Host
-		srv  setup.Server
+		host  setup.Host
+		srv   setup.Server
+		drops bool // Install will remove the host's 0.4 brain entry
 	}
 	type leave struct {
 		host setup.Host
@@ -150,7 +151,10 @@ func migrateCmd(args []string) error {
 		delete(env, "BRAIN_VAULT")
 		env["LOGOS_VAULT"] = to
 		srv.Env = env
-		pinned = append(pinned, repin{h, srv})
+		// Install removes brain whenever h.Remove is left set: the entry being
+		// re-pinned, which comes back as logos, or a leftover beside it.
+		drops := h.Remove != nil && brainE != nil
+		pinned = append(pinned, repin{h, srv, drops})
 	}
 
 	fmt.Printf("  move       %s → %s\n", from, to)
@@ -158,6 +162,9 @@ func migrateCmd(args []string) error {
 	fmt.Printf("  record     %s as this machine's vault\n", to)
 	for _, p := range pinned {
 		fmt.Printf("  re-pin     %s, pinned to %s\n", p.host.Name, from)
+		if p.drops {
+			fmt.Printf("             and remove its 0.4 %s entry\n", setup.OldName)
+		}
 	}
 	for _, k := range kept {
 		fmt.Printf("  leave      %s: %s\n", k.host.Name, k.why)

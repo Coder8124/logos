@@ -125,3 +125,26 @@ func TestACommentedOutArgsLineIsNotACodexEntry(t *testing.T) {
 		t.Errorf("a commented-out args line was read as a registered entry")
 	}
 }
+
+// Codex's own documentation writes env as an inline table. Read as no env at
+// all, an entry pinned that way looked unpinned — to doctor, and to migrate,
+// which removes an unpinned 0.4 brain entry as a leftover of the vault it moves.
+func TestAnInlineEnvTableIsReadAsTheEntrysEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := `[mcp_servers.brain]
+command = "/opt/brain"
+args = ["mcp", "serve"]
+env = { BRAIN_VAULT = "/Users/x/other, vault", "LOGOS_VAULT" = 'C:\v' }
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	regs, err := readCodexServers(path)
+	if err != nil || len(regs) != 1 {
+		t.Fatalf("read %+v, %v", regs, err)
+	}
+	env := regs[0].Server.Env
+	if env["BRAIN_VAULT"] != "/Users/x/other, vault" || env["LOGOS_VAULT"] != `C:\v` || regs[0].Vault != `C:\v` {
+		t.Errorf("the inline env came back as %v, vault %q", env, regs[0].Vault)
+	}
+}

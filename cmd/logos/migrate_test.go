@@ -628,6 +628,23 @@ func TestMigrateStillReplacesAnUnpinnedBrainEntry(t *testing.T) {
 	}
 }
 
+// The plan is what a user checks before saying yes, so an entry migrate will
+// remove is in it, not only in the report afterwards.
+func TestMigratesPlanSaysWhenItWillRemoveABrainEntry(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	servers := hostServers(t, h.Config())
+	servers[setup.OldName] = map[string]any{"command": "/opt/old", "args": []string{"mcp", "serve"}}
+	writeHostServers(t, h.Config(), servers)
+	hostsOnMachine(t, h)
+
+	out := captureStdout(t, func() { _ = migrateCmd([]string{"--dry-run"}) })
+	if !strings.Contains(out, "remove its 0.4 brain entry") {
+		t.Errorf("the dry run does not say Cursor's brain entry will be removed:\n%s", out)
+	}
+}
+
 // LOGOS_VAULT scopes a run to another vault — the scratch-vault habit, or a
 // BRAIN_VAULT carried over from a 0.4 profile — and a run scoped elsewhere
 // moving the real ~/brain is the one thing it must not do.
