@@ -73,6 +73,46 @@ func pinInConfig(path string) string {
 	return ""
 }
 
+// PinnedEntries is every logos entry in h's config file as it is written
+// there — name, vault, binary, arguments and whole environment.
+//
+// It is for re-pinning a host onto a moved vault, which must keep the command
+// the host runs. Registering the running binary instead swapped every host onto
+// whatever ran the command: npx, which asks the registry on each launch, or a
+// copy `brew upgrade` never reaches, or an older release. All of them, not the
+// first: a host can hold a logos entry beside 0.4's brain, each on its own
+// vault, and which one a caller means is decided by the vault, not by the order
+// a JSON object happens to decode in.
+func PinnedEntries(h Host) []Registration {
+	if h.Config == nil {
+		return nil
+	}
+	path := h.Config()
+	var regs []Registration
+	if strings.HasSuffix(path, ".toml") {
+		regs, _ = readCodexServers(path)
+	} else {
+		// Every host's root, not only the common two: read as mcpServers,
+		// opencode's "mcp" and Amp's "amp.mcpServers" came back empty, and
+		// migrate left those hosts on the old vault without naming them.
+		for _, root := range []string{"mcpServers", "servers", "amp.mcpServers"} {
+			if r, err := readServerBlock(path, root); err == nil {
+				regs = append(regs, r...)
+			}
+		}
+		if r, err := readOpencodeServers(path); err == nil {
+			regs = append(regs, r...)
+		}
+	}
+	var out []Registration
+	for _, r := range regs {
+		if isLogosServer(r.Command) && r.Server.Bin != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // logosPin picks the vault off the logos entry among a host's registrations.
 func logosPin(regs []Registration) string {
 	for _, r := range regs {

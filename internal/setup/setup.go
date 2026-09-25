@@ -153,6 +153,15 @@ type Registration struct {
 	// Vault is the LOGOS_VAULT the entry sets, empty when the host's listing
 	// does not show environment (`claude mcp list` does not) or none is set.
 	Vault string
+	// Server is the entry as its config file holds it, filled in only by the
+	// readers of those files. Command above is one string for display; a
+	// caller that rewrites the entry needs the binary, the arguments and the
+	// whole environment apart, or a path with a space in it is split.
+	Server Server
+	// Disabled is an entry the host keeps but does not start — opencode's
+	// "enabled": false. Registering writes it enabled, so a rewrite of one
+	// would switch on a server the user switched off.
+	Disabled bool
 }
 
 // Plan reports what Install would do, without doing any of it.
@@ -673,7 +682,8 @@ func readServerBlock(path, root string) ([]Registration, error) {
 	}
 	out := make([]Registration, 0, len(servers))
 	for name, s := range servers {
-		out = append(out, Registration{Name: name, Command: strings.Join(append([]string{s.Command}, s.Args...), " "), Vault: s.Env["LOGOS_VAULT"]})
+		out = append(out, Registration{Name: name, Command: strings.Join(append([]string{s.Command}, s.Args...), " "), Vault: s.Env["LOGOS_VAULT"],
+			Server: Server{Bin: s.Command, Args: s.Args, Env: s.Env}})
 	}
 	return out, nil
 }

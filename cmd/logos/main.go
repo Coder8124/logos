@@ -190,6 +190,8 @@ SETUP AND DIAGNOSTICS
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]
                                       register this logos with the MCP hosts found
     logos mcp uninstall [--host NAME] remove logos from the MCP hosts found; never touches the vault
+    logos migrate [--dry-run] [--yes] move a 0.4 vault from ~/brain to ~/logos, leaving a link behind,
+                                      and re-pin the hosts that named the old path
     logos doctor [--verbose] [--probe] [--integration] [--report]
                                       health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it
     logos key set|rm <ref>            manage API keys in the macOS keychain
@@ -270,6 +272,9 @@ func main() {
 		usage()
 	}
 	cmd := os.Args[1]
+	if cmd != "migrate" {
+		migrateHint(os.Stderr)
+	}
 	args := os.Args[2:]
 	rest := strings.Join(args, " ")
 
@@ -307,6 +312,8 @@ func main() {
 		err = mcpInstallCmd(args)
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "uninstall":
 		err = mcpUninstallCmd(args)
+	case cmd == "migrate":
+		err = migrateCmd(args)
 	case cmd == "doctor":
 		if hasFlag(args, "--report") {
 			err = doctorReport()
@@ -497,6 +504,7 @@ var commandFlags = map[string]flagSpec{
 	"note":     {},
 	"reflect":  {},
 	"index":    {bare: []string{"--watch"}},
+	"migrate":  {bare: []string{"--dry-run", "--yes", "-y"}},
 	"replay":   {bare: []string{"--peek"}},
 	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report"}},
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},

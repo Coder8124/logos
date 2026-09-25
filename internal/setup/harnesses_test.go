@@ -306,3 +306,32 @@ command = "github-mcp"
 		t.Errorf("the old entry survived:\n%s", got)
 	}
 }
+
+// Re-pinning a moved vault reads the entry back from each host's own file.
+// opencode keeps it under "mcp" as one command array with an "environment",
+// and Amp under the literal key "amp.mcpServers"; read only as mcpServers or
+// servers, neither host had an entry, and migrate left both on the old path
+// without naming them.
+func TestPinnedEntriesReadsOpencodeAndAmpInTheirOwnShapes(t *testing.T) {
+	isolatePath(t)
+	home := fakeHome(t, filepath.Join(".config", "opencode"), filepath.Join(".config", "amp"))
+	writeFile(t, filepath.Join(home, ".config", "opencode", "opencode.json"),
+		`{"mcp": {"logos": {"type": "local", "command": ["/opt/logos", "mcp", "serve"], "enabled": true, "environment": {"LOGOS_VAULT": "/Users/x/brain", "LOGOS_EMBED": "off"}}}}`)
+	writeFile(t, filepath.Join(home, ".config", "amp", "settings.json"),
+		`{"amp.mcpServers": {"logos": {"command": "/opt/logos", "args": ["mcp", "serve"], "env": {"LOGOS_VAULT": "/Users/x/brain"}}}}`)
+
+	for _, name := range []string{"opencode", "Amp"} {
+		got := PinnedEntries(hostNamed(t, name))
+		if len(got) != 1 {
+			t.Errorf("%s: %d entries, want its one logos entry", name, len(got))
+			continue
+		}
+		s := got[0].Server
+		if got[0].Vault != "/Users/x/brain" || s.Bin != "/opt/logos" || strings.Join(s.Args, " ") != "mcp serve" || s.Env["LOGOS_VAULT"] != "/Users/x/brain" {
+			t.Errorf("%s: read back as %+v", name, got[0])
+		}
+	}
+	if s := PinnedEntries(hostNamed(t, "opencode"))[0].Server; s.Env["LOGOS_EMBED"] != "off" {
+		t.Errorf("opencode's environment lost LOGOS_EMBED: %v", s.Env)
+	}
+}

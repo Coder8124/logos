@@ -125,3 +125,50 @@ func TestACommentedOutArgsLineIsNotACodexEntry(t *testing.T) {
 		t.Errorf("a commented-out args line was read as a registered entry")
 	}
 }
+
+// Codex's own documentation writes env as an inline table. Read as no env at
+// all, an entry pinned that way looked unpinned — to doctor, and to migrate,
+// which removes an unpinned 0.4 brain entry as a leftover of the vault it moves.
+func TestAnInlineEnvTableIsReadAsTheEntrysEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := `[mcp_servers.brain]
+command = "/opt/brain"
+args = ["mcp", "serve"]
+env = { BRAIN_VAULT = "/Users/x/other, vault", "LOGOS_VAULT" = 'C:\v' }
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	regs, err := readCodexServers(path)
+	if err != nil || len(regs) != 1 {
+		t.Fatalf("read %+v, %v", regs, err)
+	}
+	env := regs[0].Server.Env
+	if env["BRAIN_VAULT"] != "/Users/x/other, vault" || env["LOGOS_VAULT"] != `C:\v` || regs[0].Vault != `C:\v` {
+		t.Errorf("the inline env came back as %v, vault %q", env, regs[0].Vault)
+	}
+}
+
+// TOML allows a quoted key, and a hand-edited env table may use one. Kept with
+// its quotes, the entry's vault read as unset — following the machine's — so
+// migrate took a brain entry pinned elsewhere for a leftover and removed it.
+func TestAQuotedKeyInAnEnvTableIsReadWithoutItsQuotes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := `[mcp_servers.brain]
+command = "/opt/brain"
+args = ["mcp", "serve"]
+
+[mcp_servers.brain.env]
+"LOGOS_VAULT" = "/Users/x/other"
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	regs, err := readCodexServers(path)
+	if err != nil || len(regs) != 1 {
+		t.Fatalf("read %+v, %v", regs, err)
+	}
+	if regs[0].Vault != "/Users/x/other" || regs[0].Server.Env["LOGOS_VAULT"] != "/Users/x/other" {
+		t.Errorf("the quoted key came back as %v, vault %q", regs[0].Server.Env, regs[0].Vault)
+	}
+}
