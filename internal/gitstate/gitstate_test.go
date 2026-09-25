@@ -587,4 +587,17 @@ func TestReadingAPartialCloneFetchesNothing(t *testing.T) {
 	gitRun(t, dir, "config", "remote.origin.uploadpack", pack)
 	Read(dir)
 	assertNotRun(t, marker, "remote.origin.uploadpack")
+
+	// A git older than 2.45 ignores GIT_NO_LAZY_FETCH and has only the
+	// protocol overrides, which a repository can loosen per transport:
+	// protocol.<name>.allow is read before protocol.allow.
+	gitRun(t, dir, "config", "protocol.file.allow", "always")
+	args, err := safeArgs(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := exec.Command("git", append(append(args, "-C", dir), "diff-index", "--numstat", "HEAD")...)
+	old.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	_ = old.Run()
+	assertNotRun(t, marker, "remote.origin.uploadpack, without GIT_NO_LAZY_FETCH")
 }

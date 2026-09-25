@@ -25,7 +25,9 @@ import (
 //     from the repository's config and runs;
 //   - remote.<name>.uploadpack or core.sshCommand, run when a partial clone
 //     fetches a missing blob on demand — which diff-index does for the old
-//     side of a changed file, and which is a network call besides;
+//     side of a changed file, and which is a network call besides. The
+//     repository can re-allow a transport with protocol.<name>.allow, which
+//     git reads before protocol.allow;
 //   - any of the above in a submodule, whose config under .git/modules the
 //     overrides here do not reach, so status and diff are given
 //     --ignore-submodules=all and a changed submodule goes uncounted.
@@ -54,8 +56,8 @@ func SafeGit(dir string, timeout time.Duration, args ...string) (string, error) 
 	// Without optional locks status never writes the index back. diff ignores
 	// the setting, which is why diffStat uses diff-index, which never writes.
 	// GIT_NO_LAZY_FETCH makes a partial clone's missing blob an error rather
-	// than a fetch; protocol.allow=never refuses every transport for a git
-	// older than 2.45, which does not know the variable.
+	// than a fetch. A git older than 2.45 does not know the variable, and there
+	// the protocol overrides safeArgs builds are what refuse the fetch.
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1")
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
@@ -73,7 +75,7 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 	// Reading config runs nothing, whatever the config says. It is bounded all
 	// the same: a .git/config on a hung mount blocks the read like any other.
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "config", "--show-scope",
-		"--name-only", "--get-regexp", `^(filter|hook|lfs)\.`)
+		"--name-only", "--get-regexp", `^(filter|hook|lfs|protocol)\.`)
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	if err != nil {
@@ -86,6 +88,18 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		scope, key, _ := strings.Cut(line, "\t")
+		// protocol.<name>.allow outranks protocol.allow, so one set to always
+		// re-opens that transport. Every one is closed, whatever its scope:
+		// reading state never needs a transport, even one the user allowed.
+		lower := strings.ToLower(key)
+		if strings.HasPrefix(lower, "protocol.") && strings.HasSuffix(lower, ".allow") && lower != "protocol.allow" {
+			name := key[len("protocol.") : len(key)-len(".allow")]
+			if strings.Contains(name, "=") {
+				return nil, ErrUnsafe
+			}
+			args = append(args, "-c", "protocol."+name+".allow=never")
+			continue
+		}
 		// The user's own filters and hooks are not the threat, and git-lfs
 		// keeps filter.lfs in the global config: blanked, every LFS file with
 		// stale stat data reads as modified. Only what the repository brought is.
