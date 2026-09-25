@@ -51,7 +51,9 @@ func migrateCmd(args []string) error {
 		moved = true
 	// A run whose link failed — Windows without Developer Mode refuses
 	// one — leaves no ~/brain at all, and hosts it could not re-pin still
-	// name it. The recorded ~/logos says that run happened.
+	// name it. The recorded ~/logos alone does not say that run happened: a
+	// fresh install records it too, so only a host still naming ~/brain,
+	// found below, makes this a move to finish.
 	case os.IsNotExist(err) && toErr == nil && toFi.IsDir() && filepath.Clean(vault.Pointer()) == to:
 		moved, relink = true, true
 	case os.IsNotExist(err):
@@ -164,8 +166,15 @@ func migrateCmd(args []string) error {
 		if chosen == nil {
 			continue
 		}
+		// Re-pinning would switch a disabled entry on. Skipping the host skips
+		// Install's removal of brain too, and an enabled brain beside it is
+		// still running on the old path — that one is not left on purpose.
 		if chosen.Disabled {
-			kept = append(kept, leave{h, fmt.Sprintf("its %s entry is disabled; re-pinning would switch it on — enable it and run migrate again to re-pin it", chosen.Name), true})
+			if chosen != brainE && h.Remove != nil && isOld(brainE) && !brainE.Disabled {
+				kept = append(kept, leave{h, fmt.Sprintf("its %s entry is disabled, and the 0.4 %s entry beside it still names %s — enable %s and run migrate again, or remove %s by hand", chosen.Name, setup.OldName, from, chosen.Name, setup.OldName), false})
+			} else {
+				kept = append(kept, leave{h, fmt.Sprintf("its %s entry is disabled; migrate leaves it off — enable it and run migrate again to finish", chosen.Name), true})
+			}
 			continue
 		}
 		srv := chosen.Server
@@ -182,9 +191,24 @@ func migrateCmd(args []string) error {
 		pinned = append(pinned, repin{h, srv, drops})
 	}
 
+	// A disabled entry left on purpose is not work left over: a finished move
+	// says it is finished, and still says what it left.
+	unfinished := 0
+	for _, k := range kept {
+		if !k.fine {
+			unfinished++
+		}
+	}
 	record := pointer != to
-	if moved && !relink && !record && len(pinned) == 0 && len(kept) == 0 {
-		fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
+	if moved && !record && len(pinned) == 0 && unfinished == 0 {
+		if relink {
+			fmt.Printf("  vault      already at %s; nothing names %s any more\n", to, from)
+		} else {
+			fmt.Printf("  vault      already at %s; %s links to it\n", to, from)
+		}
+		for _, k := range kept {
+			fmt.Printf("  leave      %s: %s\n", k.host.Name, k.why)
+		}
 		return nil
 	}
 	if relink {
@@ -232,7 +256,12 @@ func migrateCmd(args []string) error {
 	if !moved || relink {
 		if linkErr = symlink(to, from); linkErr != nil {
 			fmt.Printf("  ✗ link     could not link %s to it: %v — anything still naming %s will not find the vault\n", from, linkErr, from)
-			problems = append(problems, fmt.Sprintf("%s is not linked to it", from))
+			// On a relink the link is only for the hosts this run re-pins or
+			// reports, so it is not a failure of its own: a machine that
+			// refuses every link would otherwise never finish a run cleanly.
+			if !relink {
+				problems = append(problems, fmt.Sprintf("%s is not linked to it", from))
+			}
 		} else {
 			fmt.Printf("  ✓ linked   %s → %s\n", from, to)
 		}

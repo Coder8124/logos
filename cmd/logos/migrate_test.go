@@ -814,3 +814,109 @@ func TestMigrateLeavesADisabledOpencodeEntryOffAndSaysSo(t *testing.T) {
 		t.Errorf("migrate did not say it left the disabled entry:\n%s", out)
 	}
 }
+
+// opencodeOnMachine is the real opencode host, with its config holding body.
+func opencodeOnMachine(t *testing.T, home, body string) string {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+	dir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "opencode.json")
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range setup.Hosts() {
+		if h.Name == "opencode" {
+			hostsOnMachine(t, h)
+		}
+	}
+	return cfg
+}
+
+// A fresh 0.5 install records ~/logos and never had ~/brain; that is not a
+// move whose link failed, and migrate has no business creating the old path.
+func TestMigrateOnAMachineThatNeverHadBrainLinksNothing(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	if err := os.RemoveAll(filepath.Join(home, "brain")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "logos"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Record(filepath.Join(home, "logos")); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Errorf("migrate failed on a machine with nothing to move: %v\n%s", err, out)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "brain")); !os.IsNotExist(err) {
+		t.Errorf("migrate created %s on a machine that never had it:\n%s", filepath.Join(home, "brain"), out)
+	}
+}
+
+// Windows without Developer Mode refuses every link. Once the hosts are
+// re-pinned nothing names ~/brain, and the link no run can make stops being
+// a failure — otherwise migrate never succeeds again on that machine.
+func TestMigrateSucceedsOnceEveryHostIsRepinnedWhenNoLinkCanBeMade(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	var cursor string
+	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
+	broken := h
+	broken.Register = func(setup.Server) (setup.Outcome, error) {
+		return setup.Failed, errors.New("mcp.json is locked")
+	}
+	symlink = func(string, string) error { return errors.New("operation not permitted") }
+	t.Cleanup(func() { symlink = os.Symlink })
+	hostsOnMachine(t, broken)
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+
+	hostsOnMachine(t, h)
+	for run := 2; run <= 3; run++ {
+		var err error
+		out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+		if err != nil {
+			t.Errorf("run %d failed with every host re-pinned: %v\n%s", run, err, out)
+		}
+	}
+	if cursor != filepath.Join(home, "logos") {
+		t.Errorf("Cursor was left pinned to %q", cursor)
+	}
+}
+
+// Leaving a disabled logos entry off is fine; leaving the enabled 0.4 brain
+// entry beside it running on the old path is not, and exiting 0 would hide it.
+func TestMigrateReportsAnEnabledBrainEntryLeftBesideADisabledLogosEntry(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	old := filepath.Join(home, "brain")
+	opencodeOnMachine(t, home, `{"mcp": {`+
+		`"logos": {"type": "local", "command": ["/opt/logos", "mcp", "serve"], "enabled": false, "environment": {"LOGOS_VAULT": "`+old+`"}},`+
+		`"brain": {"type": "local", "command": ["/opt/brain", "mcp", "serve"], "environment": {"BRAIN_VAULT": "`+old+`"}}}}`)
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil {
+		t.Errorf("migrate exited 0 with opencode's brain entry still on %s:\n%s", old, out)
+	}
+}
+
+// A disabled entry is left on purpose; it is not work left over, so a move
+// that is otherwise finished says so rather than asking to finish it again.
+func TestMigrateSaysAlreadyDoneWhenOnlyADisabledEntryIsLeft(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	opencodeOnMachine(t, home, `{"mcp": {"logos": {"type": "local", "command": ["/opt/logos", "mcp", "serve"], "enabled": false, "environment": {"LOGOS_VAULT": "`+filepath.Join(home, "brain")+`"}}}}`)
+	captureStdout(t, func() { _ = migrateCmd([]string{"--yes"}) })
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd(nil) })
+	if err != nil || !strings.Contains(out, "already") {
+		t.Errorf("a finished move with only a disabled entry left did not say it is done: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "disabled") {
+		t.Errorf("it stopped saying it left the disabled entry:\n%s", out)
+	}
+}
