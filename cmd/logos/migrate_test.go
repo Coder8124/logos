@@ -275,3 +275,75 @@ func TestTheCLIPointsAtMigrateWhileTheVaultIsStillBrain(t *testing.T) {
 		t.Errorf("still pointing at migrate after migrating:\n%s", stderr.String())
 	}
 }
+
+// The Logos plugin connecting Claude Code is why setup leaves Claude Code out,
+// but the entry that named ~/brain is still in its config, and the plugin's
+// hooks adopt that pin. Skipped here, migrate said "re-pin Claude Code" and
+// left it on the old path with exit 0.
+func TestMigrateRepinsClaudeCodeWhenThePluginAlreadyConnectsIt(t *testing.T) {
+	home, _ := oldVaultHome(t)
+	t.Setenv("PATH", t.TempDir())
+	plugins := filepath.Join(home, ".claude", "plugins")
+	if err := os.MkdirAll(plugins, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"plugins":{"logos@noeton":[{"scope":"user","version":"0.4.9"}]}}`
+	if err := os.WriteFile(filepath.Join(plugins, "installed_plugins.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var claude string
+	hostsOnMachine(t, pinnedHost(t, "Claude Code", filepath.Join(home, "brain"), &claude))
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err != nil {
+		t.Fatalf("migrate failed: %v\n%s", err, out)
+	}
+	if claude != filepath.Join(home, "logos") {
+		t.Errorf("Claude Code was left pinned to ~/brain (re-pinned to %q)\n%s", claude, out)
+	}
+}
+
+// --yes is consent to the move, not to wiring every host to a binary Go
+// deletes the moment `go run` exits; after that no re-pinned host could start.
+func TestMigrateFromAGoRunBuildMovesNothing(t *testing.T) {
+	home, cp := oldVaultHome(t)
+	var cursor string
+	hostsOnMachine(t, pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor))
+	old := executable
+	executable = func() (string, error) { return filepath.Join(home, "go-build123", "b001", "exe", "logos"), nil }
+	t.Cleanup(func() { executable = old })
+
+	var err error
+	out := captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil {
+		t.Errorf("migrate from a go run build succeeded:\n%s", out)
+	}
+	if cursor != "" {
+		t.Errorf("Cursor was wired to a go run build: %q", cursor)
+	}
+	if _, err := os.Stat(filepath.Join(home, "brain", cp)); err != nil {
+		t.Errorf("the vault was moved before the refusal: %v", err)
+	}
+}
+
+// LOGOS_VAULT scopes a run to another vault — the scratch-vault habit, or a
+// BRAIN_VAULT carried over from a 0.4 profile — and a run scoped elsewhere
+// moving the real ~/brain is the one thing it must not do.
+func TestMigrateRefusesWhenThisRunIsScopedToAnotherVault(t *testing.T) {
+	home, cp := oldVaultHome(t)
+	scratch := filepath.Join(home, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_VAULT", scratch)
+
+	var err error
+	captureStdout(t, func() { err = migrateCmd([]string{"--yes"}) })
+	if err == nil || !strings.Contains(err.Error(), scratch) {
+		t.Errorf("migrate did not refuse and name the vault this run is on: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "brain", cp)); err != nil {
+		t.Errorf("~/brain was moved by a run scoped to another vault: %v", err)
+	}
+}

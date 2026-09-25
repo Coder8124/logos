@@ -772,12 +772,6 @@ type wireOpts struct {
 	yes    bool     // --yes: do not prompt
 
 	downgrade bool // --downgrade: replace a newer pinned copy with this older binary
-
-	// repin is migrate moving hosts that already run logos onto the moved
-	// vault. It stops once they are wired and checked: the activity-log offer
-	// and the first-handoff walkthrough are for someone new, and asking a
-	// question in the middle of a vault move reads as the move needing it.
-	repin bool
 }
 
 // detectHosts and integrationChecks are seams, and they exist for one reason:
@@ -1393,9 +1387,6 @@ func wireHosts(vault string, opts wireOpts) error {
 		}
 		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
 		fmt.Println("  and re-run `logos mcp install`.")
-		return nil
-	}
-	if opts.repin {
 		return nil
 	}
 	offerActivityRecording(vault, opts.yes)

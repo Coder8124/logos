@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/vault"
@@ -46,6 +47,12 @@ func migrateCmd(args []string) error {
 	case !fi.IsDir():
 		return fmt.Errorf("%s is not a directory — nothing to move", from)
 	}
+	// LOGOS_VAULT scopes this run to one vault, and a 0.4 profile's BRAIN_VAULT
+	// arrives here as LOGOS_VAULT too. A run scoped elsewhere — the scratch-vault
+	// habit — would otherwise pass the pointer check below and move the real one.
+	if v := os.Getenv("LOGOS_VAULT"); v != "" && filepath.Clean(expandHome(v)) != from {
+		return fmt.Errorf("this run's vault is %s (LOGOS_VAULT), not %s — migrate moves only the 0.4 default, so nothing was moved", v, from)
+	}
 	// The pointer decides which vault this machine uses. Naming another one, it
 	// means ~/brain is not in use, and moving it would change nothing anyone
 	// reads while announcing that it had.
@@ -57,21 +64,36 @@ func migrateCmd(args []string) error {
 	if _, err := os.Lstat(to); err == nil {
 		return fmt.Errorf("%s already exists — move or merge it yourself first; nothing was moved", to)
 	}
-	var pinned []string
+	var pinned []setup.Host
 	for _, h := range detectHosts() {
 		if h.Detect == nil || !h.Detect() {
 			continue
 		}
 		if v := expandHome(setup.PinnedVault([]setup.Host{h}, h.Name)); v != "" && filepath.Clean(v) == from {
-			pinned = append(pinned, h.Name)
+			pinned = append(pinned, h)
+		}
+	}
+	// Each host is re-registered directly rather than through wireHosts: that
+	// is setup, and under one --yes it installed the plugin, copied this binary
+	// onto PATH, and left Claude Code out whenever the plugin connected it —
+	// announcing a re-pin it never did. A re-pin changes the vault and nothing
+	// else the user did not ask for.
+	var srv setup.Server
+	if len(pinned) > 0 {
+		if srv, err = logosServer(to); err != nil {
+			return err
+		}
+		// Decided before the move, so a refusal leaves everything as it was.
+		if goRunBinary(srv.Bin) {
+			return fmt.Errorf("%s is a `go run` build that Go deletes when this command exits, and the hosts would be re-pinned to it — run migrate from an installed logos; nothing was moved", srv.Bin)
 		}
 	}
 
 	fmt.Printf("  move       %s → %s\n", from, to)
 	fmt.Printf("  link       %s → %s, so anything still naming the old path finds it\n", from, to)
 	fmt.Printf("  record     %s as this machine's vault\n", to)
-	for _, n := range pinned {
-		fmt.Printf("  re-pin     %s, pinned to %s\n", n, from)
+	for _, h := range pinned {
+		fmt.Printf("  re-pin     %s, pinned to %s\n", h.Name, from)
 	}
 	if dryRun {
 		fmt.Println("\n  --dry-run: nothing was changed")
@@ -101,15 +123,28 @@ func migrateCmd(args []string) error {
 	} else {
 		fmt.Printf("  ✓ recorded %s as this machine's vault\n", to)
 	}
-	var repinErr error
-	if len(pinned) > 0 {
-		repinErr = wireHosts(to, wireOpts{only: pinned, yes: true, repin: true})
+	var left []string
+	for _, h := range pinned {
+		outcome, err := h.Register(srv)
+		if err == nil && outcome == setup.Failed {
+			err = errors.New("the host reported a failure")
+		}
+		if err != nil {
+			fmt.Printf("  ✗ re-pin   %s: %v\n", h.Name, err)
+			left = append(left, h.Name)
+			continue
+		}
+		fmt.Printf("  ✓ re-pinned %s to %s\n", h.Name, to)
 	}
 	fmt.Println("\n  restart any open agent sessions so they pick up the new path")
-	if repinErr != nil {
+	if len(left) > 0 {
 		// The vault moved, so this is not "nothing happened" — but a host left
 		// on the old path is a failure, and exiting 0 would hide it.
-		return fmt.Errorf("moved the vault to %s, but re-pinning the hosts failed: %w — `logos mcp install` retries it", to, repinErr)
+		verb := "is"
+		if len(left) > 1 {
+			verb = "are"
+		}
+		return fmt.Errorf("moved the vault to %s, but %s %s still pinned to %s — `logos mcp install` re-pins it", to, strings.Join(left, ", "), verb, from)
 	}
 	return nil
 }
