@@ -466,3 +466,30 @@ func TestAnLFSExtensionTheRepositoryBringsTurnsTheLFSFilterOff(t *testing.T) {
 		t.Errorf("filter.lfs left live beside lfs.extension.evil: %v", args)
 	}
 }
+
+// diff-index, unlike diff, does not look for renames unless asked, and a
+// staged move of an unchanged file then counted as the whole file deleted and
+// added again — a refactor that moved files read as a rewrite.
+func TestAMovedFileIsNotCountedAsRewritten(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "big.txt", strings.Repeat("a line\n", 100), "the first commit")
+	gitRun(t, dir, "mv", "big.txt", "moved.txt")
+	s := Read(dir)
+	if s.Insertions != 0 || s.Deletions != 0 {
+		t.Errorf("diffstat = +%d/-%d for a pure move, want +0/-0", s.Insertions, s.Deletions)
+	}
+}
+
+// Config section and key names are case-insensitive, so the repository can
+// spell the section [lfs "Extension.evil"], and git reports it with that case.
+func TestAnLFSExtensionSpelledInAnotherCaseStillTurnsTheLFSFilterOff(t *testing.T) {
+	dir := repo(t)
+	gitRun(t, dir, "config", "lfs.Extension.evil.clean", "/bin/true")
+	args, err := safeArgs(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(args, " "), "filter.lfs.process=") {
+		t.Errorf("filter.lfs left live beside lfs.Extension.evil: %v", args)
+	}
+}

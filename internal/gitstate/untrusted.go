@@ -66,7 +66,7 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 	// Reading config runs nothing, whatever the config says. It is bounded all
 	// the same: a .git/config on a hung mount blocks the read like any other.
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "config", "--show-scope",
-		"--name-only", "--get-regexp", `^(filter|hook|lfs\.extension)\.`)
+		"--name-only", "--get-regexp", `^(filter|hook|lfs)\.`)
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	if err != nil {
@@ -87,10 +87,14 @@ func safeArgs(ctx context.Context, dir string) ([]string, error) {
 		}
 		section, name := "", ""
 		switch {
-		case strings.HasPrefix(key, "lfs.extension."):
+		// git prints a subsection as spelled, and [lfs "Extension.x"] is
+		// the same extension to git-lfs, so the match ignores case.
+		case strings.HasPrefix(strings.ToLower(key), "lfs.extension."):
 			// An extension runs inside git-lfs's filter, so it is that
 			// filter which is turned off — in this repository only.
 			section, name = "filter", "lfs"
+		case strings.HasPrefix(key, "lfs."):
+			continue
 		default:
 			sec, rest, _ := strings.Cut(key, ".")
 			dot := strings.LastIndex(rest, ".")
