@@ -57,12 +57,18 @@ func SafeGit(dir string, timeout time.Duration, args ...string) (string, error) 
 	// the setting, which is why diffStat uses diff-index, which never writes.
 	// GIT_NO_LAZY_FETCH makes a partial clone's missing blob an error rather
 	// than a fetch. A git older than 2.45 does not know the variable, and there
-	// the protocol overrides safeArgs builds are what refuse the fetch.
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1")
+	// the protocol overrides safeArgs builds are what refuse the fetch — unless
+	// the user's GIT_ALLOW_PROTOCOL, which git checks before any of them, lets
+	// a transport through. Set empty it allows none, and exec keeps the last
+	// value of a duplicated variable, so safeEnv's wins.
+	cmd.Env = append(os.Environ(), safeEnv...)
 	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	return string(out), err
 }
+
+// safeEnv is added to the user's environment for every read; see SafeGit.
+var safeEnv = []string{"GIT_OPTIONAL_LOCKS=0", "GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL="}
 
 // safeArgs builds the -c overrides, placed before the subcommand.
 func safeArgs(ctx context.Context, dir string) ([]string, error) {

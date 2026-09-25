@@ -591,13 +591,21 @@ func TestReadingAPartialCloneFetchesNothing(t *testing.T) {
 	// A git older than 2.45 ignores GIT_NO_LAZY_FETCH and has only the
 	// protocol overrides, which a repository can loosen per transport:
 	// protocol.<name>.allow is read before protocol.allow.
+	// A user's GIT_ALLOW_PROTOCOL, a common hardening, is checked before any
+	// of those settings, so the one it names is let through whatever -c says.
 	gitRun(t, dir, "config", "protocol.file.allow", "always")
+	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
 	args, err := safeArgs(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := exec.Command("git", append(append(args, "-C", dir), "diff-index", "--numstat", "HEAD")...)
-	old.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	old.Env = os.Environ()
+	for _, kv := range safeEnv {
+		if !strings.HasPrefix(kv, "GIT_NO_LAZY_FETCH=") {
+			old.Env = append(old.Env, kv)
+		}
+	}
 	_ = old.Run()
 	assertNotRun(t, marker, "remote.origin.uploadpack, without GIT_NO_LAZY_FETCH")
 }
