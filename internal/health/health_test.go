@@ -1263,3 +1263,35 @@ func TestDoctorReportsMemoriesThatReachedTheIndexAndNotTheVault(t *testing.T) {
 		t.Errorf("durability state = %q after the memories were written out, want %q", c.State, OK)
 	}
 }
+
+// 0.4.0 to 0.4.2 wrote the vault into host configs as BRAIN_VAULT. 0.5.0 does
+// not read it, so the host's server moves to another vault, and the only word
+// of it was on the server's stderr, which no host shows.
+func TestAHostStillPinnedAsBrainVaultIsFlagged(t *testing.T) {
+	old := t.TempDir()
+	hosts := func(env string) []setup.Host {
+		cfg := filepath.Join(t.TempDir(), "claude.json")
+		entry := fmt.Sprintf(`{"mcpServers":{"logos":{"command":"/usr/local/bin/logos","args":["mcp","serve"],"env":%s}}}`, env)
+		if err := os.WriteFile(cfg, []byte(entry), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return []setup.Host{{
+			Name:   "Claude Code",
+			Detect: func() bool { return true },
+			Config: func() string { return cfg },
+		}}
+	}
+
+	c, ok := checkOldHostPin(hosts(fmt.Sprintf(`{"BRAIN_VAULT":%q}`, old)))
+	if !ok || c.State != Failed {
+		t.Fatalf("a host pinned only as BRAIN_VAULT was not flagged: ok=%v %+v", ok, c)
+	}
+	if !strings.Contains(c.Detail, "Claude Code") || !strings.Contains(c.Fix, "logos setup --vault "+old) {
+		t.Errorf("the check must name the host and the command that re-pins its vault: %+v", c)
+	}
+	for _, env := range []string{fmt.Sprintf(`{"LOGOS_VAULT":%q,"BRAIN_VAULT":%q}`, old, old), fmt.Sprintf(`{"LOGOS_VAULT":%q}`, old), `{}`} {
+		if c, ok := checkOldHostPin(hosts(env)); ok {
+			t.Errorf("env %s was flagged, but the host reads its vault: %+v", env, c)
+		}
+	}
+}

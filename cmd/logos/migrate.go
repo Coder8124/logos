@@ -18,15 +18,16 @@ var symlink = os.Symlink
 
 // migrateCmd moves a 0.4 vault from ~/brain to ~/logos.
 //
-// 0.4.x recorded ~/brain as the machine's vault, and that keeps working past
-// 0.5.0 because the pointer names it — but it leaves an early adopter's
-// sessions and checkpoints under the old name for good, and an explicit move is
-// the only way off it: logos never moves someone's vault without being asked.
+// 0.4.x recorded ~/brain as the machine's vault, and a pointer that names it
+// keeps working past 0.5.0 — but it leaves an early adopter's sessions and
+// checkpoints under the old name for good, and an explicit move is the only way
+// off it: logos never moves someone's vault without being asked.
 //
 // ~/brain is left as a link to ~/logos. Host configs pin the vault by path, a
 // server already running holds it open, and a shell profile may export
-// BRAIN_VAULT; all of them keep reaching the same files through the link, so a
-// host that could not be re-pinned is a thing to fix, not a vault gone missing.
+// LOGOS_VAULT=~/brain; all of them keep reaching the same files through the
+// link, so a host that could not be re-pinned is a thing to fix, not a vault
+// gone missing.
 func migrateCmd(args []string) error {
 	dryRun, yes := hasFlag(args, "--dry-run"), hasFlag(args, "--yes") || hasFlag(args, "-y")
 	home, err := os.UserHomeDir()
@@ -63,8 +64,7 @@ func migrateCmd(args []string) error {
 	case !fi.IsDir():
 		return fmt.Errorf("%s is not a directory — nothing to move", from)
 	}
-	// LOGOS_VAULT scopes this run to one vault, and a 0.4 profile's BRAIN_VAULT
-	// arrives here as LOGOS_VAULT too. A run scoped elsewhere — the scratch-vault
+	// LOGOS_VAULT scopes this run to one vault. A run scoped elsewhere — the scratch-vault
 	// habit — would otherwise pass the pointer check below and move the real one.
 	if v := os.Getenv("LOGOS_VAULT"); v != "" && filepath.Clean(expandHome(v)) != from && !(moved && filepath.Clean(expandHome(v)) == to) {
 		return fmt.Errorf("this run's vault is %s (LOGOS_VAULT), not %s — migrate moves only the 0.4 default, so nothing was moved", v, from)

@@ -237,10 +237,17 @@ registration:
 logos mcp install --host claude-code --yes
 ```
 
-Logos reads `.logos/` inside the vault, never `.brain/`. If a vault still has
-only `.brain/`, logos says so on every run; `mv .brain .logos` inside the vault
-keeps its model config and ingest consent; once `.logos/` exists, copy what
-you need from `.brain/` and delete it.
+Logos reads `.logos/` inside the vault, never `.brain/`. While a vault still
+has `.brain/`, logos says so on every run. Its settings — model config, ingest
+consent — are the `.json` files at its top level; the index rebuilds. Inside
+the vault, `mkdir -p .logos && cp -n .brain/*.json .logos/` keeps them, then
+delete `.brain/`. Not `mv .brain .logos`: the first logos command creates
+`.logos/`, and a move after that nests `.brain/` inside it, where nothing reads
+it.
+
+If a host was wired by 0.4.0–0.4.2, its config pins the vault as `BRAIN_VAULT`,
+which 0.5.0 does not read. `logos doctor` names that host;
+`logos setup --vault <that path>` re-pins it.
 
 ### Removing Logos
 
