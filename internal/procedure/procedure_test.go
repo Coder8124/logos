@@ -1,12 +1,17 @@
 package procedure
 
 import (
+	"encoding/json"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/provider"
 )
 
 // As with deadend, the tests that matter are the ones about restraint: a
@@ -160,4 +165,49 @@ func TestRenderShowsTheTrapAndTheVerifyCommand(t *testing.T) {
 	if !strings.Contains(out, "implementation") || !strings.Contains(out, "verified") {
 		t.Errorf("render should surface the typed tags:\n%s", out)
 	}
+}
+
+// #219 on the procedure side of the same before_you_try call: "commit" and
+// "command" are half of this route's subject, and the embedder, which read both
+// whole, put the pair at 0.611. Offered, it sends an agent down a path for an
+// approach it never proposed.
+func TestAProcedureThatOnlySharesTheApproachsWordsIsNotOffered(t *testing.T) {
+	route := "push the release tag with the release commit in one command"
+	approach := "anchor verified claims to a commit sha and mark them stale when the files they cover change, re-running the recorded command to re-verify"
+	corpus := []memory.Memory{{
+		Text:    "route: " + route + " | trap: a separate tag push races the release workflow | evidence: once",
+		Project: "logos", Agent: "claude", Created: time.Now().Unix(),
+	}}
+	p := fixedSimilarity(t, approach, 0.611)
+
+	hits, err := Check(corpus, p, "m", approach, "logos", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) > 0 {
+		t.Errorf("a route sharing two words was offered for %q: %q", approach, hits[0].Text)
+	}
+}
+
+// fixedSimilarity embeds approach at one point and every other text at cos
+// from it.
+func fixedSimilarity(t *testing.T, approach string, cos float64) *provider.Provider {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []string `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		data := make([]map[string]any, len(req.Input))
+		for i, s := range req.Input {
+			v := []float32{float32(cos), float32(math.Sqrt(1 - cos*cos))}
+			if s == approach {
+				v = []float32{1, 0}
+			}
+			data[i] = map[string]any{"embedding": v}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	return provider.New("Fake", srv.URL, "")
 }

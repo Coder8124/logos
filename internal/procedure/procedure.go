@@ -30,22 +30,19 @@ type Hit struct {
 	Stale bool
 }
 
-// cosineFloor matches deadend's: high on purpose. A checker an agent learns
-// to skim past is worse than no checker, and that cost is higher here than on
-// the dead-end side — a wrong dead end wastes a glance, a wrong procedure
-// sends an agent down a path.
-const cosineFloor = 0.74
-
 // Check returns the recorded procedures bearing on a proposed approach, best
 // match first, out of the given corpus. The corpus is every memory.Kind =
 // Procedure row in the vault — gathering it is the caller's job (see
 // memory.RecallProcedures), so this package can be tested against a handful
 // of hand-built candidates without a store behind it.
 //
-// Ranking mirrors deadend.Check exactly: lexical containment for a proposal
+// Matching is deadend.Matches, so a proposal is judged the same way against
+// what worked as against what failed: lexical containment for a proposal
 // restating a route in the same vocabulary, embedding cosine for the same
-// idea in different words, same-project rulings first, then score. Degrades
-// to lexical-only with no embedder rather than disappearing.
+// idea in different words, each backed by the other near its floor. The cost
+// of a false match is higher here — a wrong dead end wastes a glance, a wrong
+// procedure sends an agent down a path. Ranked same-project first, then score.
+// Degrades to lexical-only with no embedder rather than disappearing.
 func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, project string, k int) ([]Hit, error) {
 	if strings.TrimSpace(approach) == "" || len(corpus) == 0 {
 		return nil, nil
@@ -60,6 +57,7 @@ func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, p
 	}
 
 	semantic := make([]float64, len(corpus))
+	embedded := make([]bool, len(corpus))
 	if p != nil {
 		texts := make([]string, 0, len(corpus)+1)
 		texts = append(texts, approach)
@@ -68,14 +66,14 @@ func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, p
 		}
 		if vecs, err := p.Embed(embedModel, texts); err == nil && len(vecs) == len(texts) {
 			for i := range corpus {
-				semantic[i] = cosine(vecs[0], vecs[i+1])
+				semantic[i], embedded[i] = deadend.Similarity(vecs[0], vecs[i+1])
 			}
 		}
 	}
 
 	var hits []Hit
 	for i, c := range corpus {
-		if lexical[i] < textmatch.Related && semantic[i] < cosineFloor {
+		if !deadend.Matches(lexical[i], semantic[i], embedded[i]) {
 			continue
 		}
 		hits = append(hits, Hit{
@@ -97,20 +95,4 @@ func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, p
 		hits = hits[:k]
 	}
 	return hits, nil
-}
-
-func cosine(a, b []float32) float64 {
-	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
-		return 0
-	}
-	var dot, na, nb float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		na += float64(a[i]) * float64(a[i])
-		nb += float64(b[i]) * float64(b[i])
-	}
-	if na == 0 || nb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }

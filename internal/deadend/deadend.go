@@ -189,10 +189,42 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 // checker — it is the same knowledge, now with a reason not to look.
 const cosineFloor = 0.74
 
+// Either arm at its own floor is a guess the other can overrule. Measured under
+// nomic-embed-text, a proposal that shares only a project's vocabulary with a
+// ruling reaches the floor on vocabulary alone (0.746 for a pre-commit check
+// against a mistyped --no-verify), and two common words make half of a short
+// ruling (a commit sha against a tag push, embedded at 0.611). Every true match
+// measured had the other arm behind it, so at the floors each arm needs some
+// of the other: a lexical match needs lexicalBacking, a semantic one
+// semanticBacking. Only well above the floor does similarity stand alone,
+// which keeps the cross-project case, the same idea in other words, found.
+// The price is paid between the floors: a paraphrase at 0.74–0.80 sharing
+// fewer than two words is no longer reported. None of the true pairs measured
+// sat there, and a missed interruption costs less than a false one.
+const (
+	lexicalBacking  = 0.65
+	semanticBacking = 0.25
+	cosineAlone     = 0.80
+)
+
+// Matches is the rule both halves of before_you_try apply to a candidate:
+// dead ends here, procedures in internal/procedure, so a proposal is not
+// judged one way against what failed and another against what worked.
+// embedded is whether semantic is a measurement at all. A ruling the embedder
+// never reached, or one whose vector it cannot be compared with, has no
+// second opinion to give, and lexical alone is what the check was before
+// embeddings; it stays that.
+func Matches(lexical, semantic float64, embedded bool) bool {
+	byWords := lexical >= textmatch.Related && (!embedded || semantic >= lexicalBacking)
+	byMeaning := semantic >= cosineAlone || (semantic >= cosineFloor && lexical >= semanticBacking)
+	return byWords || byMeaning
+}
+
 // Check returns the recorded dead ends bearing on a proposed approach, best
 // match first.
 //
-// Two ways to match, either sufficient. Lexical containment catches a proposal
+// Two ways to match, each needing a little of the other near its floor (see
+// cosineAlone). Lexical containment catches a proposal
 // restating the original almost word for word, which is the common case when an
 // agent has read the project note and is working from the same vocabulary.
 // Embedding similarity catches the opposite case — the same idea in different
@@ -233,6 +265,7 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 	}
 
 	semantic := make([]float64, len(corpus))
+	embedded := make([]bool, len(corpus))
 	if p != nil {
 		// Only the proposal is new on a typical call; the rulings come from the
 		// cache and are embedded once, when they first appear.
@@ -246,13 +279,13 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 			vecs, err := rulingVectors(db, p, embedModel, texts)
 			semanticErr = err
 			for i := range corpus {
-				semantic[i] = cosine(query[0], vecs[i])
+				semantic[i], embedded[i] = Similarity(query[0], vecs[i])
 			}
 		}
 	}
 
 	for i, r := range corpus {
-		if lexical[i] < textmatch.Related && semantic[i] < cosineFloor {
+		if !Matches(lexical[i], semantic[i], embedded[i]) {
 			continue
 		}
 		r.Score = math.Max(lexical[i], semantic[i])
@@ -287,9 +320,13 @@ func sharedWords(a, b map[string]bool) int {
 	return n
 }
 
-func cosine(a, b []float32) float64 {
+// Similarity is the cosine of two embeddings, and whether they could be
+// compared at all. A pair of different sizes — the runtime changed under the
+// same model name and the cache still holds the old vectors — has no score,
+// and reporting it as zero made it a confident "unrelated".
+func Similarity(a, b []float32) (float64, bool) {
 	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
-		return 0
+		return 0, false
 	}
 	var dot, na, nb float64
 	for i := range a {
@@ -298,7 +335,7 @@ func cosine(a, b []float32) float64 {
 		nb += float64(b[i]) * float64(b[i])
 	}
 	if na == 0 || nb == 0 {
-		return 0
+		return 0, false
 	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+	return dot / (math.Sqrt(na) * math.Sqrt(nb)), true
 }
