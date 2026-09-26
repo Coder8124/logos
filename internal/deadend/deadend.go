@@ -189,10 +189,26 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 // checker — it is the same knowledge, now with a reason not to look.
 const cosineFloor = 0.74
 
+// Either arm at its own floor is a guess the other can overrule. Measured under
+// nomic-embed-text, a proposal that shares only a project's vocabulary with a
+// ruling reaches the floor on vocabulary alone (0.746 for a pre-commit check
+// against a mistyped --no-verify), and two common words make half of a short
+// ruling (a commit sha against a tag push, embedded at 0.611). Every true match
+// measured had the other arm behind it, so at the floors each arm needs some
+// of the other: a lexical match needs lexicalBacking, a semantic one
+// semanticBacking. Only well above the floor does similarity stand alone,
+// which keeps the cross-project case, the same idea in other words, found.
+const (
+	lexicalBacking  = 0.65
+	semanticBacking = 0.25
+	cosineAlone     = 0.80
+)
+
 // Check returns the recorded dead ends bearing on a proposed approach, best
 // match first.
 //
-// Two ways to match, either sufficient. Lexical containment catches a proposal
+// Two ways to match, each needing a little of the other near its floor (see
+// cosineAlone). Lexical containment catches a proposal
 // restating the original almost word for word, which is the common case when an
 // agent has read the project note and is working from the same vocabulary.
 // Embedding similarity catches the opposite case — the same idea in different
@@ -233,6 +249,9 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 	}
 
 	semantic := make([]float64, len(corpus))
+	// A ruling the embedder never reached has no second opinion to ask, and
+	// lexical alone is what the check was before embeddings; it stays that.
+	embedded := make([]bool, len(corpus))
 	if p != nil {
 		// Only the proposal is new on a typical call; the rulings come from the
 		// cache and are embedded once, when they first appear.
@@ -247,12 +266,15 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 			semanticErr = err
 			for i := range corpus {
 				semantic[i] = cosine(query[0], vecs[i])
+				embedded[i] = len(query[0]) > 0 && len(vecs[i]) > 0
 			}
 		}
 	}
 
 	for i, r := range corpus {
-		if lexical[i] < textmatch.Related && semantic[i] < cosineFloor {
+		byWords := lexical[i] >= textmatch.Related && (!embedded[i] || semantic[i] >= lexicalBacking)
+		byMeaning := semantic[i] >= cosineAlone || (semantic[i] >= cosineFloor && lexical[i] >= semanticBacking)
+		if !byWords && !byMeaning {
 			continue
 		}
 		r.Score = math.Max(lexical[i], semantic[i])
