@@ -286,3 +286,23 @@ func TestOpencodeAndAmpPinsAreReadFromTheirOwnConfigShapes(t *testing.T) {
 		}
 	}
 }
+
+// #226: migrate leaves ~/brain as a link to ~/logos, so a host it could not
+// re-pin still names ~/brain and reaches the same vault through it. Doctor
+// compared the two spellings and failed the machine with "checkpoints there
+// are not seen here", on the one migration that had gone right.
+func TestAHostPinnedThroughALinkToTheVaultIsOnTheSameVault(t *testing.T) {
+	home := t.TempDir()
+	vault := filepath.Join(home, "logos")
+	if err := os.Mkdir(vault, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "brain")
+	if err := os.Symlink(vault, link); err != nil {
+		t.Skipf("cannot make a link here: %v", err)
+	}
+	hosts := []setup.Host{pinnedHost(t, "Claude Desktop", "logos", link)}
+	if names, vaults := setup.OnOtherVault(hosts, vault); len(names) > 0 {
+		t.Errorf("%s pinned to %s was reported on another vault than %s", names[0], vaults[0], vault)
+	}
+}

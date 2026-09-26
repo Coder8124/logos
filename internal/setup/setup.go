@@ -259,11 +259,23 @@ func OnOtherVault(hosts []Host, dir string) (names, vaults []string) {
 		// machine has moved off reported nothing, and the split doctor exists
 		// to catch was invisible on the host it happens on most.
 		v := PinnedVault([]Host{h}, h.Name)
-		if v != "" && filepath.Clean(v) != filepath.Clean(dir) {
+		if v != "" && resolved(v) != resolved(dir) {
 			names, vaults = append(names, h.Name), append(vaults, v)
 		}
 	}
 	return names, vaults
+}
+
+// resolved is the directory a path names once links are followed. migrate
+// leaves ~/brain linking to ~/logos, and a host it could not re-pin still names
+// ~/brain: one vault under two spellings, which compared as spelled read as a
+// split. A path that does not resolve — a vault since deleted — is compared as
+// written.
+func resolved(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
 }
 
 // Names lists every host logos knows how to wire, for error messages.
