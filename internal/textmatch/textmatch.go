@@ -316,33 +316,37 @@ func Reverses(a, b string) bool {
 		// for word. Asking only whether the subjects matched let a "not" that
 		// names a rejected alternative ("postgres, not mysql"), or a four-word
 		// denial sharing its one noun with an unrelated memory, contest a fact
-		// it agreed with or had nothing to do with.
+		// it agreed with or had nothing to do with. A denial with nothing left,
+		// "Never." or "Don't!", denies nothing in particular.
 		if deniesA {
 			wa, wb = wb, wa
 		}
-		return slices.Equal(wa, wb) || slices.Equal(unemphatic(wa, len(wb)), wb)
+		return len(wb) > 0 && (slices.Equal(wa, wb) || unemphatic(wa, wb))
 	}
 	// Two denials are not a swap: "the cache is not redis" and "…not
 	// memcached" can both be true, and with their "not"s taken out they read
-	// as one value exchanged for another.
+	// as one value exchanged for another. The price is "not on" against "not
+	// off", which does contradict; telling opposites from alternatives needs
+	// a list of antonyms this does not have.
 	return !deniesA && swapsPredicate(wa, wb)
 }
 
-// unemphatic drops the emphatic do, does or did from an assertion the same
-// length as its denial would be without it. denial takes the one before "not"
-// out, so "we do use docker" must lose its own to meet "we do not use docker";
-// dropping it only when the lengths then agree keeps a "do" that is the verb
-// ("they do the builds") in place.
-func unemphatic(ws []string, want int) []string {
-	if len(ws) != want+1 {
-		return nil
+// unemphatic is whether an assertion is its denial's remaining words plus an
+// emphatic do, does or did. denial takes the one before "not" out, so "we do
+// use docker" must lose its own to meet "we do not use docker". Every do is
+// tried, since an earlier one may be the verb ("we do the builds and do
+// deploy"), and none is dropped unless the rest then matches word for word, so
+// a "do" that is the verb ("they do the builds") stays in place.
+func unemphatic(assert, denied []string) bool {
+	if len(assert) != len(denied)+1 {
+		return false
 	}
-	for i, w := range ws {
-		if (w == "do" || w == "does" || w == "did") && i+1 < len(ws) {
-			return slices.Delete(slices.Clone(ws), i, i+1)
+	for i, w := range assert[:len(assert)-1] {
+		if (w == "do" || w == "does" || w == "did") && slices.Equal(slices.Delete(slices.Clone(assert), i, i+1), denied) {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 // denial is whether a statement denies its claim, and its words with the

@@ -117,6 +117,10 @@ func TestWordsThatOnlyLookLikeAReversalAreNotOne(t *testing.T) {
 		// denials read as a swap, though neither asserts what the other denies.
 		{"the cache is not redis", "the cache is not memcached"},
 		{"the api is not slow", "the api is not fast"},
+		// A denial with nothing left once its "not" is out denies nothing in
+		// particular, so it must not contest whatever it lands beside.
+		{"we use docker for local development", "Never."},
+		{"retries are enabled", "Don't!"},
 	} {
 		if textmatch.Reverses(pair[0], pair[1]) {
 			t.Errorf("%q was read as reversing %q", pair[1], pair[0])
@@ -138,6 +142,7 @@ func TestAClaimDeniedOrSwappedIsStillReadAsAReversal(t *testing.T) {
 		{"we do use docker", "we do not use docker"},
 		{"we did deploy it", "we didn't deploy it"},
 		{"they do the builds", "they don't do the builds"},
+		{"we do the builds and do deploy on fridays", "we do the builds and don't deploy on fridays"},
 	} {
 		if !textmatch.Reverses(pair[0], pair[1]) {
 			t.Errorf("%q was not read as reversing %q", pair[1], pair[0])
