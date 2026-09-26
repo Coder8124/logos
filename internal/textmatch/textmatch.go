@@ -317,9 +317,32 @@ func Reverses(a, b string) bool {
 		// names a rejected alternative ("postgres, not mysql"), or a four-word
 		// denial sharing its one noun with an unrelated memory, contest a fact
 		// it agreed with or had nothing to do with.
-		return slices.Equal(wa, wb)
+		if deniesA {
+			wa, wb = wb, wa
+		}
+		return slices.Equal(wa, wb) || slices.Equal(unemphatic(wa, len(wb)), wb)
 	}
-	return swapsPredicate(wa, wb)
+	// Two denials are not a swap: "the cache is not redis" and "…not
+	// memcached" can both be true, and with their "not"s taken out they read
+	// as one value exchanged for another.
+	return !deniesA && swapsPredicate(wa, wb)
+}
+
+// unemphatic drops the emphatic do, does or did from an assertion the same
+// length as its denial would be without it. denial takes the one before "not"
+// out, so "we do use docker" must lose its own to meet "we do not use docker";
+// dropping it only when the lengths then agree keeps a "do" that is the verb
+// ("they do the builds") in place.
+func unemphatic(ws []string, want int) []string {
+	if len(ws) != want+1 {
+		return nil
+	}
+	for i, w := range ws {
+		if (w == "do" || w == "does" || w == "did") && i+1 < len(ws) {
+			return slices.Delete(slices.Clone(ws), i, i+1)
+		}
+	}
+	return nil
 }
 
 // denial is whether a statement denies its claim, and its words with the
