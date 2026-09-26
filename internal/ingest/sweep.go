@@ -69,12 +69,18 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 			// Stat before parsing: a host keeps every transcript it ever
 			// wrote, and reading them all on each resume is the cost that
 			// matters here.
-			if !transcript.MayBelongTo(h, p, project) {
-				continue
-			}
 			fi, err := os.Stat(transcript.SourceFile(p))
 			if err != nil || fi.ModTime().Before(since) || fi.ModTime().After(until) || settled(p, fi.ModTime()) || open(p) {
 				continue
+			}
+			// A folder the slug rules out may still be project's when a
+			// marker renames it (#196), so its first cwd is asked before
+			// it is passed over — after the window and the cache, which
+			// between them leave only a handful to open.
+			if !transcript.MayBelongTo(h, p, project) {
+				if cwd := transcript.FirstCwd(p); cwd != "" && bareProject(scope.Name(cwd)) != project {
+					continue
+				}
 			}
 			s, err := transcript.ReadFile(h, p)
 			if err != nil {
@@ -303,11 +309,15 @@ func transcriptID(path string) string {
 // started in shop/cart checkpoints under shop and has to be swept under shop.
 // The directory is read now, not when the session ran: one since deleted
 // falls back to its basename, which is what the transcript already said.
+//
+// With a cwd, scope.Name alone decides (#196): taking the basename as well
+// swept a session in code/web, whose marker says storefront, under web too —
+// two records of one session, one of them where its own server never files.
 func belongsTo(s *transcript.Session, project string) bool {
-	if bareProject(s.Project) == project {
-		return true
+	if s.Cwd != "" {
+		return bareProject(scope.Name(s.Cwd)) == project
 	}
-	return s.Cwd != "" && bareProject(scope.Name(s.Cwd)) == project
+	return bareProject(s.Project) == project
 }
 
 // bareProject is the project half of a scope. A transcript names the folder it

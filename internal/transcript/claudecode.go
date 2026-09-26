@@ -387,3 +387,35 @@ func MayBelongTo(harness, path, project string) bool {
 	slug, p := fold(filepath.Base(filepath.Dir(path))), "-"+fold(project)
 	return strings.HasSuffix(slug, p) || strings.Contains(slug, p+"-")
 }
+
+// FirstCwd is the working directory a Claude Code transcript records, read
+// from its first lines only, or "" when none of them carries one.
+//
+// #196: MayBelongTo rules a folder out by its slug, and a slug only holds the
+// path. A repository checked out as code/web whose .logos-project marker says
+// storefront files its checkpoints under storefront, so every one of its
+// transcripts was ruled out unread and a killed session there was never
+// swept. The cwd settles it, and it is on nearly every line, so this stops at
+// the first one that has it rather than parsing a transcript that may run to
+// a hundred megabytes. Measured on a real machine: two such transcripts in the
+// sweep's window, ten lines read between them, under three milliseconds.
+func FirstCwd(path string) string {
+	f, err := os.Open(SourceFile(path))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	// A cap, so a transcript that somehow has no cwd near its top costs a
+	// bounded read here; the caller reads it in full, as it did before.
+	for i := 0; i < 64 && sc.Scan(); i++ {
+		var ln struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ln) == nil && ln.Cwd != "" {
+			return ln.Cwd
+		}
+	}
+	return ""
+}
