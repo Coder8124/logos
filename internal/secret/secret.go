@@ -110,14 +110,18 @@ var privateKeyBlock = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |P
 // These contain a separator the token pass splits on (a colon, a URL's
 // slashes), so they are matched on the whole line instead. The AWS secret
 // access key has no prefix at all; only the name beside it identifies it.
+//
+// needs is a literal every match contains, checked against the lowercased line
+// before the pattern runs; see mask.
 var lineShapes = []struct {
 	reason string
+	needs  string
 	re     *regexp.Regexp
 	repl   string
 }{
-	{"Slack webhook URL", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8,}/B[A-Za-z0-9_]{8,}/[A-Za-z0-9_]{20,}`), Marker},
-	{"Telegram bot token", regexp.MustCompile(`\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b`), Marker},
-	{"AWS secret access key", regexp.MustCompile(`(?i)(aws_?secret_?(?:access_?)?key["']?\s*[:=]\s*["']?)[A-Za-z0-9/+=]{40}`), "${1}" + Marker},
+	{"Slack webhook URL", "hooks.slack.com", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8,}/B[A-Za-z0-9_]{8,}/[A-Za-z0-9_]{20,}`), Marker},
+	{"Telegram bot token", ":", regexp.MustCompile(`\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b`), Marker},
+	{"AWS secret access key", "secret", regexp.MustCompile(`(?i)(aws_?secret_?(?:access_?)?key["']?\s*[:=]\s*["']?)[A-Za-z0-9/+=]{40}`), "${1}" + Marker},
 }
 
 // secretPrefixes are provider-issued token shapes specific enough that
@@ -166,7 +170,14 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 	s = replaceCounting(privateKeyBlock, s, Marker, field, "private key", &found, nil)
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if !entropy {
+		// Most of these patterns open with \b, (?i) or a class, which Go's
+		// regexp cannot skip ahead on, so each one walks the whole line. A 5MB
+		// checkpoint state spent a second here and held the server's shutdown
+		// past its deadline; a substring check first costs one pass for all.
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "authorization") {
+			// no header on this line, in either strength
+		} else if !entropy {
 			line = replaceCounting(authSchemed, line, "Authorization: "+Marker, field, "Authorization header", &found, func(m []string) bool {
 				return !plainWord.MatchString(m[1])
 			})
@@ -177,11 +188,16 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 		} else {
 			line = replaceCounting(authHeaderInline, line, "Authorization: "+Marker, field, "Authorization header", &found, nil)
 		}
-		line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found, nil)
-		if mysqlCommand.MatchString(line) {
+		if strings.Contains(line, "://") {
+			line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found, nil)
+		}
+		if (strings.Contains(line, "mysql") || strings.Contains(line, "mariadb")) && mysqlCommand.MatchString(line) {
 			line = replaceCounting(mysqlPassword, line, "${1}-p"+Marker, field, "mysql -p password", &found, nil)
 		}
 		for _, ls := range lineShapes {
+			if !strings.Contains(lower, ls.needs) {
+				continue
+			}
 			line = replaceCounting(ls.re, line, ls.repl, field, ls.reason, &found, nil)
 		}
 		lines[i], found = redactTokens(field, line, entropy, found)
