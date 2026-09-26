@@ -125,3 +125,43 @@ func TestARulingIsStillFoundWhenEitherArmHasTheOtherBehindIt(t *testing.T) {
 		}
 	}
 }
+
+// A cached ruling vector the current embedder cannot be compared with — the
+// runtime changed under the same model name and serves another size — scores
+// zero. That is no opinion, not a low one; counted as a low one it overruled
+// the lexical arm, and a ruling restated word for word stopped being found
+// with nothing to say why.
+func TestARulingCachedAtAnotherSizeIsStillFoundByItsWords(t *testing.T) {
+	dir, db := seed(t)
+	proposal := "switch to a plastic frame to save weight"
+	if _, err := Check(dir, db, similarTo(t, proposal, nil), "m", proposal, "kestrel-one", 5); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := Check(dir, db, sizedRuntime(t, 3), "m", proposal, "kestrel-one", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) == 0 || !strings.Contains(hits[0].Text, "plastic frame") {
+		t.Errorf("a ruling restated word for word was lost to a vector of another size: %v", hits)
+	}
+}
+
+func sizedRuntime(t *testing.T, dims int) *provider.Provider {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []string `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		data := make([]map[string]any, len(req.Input))
+		for i := range req.Input {
+			v := make([]float32, dims)
+			v[0] = 1
+			data[i] = map[string]any{"embedding": v}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	t.Cleanup(srv.Close)
+	return provider.New("Fake", srv.URL, "")
+}

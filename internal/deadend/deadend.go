@@ -198,11 +198,27 @@ const cosineFloor = 0.74
 // of the other: a lexical match needs lexicalBacking, a semantic one
 // semanticBacking. Only well above the floor does similarity stand alone,
 // which keeps the cross-project case, the same idea in other words, found.
+// The price is paid between the floors: a paraphrase at 0.74–0.80 sharing
+// fewer than two words is no longer reported. None of the true pairs measured
+// sat there, and a missed interruption costs less than a false one.
 const (
 	lexicalBacking  = 0.65
 	semanticBacking = 0.25
 	cosineAlone     = 0.80
 )
+
+// Matches is the rule both halves of before_you_try apply to a candidate:
+// dead ends here, procedures in internal/procedure, so a proposal is not
+// judged one way against what failed and another against what worked.
+// embedded is whether semantic is a measurement at all. A ruling the embedder
+// never reached, or one whose vector it cannot be compared with, has no
+// second opinion to give, and lexical alone is what the check was before
+// embeddings; it stays that.
+func Matches(lexical, semantic float64, embedded bool) bool {
+	byWords := lexical >= textmatch.Related && (!embedded || semantic >= lexicalBacking)
+	byMeaning := semantic >= cosineAlone || (semantic >= cosineFloor && lexical >= semanticBacking)
+	return byWords || byMeaning
+}
 
 // Check returns the recorded dead ends bearing on a proposed approach, best
 // match first.
@@ -249,8 +265,6 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 	}
 
 	semantic := make([]float64, len(corpus))
-	// A ruling the embedder never reached has no second opinion to ask, and
-	// lexical alone is what the check was before embeddings; it stays that.
 	embedded := make([]bool, len(corpus))
 	if p != nil {
 		// Only the proposal is new on a typical call; the rulings come from the
@@ -265,16 +279,13 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 			vecs, err := rulingVectors(db, p, embedModel, texts)
 			semanticErr = err
 			for i := range corpus {
-				semantic[i] = cosine(query[0], vecs[i])
-				embedded[i] = len(query[0]) > 0 && len(vecs[i]) > 0
+				semantic[i], embedded[i] = Similarity(query[0], vecs[i])
 			}
 		}
 	}
 
 	for i, r := range corpus {
-		byWords := lexical[i] >= textmatch.Related && (!embedded[i] || semantic[i] >= lexicalBacking)
-		byMeaning := semantic[i] >= cosineAlone || (semantic[i] >= cosineFloor && lexical[i] >= semanticBacking)
-		if !byWords && !byMeaning {
+		if !Matches(lexical[i], semantic[i], embedded[i]) {
 			continue
 		}
 		r.Score = math.Max(lexical[i], semantic[i])
@@ -309,9 +320,13 @@ func sharedWords(a, b map[string]bool) int {
 	return n
 }
 
-func cosine(a, b []float32) float64 {
+// Similarity is the cosine of two embeddings, and whether they could be
+// compared at all. A pair of different sizes — the runtime changed under the
+// same model name and the cache still holds the old vectors — has no score,
+// and reporting it as zero made it a confident "unrelated".
+func Similarity(a, b []float32) (float64, bool) {
 	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
-		return 0
+		return 0, false
 	}
 	var dot, na, nb float64
 	for i := range a {
@@ -320,7 +335,7 @@ func cosine(a, b []float32) float64 {
 		nb += float64(b[i]) * float64(b[i])
 	}
 	if na == 0 || nb == 0 {
-		return 0
+		return 0, false
 	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+	return dot / (math.Sqrt(na) * math.Sqrt(nb)), true
 }
