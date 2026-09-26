@@ -113,6 +113,14 @@ func TestWordsThatOnlyLookLikeAReversalAreNotOne(t *testing.T) {
 		{"the database is a postgres instance", "the database is the postgres instance"},
 		{"the api is really slow", "the api is very slow"},
 		{"retries are on", "retries are on."},
+		// Found reviewing the review fix: with both "not"s taken out, two
+		// denials read as a swap, though neither asserts what the other denies.
+		{"the cache is not redis", "the cache is not memcached"},
+		{"the api is not slow", "the api is not fast"},
+		// A denial with nothing left once its "not" is out denies nothing in
+		// particular, so it must not contest whatever it lands beside.
+		{"we use docker for local development", "Never."},
+		{"retries are enabled", "Don't!"},
 	} {
 		if textmatch.Reverses(pair[0], pair[1]) {
 			t.Errorf("%q was read as reversing %q", pair[1], pair[0])
@@ -129,6 +137,12 @@ func TestAClaimDeniedOrSwappedIsStillReadAsAReversal(t *testing.T) {
 		{"request retries are enabled in production", "request retries are not enabled in production"},
 		{"the staging database is postgres.", "the staging database is mysql."},
 		{"retries are on in production", "retries are off in production"},
+		// An emphatic "do" is the claim a "do not" denies, and a "do" that is
+		// the verb itself must survive being denied.
+		{"we do use docker", "we do not use docker"},
+		{"we did deploy it", "we didn't deploy it"},
+		{"they do the builds", "they don't do the builds"},
+		{"we do the builds and do deploy on fridays", "we do the builds and don't deploy on fridays"},
 	} {
 		if !textmatch.Reverses(pair[0], pair[1]) {
 			t.Errorf("%q was not read as reversing %q", pair[1], pair[0])
