@@ -4,21 +4,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/router"
 )
 
-// DownscaleFactor is the nightly homeostatic multiplier (the SHY hypothesis:
-// sleep globally renormalises weights). Small, so the field re-normalises gently
-// and reinforced memories stand out by relative height without anything
-// meaningful vanishing between one night and the next.
-const DownscaleFactor = 0.98
-
-// SalienceFloor stops downscaling from ever erasing a memory outright.
-const SalienceFloor = 0.05
-
-// nrem is the stabilising phase: replay, then homeostatic downscaling. Neither
+// nrem is the stabilising phase: replay, then a count of what has faded. Neither
 // step depends on anything observed in the background — both work purely over
 // the memory store.
 //
@@ -52,32 +44,16 @@ func nrem(db *sql.DB, rt *router.Router, dryRun bool, res *Result) error {
 		}
 	}
 
-	// 2. Homeostatic downscaling — renormalise the whole field.
-	n, err := downscale(db, dryRun)
+	// 2. Fading — count what disuse has pushed down, and store nothing. The
+	//    pass used to multiply every stored salience by 0.98 in the index
+	//    alone; no kind file carried it, so `logos index` put the old values
+	//    back and ranking depended on whether the cache had survived (#136).
+	//    EffectiveSalience already applies disuse wherever salience is read,
+	//    so a night has nothing to write, only something to report.
+	n, err := memory.Faded(db, time.Now().Unix())
 	if err != nil {
-		return err
+		return fmt.Errorf("counting faded memories: %w", err)
 	}
-	res.Downscaled = n
+	res.Faded = n
 	return nil
-}
-
-// downscale multiplies every active memory's salience by DownscaleFactor, floored,
-// and reports how many rows would actually move. Deliberately *not* logged per
-// memory: it touches every row, and a memory_log line each would bury the
-// timeline the log exists to keep legible. Only structural events (merge,
-// supersede) leave a trace. A memory in quarantine is skipped, as decay skips
-// it: nothing waiting for review has earned an opinion of its importance.
-func downscale(db *sql.DB, dryRun bool) (int, error) {
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM memories WHERE superseded = 0 AND quarantined = 0 AND salience > ?`, SalienceFloor).Scan(&n); err != nil {
-		return 0, err
-	}
-	if dryRun || n == 0 {
-		return n, nil
-	}
-	_, err := db.Exec(
-		`UPDATE memories SET salience = MAX(?, salience * ?) WHERE superseded = 0 AND quarantined = 0 AND salience > ?`,
-		SalienceFloor, DownscaleFactor, SalienceFloor)
-	return n, err
 }

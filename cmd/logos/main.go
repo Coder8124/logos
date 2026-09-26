@@ -172,7 +172,7 @@ RETRIEVAL
     logos reflect                     descriptive stats over your memory (composition, growth, what it leans on)
     logos review [--all]              accept or reject quarantined memories
     logos dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
-                                      nightly consolidation: replay, downscale, recombine
+                                      nightly consolidation: replay, fade, recombine
     logos dream review | accept|reject <id>
                                       review the connections REM proposed overnight
     logos think [off|low|medium|high]  how much the model reasons before answering

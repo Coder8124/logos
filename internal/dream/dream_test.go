@@ -108,57 +108,17 @@ func TestAcceptStoresLowConfidenceMemory(t *testing.T) {
 	}
 }
 
-func TestDownscaleFloorsAndRenormalises(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('high','context',1.0,0.7,'manual',1)`)
-	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('floor','context',0.05,0.7,'manual',1)`)
-
-	n, err := downscale(db, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Fatalf("downscale touched %d rows, want 1 (only the one above the floor)", n)
-	}
-
-	var hi, lo float64
-	db.QueryRow(`SELECT salience FROM memories WHERE text='high'`).Scan(&hi)
-	db.QueryRow(`SELECT salience FROM memories WHERE text='floor'`).Scan(&lo)
-	if hi >= 1.0 || hi < 0.9 {
-		t.Fatalf("high salience = %v, want gently reduced from 1.0", hi)
-	}
-	if lo != 0.05 {
-		t.Fatalf("floored salience = %v, want left at the floor 0.05", lo)
-	}
-}
-
-func TestDownscaleDryRunWritesNothing(t *testing.T) {
-	db := testDB(t)
-	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('m','context',1.0,0.7,'manual',1)`)
-	if _, err := downscale(db, true); err != nil {
-		t.Fatal(err)
-	}
-	var s float64
-	db.QueryRow(`SELECT salience FROM memories WHERE text='m'`).Scan(&s)
-	if s != 1.0 {
-		t.Fatalf("dry-run downscale changed salience to %v", s)
-	}
-}
-
 // A memory in the review queue has not been accepted, so it has not earned an
-// opinion about its own importance yet; the nightly downscale lowered it 2% a
-// night anyway, while decay already left it alone (#136).
-func TestDownscaleLeavesAMemoryWaitingForReviewAlone(t *testing.T) {
+// opinion about its own importance yet; it is not counted as faded.
+func TestAMemoryWaitingForReviewIsNotCountedAsFaded(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created, quarantined) VALUES ('held','context',1.0,0.7,'manual',1,1)`)
-	n, err := downscale(db, false)
-	if err != nil {
+	var res Result
+	if err := nrem(db, nil, false, &res); err != nil {
 		t.Fatal(err)
 	}
-	var s float64
-	db.QueryRow(`SELECT salience FROM memories WHERE text='held'`).Scan(&s)
-	if n != 0 || s != 1.0 {
-		t.Errorf("downscale counted %d and left a quarantined memory at %v, want 0 and 1.0", n, s)
+	if res.Faded != 0 {
+		t.Errorf("counted %d faded, want 0 — the only memory is waiting for review", res.Faded)
 	}
 }
 
@@ -186,7 +146,7 @@ func TestAFailedConsolidationStopsTheNightInsteadOfReportingZero(t *testing.T) {
 
 // Not having a model is a condition, not a failure — replay needs one to judge
 // whether two memories say the same thing, and a machine without one must still
-// get its downscaling pass rather than an error.
+// get its fading count rather than an error.
 func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('a','context',0.5,0.7,'manual',1)`)
@@ -210,14 +170,14 @@ func TestNoModelSkipsReplayRatherThanFailingTheNight(t *testing.T) {
 	if !res.ReplaySkipped {
 		t.Error("replay was reported as having run with no model to run it")
 	}
-	if res.Downscaled == 0 {
+	if res.Faded == 0 {
 		t.Error("the model-free part of the pass did not run")
 	}
 }
 
 // nrem with a nil router (no local runtime at all) must still complete the
 // model-free half of the pass rather than panic reaching for rt.Local().
-func TestNremWithNilRouterStillDownscales(t *testing.T) {
+func TestNremWithNilRouterStillCountsWhatFaded(t *testing.T) {
 	db := testDB(t)
 	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('a','context',0.5,0.7,'manual',1)`)
 
@@ -228,7 +188,7 @@ func TestNremWithNilRouterStillDownscales(t *testing.T) {
 	if !res.ReplaySkipped {
 		t.Error("replay was reported as having run with no runtime")
 	}
-	if res.Downscaled == 0 {
+	if res.Faded == 0 {
 		t.Error("the model-free part of the pass did not run with a nil router")
 	}
 }
@@ -244,7 +204,27 @@ func TestRunAcceptsTimeAndPhaseWithoutAmbientEvents(t *testing.T) {
 	if res.Date == "" {
 		t.Error("Run did not stamp a date on the result")
 	}
-	if res.Downscaled == 0 {
+	if res.Faded == 0 {
 		t.Error("NREM did not run")
+	}
+}
+
+// The nightly downscale multiplied every stored salience by 0.98 in the index
+// and wrote none of it to the kind files, so `logos index` put back whatever
+// the files last said and ranking depended on whether the cache had survived
+// (#136, invariant 1). Disuse is already applied where salience is read, by
+// EffectiveSalience; the night now counts what has faded and stores nothing.
+func TestADreamLeavesEveryStoredSalienceAsItWas(t *testing.T) {
+	db := testDB(t)
+	db.Exec(`INSERT INTO memories (text, kind, salience, confidence, source, created) VALUES ('old','context',0.8,0.7,'manual',1)`)
+
+	var res Result
+	if err := nrem(db, nil, false, &res); err != nil {
+		t.Fatal(err)
+	}
+	var s float64
+	db.QueryRow(`SELECT salience FROM memories WHERE text='old'`).Scan(&s)
+	if s != 0.8 {
+		t.Errorf("a dream changed stored salience 0.8 -> %v, which no kind file carries", s)
 	}
 }

@@ -2,12 +2,12 @@
 //
 // It runs in two phases. NREM (cheap, deterministic, first) stabilises the
 // memory store: it replays the day's salient experience, extracts gist from
-// recurring structure, and downscales the whole field so only what is reinforced
-// stays prominent. REM (expensive, model-driven, last) recombines the cleaned
+// recurring structure, and counts what disuse has faded (decay itself is applied
+// at read time, never stored). REM (expensive, model-driven, last) recombines the cleaned
 // store into candidate connections — the engine behind the mirror.
 //
-// The house rules hold throughout. Compute, then narrate: what to replay,
-// downscale, and bridge is chosen by arithmetic; the model only phrases a
+// The house rules hold throughout. Compute, then narrate: what to replay
+// and bridge is chosen by arithmetic; the model only phrases a
 // connection. Propose, don't assert: NREM's structural maintenance is the same
 // deterministic upkeep already trusted to run headless, but every REM inference
 // is an Insight in this queue — never a silent write.

@@ -92,7 +92,7 @@ func printDream(res dream.Result, phase string) {
 		} else {
 			fmt.Printf("  replay:     %d consolidated (%d merged, %d superseded)\n", res.Replayed, res.Merged, res.Superseded)
 		}
-		fmt.Printf("  downscale:  %d memories renormalised\n", res.Downscaled)
+		fmt.Printf("  faded:      %d memories ranked lower from disuse (stored salience unchanged)\n", res.Faded)
 	}
 	if phase == "all" || phase == "rem" {
 		fmt.Println("\nREM — recombine")

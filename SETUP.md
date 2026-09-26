@@ -628,7 +628,7 @@ logos resume [project] | sessions [project]     pick up; read the checkpoint log
 logos tried <approach> [--project p]            has this already been ruled out?
 logos bench continuity [--logos-only]           the handoff suite, against every system installed
 logos index [--watch]                           sync the vault into the cache and embed
-logos dream [--phase nrem|rem]                  nightly consolidation: replay, downscale, recombine
+logos dream [--phase nrem|rem]                  nightly consolidation: replay, fade, recombine
 logos doctor [--verbose] [--probe] | key set|rm <ref>  health; --verbose adds runtimes and tiers; API keys
 ```
 

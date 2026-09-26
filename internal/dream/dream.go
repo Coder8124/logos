@@ -22,7 +22,7 @@ type Result struct {
 	Replayed   int  // memories re-affirmed by consolidation (merged + superseded)
 	Merged     int  // near-duplicates folded
 	Superseded int  // stale facts replaced
-	Downscaled int  // memories touched by the homeostatic pass
+	Faded      int  // memories disuse has ranked well below their stored salience
 	Insights   int  // REM connections proposed for review
 	REMSkipped bool // REM could not run (no reasoning model)
 	// ReplaySkipped is true when consolidation could not run because no model
