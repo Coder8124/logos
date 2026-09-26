@@ -23,6 +23,15 @@ type Result struct {
 func Report(results []Result, verbose bool) string {
 	var b strings.Builder
 
+	// With variants in the run, every table down to the predictions is still
+	// the suite as written, so its numbers stay comparable with runs that had
+	// none; the variants get their own section after it.
+	all, varied := results, hasVariants(results)
+	if varied {
+		results = asWritten(results)
+		b.WriteString("\n(the tables down to the predictions are the scenarios as written; variants follow)\n")
+	}
+
 	b.WriteString("\n── overall ───────────────────────────────────────────────────────────────\n\n")
 	b.WriteString(fmt.Sprintf("%-18s %7s %8s %8s %8s %8s %8s %8s\n",
 		"system", "pass", "fidelity", "recall", "leak", "signal", "tokens", "dens/1k"))
@@ -96,8 +105,11 @@ func Report(results []Result, verbose bool) string {
 	// ---- the predictions we got wrong ------------------------------------
 	b.WriteString(surprises(results))
 
+	if varied {
+		b.WriteString(stability(all))
+	}
 	if verbose {
-		b.WriteString(detail(results))
+		b.WriteString(detail(all))
 	}
 	return b.String()
 }
@@ -170,6 +182,9 @@ func detail(results []Result) string {
 			}
 			b.WriteString(fmt.Sprintf("  %s %-34s fid %3.0f%%  %d/%d carried  %5d tok\n",
 				flag, s.Scenario, s.Fidelity()*100, s.CarryHit, s.CarryTotal, s.Tokens))
+			if s.Axis != "" {
+				b.WriteString("      " + s.Axis + ": " + s.Variant + "\n")
+			}
 			if len(s.Missed) > 0 {
 				b.WriteString("      missed:  " + strings.Join(s.Missed, "; ") + "\n")
 			}

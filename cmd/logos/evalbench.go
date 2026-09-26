@@ -24,6 +24,7 @@ func runContinuityBench(args []string) error {
 		noEmbed = hasFlag(args, "--no-embed")
 		bare    = hasFlag(args, "--logos-only")
 		dump    = hasFlag(args, "--dump")
+		varied  = hasFlag(args, "--variants")
 	)
 
 	suite := eval.Select(eval.Suite(), only)
@@ -48,6 +49,13 @@ func runContinuityBench(args []string) error {
 	fmt.Printf("· %s\n", eval.Composition(suite))
 	if only != "" {
 		fmt.Printf("· filtered to %q\n", only)
+	}
+	if varied {
+		// Selected before expanding, so --only names a scenario and gets
+		// every variant of it.
+		suite = eval.Expand(suite, variantSeeds)
+		fmt.Printf("· %d cases with variants: each scenario as written, reworded, and among %d distractor sets\n",
+			len(suite), variantSeeds)
 	}
 	if embed == nil {
 		fmt.Println("· no embeddings: lexical and graph retrieval only")
@@ -110,6 +118,10 @@ func runContinuityBench(args []string) error {
 	fmt.Print(eval.Report(results, verbose))
 	return nil
 }
+
+// variantSeeds is how many distractor sets each scenario runs with. Two keeps a
+// logos-only run of the suite to a few minutes.
+const variantSeeds = 2
 
 // listBenchScenarios prints the suite without running it — what is being
 // measured, and what logos is expected to do on each case.

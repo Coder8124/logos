@@ -10,7 +10,14 @@ Reproduce it:
 go run ./cmd/logos bench continuity          # the whole field
 go run ./cmd/logos bench continuity --logos-only
 go run ./cmd/logos bench continuity list     # every scenario and what it asks
+go run ./cmd/logos bench continuity --logos-only --variants
 ```
+
+`--variants` also runs each scenario with three hand-written rewordings of its
+question and among two seeded sets of unrelated history from the same project,
+so a result that holds only for one phrasing shows up. The headline tables stay
+on the scenarios as written; the variants get their own section, naming every
+scenario whose outcome depends on how it was asked.
 
 ---
 

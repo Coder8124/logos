@@ -201,7 +201,7 @@ SETUP AND DIAGNOSTICS
     logos help [all]                  the three core journeys, or this list
 
 BENCHMARKS
-    logos bench continuity [list] [--only X] [--verbose] [--logos-only]
+    logos bench continuity [list] [--only X] [--verbose] [--logos-only] [--variants]
                                       the handoff + memory suite, against every system installed
     logos bench memory <file> | bench pipeline
                                       LongMemEval retrieval recall; the extract→recall loop
