@@ -651,3 +651,30 @@ func TestADiffAPartialCloneCannotReadIsSaidToBeUnreadable(t *testing.T) {
 		t.Errorf("summary = %q, unreadable = %v; a diff git could not compute was recorded as no change", s.Summary(), s.Unreadable)
 	}
 }
+
+// The diff is only asked how much changed, and on a tree status has just read
+// as clean the answer is nothing whether or not the diff runs. A diff failure
+// there marked the state unreadable, and the summary said "uncommitted changes
+// unreadable" about a tree git had read without trouble.
+func TestAFailedDiffOnATreeStatusReadAsCleanIsStillClean(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "the first commit")
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	shim := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = diff-index ] && exit 128; done\nexec " + strconv.Quote(real) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := Read(dir)
+	if s.Dirty != 0 {
+		t.Fatalf("dirty = %d on a committed tree", s.Dirty)
+	}
+	if got := s.Summary(); strings.Contains(got, "unreadable") || !strings.Contains(got, "clean") {
+		t.Errorf("summary = %q; status read this tree as clean", got)
+	}
+}

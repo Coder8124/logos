@@ -113,7 +113,10 @@ func Read(dir string) State {
 	if s.Commit != "" {
 		s.Insertions, s.Deletions, diffErr = diffStat(dir)
 	}
-	s.Unreadable = statusErr != nil || diffErr != nil
+	// The diff only says how much the dirty files changed. On a tree status
+	// read as clean there is nothing for it to count, so its failure there
+	// is not a gap in what was read.
+	s.Unreadable = statusErr != nil || (diffErr != nil && s.Dirty > 0)
 	return s
 }
 
