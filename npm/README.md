@@ -68,6 +68,10 @@ That config is portable between machines, which an absolute binary path is not.
 Add `"env": { "LOGOS_VAULT": "/path/to/vault" }` to point it somewhere other
 than `~/logos`.
 
+On native Windows, npx is a batch file that a host cannot launch directly;
+use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@noeton/logos", "mcp", "serve"]`.
+`logos setup` writes that form for you.
+
 </details>
 
 <details>

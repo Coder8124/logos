@@ -865,12 +865,33 @@ func terminalCommand(self string) (cmd, hint string) {
 func probeTarget(self string, srv setup.Server) (bin string, args []string, note string) {
 	// Only npx's launcher fetches; an absolute path (this binary, or Homebrew's
 	// opt link to it) is probed as written.
-	if srv.Bin == "npx" {
+	if launchesThroughNpx(srv) {
 		return self, []string{"mcp", "serve"},
 			fmt.Sprintf("probed this binary; hosts launch `%s %s`, which resolves the same server on demand",
 				srv.Bin, strings.Join(srv.Args, " "))
 	}
 	return srv.Bin, srv.Args, ""
+}
+
+// hostOS is runtime.GOOS, a variable so the Windows launcher can be tested on
+// the machines this suite actually runs on.
+var hostOS = runtime.GOOS
+
+// npxServer is the command a host runs to resolve logos through npx. On
+// Windows npx is npx.cmd, a batch file, and a host that spawns "npx" directly
+// fails to start it with nothing in its log pointing at why; cmd /c is how
+// Windows runs a batch file, and is what Claude Code's docs prescribe (#21).
+func npxServer(env map[string]string) setup.Server {
+	args := []string{"-y", "@noeton/logos", "mcp", "serve"}
+	if hostOS == "windows" {
+		return setup.Server{Bin: "cmd", Args: append([]string{"/c", "npx"}, args...), Env: env}
+	}
+	return setup.Server{Bin: "npx", Args: args, Env: env}
+}
+
+// launchesThroughNpx reports whether srv is npxServer's launcher, on either OS.
+func launchesThroughNpx(srv setup.Server) bool {
+	return srv.Bin == "npx" || (srv.Bin == "cmd" && len(srv.Args) > 1 && srv.Args[0] == "/c" && srv.Args[1] == "npx")
 }
 
 // serverFor is the decision logosServer makes, separated from finding this
@@ -891,7 +912,7 @@ func serverFor(bin, vault string) setup.Server {
 	// user will never look.
 	env := map[string]string{"LOGOS_VAULT": vault}
 	if selfupdate.DetectInstall(bin) == selfupdate.NPX {
-		return setup.Server{Bin: "npx", Args: []string{"-y", "@noeton/logos", "mcp", "serve"}, Env: env}
+		return npxServer(env)
 	}
 	// Under Homebrew bin is the versioned Cellar path, which `brew upgrade`
 	// deletes; the opt link follows upgrades.
@@ -1242,8 +1263,9 @@ func wireHosts(vault string, opts wireOpts) error {
 			// could not write ends the run by pointing at nothing.
 			pin = ""
 			if npxPin {
-				srv.Bin, srv.Args = "npx", []string{"-y", "@noeton/logos", "mcp", "serve"}
-				fmt.Printf("    %-*s    hosts launch `npx -y @noeton/logos mcp serve` instead, which needs npm's registry to start\n", hostColumn, "")
+				npx := npxServer(nil)
+				srv.Bin, srv.Args = npx.Bin, npx.Args
+				fmt.Printf("    %-*s    hosts launch `%s %s` instead, which needs npm's registry to start\n", hostColumn, "", srv.Bin, strings.Join(srv.Args, " "))
 			} else {
 				srv.Bin, srv.Args = self, []string{"mcp", "serve"}
 				fmt.Printf("    %-*s    hosts launch %s where it is instead\n", hostColumn, "", self)

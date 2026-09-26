@@ -109,6 +109,10 @@ binary on demand:
 
 That config is portable between machines, which an absolute binary path is not.
 
+On native Windows, npx is a batch file that a host cannot launch directly;
+use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@noeton/logos", "mcp", "serve"]`.
+`logos setup` writes that form for you.
+
 </details>
 
 `setup` picks a vault (`~/logos` unless you say otherwise), finds your local

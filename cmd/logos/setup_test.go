@@ -362,3 +362,24 @@ func TestADryRunUnderLogosVaultDoesNotPromiseARecordingThatWillNotHappen(t *test
 		t.Errorf("dry run reported %v, want recordSkipEnv — the real run records nothing here", rec)
 	}
 }
+
+// npx is a batch file on Windows, and a host that spawns "npx" directly
+// cannot launch it — Claude Code's own docs say native Windows needs `cmd /c
+// npx`. Setup wrote bare npx there, so a Windows npx install was wired to a
+// server that never started (#21).
+func TestAnNpxInstallOnWindowsLaunchesNpxThroughCmd(t *testing.T) {
+	was := hostOS
+	hostOS = "windows"
+	t.Cleanup(func() { hostOS = was })
+
+	srv := serverFor("C:/Users/someone/AppData/Local/npm-cache/_npx/2f3ac/node_modules/@noeton/logos/bin/logos.exe", "C:/Users/someone/logos")
+	if srv.Bin != "cmd" {
+		t.Errorf("Bin = %q, want cmd so Windows can run npx's batch file", srv.Bin)
+	}
+	if got := strings.Join(srv.Args, " "); got != "/c npx -y @noeton/logos mcp serve" {
+		t.Errorf("Args = %q", got)
+	}
+	if bin, _, note := probeTarget("/self", srv); bin != "/self" || note == "" {
+		t.Errorf("the cmd launcher was probed as written (%q) instead of as this binary", bin)
+	}
+}
