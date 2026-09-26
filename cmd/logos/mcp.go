@@ -113,6 +113,15 @@ func buildStdioServer() (*mcpserver.Server, func(), error) {
 // useful half of the server still runs. Refusing to start meant `logos setup`
 // could wire four hosts, report success, and leave the user with a host that
 // fails to connect.
+// serveTools is the tool set `mcp serve` was asked for; empty serves them all.
+var serveTools string
+
+// toolSetFrom reads --tools, falling back to LOGOS_TOOLS, because some host
+// configs take env more readily than an extra argument.
+func toolSetFrom(args []string) string {
+	return flagStr(args, "--tools", os.Getenv("LOGOS_TOOLS"))
+}
+
 func newMCPServer(db *sql.DB, vault string) (*mcpserver.Server, error) {
 	rt, err := openRouterOptional()
 	if err != nil {
@@ -126,6 +135,12 @@ func newMCPServer(db *sql.DB, vault string) (*mcpserver.Server, error) {
 				"not meaning; checkpoint, resume and before_you_try are unaffected")
 	}
 	srv := mcpserver.New(db, rt, vault)
+	if serveTools != "" {
+		if err := srv.SetTools(serveTools); err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(os.Stderr, "logos: serving the %s tool set\n", serveTools)
+	}
 	// LOGOS_EMBED chooses the model `logos index` embeds the vault with, so the
 	// server has to query with the same one — see SetEmbedModel. Unset, both
 	// sides use the default and the router's choice stands.

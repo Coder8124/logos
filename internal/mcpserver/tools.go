@@ -1,5 +1,7 @@
 package mcpserver
 
+import "fmt"
+
 // The tools this server exposes to an MCP host — the surface another
 // application can build on to use logos as its memory layer.
 //
@@ -283,4 +285,46 @@ func arrStr(desc string) map[string]any {
 		"description": desc,
 		"items":       map[string]any{"type": "string"},
 	}
+}
+
+// toolSets are the tool sets `logos mcp serve --tools` can serve. Claude Code
+// loads tool definitions on demand, but a host that puts every definition into
+// every model request pays for all of them on every turn: 3,926 tokens for the
+// full set, measured (#61). continuity is what an agent reaches for mid-task;
+// the curation tools (forget, pin, exclude, ingest, diff, listings) stay a
+// terminal away.
+var toolSets = map[string][]string{
+	"all":        nil,
+	"continuity": {"remember", "recall", "context", "resume", "before_you_try", "why", "note_progress", "checkpoint", "handoff"},
+}
+
+// SetTools chooses the tool set this server shows and answers. An unknown name
+// is an error rather than a fallback to all, so a typo in a host config does
+// not quietly serve something other than what the user wrote.
+func (s *Server) SetTools(set string) error {
+	names, ok := toolSets[set]
+	if !ok {
+		return fmt.Errorf("unknown tool set %q (want all or continuity)", set)
+	}
+	s.toolSet = nil
+	if names != nil {
+		s.toolSet = map[string]bool{}
+		for _, n := range names {
+			s.toolSet[n] = true
+		}
+	}
+	return nil
+}
+
+func (s *Server) tools() []map[string]any {
+	if s.toolSet == nil {
+		return toolDefs
+	}
+	var out []map[string]any
+	for _, def := range toolDefs {
+		if name, _ := def["name"].(string); s.toolSet[name] {
+			out = append(out, def)
+		}
+	}
+	return out
 }

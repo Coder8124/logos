@@ -416,7 +416,7 @@ nothing installed. Retrieval falls back to BM25, which for code (identifiers,
 error strings, paths) is the right tool rather than a consolation. A 274 MB
 embedding model adds paraphrase-tolerant search if you want it.
 
-Fifteen tools in two families:
+Fifteen tools in two families, plus `ingest_harvest` and `ingest_distil`:
 
 **Memory** — *what do you know about X.* `remember` (returns a receipt saying
 whether it created a fact or corroborated one it already had), `recall`,
@@ -425,6 +425,14 @@ whether it created a fact or corroborated one it already had), `recall`,
 
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
 `checkpoint`, `handoff`, `before_you_try`, `why`.
+
+Claude Code loads tool definitions only when it needs them. A host that sends
+every definition with every request pays for all of them on every turn: about
+4.5k tokens. `"args": ["mcp", "serve", "--tools", "continuity"]` (or
+`LOGOS_TOOLS=continuity` in `env`) serves the nine an agent uses mid-task:
+`remember`, `recall`, `context`, `resume`, `before_you_try`, `why`,
+`note_progress`, `checkpoint` and `handoff`. That is about 3k tokens. The rest
+are still available from a terminal.
 
 ### Seeing it work
 

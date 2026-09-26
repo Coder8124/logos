@@ -155,3 +155,40 @@ func TestTheMCPServerWithNoEmbeddingModelPulledServesLexicalWithoutAsking(t *tes
 		t.Errorf("LOGOS_EMBED=custom-embed embedded with %v", got)
 	}
 }
+
+// `--tools continuity` (or LOGOS_TOOLS) is how a host config that loads every
+// tool on every turn asks for the smaller set (#61); a misspelt set must fail
+// the start, where the host shows it, rather than quietly serve all of them.
+func TestServeHonoursTheToolSetAndRefusesOneItDoesNotKnow(t *testing.T) {
+	t.Setenv("LOGOS_TRUST_MCP", "1")
+	t.Setenv("LOGOS_EMBED", "off")
+	vault := t.TempDir()
+	ix, err := index.Open(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	old := serveTools
+	t.Cleanup(func() { serveTools = old })
+
+	serveTools = toolSetFrom([]string{"serve", "--tools", "continuity"})
+	srv, err := newMCPServer(ix.DB, vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forget","arguments":{"id":1}}}` + "\n"
+	var out bytes.Buffer
+	if err := srv.Serve(strings.NewReader(in), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "not in the tool set") {
+		t.Errorf("forget was served under --tools continuity:\n%s", out.String())
+	}
+
+	t.Setenv("LOGOS_TOOLS", "continuty")
+	serveTools = toolSetFrom([]string{"serve"})
+	if _, err := newMCPServer(ix.DB, vault); err == nil {
+		t.Error("LOGOS_TOOLS=continuty started a server instead of failing")
+	}
+}

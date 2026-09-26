@@ -118,6 +118,9 @@ type Server struct {
 	// startedAt is when Serve began, used at stdin close to tell this session's
 	// transcript from one a window closed hours ago left behind.
 	startedAt time.Time
+	// toolSet is the tool set a host is shown and may call; nil is every tool.
+	// See SetTools.
+	toolSet map[string]bool
 }
 
 // Session is one client's connection to the Server: the state that belongs to
@@ -581,7 +584,7 @@ func (s *Session) handle(req request) (resp *response) {
 	case "ping":
 		return reply(req.ID, map[string]any{})
 	case "tools/list":
-		return reply(req.ID, map[string]any{"tools": toolDefs})
+		return reply(req.ID, map[string]any{"tools": s.tools()})
 	case "tools/call":
 		if s.unavailable != nil {
 			return reply(req.ID, map[string]any{
@@ -636,6 +639,14 @@ func (s *Session) callTool(req request) *response {
 		if err := json.Unmarshal(p.Arguments, &args); err != nil {
 			return replyErr(req.ID, -32602, "arguments is not valid JSON: "+err.Error())
 		}
+	}
+
+	if s.toolSet != nil && !s.toolSet[p.Name] {
+		return reply(req.ID, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": fmt.Sprintf(
+				"%s is not in the tool set this server was started with. The user can run it from a terminal with `logos`, or serve every tool with `logos mcp serve --tools all`.", p.Name)}},
+			"isError": true,
+		})
 	}
 
 	// Before dispatch, because every argument helper below returns a zero value
