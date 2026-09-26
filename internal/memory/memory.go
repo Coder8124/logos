@@ -722,6 +722,20 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 	}
 
 	fused := Fuse(queryText, query, cands) // normalised 0..1 relevance per candidate
+	// Filtered before scoring, not after: every caller reinforces what this
+	// returns, so a memory that leaks through here is also made likelier to
+	// leak through the next time (#44).
+	evidence := Evidence(queryText, query, cands)
+	var kept []Memory
+	var keptRel []float64
+	for i := range mems {
+		// A pin is the user saying "always", which is why it outranks the floor.
+		if (i < len(evidence) && evidence[i]) || mems[i].Pin == PinAlways {
+			kept = append(kept, mems[i])
+			keptRel = append(keptRel, fused[i])
+		}
+	}
+	mems, fused = kept, keptRel
 	now := time.Now().Unix()
 	for i := range mems {
 		rel := 0.0

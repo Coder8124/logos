@@ -87,6 +87,75 @@ func Fuse(query string, qVec []float32, cands []Candidate) []float64 {
 	return fused
 }
 
+// Relevance floor for recall. Fuse ranks, and a rank says nothing about
+// whether anything matched: the top candidate always scores 1.0, so every query
+// returned up to its limit and reinforced all of it (#44). Measured with
+// nomic-embed-text on ten short memories and ten queries: unrelated pairs sit
+// at a median cosine of 0.36 with a maximum of 0.48, a clear answer at
+// 0.73-0.87, and the one vague query ("which package manager") put its answer
+// at 0.48 — level with the noise. So no absolute threshold separates them
+// alone. MinCosine drops what no query should reach (nonsense tops out at
+// 0.39); CosineGap drops the band of noise behind a strong answer, and leaves a
+// vague query's flat field whole rather than guess at it. The nomic
+// search_query/search_document prefixes were measured too and widened the
+// overlap, so they are not sent.
+const (
+	MinCosine = 0.45
+	CosineGap = 0.15
+)
+
+// Evidence reports, per candidate, whether anything ties it to the query: a
+// query term it contains, or a vector close enough both absolutely and to the
+// best vector match. Without evidence a candidate is not an answer, however it
+// ranks among the others.
+func Evidence(query string, qVec []float32, cands []Candidate) []bool {
+	qterms := tokenize(query)
+	cos := make([]float64, len(cands))
+	best := math.Inf(-1)
+	for i, c := range cands {
+		cos[i] = math.Inf(-1)
+		if len(qVec) > 0 && len(c.Vec) > 0 {
+			cos[i] = cosine(qVec, c.Vec)
+			best = math.Max(best, cos[i])
+		}
+	}
+	out := make([]bool, len(cands))
+	for i := range cands {
+		out[i] = sharesATerm(qterms, tokenize(cands[i].Text)) || (cos[i] >= MinCosine && cos[i] >= best-CosineGap)
+	}
+	return out
+}
+
+// sharesATerm is looser than bm25's exact match on purpose. With no embedding
+// model the lexical arm is the only evidence there is, and "how should I
+// reply" must still find "the user prefers short replies". It is a gate, not a
+// ranker, so the stemming stays out of bm25, where it would move LongMemEval.
+func sharesATerm(q, doc []string) bool {
+	for _, a := range q {
+		for _, b := range doc {
+			if sameStem(a, b) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sameStem: equal, or one word an inflection of the other — a shared prefix of
+// at least three letters that stops at most two short of the shorter word
+// (own/owns/owned, reply/replies, release/releases), which "cat" and "cache"
+// do not have.
+func sameStem(a, b string) bool {
+	if a == b {
+		return true
+	}
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n >= 3 && n >= min(len(a), len(b))-2
+}
+
 // HybridRank fuses vector and BM25 rankings, returning candidate IDs best-first.
 func HybridRank(query string, qVec []float32, cands []Candidate, k int) []string {
 	fused := Fuse(query, qVec, cands)
