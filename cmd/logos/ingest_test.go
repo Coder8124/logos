@@ -275,6 +275,14 @@ func TestIngestSaysTheCandidatesAreHarvestsAndNamesWhatUpgradesThem(t *testing.T
 // that "am I done?" check: by tier, and how many still have a readable source.
 func TestIngestStatusCountsCandidatesByTierAndWhetherTheirSourceSurvives(t *testing.T) {
 	vaultDir := scratchIngest(t)
+	// The transcripts are deleted below, so they must be this test's own copy.
+	// Renaming the shared fixture away made the ingest and transcript packages,
+	// which `go test ./...` runs alongside this one, fail on a missing file.
+	fixtures := filepath.Join(t.TempDir(), "claude-code")
+	if err := os.CopyFS(fixtures, os.DirFS(absFixture(t, "claude-code"))); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(transcript.LogosClaudeProjectsEnv, fixtures)
 	if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
@@ -296,12 +304,9 @@ func TestIngestStatusCountsCandidatesByTierAndWhetherTheirSourceSurvives(t *test
 	}
 
 	// Delete the transcripts out from under the queue, as the migration will.
-	fixtures := absFixture(t, "claude-code")
-	moved := filepath.Join(t.TempDir(), "gone")
-	if err := os.Rename(fixtures, moved); err != nil {
+	if err := os.RemoveAll(fixtures); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Rename(moved, fixtures) })
 
 	out = captureStdout(t, func() {
 		if err := runIngestStatus(); err != nil {
