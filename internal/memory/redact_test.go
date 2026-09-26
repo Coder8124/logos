@@ -36,3 +36,19 @@ func TestRememberDoesNotWriteAPastedCredential(t *testing.T) {
 		t.Error("the credential is in the index")
 	}
 }
+
+// The empty check ran on the text as given, before masking, so a memory that
+// was nothing but a pasted key cleared it and was stored as the memory
+// "[REDACTED]" — a fact that says nothing, ranked and packed like any other.
+func TestAMemoryThatIsOnlyACredentialIsRefusedNotStoredAsTheMarker(t *testing.T) {
+	db, _ := store(t)
+	_, err := Store(db, nil, "", &Memory{Text: "  ghp_0123456789abcdefghijklmnopqrstuvwxyzAB ", Kind: Fact, Source: "mcp"})
+	if err == nil || !strings.Contains(err.Error(), "credential") {
+		t.Errorf("want an error that names the credential, got %v", err)
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&n)
+	if n != 0 {
+		t.Errorf("stored %d memory(ies) from a bare key", n)
+	}
+}

@@ -258,6 +258,12 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	// by a person who pasted the same key.
 	var redactions []secret.Redaction
 	m.Text, redactions = secret.Mask("memory", m.Text)
+	// Asked after masking too: a memory that was only a pasted key cleared the
+	// check above and was stored as the fact "[REDACTED]". Refused, not a
+	// noop, so the agent learns why nothing was kept.
+	if strings.Trim(strings.ReplaceAll(m.Text, secret.Marker, ""), " \t\n.,;:'\"`") == "" {
+		return Receipt{Outcome: OutcomeNoop, Redactions: redactions}, fmt.Errorf("nothing to remember once the credential in it was masked — a secret is not stored as a memory")
+	}
 	if m.Created == 0 {
 		m.Created = time.Now().Unix()
 	}
