@@ -552,11 +552,28 @@ func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, b
 	var bestID int64
 	var bestText string
 	best := DedupThreshold
+	// A reversal is decided by its text, not held to DedupThreshold: the two
+	// sentences are one frame with a word swapped or denied, which is stronger
+	// evidence of one claim than any vector, and nomic puts "…is postgres" and
+	// "…is mysql" at 0.801, below the threshold. The vector only ranks.
+	var revID int64
+	var revText string
+	revSim := -2.0
 	for rows.Next() {
 		var id int64
 		var candidate string
 		var vec []byte
 		if rows.Scan(&id, &candidate, &vec) != nil {
+			continue
+		}
+		if textmatch.Reverses(text, candidate) {
+			sim := -1.0
+			if query != nil && len(vec) > 0 {
+				sim = cosine(query, blobToFloats(vec))
+			}
+			if sim > revSim {
+				revSim, revID, revText = sim, id, candidate
+			}
 			continue
 		}
 		// A contradiction asserts a different value for the same claim. Check
@@ -578,6 +595,9 @@ func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, b
 		if bestID == 0 && textmatch.Overlap(subject, textmatch.Subject(candidate)) >= textmatch.Related {
 			bestID, bestText = id, candidate
 		}
+	}
+	if revID != 0 {
+		return revID, revText, true
 	}
 	return bestID, bestText, bestID != 0
 }
@@ -609,8 +629,12 @@ func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, b
 // something the other does not, they are two facts whatever their vectors say.
 // A restatement that merely adds or drops words still collapses, because one
 // side's subject is contained in the other's — see DifferentSubjects.
+//
+// And a statement that takes the other back is never the same fact, however
+// few words it adds: "we no longer deploy staging with kubernetes" was folded
+// into the fact it reverses, which gained confidence from its own reversal.
 func sameFact(incoming, existing string) bool {
-	if textmatch.DifferingFactValues(incoming, existing) {
+	if textmatch.DifferingFactValues(incoming, existing) || textmatch.Reverses(incoming, existing) {
 		return false
 	}
 	return !textmatch.DifferentSubjects(incoming, existing)

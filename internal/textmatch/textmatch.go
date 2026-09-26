@@ -297,6 +297,74 @@ func Negated(s string) bool {
 	return false
 }
 
+// Reverses reports whether one statement takes back the other: the same claim
+// denied, or the same sentence with its predicate swapped ("the staging
+// database is postgres" against "…is mysql", "retries are enabled" against
+// "…disabled"). Values only reads digits, so without this a dispute stated in
+// words was never a dispute — and a denial, whose extra words are grammar, read
+// as a restatement and was merged into the fact it denies.
+//
+// Narrower than Negated on purpose. Negated asks whether a plan was called off,
+// where "instead of" and "sticking with" count; a fact that adds "instead of
+// nomad" still asserts what the original did.
+func Reverses(a, b string) bool {
+	if denies(a) != denies(b) {
+		return !DifferentSubjects(a, b) && Overlap(Subject(a), Subject(b)) >= Related
+	}
+	return swapsPredicate(a, b)
+}
+
+// denies is whether a statement denies its claim. A bare "no" is left out: it
+// usually denies a noun, not the claim — "terse replies with no preamble" is
+// the same preference as "without any preamble", and counting it split every
+// such restatement from its original. "no longer" is the "no" that reverses.
+func denies(s string) bool {
+	low := strings.ToLower(strings.ReplaceAll(s, "’", "'"))
+	if strings.Contains(low, "n't ") || strings.HasSuffix(low, "n't") {
+		return true
+	}
+	ws := words(low)
+	for i, w := range ws {
+		if w == "not" || w == "never" || (w == "no" && i+1 < len(ws) && ws[i+1] == "longer") {
+			return true
+		}
+	}
+	return false
+}
+
+// copulas introduce a predicate. The swapped word must follow one, because a
+// word swapped anywhere else is usually a different subject: "kestrel handles
+// billing through a dedicated service" and "…search…" are two facts, and
+// DifferentSubjects exists to keep them both.
+var copulas = map[string]bool{"is": true, "are": true, "was": true, "were": true, "be": true, "been": true}
+
+func swapsPredicate(a, b string) bool {
+	wa, wb := words(strings.ToLower(a)), words(strings.ToLower(b))
+	if len(wa) != len(wb) {
+		return false
+	}
+	swapped := -1
+	for i := range wa {
+		if wa[i] == wb[i] {
+			continue
+		}
+		if swapped >= 0 {
+			return false
+		}
+		swapped = i
+	}
+	// Numbers are Values' to compare; a word that is the same stem is a
+	// rephrasing, not a different value.
+	return swapped > 0 && copulas[wa[swapped-1]] &&
+		!numeric(wa[swapped]) && !numeric(wb[swapped]) && !stemLike(wa[swapped], wb[swapped])
+}
+
+func words(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '.'
+	})
+}
+
 // Flatten collapses whitespace without shortening.
 func Flatten(s string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
