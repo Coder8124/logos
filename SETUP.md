@@ -24,10 +24,10 @@ Claude Code  ──▶  checkpoint  ──▶  Logos  ──▶  resume  ──�
 Markdown is truth. `.logos/index.db` is a cache you can delete and rebuild. If
 this project dies, you keep a vault.
 
-> **Formerly brain.** Logos was developed as `brain`. Through 0.4.x the old
-> names still work — the `brain` command from npm, `BRAIN_*` variables, and an
-> existing `~/brain` vault or `.brain/` directory — so an existing install keeps
-> running. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault
+> **Formerly brain.** Logos was developed as `brain`. Since 0.5.0 the old names
+> are no longer read — not the `brain` command, `BRAIN_*` variables, an
+> unrecorded `~/brain` vault or a `.brain/` directory — and logos says so on
+> stderr, naming the fix, whenever it finds one. `logos migrate` moves a `~/brain` vault
 > to `~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that
 > named the old path (`--dry-run` shows the plan first); see
 > [Moving a 0.4 vault](#moving-a-04-vault).
@@ -211,8 +211,8 @@ hard questions that have findable answers and tell retrieval from autocomplete.
 
 ### Moving a 0.4 vault
 
-A vault made before the rename lives in `~/brain`. It keeps working there
-through 0.4.x, and one command moves it:
+A vault made before the rename lives in `~/brain`. Once 0.4 has recorded it as
+this machine's vault it keeps working there, and one command moves it:
 
 ```sh
 logos migrate --dry-run             # the plan; nothing is changed
@@ -237,9 +237,10 @@ registration:
 logos mcp install --host claude-code --yes
 ```
 
-Once nothing is running an older build, the `.brain/` directory inside the
-vault can be deleted. Logos reads `.logos/`, and says so while `.brain/` is
-still there.
+Logos reads `.logos/` inside the vault, never `.brain/`. If a vault still has
+only `.brain/`, logos says so on every run; `mv .brain .logos` inside the vault
+keeps its model config and ingest consent; once `.logos/` exists, copy what
+you need from `.brain/` and delete it.
 
 ### Removing Logos
 

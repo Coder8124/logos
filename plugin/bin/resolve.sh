@@ -21,8 +21,9 @@
 # A candidate is run, not just found. A file that exists proves nothing: other
 # npm packages install a `logos` bin of their own, and an npm install's shim
 # dies with `env: node: No such file or directory` in an app launched from the
-# Dock. Every build answers --version with "logos …", or "brain …" before the
-# rename; both are kept so a plugin update does not strand an older binary.
+# Dock. Every build answers --version with "logos …". A pre-rename `brain`
+# binary is not a candidate since 0.5.0: it reads only the BRAIN_ names, which
+# these hooks no longer set, so it would run with every guard off.
 #
 # The newest working candidate wins, not the first one found. This used to take
 # the first, and a `go install` build from months ago sitting earlier on PATH
@@ -36,8 +37,7 @@
 # produces) loses to any numbered release, because the case that shipped is an
 # old local build beating a current install and a dev build cannot say how old
 # it is; among numbered releases the higher version wins; on a tie the earlier
-# candidate wins, which keeps `logos` ahead of the pre-rename `brain` and PATH
-# ahead of the install directories. Set LOGOS_BIN to skip all of it — a
+# candidate wins, which keeps PATH ahead of the install directories. Set LOGOS_BIN to skip all of it — a
 # developer running their own build needs a way to say so out loud.
 
 # Which host this is. #95: setup pins the vault into each host's MCP config as
@@ -57,7 +57,7 @@ logos_runs() {
   local out
   out=$("$@" --version 2>/dev/null)
   case "$out" in
-    "logos "*|"brain "*)
+    "logos "*)
       LOGOS_VERSION=${out#* }
       LOGOS_VERSION=${LOGOS_VERSION%% *}
       return 0
@@ -125,12 +125,10 @@ logos_resolve() {
   local oldifs="$IFS" path_dirs
   IFS=':' read -r -a path_dirs <<< "$PATH"
   IFS="$oldifs"
-  for name in logos brain; do
-    for dir in "${path_dirs[@]}"; do
-      [ -n "$dir" ] || dir="."
-      cand="$dir/$name"
-      [ -x "$cand" ] && logos_consider "$cand" "$cand"
-    done
+  for dir in "${path_dirs[@]}"; do
+    [ -n "$dir" ] || dir="."
+    cand="$dir/logos"
+    [ -x "$cand" ] && logos_consider "$cand" "$cand"
   done
   # The fixed install locations can be replaced, and exist as a variable only
   # for the tests: they probed the real /opt/homebrew/bin whatever PATH said,
@@ -141,10 +139,8 @@ logos_resolve() {
   for dir in "${GOBIN:-}" "${GOPATH:+$GOPATH/bin}" "$HOME/go/bin" \
              ${fixed_dirs[@]+"${fixed_dirs[@]}"} "$HOME/.local/bin"; do
     [ -n "$dir" ] || continue
-    for name in logos brain; do
-      cand="$dir/$name"
-      [ -x "$cand" ] && logos_consider "$cand" "$cand"
-    done
+    cand="$dir/logos"
+    [ -x "$cand" ] && logos_consider "$cand" "$cand"
   done
   if [ -n "$best_desc" ]; then
     # Invariant 3: a choice the user cannot see is the whole of this bug. Said

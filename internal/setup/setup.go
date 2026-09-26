@@ -44,8 +44,9 @@ import (
 // Name is what logos calls itself in a host's server list.
 const Name = "logos"
 
-// OldName is what 0.4 setup registered the server as. Setup replaces such an
-// entry through 0.4.x; this goes before 0.5.0.
+// OldName is what 0.4 setup registered the server as. Setup and migrate still
+// replace such an entry, out loud: it is a host config naming a binary this
+// release no longer provides, and nothing else would take it out.
 const OldName = "brain"
 
 // isLogosServer reports whether a registration's command line starts logos's

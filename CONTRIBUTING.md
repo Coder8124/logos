@@ -15,11 +15,10 @@ Everything is **Logos**: the product and user-facing text say Logos; the Go
 module `github.com/Coder8124/logos`, the binary and CLI verb (`logos resume …`),
 the vault dir `~/logos`, `LOGOS_*` variables and `.logos/` say logos.
 
-Before 0.4.x the development name was **brain**. Through 0.4.x the old names
-keep working so an existing install is not stranded: `BRAIN_*` variables are
-still read, an existing `~/brain` vault and `.brain/` directory are found, and
-the npm package still installs a `brain` command. Don't add new uses of the old
-name; the fallbacks are removed before 0.5.0.
+Before 0.4.x the development name was **brain**. Since 0.5.0 nothing reads the
+old names; `cmd/logos/legacy.go` only reports them, and `logos migrate` moves a
+`~/brain` vault and re-pins the host entries 0.4 setup wrote. Don't add new
+uses of the old name.
 
 ## Build
 

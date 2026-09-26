@@ -264,7 +264,7 @@ func unknownCommand(name string) {
 }
 
 func main() {
-	carryOldNames(os.Stderr)
+	warnOldNames(os.Stderr)
 	// #95: inside a host, that host's own pin beats the machine pointer. Set
 	// before anything reads a vault, so one session cannot restore from one
 	// disk and checkpoint to another.

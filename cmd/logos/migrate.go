@@ -18,8 +18,8 @@ var symlink = os.Symlink
 
 // migrateCmd moves a 0.4 vault from ~/brain to ~/logos.
 //
-// Through 0.4.x legacy.Vault adopts ~/brain in place, and that keeps working
-// past 0.5.0 because the pointer names it — but it leaves an early adopter's
+// 0.4.x recorded ~/brain as the machine's vault, and that keeps working past
+// 0.5.0 because the pointer names it — but it leaves an early adopter's
 // sessions and checkpoints under the old name for good, and an explicit move is
 // the only way off it: logos never moves someone's vault without being asked.
 //
@@ -112,7 +112,7 @@ func migrateCmd(args []string) error {
 			continue
 		}
 		// 0.4.0 to 0.4.2 pinned BRAIN_VAULT, before the rename; the readers
-		// know only LOGOS_VAULT, and legacy reads the old name until 0.5.0.
+		// know only LOGOS_VAULT, and since 0.5.0 nothing reads the old name.
 		vaultOf := func(e setup.Registration) string {
 			if e.Vault != "" {
 				return e.Vault

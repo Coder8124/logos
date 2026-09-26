@@ -144,10 +144,10 @@ own plugin, so both are already available in a Claude Code session.
 
 ## Formerly brain
 
-Logos was developed as `brain`. Through 0.4.x the old names still work — the
-`brain` command from npm, `BRAIN_*` variables, and an existing `~/brain` vault
-or `.brain/` directory — so an existing install keeps running. Use `logos` for
-anything new. `logos migrate` moves a `~/brain` vault, with its sessions and
+Logos was developed as `brain`. Since 0.5.0 the old names are no longer read —
+not the `brain` command, `BRAIN_*` variables, an unrecorded `~/brain` vault or a
+`.brain/` directory — and logos says so on stderr, naming the fix, whenever it
+finds one. A `~/brain` vault that 0.4 already recorded keeps working. `logos migrate` moves a `~/brain` vault, with its sessions and
 checkpoints, to `~/logos`, leaves `~/brain` as a link to it, and re-pins the
 hosts that named the old path (`--dry-run` shows the plan first). Run `logos
 doctor` afterwards — [Moving a 0.4 vault](SETUP.md#moving-a-04-vault) covers
