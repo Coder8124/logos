@@ -21,8 +21,7 @@
   },
   "license": "Apache-2.0",
   "bin": {
-    "logos": "bin/logos.js",
-    "brain": "bin/logos.js"
+    "logos": "bin/logos.js"
   },
   "files": [
     "bin/logos.js",

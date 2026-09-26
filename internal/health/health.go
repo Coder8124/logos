@@ -152,6 +152,9 @@ func Run(in Input) Report {
 	if c, ok := checkOtherVault(in.Hosts, vault.Recorded()); ok {
 		r.Add(c)
 	}
+	if c, ok := checkOldHostPin(in.Hosts); ok {
+		r.Add(c)
+	}
 	if c, ok := checkPlugin(in.Version); ok {
 		r.Add(c)
 	}
@@ -985,6 +988,33 @@ func checkOtherVault(hosts []setup.Host, recorded string) (Check, bool) {
 		Detail: fmt.Sprintf("%s uses %s, but this machine's vault is %s — checkpoints there are not seen here", names[0], vaults[0], recorded),
 		Fix:    "run `logos mcp install` to point every host at " + recorded,
 	}, true
+}
+
+// checkOldHostPin finds a host whose logos entry pins its vault as
+// BRAIN_VAULT, the name 0.4.0 to 0.4.2 wrote. 0.5.0 does not read it, so that
+// host's server opens the machine's vault — or an empty ~/logos — and the only
+// thing that says so is a line on the MCP server's stderr, which no host shows.
+// Doctor is where someone looks when their memory seems gone. ok is false when
+// no entry pins the old name.
+func checkOldHostPin(hosts []setup.Host) (Check, bool) {
+	for _, h := range hosts {
+		if h.Detect == nil || !h.Detect() {
+			continue
+		}
+		for _, e := range setup.PinnedEntries(h) {
+			old := e.Server.Env["BRAIN_VAULT"]
+			if old == "" || e.Vault != "" {
+				continue
+			}
+			return Check{
+				Name:   "host on a 0.4 pin",
+				State:  Failed,
+				Detail: fmt.Sprintf("%s starts logos with BRAIN_VAULT=%s, which is not read since 0.5.0 — that host is not using %s", h.Name, old, old),
+				Fix:    fmt.Sprintf("run `logos setup --vault %s` to re-pin it as LOGOS_VAULT", old),
+			}, true
+		}
+	}
+	return Check{}, false
 }
 
 // checkPlugin compares the Logos plugin installed in Claude Code with this

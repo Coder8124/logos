@@ -75,19 +75,7 @@ for p in "${platforms[@]}"; do
     fi
   done
 
-  # The same binary again under the 0.4 name. A 0.4 `brain update` asks the
-  # release for brain_<version>_<os>_<arch> holding a file called brain, and
-  # without it every 0.4 install is stranded on 0.4 with "no asset" — the
-  # rename would be the last update it ever saw. Through 0.4.x only; remove
-  # before 0.5.0.
-  old="brain"
-  [ "$goos" = "windows" ] && old="brain.exe"
-  olddir="${OUT}/brain_${VERSION}_${goos}_${goarch}"
-  cp -R "$dir" "$olddir"
-  mv "${olddir}/${name}" "${olddir}/${old}"
-
   archive "$dir" "$goos"
-  archive "$olddir" "$goos"
 
   echo "  ${goos}/${goarch}"
 done

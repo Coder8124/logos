@@ -39,19 +39,19 @@ func runResolver(t *testing.T, path string, script string) (string, error) {
 // `logos-cli`) install a `logos` bin. The resolver took any `logos` on PATH, so
 // the plugin would have run someone else's program as `logos mcp serve`.
 func TestThePluginDoesNotRunSomeoneElsesLogos(t *testing.T) {
-	bin := t.TempDir()
-	fakeProgram(t, bin, "logos", `echo "Logos module manager 1.0.4"`)
-	fakeProgram(t, bin, "brain", `echo "brain 0.4.3 darwin/arm64 go1.26"`)
+	other, ours := t.TempDir(), t.TempDir()
+	fakeProgram(t, other, "logos", `echo "Logos module manager 1.0.4"`)
+	fakeProgram(t, ours, "logos", `echo "logos 0.4.3 darwin/arm64 go1.26"`)
 
-	got, err := runResolver(t, bin+":/usr/bin:/bin", `logos_resolve && printf '%s\n' "${LOGOS[@]}"`)
+	got, err := runResolver(t, other+":"+ours+":/usr/bin:/bin", `logos_resolve && printf '%s\n' "${LOGOS[@]}"`)
 	if err != nil {
 		t.Fatalf("resolver failed: %v\n%s", err, got)
 	}
 	// Resolved by full path, not bare name: the resolver may deliberately pass
 	// over the copy PATH would give, so running by name would launch the wrong
 	// one (#157).
-	if filepath.Base(got) != "brain" {
-		t.Errorf("the resolver chose %q over this product's brain", got)
+	if !strings.HasPrefix(got, ours) {
+		t.Errorf("the resolver chose %q over this product's logos", got)
 	}
 }
 
@@ -62,13 +62,13 @@ func TestThePluginDoesNotRunSomeoneElsesLogos(t *testing.T) {
 func TestThePluginSkipsACandidateThatDoesNotRun(t *testing.T) {
 	shims, gobin := t.TempDir(), t.TempDir()
 	fakeProgram(t, shims, "logos", `echo "env: node: No such file or directory" >&2; exit 127`)
-	fakeProgram(t, gobin, "brain", `echo "brain 0.4.3 darwin/arm64 go1.26"`)
+	fakeProgram(t, gobin, "logos", `echo "logos 0.4.3 darwin/arm64 go1.26"`)
 
 	got, err := runResolver(t, shims+":"+gobin+":/usr/bin:/bin", `logos_resolve && printf '%s\n' "${LOGOS[@]}"`)
 	if err != nil {
 		t.Fatalf("resolver failed: %v\n%s", err, got)
 	}
-	if filepath.Base(got) != "brain" {
+	if !strings.HasPrefix(got, gobin) {
 		t.Errorf("the resolver chose %q, which does not run", got)
 	}
 }
@@ -78,10 +78,8 @@ func TestThePluginSkipsACandidateThatDoesNotRun(t *testing.T) {
 // installed off to install it again.
 func TestThePluginSaysWhenTheBinaryItFoundDoesNotRun(t *testing.T) {
 	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
-		for _, name := range []string{"logos", "brain"} {
-			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
-				t.Skipf("%s/%s exists on this machine and would be resolved", dir, name)
-			}
+		if _, err := os.Stat(filepath.Join(dir, "logos")); err == nil {
+			t.Skipf("%s/logos exists on this machine and would be resolved", dir)
 		}
 	}
 	shims := t.TempDir()
@@ -225,12 +223,12 @@ func TestAnExplicitLogosBinIsNotRankedAgainstAnythingElse(t *testing.T) {
 	}
 }
 
-// Same version, two names: `brain` is pre-rename and so never newer than the
-// `logos` it was renamed from.
-func TestAtTheSameVersionLogosBeatsThePreRenameBrain(t *testing.T) {
+// A pre-rename brain reads only the BRAIN_ names the hooks no longer set, so
+// it would run with every guard off — even when it is the newer copy.
+func TestThePluginNoLongerRunsAPreRenameBrain(t *testing.T) {
 	bin := t.TempDir()
 	fakeProgram(t, bin, "logos", `echo "logos 0.4.7 darwin/arm64 go1.26"`)
-	fakeProgram(t, bin, "brain", `echo "brain 0.4.7 darwin/arm64 go1.26"`)
+	fakeProgram(t, bin, "brain", `echo "brain 0.4.9 darwin/arm64 go1.26"`)
 
 	got, err := runResolver(t, bin+":/usr/bin:/bin",
 		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}"`)
@@ -238,7 +236,7 @@ func TestAtTheSameVersionLogosBeatsThePreRenameBrain(t *testing.T) {
 		t.Fatalf("resolver failed: %v\n%s", err, got)
 	}
 	if filepath.Base(got) != "logos" {
-		t.Errorf("the resolver chose %q at equal versions", got)
+		t.Errorf("the resolver chose %q over logos", got)
 	}
 }
 

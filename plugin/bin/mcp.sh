@@ -28,7 +28,7 @@ fi
 if [ -n "${LOGOS_REJECTED:-}" ]; then
   echo "logos: found $LOGOS_REJECTED, but it does not run as Logos — another program by that name, or an npm install with no node on this app's PATH," >&2
 fi
-echo "logos: no working logos or brain binary found on PATH or in the usual install directories," >&2
+echo "logos: no working logos binary found on PATH or in the usual install directories," >&2
 echo "logos: and @noeton/logos is not installable here." >&2
 # Homebrew and npm first, and go install last. The user who is here has no
 # working Logos and may well have no toolchain either — Claude Code's own

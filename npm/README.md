@@ -197,9 +197,8 @@ logos mcp serve                # the MCP server, over stdio
 
 ## Formerly brain
 
-Logos was developed as `brain`. Through 0.4.x this package still installs a
-`brain` command, and `BRAIN_*` variables and an existing `~/brain` vault still
-work. Use `logos` for anything new. `logos migrate` moves a `~/brain` vault to
+Logos was developed as `brain`. Since 0.5.0 this package installs only
+`logos`, and `BRAIN_*` variables are no longer read; logos names any it finds. `logos migrate` moves a `~/brain` vault to
 `~/logos`, leaves `~/brain` as a link to it, and re-pins the hosts that named the
 old path (`--dry-run` shows the plan first). Run `logos doctor` afterwards —
 [Moving a 0.4 vault](https://github.com/Coder8124/logos/blob/main/SETUP.md#moving-a-04-vault)

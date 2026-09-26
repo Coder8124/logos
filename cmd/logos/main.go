@@ -254,6 +254,18 @@ func usage() {
 	os.Exit(2)
 }
 
+// start settles which vault this run uses before anything reads one.
+//
+// #95: inside a host, that host's own pin beats the machine pointer, so one
+// session cannot restore from one disk and checkpoint to another. The old
+// names are checked after, against that vault: checked first, a .brain in the
+// pinned vault went unreported and ~/brain was named to a run that was about
+// to use somewhere else entirely.
+func start(stderr io.Writer, hosts []setup.Host) {
+	adoptHostPin(hosts)
+	warnOldNames(stderr)
+}
+
 // unknownCommand reports what was actually wrong before falling back to the
 // same help dump `usage()` gives a bare `logos` with no arguments — without
 // this, a typo'd command name (`logos remember`) and no command at all
@@ -264,11 +276,7 @@ func unknownCommand(name string) {
 }
 
 func main() {
-	carryOldNames(os.Stderr)
-	// #95: inside a host, that host's own pin beats the machine pointer. Set
-	// before anything reads a vault, so one session cannot restore from one
-	// disk and checkpoint to another.
-	adoptHostPin(setup.Hosts())
+	start(os.Stderr, setup.Hosts())
 	if len(os.Args) < 2 {
 		usage()
 	}

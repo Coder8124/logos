@@ -14,13 +14,13 @@ import (
 	"testing"
 )
 
-// A 0.4 install updates itself by asking the release for
-// brain_<version>_<os>_<arch>.tar.gz, checking it against SHA256SUMS, and
-// running the file inside whose path ends in /brain. After the rename the
-// release carried only logos_ archives, so every 0.4 `brain update` failed
-// with "no asset" and stayed on 0.4 for good. This runs the real release
-// script for this machine's platform and opens its output the way 0.4 does.
-func TestAReleaseStillCarriesTheArchiveA04UpdateAsksFor(t *testing.T) {
+// logos update asks the release for AssetName's archive, checks it against
+// SHA256SUMS, and swaps in the file inside whose path ends in /logos, refusing
+// one whose version does not name the release. This runs the real release
+// script for this machine's platform and opens its output the same way. Since
+// 0.5.0 the release carries no brain_ archive: only 0.4.0 to 0.4.2 asked for
+// one, and a second copy of every binary was the price of keeping them.
+func TestAReleaseCarriesTheArchiveLogosUpdateAsksForAndNoOther(t *testing.T) {
 	if testing.Short() {
 		t.Skip("cross-compiles the CLI")
 	}
@@ -34,7 +34,7 @@ func TestAReleaseStillCarriesTheArchiveA04UpdateAsksFor(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	version := "v0.4.99"
+	version := "v0.5.99"
 	cmd := exec.Command("bash", filepath.Join("..", "..", "scripts", "release.sh"), version)
 	cmd.Env = append(os.Environ(),
 		"RELEASE_OUT="+out,
@@ -44,15 +44,12 @@ func TestAReleaseStillCarriesTheArchiveA04UpdateAsksFor(t *testing.T) {
 		t.Fatalf("release.sh: %v\n%s", err, b)
 	}
 
-	for _, prefix := range []string{"logos", "brain"} {
-		if _, err := os.Stat(filepath.Join(out, fmt.Sprintf("%s_%s_%s_%s.tar.gz", prefix, version, runtime.GOOS, runtime.GOARCH))); err != nil {
-			t.Errorf("the release has no %s archive: %v", prefix, err)
-		}
+	old := fmt.Sprintf("brain_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	if _, err := os.Stat(filepath.Join(out, old)); err == nil {
+		t.Errorf("the release still carries %s", old)
 	}
 
-	// The name 0.4's AssetName built, spelled out rather than borrowed from
-	// this package, which now names logos_ archives.
-	name := fmt.Sprintf("brain_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	name := AssetName(version, runtime.GOOS, runtime.GOARCH)
 	archive, err := os.ReadFile(filepath.Join(out, name))
 	if err != nil {
 		t.Fatal(err)
@@ -62,22 +59,21 @@ func TestAReleaseStillCarriesTheArchiveA04UpdateAsksFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := VerifyChecksum(sums, name, archive); err != nil {
-		t.Fatalf("0.4 could not verify %s: %v", name, err)
+		t.Fatalf("update could not verify %s: %v", name, err)
 	}
 
-	bin := fileEndingIn(t, archive, "/brain")
-	path := filepath.Join(t.TempDir(), "brain")
+	bin := fileEndingIn(t, archive, "/logos")
+	path := filepath.Join(t.TempDir(), "logos")
 	if err := os.WriteFile(path, bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// 0.4 refuses to swap in a binary whose `version` does not name the release.
 	got, err := exec.Command(path, "version").CombinedOutput()
 	if err != nil || !strings.Contains(string(got), version) {
-		t.Errorf("the binary 0.4 would install reports %q (%v), want %s", got, err, version)
+		t.Errorf("the binary update would install reports %q (%v), want %s", got, err, version)
 	}
 }
 
-// fileEndingIn is 0.4's extractTarGz: the first regular file whose path ends
+// fileEndingIn is update's extraction: the first regular file whose path ends
 // in suffix.
 func fileEndingIn(t *testing.T, archive []byte, suffix string) []byte {
 	t.Helper()

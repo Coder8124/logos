@@ -10,9 +10,9 @@ distribution channel rather than an afterthought behind a `go install`.
 
 ## Formerly brain
 
-Logos was developed as `brain`. The wrapper still installs `brain` as a second
-name for the same command through 0.4.x, so scripts and host configs written
-against the old name keep working. It goes before 0.5.0.
+Logos was developed as `brain`. Through 0.4.x the wrapper also installed
+`brain` as a second name for the same command; since 0.5.0 it installs only
+`logos`.
 
 ## How it is packaged
 

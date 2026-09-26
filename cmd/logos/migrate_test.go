@@ -14,7 +14,7 @@ import (
 )
 
 // oldVaultHome is a fake home holding a 0.4 vault at ~/brain, recorded as the
-// machine's vault the way carryOldNames records it, with one checkpoint in it.
+// machine's vault the way 0.4.x recorded it, with one checkpoint in it.
 func oldVaultHome(t *testing.T) (home, checkpoint string) {
 	t.Helper()
 	home = lastingDir(t)
