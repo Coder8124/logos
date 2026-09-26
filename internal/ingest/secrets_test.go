@@ -144,3 +144,37 @@ func TestRelaxingThePathCaseStillMasksRealCredentials(t *testing.T) {
 		}
 	}
 }
+
+// #210: a harvested `go test -run TestWorkingNotesSurviveDeletingTheIndex`
+// reached the review queue as `go test -run [REDACTED]`, and the receipt told
+// the user three secrets had been found in a transcript that had none. A test
+// name and a module path are long and mixed case, which is all the entropy
+// check can see — but a test name is made of words and a module path opens
+// with a host, and no credential's alphabet produces either.
+func TestAHarvestedTestNameAndModulePathAreNotRedactedAsSecrets(t *testing.T) {
+	for _, cmd := range []string{
+		"go test ./internal/session -run TestWorkingNotesSurviveDeletingTheIndex",
+		"go test -run TestAVaultThatHasNeverBeenIndexedIsReportedWithoutBeingCalledBroken ./internal/health",
+		"go doc github.com/Coder8124/logos/internal/session",
+		"go get golang.org/x/tools/cmd/goimports@latest",
+		"java -cp build com.kingdomgame.model.KingdomGameController",
+	} {
+		c := &Candidate{Commands: []string{cmd}}
+		if found := redactCandidateText(c); len(found) != 0 || c.Commands[0] != cmd {
+			t.Errorf("an ordinary command was masked as a credential:\n  in:  %s\n  out: %s", cmd, c.Commands[0])
+		}
+	}
+}
+
+// The other side of #210: the word and host shapes must not let through a key
+// that happens to have no digits, or a token pasted after a host.
+func TestKeepingTestNamesStillMasksARandomLettersOnlyKey(t *testing.T) {
+	for _, secret := range []string{
+		"zQpRvLxMwKnTcByHsFjDgAqWeRtY",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+	} {
+		if got := Redact("export TOKEN=" + secret); strings.Contains(got, secret) {
+			t.Errorf("a credential survived redaction: %s", got)
+		}
+	}
+}

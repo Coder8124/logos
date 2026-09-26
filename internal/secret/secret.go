@@ -10,9 +10,10 @@
 // Two strengths, because the two kinds of text differ. A transcript is mostly
 // machine output nobody chose to keep, so ingest also masks anything that
 // merely looks random (MaskAll). An agent's own write is prose it chose, full
-// of long mixed-case words — test names, module paths — that the entropy check
-// flags and that are the whole content of a verified line; there only a known
-// credential shape is masked (Mask).
+// of long mixed-case words — test names, module paths, identifiers with digits
+// in them — that the entropy check can take for a key (#210 spares the plainest
+// of them, not all) and that are the whole content of a verified line; there
+// only a known credential shape is masked (Mask).
 package secret
 
 import (
@@ -272,6 +273,14 @@ func secretReason(tok string, entropy bool) string {
 	if isPathPrefixed(tok) {
 		return ""
 	}
+	// #210: harvested `go test -run TestWorkingNotesSurviveDeletingTheIndex`
+	// became `go test -run [REDACTED]` and was counted as a secret found, as
+	// was `go doc github.com/Coder8124/logos/...`. Both clear the entropy bar;
+	// neither has a credential's structure. What they have instead is again
+	// structural, like the path case, and asked before entropy for that reason.
+	if isHostPath(tok) || isWordIdentifier(tok) {
+		return ""
+	}
 	if looksHighEntropy(tok) {
 		return "high-entropy token"
 	}
@@ -292,6 +301,58 @@ func isPathPrefixed(tok string) bool {
 		}
 	}
 	return false
+}
+
+// hostPath is a module path or scheme-less URL: a lowercase dotted host, then
+// a slash. No token alphabet opens that way — a JWT's and base64's first
+// segment is mixed case, and a key has no dot before its first slash.
+var hostPath = regexp.MustCompile(`^[a-z0-9-]+(\.[a-z0-9-]+)+/`)
+
+func isHostPath(tok string) bool { return hostPath.MatchString(tok) }
+
+// isWordIdentifier reports whether tok is a name built from words — a Go test
+// name, a Java class, a dotted package — rather than random characters.
+//
+// Split at every capital and separator, a name's parts average well over four
+// letters (TestAVaultThat… is 4.7) and each long one has a vowel in it. Random
+// mixed-case letters split into parts of one or two, since every other
+// character is a capital, and a long run of random lowercase often has no
+// vowel. A digit anywhere means "not a name": almost every real key has one,
+// and a name almost never does. Measured on random keys that clear the
+// entropy bar, this lets through none of 32 characters or more over base62,
+// 0.02% of 20-character ones, and 0.55% of 20-character letters-only ones —
+// the known prefixes and shapes, asked first, are what catch a real key.
+func isWordIdentifier(tok string) bool {
+	var parts []string
+	begin := 0
+	for i, r := range tok {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			// Every capital opens a part, runs of them included: merged, "AV"
+			// in TestAVault would let random letters pass as words too.
+			parts = append(parts, tok[begin:i])
+			begin = i
+		case r >= 'a' && r <= 'z':
+		case r == '.' || r == '_' || r == '-' || r == '/':
+			parts = append(parts, tok[begin:i])
+			begin = i + 1
+		default:
+			return false
+		}
+	}
+	parts = append(parts, tok[begin:])
+	letters, n := 0, 0
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if len(p) > 3 && !strings.ContainsAny(strings.ToLower(p), "aeiouy") {
+			return false
+		}
+		letters += len(p)
+		n++
+	}
+	return n > 0 && letters >= 4*n
 }
 
 // looksHighEntropy is deliberately conservative. A file path, a git commit
