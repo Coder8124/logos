@@ -266,7 +266,7 @@ func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, er
 	// Masked before the insert, not at flush or checkpoint: the row is read
 	// back by resume and folded into State, and uncommitted.md is in the vault
 	// the moment this returns (#209).
-	masked, redactions := secret.Mask("note", strings.TrimSpace(text))
+	masked, redactions := noteText(text)
 	n := Note{Session: s.ID, Agent: s.Agent, Text: masked, TS: ts, Redactions: redactions}
 	res, err := db.Exec(
 		`INSERT INTO session_notes (session, text, ts) VALUES (?,?,?)`, n.Session, n.Text, n.TS)
@@ -275,6 +275,18 @@ func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, er
 	}
 	n.ID, _ = res.LastInsertId()
 	return n, nil
+}
+
+// NoteText is text as a note keeps it, for a caller comparing what it is
+// about to write with what is already there. Compared as typed, a note with a
+// key in it never matched its own masked copy and was stored again.
+func NoteText(text string) string {
+	masked, _ := noteText(text)
+	return masked
+}
+
+func noteText(text string) (string, []secret.Redaction) {
+	return secret.Mask("note", strings.TrimSpace(text))
 }
 
 // Notes returns a session's working notes, oldest first — the order they were

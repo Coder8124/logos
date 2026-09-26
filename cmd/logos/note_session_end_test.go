@@ -95,3 +95,33 @@ func TestTheSessionEndHookSignsItsNoteAsClaudeCode(t *testing.T) {
 	}
 	t.Fatal("could not find the note call in session-end.sh")
 }
+
+// The comparison was against the text as typed, and the stored note is the
+// text as kept: masked (#209) and trimmed. A repeated note with a key in it
+// never matched its own earlier copy, and stacked the way session-end lines
+// did before they were collapsed.
+func TestARepeatedSessionEndNoteWithASecretInItCollapsesIntoOne(t *testing.T) {
+	standIn(t, "elsewhere")
+	const line = "deploy failed with ghp_0123456789abcdefghijklmnopqrstuvwxyzAB "
+	if err := runNote([]string{"widgets", "rewired the cache"}); err != nil {
+		t.Fatalf("note: %v", err)
+	}
+	t.Setenv("LOGOS_NOTE_IF_UNCOMMITTED", "1") // as the SessionEnd hook runs it
+	for i := 0; i < 2; i++ {
+		captureStdout(t, func() {
+			if err := runNote([]string{"widgets", line}); err != nil {
+				t.Fatalf("note: %v", err)
+			}
+		})
+	}
+
+	var deploy int
+	for _, n := range uncommittedOn(t, "widgets") {
+		if strings.HasPrefix(n.Text, "deploy failed") {
+			deploy++
+		}
+	}
+	if deploy != 1 {
+		t.Errorf("want 1 copy of the repeated note, got %d", deploy)
+	}
+}

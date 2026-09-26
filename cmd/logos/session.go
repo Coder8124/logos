@@ -90,7 +90,7 @@ func runNote(args []string) error {
 			fmt.Printf("skipped — nothing on %s is waiting for a checkpoint.\n", project)
 			return nil
 		}
-		if open[len(open)-1].Text == text {
+		if open[len(open)-1].Text == session.NoteText(text) {
 			fmt.Println("skipped — the last uncommitted note already says this.")
 			return nil
 		}
