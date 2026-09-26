@@ -144,3 +144,56 @@ func TestSetupSaysAProjectCanStillHaveThePluginDisabled(t *testing.T) {
 		t.Errorf("setup did not say a project can disable the plugin:\n%s", out)
 	}
 }
+
+// Claude Code leaves the roster once the plugin carries it, so a machine whose
+// only host is Claude Code wired nothing by count. Setup reported "installed
+// the Logos plugin" and then, on the next lines, "No MCP hosts found. Install
+// one of …" — and ended there, without the first handoff to try (#212).
+func TestAPluginInstallIsNotFollowedByNoHostsFound(t *testing.T) {
+	dir := setupInFakeHome(t)
+	claudeWithPluginCommands(t, os.Getenv("HOME"))
+	fakeHosts(t, "Claude Code")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if strings.Contains(out, "No MCP hosts found") {
+		t.Errorf("setup installed the plugin and then said it found no hosts:\n%s", out)
+	}
+	if !strings.Contains(out, `In Claude Code, in a repository you are working in, say: "checkpoint this"`) {
+		t.Errorf("setup did not close with the handoff for Claude Code:\n%s", out)
+	}
+}
+
+// The same count, reached through a failed update: the plugin that was
+// already installed still connects Claude Code, and setup followed its own
+// "could not update" with "No MCP hosts found".
+func TestAFailedPluginUpdateIsNotFollowedByNoHostsFound(t *testing.T) {
+	dir := setupInFakeHome(t)
+	home := os.Getenv("HOME")
+	fakeProgram(t, filepath.Join(home, "bin"), "claude", `case "$1 $2" in
+"plugin --help") echo "plugin marketplace add|install|update" ;;
+"plugin update") echo "network unreachable"; exit 1 ;;
+"mcp get") exit 1 ;;
+esac`)
+	t.Setenv("PATH", filepath.Join(home, "bin")+string(os.PathListSeparator)+"/usr/bin:/bin")
+	writeClaudeJSON(t, home, "plugins/installed_plugins.json", `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.1.2"}]}}`)
+	withVersion(t, "v0.4.3")
+	fakeHosts(t, "Claude Code")
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "could not update the Logos plugin") {
+		t.Fatalf("the update was meant to fail here:\n%s", out)
+	}
+	if strings.Contains(out, "No MCP hosts found") {
+		t.Errorf("the old plugin still connects Claude Code, and setup said it found no hosts:\n%s", out)
+	}
+}

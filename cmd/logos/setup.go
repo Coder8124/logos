@@ -1253,6 +1253,12 @@ func wireHosts(vault string, opts wireOpts) error {
 			fmt.Printf("    %-*s ✓  copied to %s\n", hostColumn, "binary", pin)
 		}
 	}
+	// pluginCarries is Claude Code wired by the plugin rather than by the
+	// roster, which it left. Counted as nothing, a machine whose only host is
+	// Claude Code heard "installed the Logos plugin" and then "No MCP hosts
+	// found", and never got the handoff to try (#212). An update that failed
+	// leaves the old plugin connecting, so only a failed install loses it.
+	pluginCarries := claudeCode.Name != "" && plugin.Connects
 	if pluginSteps != nil {
 		if err := setup.RunPluginSteps(pluginSteps); err != nil {
 			fmt.Printf("    %-*s ✗  could not %s: %v\n", hostColumn, "Claude Code", pluginLabel, err)
@@ -1264,6 +1270,7 @@ func wireHosts(vault string, opts wireOpts) error {
 				hosts = append(hosts, claudeCode)
 			}
 		} else {
+			pluginCarries = true
 			fmt.Printf("    %-*s ✓  %s the Logos plugin (%s)\n", hostColumn, "Claude Code", pluginDone, setup.PluginRef)
 			fmt.Printf("    %-*s    restart Claude Code to load it\n", hostColumn, "")
 			// An earlier setup's `claude mcp add` entry stays behind the
@@ -1279,6 +1286,9 @@ func wireHosts(vault string, opts wireOpts) error {
 	}
 	var wired, failed int
 	var wiredHosts []string
+	if pluginCarries {
+		wiredHosts = append(wiredHosts, "Claude Code")
+	}
 	for _, r := range setup.Install(srv, hosts) {
 		switch r.Outcome {
 		case setup.Skipped:
@@ -1377,7 +1387,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		}
 	}
 
-	if wired == 0 {
+	if wired == 0 && !pluginCarries {
 		// Hosts that were found and failed are not missing. Saying "No MCP
 		// hosts found. Install … Cursor" under Cursor's own error contradicted
 		// the line above it, and exiting 0 hid that nothing was wired.
