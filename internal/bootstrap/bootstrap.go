@@ -76,7 +76,9 @@ func FromGitHistory(dir string, months int) (found []Candidate, unread []string)
 	if months <= 0 {
 		months = 12
 	}
-	if !isRepo(dir) {
+	// A repository with no commits has no history, and git log's exit 128
+	// there is that answer, not a refusal to give one.
+	if !isRepo(dir) || git(dir, "rev-parse", "--verify", "-q", "HEAD") == "" {
 		return nil, nil
 	}
 	since := fmt.Sprintf("--since=%d months ago", months)

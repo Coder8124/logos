@@ -303,3 +303,14 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+// git log in a repository with no commits exits 128 ("does not have any
+// commits yet"), and that exit was reported as git refusing to read the commit
+// log — a warning about a brand-new repository, which has no history to read.
+func TestARepositoryWithNoCommitsIsNotSaidToHaveAnUnreadableLog(t *testing.T) {
+	dir := repo(t)
+	got, unread := FromGitHistory(dir, 12)
+	if len(got) != 0 || len(unread) != 0 {
+		t.Errorf("found %d, unread %q in a repository with no commits", len(got), unread)
+	}
+}
