@@ -429,10 +429,12 @@ whether it created a fact or corroborated one it already had), `recall`,
 Claude Code loads tool definitions only when it needs them. A host that sends
 every definition with every request pays for all of them on every turn: about
 4.5k tokens. `"args": ["mcp", "serve", "--tools", "continuity"]` (or
-`LOGOS_TOOLS=continuity` in `env`) serves the nine an agent uses mid-task:
+`LOGOS_TOOLS=continuity` in `env`) serves the nine an agent uses mid-task —
 `remember`, `recall`, `context`, `resume`, `before_you_try`, `why`,
-`note_progress`, `checkpoint` and `handoff`. That is about 3k tokens. The rest
-are still available from a terminal.
+`note_progress`, `checkpoint` and `handoff` — plus `ingest_harvest` and
+`ingest_distil`, because only an agent can distil what `logos ingest` harvests.
+That is about 3.7k tokens. The six it drops are curation, and each has a
+terminal equivalent under `logos memory` or `logos projects`.
 
 ### Seeing it work
 

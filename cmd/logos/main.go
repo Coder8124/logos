@@ -185,7 +185,7 @@ SETUP AND DIAGNOSTICS
     logos setup --config <path> [--vault DIR]
                                       merge logos into a config file at a location logos does not know by convention
     logos mcp serve                   serve the memory layer to MCP hosts (Claude Desktop, Cursor, your own apps)
-    logos mcp serve --tools continuity  serve 9 of the 17 tools, for hosts that load every tool on every turn
+    logos mcp serve --tools continuity  serve 11 of the 17 tools, for hosts that load every tool on every turn
     logos mcp serve --http [--port N] serve over a local WebSocket for the browser extension (ChatGPT/Claude.ai/
                                       Perplexity web UIs) — needs LOGOS_BRIDGE_ORIGIN set; never leaves localhost
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes]

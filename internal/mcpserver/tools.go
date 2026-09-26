@@ -290,12 +290,14 @@ func arrStr(desc string) map[string]any {
 // toolSets are the tool sets `logos mcp serve --tools` can serve. Claude Code
 // loads tool definitions on demand, but a host that puts every definition into
 // every model request pays for all of them on every turn: 3,926 tokens for the
-// full set, measured (#61). continuity is what an agent reaches for mid-task;
-// the curation tools (forget, pin, exclude, ingest, diff, listings) stay a
-// terminal away.
+// full set, measured (#61). continuity is what an agent reaches for mid-task,
+// plus distillation: `logos ingest` only harvests and hands the judgement to an
+// agent, so no terminal command can stand in for ingest_harvest/ingest_distil.
+// The curation tools it drops (forget, pin, exclude, diff, listings) each have
+// a `logos memory` or `logos projects` equivalent.
 var toolSets = map[string][]string{
 	"all":        nil,
-	"continuity": {"remember", "recall", "context", "resume", "before_you_try", "why", "note_progress", "checkpoint", "handoff"},
+	"continuity": {"remember", "recall", "context", "resume", "before_you_try", "why", "note_progress", "checkpoint", "handoff", "ingest_harvest", "ingest_distil"},
 }
 
 // SetTools chooses the tool set this server shows and answers. An unknown name
