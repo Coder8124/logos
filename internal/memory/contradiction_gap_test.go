@@ -102,9 +102,36 @@ func TestWordsThatOnlyLookLikeAReversalAreNotOne(t *testing.T) {
 		{"kestrel handles billing through a dedicated service", "kestrel handles search through a dedicated service"},
 		{"we deploy staging with kubernetes", "we deploy staging with kubernetes instead of nomad"},
 		{"the cache ttl is 30 seconds", "the cache ttl is 60 seconds"},
+		// Found in review: each was queued as a dispute of a fact it agrees with
+		// or has nothing to do with. A "not" naming a rejected alternative, a
+		// short denial sharing one word with an unrelated memory, a "not" inside
+		// a fixed phrase, an article or adverb changed after the copula, and a
+		// final full stop.
+		{"we use postgres", "we use postgres, not mysql"},
+		{"the ci image is built with docker and pushed to ghcr", "we do not use docker"},
+		{"the endpoint returns 404 for missing ids", "the endpoint returns 404 not found for missing ids"},
+		{"the database is a postgres instance", "the database is the postgres instance"},
+		{"the api is really slow", "the api is very slow"},
+		{"retries are on", "retries are on."},
 	} {
 		if textmatch.Reverses(pair[0], pair[1]) {
 			t.Errorf("%q was read as reversing %q", pair[1], pair[0])
+		}
+	}
+}
+
+// What the narrowing must keep: a claim denied in any of the usual ways, and a
+// short predicate swapped, including at the end of a sentence with a stop.
+func TestAClaimDeniedOrSwappedIsStillReadAsAReversal(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"we deploy staging with kubernetes", "we no longer deploy staging with kubernetes"},
+		{"we deploy staging with kubernetes", "we don't deploy staging with kubernetes anymore"},
+		{"request retries are enabled in production", "request retries are not enabled in production"},
+		{"the staging database is postgres.", "the staging database is mysql."},
+		{"retries are on in production", "retries are off in production"},
+	} {
+		if !textmatch.Reverses(pair[0], pair[1]) {
+			t.Errorf("%q was not read as reversing %q", pair[1], pair[0])
 		}
 	}
 }

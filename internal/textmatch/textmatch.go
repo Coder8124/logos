@@ -13,6 +13,7 @@ package textmatch
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -308,28 +309,46 @@ func Negated(s string) bool {
 // where "instead of" and "sticking with" count; a fact that adds "instead of
 // nomad" still asserts what the original did.
 func Reverses(a, b string) bool {
-	if denies(a) != denies(b) {
-		return !DifferentSubjects(a, b) && Overlap(Subject(a), Subject(b)) >= Related
+	deniesA, wa := denial(a)
+	deniesB, wb := denial(b)
+	if deniesA != deniesB {
+		// With the denial taken out, the rest must be the other sentence word
+		// for word. Asking only whether the subjects matched let a "not" that
+		// names a rejected alternative ("postgres, not mysql"), or a four-word
+		// denial sharing its one noun with an unrelated memory, contest a fact
+		// it agreed with or had nothing to do with.
+		return slices.Equal(wa, wb)
 	}
-	return swapsPredicate(a, b)
+	return swapsPredicate(wa, wb)
 }
 
-// denies is whether a statement denies its claim. A bare "no" is left out: it
-// usually denies a noun, not the claim — "terse replies with no preamble" is
-// the same preference as "without any preamble", and counting it split every
-// such restatement from its original. "no longer" is the "no" that reverses.
-func denies(s string) bool {
+// denial is whether a statement denies its claim, and its words with the
+// denial taken out. A bare "no" is left in: it usually denies a noun, not the
+// claim — "terse replies with no preamble" is the same preference as "without
+// any preamble", and counting it split every such restatement from its
+// original. "no longer" is the "no" that reverses.
+func denial(s string) (bool, []string) {
 	low := strings.ToLower(strings.ReplaceAll(s, "’", "'"))
-	if strings.Contains(low, "n't ") || strings.HasSuffix(low, "n't") {
-		return true
-	}
+	low = strings.NewReplacer("won't", "will not", "can't", "can not", "cannot", "can not", "n't", " not").Replace(low)
 	ws := words(low)
-	for i, w := range ws {
-		if w == "not" || w == "never" || (w == "no" && i+1 < len(ws) && ws[i+1] == "longer") {
-			return true
+	var out []string
+	denied := false
+	for i := 0; i < len(ws); i++ {
+		switch w := ws[i]; {
+		case w == "not" || w == "never" || w == "anymore":
+			denied = denied || w != "anymore"
+			// "we don't deploy" asserts what "we deploy" does, once denied.
+			if n := len(out); n > 0 && (out[n-1] == "do" || out[n-1] == "does" || out[n-1] == "did") {
+				out = out[:n-1]
+			}
+		case w == "no" && i+1 < len(ws) && ws[i+1] == "longer":
+			denied = true
+			i++
+		default:
+			out = append(out, w)
 		}
 	}
-	return false
+	return denied, out
 }
 
 // copulas introduce a predicate. The swapped word must follow one, because a
@@ -338,8 +357,20 @@ func denies(s string) bool {
 // DifferentSubjects exists to keep them both.
 var copulas = map[string]bool{"is": true, "are": true, "was": true, "were": true, "be": true, "been": true}
 
-func swapsPredicate(a, b string) bool {
-	wa, wb := words(strings.ToLower(a)), words(strings.ToLower(b))
+// ends are the words that can follow a predicate's value. The value is the
+// head of the predicate, so it ends the sentence or a preposition follows it;
+// a swapped word followed by more of the predicate is a modifier — "is a
+// postgres instance" against "is the…", "is really slow" against "is very…" —
+// and changing a modifier restates the claim.
+var ends = map[string]bool{
+	"in": true, "on": true, "at": true, "for": true, "with": true, "by": true, "to": true,
+	"from": true, "of": true, "and": true, "or": true, "but": true, "when": true,
+	"while": true, "during": true, "since": true, "until": true, "unless": true,
+	"across": true, "via": true, "per": true, "as": true, "because": true, "except": true,
+	"after": true, "before": true, "under": true, "over": true, "through": true, "than": true,
+}
+
+func swapsPredicate(wa, wb []string) bool {
 	if len(wa) != len(wb) {
 		return false
 	}
@@ -353,16 +384,30 @@ func swapsPredicate(a, b string) bool {
 		}
 		swapped = i
 	}
+	if swapped <= 0 || !copulas[wa[swapped-1]] {
+		return false
+	}
+	if swapped+1 < len(wa) && !ends[wa[swapped+1]] {
+		return false
+	}
 	// Numbers are Values' to compare; a word that is the same stem is a
 	// rephrasing, not a different value.
-	return swapped > 0 && copulas[wa[swapped-1]] &&
-		!numeric(wa[swapped]) && !numeric(wb[swapped]) && !stemLike(wa[swapped], wb[swapped])
+	return !numeric(wa[swapped]) && !numeric(wb[swapped]) && !stemLike(wa[swapped], wb[swapped])
 }
 
+// words keeps dots inside a word, where they are part of a version or a host,
+// and drops them at its end, where they close a sentence: "retries are on."
+// is "retries are on", not a different value.
 func words(s string) []string {
-	return strings.FieldsFunc(s, func(r rune) bool {
+	var out []string
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' && r != '.'
-	})
+	}) {
+		if w = strings.TrimRight(w, "."); w != "" {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // Flatten collapses whitespace without shortening.
