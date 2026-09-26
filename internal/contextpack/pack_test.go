@@ -1015,3 +1015,38 @@ func TestAPackMeasuresWhatItsBudgetLeftOut(t *testing.T) {
 		t.Errorf("the footer should state the saving and how it was measured (%q):\n%s", want, tightOut)
 	}
 }
+
+// Recall now leaves out memories the query does not reach, and "continue the
+// BOM work" shares nothing with the user's later "we are not moving to the
+// Himax driver". That memory is the only thing that marks the checkpoint's next
+// step as abandoned, so without it the pack replayed a plan the user had
+// killed as the thing to do next (handoff-superseded-plan, 0% after 37da700).
+func TestAPlanTheUserLaterDroppedIsNotHandedOverAsNextEvenWhenTheTaskIsVague(t *testing.T) {
+	ix := seedVault(t)
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", TS: time.Now().Add(-6 * 24 * time.Hour).Unix(),
+		Task: "close the BOM gap",
+		Next: "Move the display driver to the Himax part to save $4.10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{
+		Text: "We are not moving to the Himax display driver — legal flagged the licensing terms and we are staying with Solomon.",
+		Kind: memory.Fact, Source: "manual", Project: "kestrel-one",
+		Created: time.Now().Add(-2 * 24 * time.Hour).Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue the BOM work", Hint: "kestrel-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if !strings.Contains(out, "Solomon") {
+		t.Errorf("the decision that overturned the plan is missing:\n%s", out)
+	}
+	if strings.Contains(out, "Next step:** Move the display driver") {
+		t.Errorf("the dropped plan is handed over as next:\n%s", out)
+	}
+}

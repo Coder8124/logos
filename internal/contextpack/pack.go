@@ -316,7 +316,18 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		// six-project scratch vault: 7 of 12 "related" memories for one
 		// project's resume were another project's facts, spending ~40% of the
 		// section's budget on noise the caller never asked about.
-		if mems, err := memory.RecallInProject(db, embed, embedModel, query, p.scope(), maxRelated); err == nil {
+		//
+		// The checkpoint's next step joins the query because recall only
+		// returns memories the query reaches, and the one that matters most on
+		// a resume is often the user's later "we are not doing that" — which
+		// shares nothing with a task like "continue the BOM work". Unrecalled,
+		// it cannot mark the plan as overtaken, and the pack hands over a plan
+		// the user already killed.
+		memQuery := query
+		if p.Checkpoint != nil && p.Checkpoint.Next != "" {
+			memQuery = strings.TrimSpace(query + " " + p.Checkpoint.Next)
+		}
+		if mems, err := memory.RecallInProject(db, embed, embedModel, memQuery, p.scope(), maxRelated); err == nil {
 			p.Related, p.Superseded = supersede(req.Task, mems)
 		}
 	}
