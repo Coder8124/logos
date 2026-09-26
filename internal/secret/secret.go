@@ -65,7 +65,7 @@ func Summary(found []Redaction) string {
 	return fmt.Sprintf("%d secret-shaped token(s) redacted before writing (%s)", len(found), strings.Join(where, "; "))
 }
 
-// authHeaderLine matches a whole "Authorization: ..." line — the header value
+// authHeaderLine matches a whole "Authorization: ..." line in a transcript — the header value
 // itself is the credential, so the fix is to drop the line's payload rather
 // than try to salvage the rest of it.
 var authHeaderLine = regexp.MustCompile(`(?i)^(\s*)Authorization\s*:\s*\S.*$`)
@@ -76,6 +76,17 @@ var authHeaderLine = regexp.MustCompile(`(?i)^(\s*)Authorization\s*:\s*\S.*$`)
 // there is none. The scheme is masked too: it is short, and a Basic value is
 // only base64 of user:password.
 var authHeaderInline = regexp.MustCompile(`(?i)\bAuthorization\s*:\s*(?:(?:Bearer|Basic|Token)\s+)?[^\s'"]+`)
+
+// authSchemed is the only header shape Mask trusts. In an agent's own prose
+// "Authorization:" is as often a heading or a word ("Authorization: every
+// route checks the session cookie") as a header, and masking what followed it
+// threw the sentence away and reported a secret that was never there. A scheme
+// followed by a value is a credential's structure; the value is still checked
+// in plainWord, because "Bearer tokens expire hourly" has the structure too.
+var (
+	authSchemed = regexp.MustCompile(`(?i)\bAuthorization\s*:\s*(?:Bearer|Basic|Token|Digest|Bot)\s+([^\s'"]+)`)
+	plainWord   = regexp.MustCompile(`^[a-z]+[.,;:!?]?$`)
+)
 
 // urlPassword is the password in a URL's user:password@host. It is almost
 // never high-entropy (hunter2hunter2) and it sits inside one long word, so
@@ -152,29 +163,44 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 		return s, nil
 	}
 	var found []Redaction
-	s = replaceCounting(privateKeyBlock, s, Marker, field, "private key", &found)
+	s = replaceCounting(privateKeyBlock, s, Marker, field, "private key", &found, nil)
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if m := authHeaderLine.FindStringSubmatch(line); m != nil {
+		if !entropy {
+			line = replaceCounting(authSchemed, line, "Authorization: "+Marker, field, "Authorization header", &found, func(m []string) bool {
+				return !plainWord.MatchString(m[1])
+			})
+		} else if m := authHeaderLine.FindStringSubmatch(line); m != nil && !strings.Contains(m[0], Marker) {
 			lines[i] = m[1] + "Authorization: " + Marker
 			found = append(found, Redaction{Field: field, Reason: "Authorization header"})
 			continue
+		} else {
+			line = replaceCounting(authHeaderInline, line, "Authorization: "+Marker, field, "Authorization header", &found, nil)
 		}
-		line = replaceCounting(authHeaderInline, line, "Authorization: "+Marker, field, "Authorization header", &found)
-		line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found)
+		line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found, nil)
 		if mysqlCommand.MatchString(line) {
-			line = replaceCounting(mysqlPassword, line, "${1}-p"+Marker, field, "mysql -p password", &found)
+			line = replaceCounting(mysqlPassword, line, "${1}-p"+Marker, field, "mysql -p password", &found, nil)
 		}
 		for _, ls := range lineShapes {
-			line = replaceCounting(ls.re, line, ls.repl, field, ls.reason, &found)
+			line = replaceCounting(ls.re, line, ls.repl, field, ls.reason, &found, nil)
 		}
 		lines[i], found = redactTokens(field, line, entropy, found)
 	}
 	return strings.Join(lines, "\n"), found
 }
 
-func replaceCounting(re *regexp.Regexp, line, repl, field, reason string, found *[]Redaction) string {
+// replaceCounting masks and counts each match of re that keep accepts (nil
+// accepts all). A match that already holds the marker is left alone: a
+// checkpoint masks its folded notes a second time, and "user:[REDACTED]@"
+// matched the URL-password rule again and was reported as another secret.
+func replaceCounting(re *regexp.Regexp, line, repl, field, reason string, found *[]Redaction, keep func([]string) bool) string {
 	return re.ReplaceAllStringFunc(line, func(m string) string {
+		if strings.Contains(m, Marker) {
+			return m
+		}
+		if keep != nil && !keep(re.FindStringSubmatch(m)) {
+			return m
+		}
 		*found = append(*found, Redaction{Field: field, Reason: reason})
 		return re.ReplaceAllString(m, repl)
 	})
