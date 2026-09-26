@@ -58,3 +58,32 @@ func TestAKilledSessionIsSweptWhenAMarkerNamesTheProjectUnlikeItsFolder(t *testi
 		t.Errorf("the session was also recorded under its folder's name, which the marker overrides: %+v", again)
 	}
 }
+
+// The marker check reads a transcript's first cwd before passing it over. One
+// that records no cwd there could not be told apart, and was parsed in full on
+// every resume of every project — what the slug prefilter exists to avoid. It
+// is judged by its folder, as it was before the marker check. Unreadable here,
+// so reading it at all shows up as a problem.
+func TestATranscriptInAnotherProjectsFolderWithNoCwdIsNotRead(t *testing.T) {
+	now := time.Now()
+	root := filepath.Join(t.TempDir(), "projects")
+	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
+	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
+	dir := filepath.Join(root, "-Users-me-code-kestrel")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "other.jsonl")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	end := now.Add(-2 * time.Hour)
+	if err := os.Chtimes(path, end, end); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, problems := Sweep(t.TempDir(), "storefront", now); len(problems) != 0 {
+		t.Errorf("a transcript of another project's folder was read on a storefront resume: %v", problems)
+	}
+}

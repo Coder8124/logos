@@ -76,9 +76,11 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 			// A folder the slug rules out may still be project's when a
 			// marker renames it (#196), so its first cwd is asked before
 			// it is passed over — after the window and the cache, which
-			// between them leave only a handful to open.
+			// between them leave only a handful to open. One with no cwd to
+			// ask is judged by its folder, or it is parsed in full on every
+			// resume of every project.
 			if !transcript.MayBelongTo(h, p, project) {
-				if cwd := transcript.FirstCwd(p); cwd != "" && bareProject(scope.Name(cwd)) != project {
+				if cwd := transcript.FirstCwd(p); cwd == "" || bareProject(scope.Name(cwd)) != project {
 					continue
 				}
 			}
