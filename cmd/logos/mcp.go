@@ -18,8 +18,8 @@ import (
 // serveVault resolves the vault this server will serve, creating the default
 // one when it is not there.
 //
-// `/plugin install logos@logos` is the first route the README offers, and it
-// wires the MCP server with no LOGOS_VAULT and no setup step. On a laptop that
+// A plugin installed by hand with `/plugin install logos@logos` wires the MCP
+// server with no LOGOS_VAULT and no setup step. On a laptop that
 // had never run `logos setup` the server started, found no ~/logos and exited,
 // which the host shows as a failed connection with no cause attached: the first
 // thing a new user saw the product do was fail to start.
