@@ -102,7 +102,7 @@ func helpAll(w io.Writer) {
 CONTINUITY
     logos note [project] <what you did>
                                       record progress; uncommitted until you checkpoint
-    logos checkpoint [project] [--task ..] [--state ..] [--next ..] [--decided ..]
+    logos checkpoint [project] [--task ..] [--intent ..] [--state ..] [--next ..] [--decided ..]
                      [--verified ..] [--failed ..] [--blocker ..] [--ran ..]
                      [--question ..] [--file ..] [--agent <name>] [--handoff <agent>]
                                       commit where you stopped, as a note in the vault

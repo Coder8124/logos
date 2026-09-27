@@ -1214,6 +1214,9 @@ func (s *Server) why(file string, limit int, here string) (string, error) {
 			// of its own, directly above the evidence why exists to present.
 			fmt.Fprintf(&b, "While: %s\n\n", untrusted.Inline(m.Task))
 		}
+		if m.Intent != "" {
+			fmt.Fprintf(&b, "Because: %s\n\n", untrusted.Inline(m.Intent))
+		}
 		// Ruled out first: a decision explains the shape of the code, and a dead
 		// end explains why it is not some other shape — which is what someone
 		// about to "fix" it needs.
@@ -1433,6 +1436,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		Project:   proj,
 		Agent:     s.agentFor(args),
 		Task:      argStr(args, "task"),
+		Intent:    argStr(args, "intent"),
 		State:     argStr(args, "state"),
 		Decisions: argList(args, "decisions"),
 		Failed:    argList(args, "failed"),
@@ -1461,6 +1465,10 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	if session.NextReadsAsMoreThanOneStep(c.Next) {
 		msg += " Recorded as given; `next` reads as more than one step — the parts that are conditional or later usually belong in `questions`, which resume prints as \"Still open\"."
+	}
+	if n := session.DecisionsWithoutReason(c.Decisions); n > 0 {
+		msg += fmt.Sprintf(" Recorded as given; %d %s no reason — \"X, because Y\" lets the next agent see what forced it without rereading the transcript.",
+			n, map[bool]string{true: "decision has", false: "decisions have"}[n == 1])
 	}
 	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
 		msg += fmt.Sprintf(" Recorded as given; %d ruled-out %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as `route: ... | observation: ... | layer: environment`, so an agent on another toolchain can tell it does not apply to them.",

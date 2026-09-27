@@ -544,3 +544,36 @@ func TestACheckpointAsksForALayerWhenARuledOutApproachNamesTheToolchain(t *testi
 		t.Errorf("a dead end already placed at a layer was second-guessed:\n%s", truncateForLog(line))
 	}
 }
+
+// Kept as given, like every receipt nudge: the checkpoint is written when
+// context is running out. The receipt asks for the reason so the next agent
+// does not have to reread the transcript for it.
+func TestACheckpointAsksForTheReasonWhenADecisionHasNone(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project":   "kestrel",
+		"decisions": []string{"use sqlite", "keep the retry loop, because the second round trip costs 400ms"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "1 decision has no reason") {
+		t.Errorf("a decision with no reason was recorded with no comment:\n%s", truncateForLog(line))
+	}
+	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
+	if !strings.Contains(line, "use sqlite") {
+		t.Errorf("the bare decision was not kept as given:\n%s", truncateForLog(line))
+	}
+
+	line, ok = call(t, c, 5, "checkpoint", map[string]any{
+		"project":   "kestrel",
+		"decisions": []string{"keep the retry loop, because the second round trip costs 400ms"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "has no reason") {
+		t.Errorf("a decision that gives its reason was second-guessed:\n%s", truncateForLog(line))
+	}
+}

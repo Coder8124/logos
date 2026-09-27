@@ -193,6 +193,17 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	if c.Task != "" {
 		fmt.Fprintf(&head, "**They were doing:** %s\n\n", inline(c.Task))
 	}
+	if why, from := p.intent(); why != "" {
+		if from == nil {
+			fmt.Fprintf(&head, "**Why:** %s\n\n", inline(why))
+		} else {
+			who := from.Agent
+			if who == "" {
+				who = "an earlier agent"
+			}
+			fmt.Fprintf(&head, "**Why:** %s _(from %s's earlier checkpoint of this task, %s)_\n\n", inline(why), inline(who), project.Age(from.TS))
+		}
+	}
 	// Above the session log, and charged with the fixed tier: evidence that a
 	// long standup log can evict is evidence the next agent regenerates by hand.
 	safeToContinue(&head, c, p.Reader)
@@ -586,6 +597,33 @@ func decidedAgain(subject map[string]bool, later []map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// intent is why the current task matters, and the earlier checkpoint it came
+// from when the latest did not restate it. An agent writes the reason once, at
+// the start of a task; the checkpoints after it — and auto records, which carry
+// no reasoning at all — say only what happened next. Showing the reason only
+// when the newest checkpoint repeats it would lose it at the second save.
+// Only the same task inherits: another task's reason is not this one's.
+func (p *Pack) intent() (string, *session.Checkpoint) {
+	c := p.Checkpoint
+	if c == nil {
+		return "", nil
+	}
+	if strings.TrimSpace(c.Intent) != "" {
+		return c.Intent, nil
+	}
+	task := normalizeKey(c.Task)
+	if task == "" {
+		return "", nil
+	}
+	for i := range p.History {
+		h := &p.History[i]
+		if normalizeKey(h.Task) == task && strings.TrimSpace(h.Intent) != "" {
+			return h.Intent, h
+		}
+	}
+	return "", nil
 }
 
 // otherOpenWork is the earlier checkpoints that stopped on a different task with
