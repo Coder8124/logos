@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -185,6 +186,10 @@ func runCheckpoint(args []string) error {
 	}
 	if session.NextReadsAsMoreThanOneStep(c.Next) {
 		fmt.Println("recorded as given; --next reads as more than one step — the conditional or later parts usually belong in --question, which resume prints as \"Still open\".")
+	}
+	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
+		fmt.Printf("recorded as given; %d --failed %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as \"route: ... | observation: ... | layer: environment\", so an agent on another toolchain can tell it does not apply to them.\n",
+			n, map[bool]string{true: "entry names", false: "entries name"}[n == 1])
 	}
 	// Deliberately not "run `logos index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user

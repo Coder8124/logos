@@ -1434,6 +1434,10 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if session.NextReadsAsMoreThanOneStep(c.Next) {
 		msg += " Recorded as given; `next` reads as more than one step — the parts that are conditional or later usually belong in `questions`, which resume prints as \"Still open\"."
 	}
+	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
+		msg += fmt.Sprintf(" Recorded as given; %d ruled-out %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as `route: ... | observation: ... | layer: environment`, so an agent on another toolchain can tell it does not apply to them.",
+			n, map[bool]string{true: "approach names", false: "approaches name"}[n == 1])
+	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}
