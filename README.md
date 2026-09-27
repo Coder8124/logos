@@ -77,44 +77,26 @@ in [the benchmark](docs/continuity-benchmark.md).
 
 ## Getting started
 
-In Claude Code, which also installs the SessionStart hook that puts the last
-handoff in front of the model before it does anything:
-
-```
-/plugin marketplace add Coder8124/logos
-/plugin install logos@logos
-```
-
-`logos setup` runs the same two commands for you when Claude Code's CLI is on
-your PATH, and updates the plugin when it is older than your logos.
-
-The plugin runs the `logos` binary; it does not carry one. Install it by either
-route below first — Claude Code's own installer brings neither Node nor Go, so
-on a fresh machine the plugin has nothing to launch.
-
-Anywhere else — no Go toolchain, no clone, no build:
-
 ```sh
 brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
 npm i -g @noeton/logos && logos setup                  # Windows
 ```
 
-Homebrew is the route to prefer where it runs: it installs a real binary, so
-your agents launch Logos directly instead of going through a package runner. The
-formula is `logos-mcp` from the `coder8124/tap` tap — a bare `brew install logos`
-installs Logos Bible Software — and the command it installs is still `logos`.
-Update with `brew upgrade logos-mcp`.
-
-On Windows, install from npm instead:
-[@noeton/logos](https://www.npmjs.com/package/@noeton/logos).
+That is the whole install — no Go toolchain, no clone, no build. The formula is
+`logos-mcp` from the `coder8124/tap` tap — a bare `brew install logos` installs
+Logos Bible Software — and the command it installs is still `logos`. Update with
+`brew upgrade logos-mcp`. Windows has no Homebrew, so there the route is
+[@noeton/logos](https://www.npmjs.com/package/@noeton/logos) from npm, which
+carries a prebuilt binary for your platform.
 
 `setup` picks a vault, finds your local model runtime, runs the first index, and
 then shows you which agents it would wire and asks before touching any of them.
 `--dry-run` shows the whole plan and writes nothing.
 
-Use Claude Code and another agent too, such as Cursor or Codex? Install the
-plugin and run setup as well. Setup leaves the plugin's Claude Code wiring
-alone.
+For Claude Code, setup installs the Logos plugin itself when Claude Code's CLI
+is on your PATH, and updates it when it is older than your logos. The plugin is
+what adds the SessionStart hook that puts the last handoff in front of the model
+before it does anything, so there is nothing to run inside Claude Code.
 
 Setup names what each host gets: Claude Code restores context on its own through
 the plugin, Cursor and Codex do once setup adds their session-start hook (Codex
@@ -127,6 +109,18 @@ From source, if you have Go:
 git clone https://github.com/Coder8124/logos ~/src/logos && cd ~/src/logos
 go build -o bin/logos ./cmd/logos && ./bin/logos setup
 ```
+
+If you would rather not let setup touch Claude Code, install the plugin by hand
+instead:
+
+```
+/plugin marketplace add Coder8124/logos
+/plugin install logos@logos
+```
+
+The plugin runs the `logos` binary; it does not carry one, and Claude Code's own
+installer brings neither Node nor Go. Install logos by one of the routes above
+first, or the plugin has nothing to launch.
 
 One-click buttons for Cursor and VS Code, release binaries, and wiring a host by
 hand are in **[SETUP.md](SETUP.md)**.

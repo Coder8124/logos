@@ -829,10 +829,10 @@ footer .bottom a:hover { color: var(--brass); }
         <div class="tabs" role="tablist" aria-label="Install method">
           <button type="button" role="tab" id="t-brew" aria-controls="p-brew" aria-selected="true">Homebrew</button>
           <button type="button" role="tab" id="t-npx" aria-controls="p-npx" aria-selected="false" tabindex="-1">Windows</button>
-          <button type="button" role="tab" id="t-plugin" aria-controls="p-plugin" aria-selected="false" tabindex="-1">Claude Code plugin</button>
           <button type="button" role="tab" id="t-click" aria-controls="p-click" aria-selected="false" tabindex="-1">Cursor &amp; VS&nbsp;Code</button>
           <button type="button" role="tab" id="t-json" aria-controls="p-json" aria-selected="false" tabindex="-1">Any MCP host</button>
           <button type="button" role="tab" id="t-bin" aria-controls="p-bin" aria-selected="false" tabindex="-1">Binaries</button>
+          <button type="button" role="tab" id="t-plugin" aria-controls="p-plugin" aria-selected="false" tabindex="-1">Plugin by hand</button>
         </div>
 
         <div class="frame">
@@ -861,24 +861,6 @@ footer .bottom a:hover { color: var(--brass); }
             <pre><span class="prompt">$ </span>npx <span class="flag">-y</span> <span class="pkg">@noeton/logos</span> setup</pre>
             <button class="copy" type="button" data-copy="npx -y @noeton/logos setup">Copy</button>
           </div>
-        </div>
-
-        <div class="panel" role="tabpanel" id="p-plugin" aria-labelledby="t-plugin">
-          <p>The version to prefer in Claude Code: besides the MCP server it installs a <strong>SessionStart hook</strong> that puts the last handoff in front of the model before it does anything.</p>
-          <ol class="steps">
-            <li>
-              <div class="cmd">
-                <pre><span class="prompt">/ </span>plugin marketplace add Coder8124/logos</pre>
-                <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
-              </div>
-            </li>
-            <li>
-              <div class="cmd">
-                <pre><span class="prompt">/ </span>plugin install logos@logos</pre>
-                <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
-              </div>
-            </li>
-          </ol>
         </div>
 
         <div class="panel" role="tabpanel" id="p-click" aria-labelledby="t-click">
@@ -932,6 +914,24 @@ footer .bottom a:hover { color: var(--brass); }
             Verify against <a href="https://github.com/Coder8124/logos/releases/download/v0.5.0/SHA256SUMS">SHA256SUMS</a>
             &middot; with Go: <code>go install github.com/Coder8124/logos/cmd/logos@latest</code>
           </p>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-plugin" aria-labelledby="t-plugin">
+          <p><code>logos setup</code> already installs this in Claude Code, with the <strong>SessionStart hook</strong> that puts the last handoff in front of the model before it does anything. Run these yourself only if you would rather setup left Claude Code alone &mdash; after installing logos, because the plugin runs the binary rather than carrying one.</p>
+          <ol class="steps">
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">/ </span>plugin marketplace add Coder8124/logos</pre>
+                <button class="copy" type="button" data-copy="/plugin marketplace add Coder8124/logos">Copy</button>
+              </div>
+            </li>
+            <li>
+              <div class="cmd">
+                <pre><span class="prompt">/ </span>plugin install logos@logos</pre>
+                <button class="copy" type="button" data-copy="/plugin install logos@logos">Copy</button>
+              </div>
+            </li>
+          </ol>
         </div>
         </div>
       </div>

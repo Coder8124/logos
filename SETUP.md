@@ -36,30 +36,6 @@ this project dies, you keep a vault.
 
 ## Install
 
-**Claude Code** — two commands, and this is the version to prefer:
-
-```
-/plugin marketplace add Coder8124/logos
-/plugin install logos@logos
-```
-
-The plugin is not just the MCP server. It also installs a **SessionStart hook**
-that puts the last handoff in front of the model before it does anything, which
-is the difference between continuity that works and continuity that works when
-the model remembers to ask for it. Plus a `/handoff` command and a skill that
-teaches it to check `before_you_try` before proposing.
-
-`logos setup` installs the plugin itself when Claude Code's CLI is on your
-PATH — and updates it when it is older than your logos — so a brew or npm
-install does not have to run these by hand.
-
-One click, for the other hosts:
-
-[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==)
-[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
-
-Or one command, for everything else:
-
 ```sh
 brew install coder8124/tap/logos-mcp && logos setup    # macOS and Linux
 npm i -g @noeton/logos && logos setup                  # Windows
@@ -77,6 +53,19 @@ Windows has no Homebrew, so there the route is
 there is no Go toolchain, no clone and no build — the npm package carries a
 prebuilt binary for your platform (~5 MB over the wire: the platform packages are
 gated on `os` and `cpu`, so you fetch one of the five, not all of them).
+
+**Claude Code needs nothing extra.** `logos setup` installs the Logos plugin
+itself when Claude Code's CLI is on your PATH, and updates it when it is older
+than your logos. The plugin is not just the MCP server. It also installs a
+**SessionStart hook** that puts the last handoff in front of the model before it
+does anything, which is the difference between continuity that works and
+continuity that works when the model remembers to ask for it. Plus a `/handoff`
+command and a skill that teaches it to check `before_you_try` before proposing.
+
+One click, for the other hosts:
+
+[![Add to Cursor](https://img.shields.io/badge/Add%20to-Cursor-000000?style=flat-square&logo=cursor)](cursor://anysphere.cursor-deeplink/mcp/install?name=logos&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBub2V0b24vbG9nb3MiLCJtY3AiLCJzZXJ2ZSJdfQ==)
+[![Add to VS Code](https://img.shields.io/badge/Add%20to-VS%20Code-007ACC?style=flat-square&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22logos%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40noeton%2Flogos%22%2C%22mcp%22%2C%22serve%22%5D%7D)
 
 <details>
 <summary>Other ways in</summary>
@@ -112,6 +101,15 @@ That config is portable between machines, which an absolute binary path is not.
 On native Windows, npx is a batch file that a host cannot launch directly;
 use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@noeton/logos", "mcp", "serve"]`.
 `logos setup` writes that form for you.
+
+If you would rather not let setup touch Claude Code, install the plugin by hand
+from inside it. It runs the `logos` binary and does not carry one, so install
+logos by one of the routes above first:
+
+```
+/plugin marketplace add Coder8124/logos
+/plugin install logos@logos
+```
 
 </details>
 
