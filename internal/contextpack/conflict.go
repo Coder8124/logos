@@ -3,6 +3,7 @@ package contextpack
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/index"
@@ -70,6 +71,40 @@ func supersede(task string, mems []memory.Memory) (kept, dropped []memory.Memory
 		return len(asked) > 0 && textmatch.Overlap(asked, textmatch.Subject(m.Text)) >= textmatch.Related
 	}
 
+	// The question only bridges them when it happens to say "retail price".
+	// Asked "what are we charging customers?", nothing linked the $229 line to
+	// the others and it was handed over as a live figure beside $249 (#223). The
+	// statements that do link strongly already name the subject between them:
+	// the words $199 and $249 share are "retail price", and that is the subject
+	// the $229 line is about. A chain subject is at least two words, because a
+	// single shared word is a coincidence, not a topic.
+	var chains []map[string]bool
+	for i, a := range ordered {
+		for _, b := range ordered[i+1:] {
+			if !disagree(a.Text, b.Text) {
+				continue
+			}
+			if c := akinShared(textmatch.Subject(a.Text), textmatch.Subject(b.Text)); len(c) >= 2 {
+				chains = append(chains, c)
+			}
+		}
+	}
+	// Half a two-word chain is one word, so a chain alone would also link "Retail
+	// staff are paid $31 an hour" to the retail price and delete a true fact. A
+	// value restated as it changed stays in the same range — $199, $229, $249 —
+	// and an unrelated figure that shares a word rarely does, so the chain link
+	// also asks for comparable magnitudes.
+	onChain := func(k, m memory.Memory) bool {
+		sk, sm := textmatch.Subject(k.Text), textmatch.Subject(m.Text)
+		for _, c := range chains {
+			if textmatch.Overlap(c, sk) >= textmatch.Related && textmatch.Overlap(c, sm) >= textmatch.Related &&
+				textmatch.DifferingValues(k.Text, m.Text) && comparable(k.Text, m.Text) {
+				return true
+			}
+		}
+		return false
+	}
+
 	for _, m := range ordered {
 		superseded := false
 		for _, k := range kept {
@@ -77,7 +112,8 @@ func supersede(task string, mems []memory.Memory) (kept, dropped []memory.Memory
 				continue
 			}
 			if disagree(k.Text, m.Text) ||
-				(onTopic(k) && onTopic(m) && textmatch.DifferingValues(k.Text, m.Text)) {
+				(onTopic(k) && onTopic(m) && textmatch.DifferingValues(k.Text, m.Text)) ||
+				onChain(k, m) {
 				superseded = true
 				break
 			}
@@ -97,6 +133,52 @@ func supersede(task string, mems []memory.Memory) (kept, dropped []memory.Memory
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return order[kept[i].ID] < order[kept[j].ID] })
 	return kept, dropped
+}
+
+// akinShared returns the words of a that b also has, in some inflection.
+func akinShared(a, b map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for w := range a {
+		for v := range b {
+			if textmatch.Akin(w, v) {
+				out[w] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// comparable reports whether some value in a and some value in b have the same
+// unit and are within a factor of two of each other.
+func comparable(a, b string) bool {
+	for va := range textmatch.Values(a) {
+		na, ua, ok := magnitude(va)
+		if !ok {
+			continue
+		}
+		for vb := range textmatch.Values(b) {
+			nb, ub, ok := magnitude(vb)
+			if ok && ua == ub && max(na, nb) <= 2*min(na, nb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// magnitude splits a normalised value from textmatch.Values into its number
+// and its unit suffix.
+func magnitude(v string) (float64, string, bool) {
+	i := strings.IndexFunc(v, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
+	if i < 0 {
+		i = len(v)
+	}
+	n, err := strconv.ParseFloat(v[:i], 64)
+	if err != nil || n <= 0 {
+		return 0, "", false
+	}
+	return n, strings.TrimSpace(v[i:]), true
 }
 
 // overtaken reports whether a later statement calls off a planned next step,
