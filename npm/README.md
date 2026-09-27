@@ -75,17 +75,21 @@ use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@noeton/logos", "mcp",
 </details>
 
 <details>
-<summary><b>Claude Code users: prefer the plugin</b></summary>
+<summary><b>Claude Code: setup installs the plugin</b></summary>
+
+`logos setup` installs the Logos plugin when Claude Code's CLI is on your PATH.
+The plugin is more than the MCP server. It installs a **SessionStart hook** that
+puts the last handoff in front of the model before it does anything — the
+difference between continuity that works and continuity that works when the
+model remembers to ask for it.
+
+If you would rather not let setup touch Claude Code, install it by hand from
+inside Claude Code, after installing logos:
 
 ```
 /plugin marketplace add Coder8124/logos
 /plugin install logos@logos
 ```
-
-The plugin is more than the MCP server. It installs a **SessionStart hook** that
-puts the last handoff in front of the model before it does anything — the
-difference between continuity that works and continuity that works when the
-model remembers to ask for it.
 
 </details>
 
