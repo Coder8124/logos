@@ -160,8 +160,19 @@ func runCheckpoint(args []string) error {
 
 	// Piped input fills whatever the flags left blank, so the two ways of
 	// writing a checkpoint compose instead of competing.
+	// Only when flags were given does a silent pipe get passed over: without
+	// them stdin is the whole checkpoint, and a slow writer is worth waiting for.
 	if stdinIsPiped() {
-		raw, err := readAll(os.Stdin)
+		raw, err := "", error(nil)
+		if len(rest) == 0 {
+			raw, err = readAll(os.Stdin)
+		} else {
+			var spoke bool
+			raw, spoke, err = readAllUnlessSilent(os.Stdin, stdinGrace)
+			if !spoke {
+				fmt.Printf("stdin was open but sent nothing in %v — wrote the checkpoint from the flags alone.\n", stdinGrace)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -497,7 +508,47 @@ func stdinIsPiped() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice == 0
 }
 
-func readAll(f *os.File) (string, error) {
+// stdinGrace is how long a checkpoint that already has its flags waits for
+// piped input to start. An agent's shell tool or a background job can hand
+// the command a pipe whose writer never sends and never closes, and reading it
+// to EOF hung the checkpoint forever — with the session's handoff unwritten.
+// A real pipe (echo, a heredoc, cat) starts within milliseconds.
+var stdinGrace = 2 * time.Second
+
+// readAllUnlessSilent reads r to EOF once its first byte (or EOF) arrives
+// within wait. spoke is false when nothing did; the read is then abandoned,
+// its goroutine left blocked until the process exits.
+func readAllUnlessSilent(r io.Reader, wait time.Duration) (raw string, spoke bool, err error) {
+	type result struct {
+		raw string
+		err error
+	}
+	started := make(chan struct{})
+	done := make(chan result, 1)
+	go func() {
+		br := bufio.NewReader(r)
+		_, err := br.Peek(1)
+		close(started)
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			done <- result{"", err}
+			return
+		}
+		s, err := readAll(br)
+		done <- result{s, err}
+	}()
+	select {
+	case <-started:
+	case <-time.After(wait):
+		return "", false, nil
+	}
+	res := <-done
+	return res.raw, true, res.err
+}
+
+func readAll(f io.Reader) (string, error) {
 	var b strings.Builder
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
