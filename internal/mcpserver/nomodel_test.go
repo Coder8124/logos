@@ -510,3 +510,37 @@ func TestACheckpointKeepsAConditionalNextAndSaysItReadsAsTwoSteps(t *testing.T) 
 		t.Errorf("a single next step was second-guessed:\n%s", truncateForLog(line))
 	}
 }
+
+// A ruled-out approach about the writer's own toolchain, in plain prose,
+// crosses to another tool with nothing saying whether it applies there. It is
+// kept as given — the checkpoint is written when context is running out — and
+// the receipt asks for the layer that would say so.
+func TestACheckpointAsksForALayerWhenARuledOutApproachNamesTheToolchain(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"failed":  []string{"brain binary not on PATH", "retrying hid the race"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "layer: environment") || !strings.Contains(line, "1 ruled-out approach") {
+		t.Errorf("a toolchain dead end with no layer was recorded with no comment:\n%s", truncateForLog(line))
+	}
+	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
+	if !strings.Contains(line, "brain binary not on PATH") {
+		t.Errorf("the dead end was not kept as given:\n%s", truncateForLog(line))
+	}
+
+	line, ok = call(t, c, 5, "checkpoint", map[string]any{
+		"project": "kestrel",
+		"failed":  []string{"route: run it via npx | observation: npx not on PATH | layer: environment"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "layer: environment") {
+		t.Errorf("a dead end already placed at a layer was second-guessed:\n%s", truncateForLog(line))
+	}
+}

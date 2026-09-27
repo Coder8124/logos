@@ -117,3 +117,37 @@ func TestPossiblySupersededOnlyFlagsAnOldVersionBoundRuling(t *testing.T) {
 		t.Error("an entry with no timestamp has no gap to reason about")
 	}
 }
+
+// A plain dead end about the toolchain that hit it reaches an agent on another
+// toolchain with nothing saying it does not apply to them. The ones that name a
+// tool, a package manager or PATH and carry no layer are the ones worth asking
+// about; one the agent already placed, at any layer, is its call to have made.
+func TestAPlainDeadEndThatNamesTheToolchainIsCountedAsUnplaced(t *testing.T) {
+	unplaced := []string{
+		"brain binary not on PATH",
+		"pip install refused with externally-managed-environment (PEP 668)",
+		"npx logos: command not found",
+		"zsh word-splitting broke the loop over file names",
+		"brew formula not installed on this machine",
+	}
+	for _, f := range unplaced {
+		if UnplacedToolchain([]string{f}) != 1 {
+			t.Errorf("a toolchain dead end with no layer went uncounted: %q", f)
+		}
+	}
+	placedOrNot := []string{
+		"retrying the flaky test hid the race instead of fixing it",
+		"the path to the vault was relative, so the hook wrote to the wrong one",
+		"a cosine floor was not an apt test of relevance",
+		"route: run the bench under npx | observation: npx was not on PATH | layer: environment",
+		"route: publish from npm ci | observation: the tarball missed the binary | layer: implementation",
+	}
+	for _, f := range placedOrNot {
+		if UnplacedToolchain([]string{f}) != 0 {
+			t.Errorf("counted as an unplaced toolchain dead end: %q", f)
+		}
+	}
+	if got := UnplacedToolchain(append(unplaced, placedOrNot...)); got != len(unplaced) {
+		t.Errorf("counted %d of a mixed list, want %d", got, len(unplaced))
+	}
+}
