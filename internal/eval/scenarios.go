@@ -95,7 +95,8 @@ func continuity() []Scenario {
 					Next:      "Quote the single-source display driver alternatives",
 				},
 			},
-			Query: Query{Task: "keep cutting the BOM toward target", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "keep cutting the BOM toward target", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"where are we on getting the bill of materials down?", "resume the cost-down work", "what's left to try on unit cost?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "waveguide re-quote failed", Any: []string{"lumus", "waveguide"}},
@@ -116,7 +117,8 @@ func continuity() []Scenario {
 				note(2, "claude", "ota-firmware", "RMA math: at 2.1% return rate and $41 handling, one field-fixable bug pays for the whole OTA effort."),
 				note(2, "claude", "ota-firmware", "Vault has NO flash size number for the SoC — only that it was costed at 'the smaller part' on the $27.80 SoC+memory line. Cannot size an A/B scheme without the part number."),
 			},
-			Query: Query{Task: "pick up the OTA firmware work", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "pick up the OTA firmware work", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"where did the over-the-air update work get to?", "resume OTA", "what was the last agent doing on remote updates?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "certification objection resolved", Any: []string{"does not re-trigger", "rf filing", "fcc"}},
@@ -138,7 +140,8 @@ func continuity() []Scenario {
 				note(4, "claude", "yield", "Traced the yield loss to the ACF bonding temperature ramp, not the alignment stage."),
 				note(3, "cursor", "yield", "Vendor confirmed the ramp is fixed in firmware and cannot be tuned on our units."),
 			},
-			Query: Query{Task: "continue the yield investigation", Project: "yield", Agent: "codex", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the yield investigation", Project: "yield", Agent: "codex", Budget: 4000, Now: benchNow},
+			Wordings: []string{"what have we learned about the yield losses so far?", "pick up the yield problem", "where did the others leave the scrap investigation?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the ACF ramp finding", Any: []string{"acf", "temperature ramp"}},
@@ -164,7 +167,8 @@ func continuity() []Scenario {
 					Next:      "Get Tomas to confirm the tooling freeze date in writing",
 				},
 			},
-			Query: Query{Task: "continue", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"where did we leave off?", "resume work", "what was I doing?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the actual task", Any: []string{"november", "ship date"}},
@@ -194,7 +198,8 @@ func continuity() []Scenario {
 					Next:   "Quote the display driver alternatives",
 				},
 			},
-			Query: Query{Task: "keep working the BOM", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "keep working the BOM", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"back to cost reduction on the glasses", "what's next on the bill of materials?", "resume the parts-cost work"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "this project's failed approach", Any: []string{"waveguide"}},
@@ -219,7 +224,8 @@ func continuity() []Scenario {
 					Next:   "Quote the display driver alternatives",
 				},
 			),
-			Query: Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 700, Now: benchNow},
+			Query:    Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 700, Now: benchNow},
+			Wordings: []string{"carry on with the bill of materials", "where's the BOM at?", "pick up the cost-down"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "failed approach survives the squeeze", Any: []string{"waveguide"}},
@@ -240,7 +246,8 @@ func continuity() []Scenario {
 					Next:   "Test the 400MHz cap against the review benchmark suite",
 				},
 			),
-			Query: Query{Task: "continue the thermal work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the thermal work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"what's the state of the overheating issue?", "resume the left-temple heat problem", "pick up where the throttling investigation stopped"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the failed approach", Any: []string{"copper spreader"}},
@@ -261,7 +268,8 @@ func continuity() []Scenario {
 					Next:      "Confirm the pouch supplier's second source",
 				},
 			},
-			Query: Query{Task: "continue the battery decision", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the battery decision", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"where did we land on the battery?", "resume the cell chemistry choice", "what's decided about power?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the decision", Any: []string{"pouch cell"}},
@@ -289,7 +297,8 @@ func continuity() []Scenario {
 					Next:   "Look at the hinge assembly",
 				},
 			},
-			Query: Query{Task: "continue reducing weight", Project: "kestrel-one", Agent: "codex", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue reducing weight", Project: "kestrel-one", Agent: "codex", Budget: 4000, Now: benchNow},
+			Wordings: []string{"how far are we from the weight target?", "keep making the glasses lighter", "what's been tried to cut grams?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the most recent failure", Any: []string{"removing the carrier", "vibration"}},
@@ -311,7 +320,8 @@ func continuity() []Scenario {
 					Next:      "Ask Tomas for the eMMC part number",
 				},
 			},
-			Query: Query{Task: "continue the OTA assessment", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the OTA assessment", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"is over-the-air updating going to work for us?", "resume the OTA feasibility question", "what's unresolved on remote updates?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the open question", Any: []string{"emmc", "spare capacity", "second slot"}},
@@ -329,7 +339,8 @@ func continuity() []Scenario {
 				doc(60, "kestrel-one", "Kestrel One", "Ship date November 12. Tooling freeze six weeks prior."),
 				note(13, "claude", "kestrel-one", "We have about sixteen days before the tooling freeze, so there is room for one more DVT spin."),
 			},
-			Query: Query{Task: "plan the next DVT spin", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "plan the next DVT spin", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"plan the next engineering build", "what should the next validation build include?", "schedule the upcoming hardware spin"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the note itself", Any: []string{"dvt", "tooling freeze"}},
@@ -352,7 +363,8 @@ func continuity() []Scenario {
 				},
 				msg(2, "user", "We are not moving to the Himax display driver — legal flagged the licensing terms and we are staying with Solomon. Drop that thread entirely."),
 			},
-			Query: Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"where are we on the parts cost?", "resume the BOM", "what's the next move on cost?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the current position", Any: []string{"solomon", "legal", "licensing"}},
@@ -370,7 +382,8 @@ func continuity() []Scenario {
 				doc(30, "ota-firmware", "OTA firmware", "Blocked: there is no spare flash budgeted for an A/B partition scheme, so OTA is not viable on this hardware."),
 				doc(28, "ota-firmware", "BOM export (rev 14)", "Line 22: SoC+memory module, 64GB eMMC, $27.80. Line 23: no discrete boot flash — boot from eMMC."),
 			},
-			Query: Query{Task: "is an A/B partition scheme affordable on this hardware?", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "is an A/B partition scheme affordable on this hardware?", Project: "ota-firmware", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"do we have the storage for dual firmware slots?", "can the device hold two firmware images for safe updates?", "is there room for A/B updates?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the contradicting data line", Any: []string{"64gb", "emmc"}},
@@ -392,7 +405,8 @@ func continuity() []Scenario {
 				note(5, "claude", "kestrel-one", "Fixed a typo in the packaging copy."),
 				note(4, "claude", "kestrel-one", "Archived the old renders."),
 			},
-			Query: Query{Task: "what is standing between us and shipping?", Project: "kestrel-one", Agent: "cursor", Budget: 700, Now: benchNow},
+			Query:    Query{Task: "what is standing between us and shipping?", Project: "kestrel-one", Agent: "cursor", Budget: 700, Now: benchNow},
+			Wordings: []string{"what's blocking launch?", "what do we still need before we can ship?", "biggest risk to the release right now?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "the blocker, not the housekeeping", Any: []string{"october 14", "certification lab"}},
@@ -418,8 +432,9 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(30),
 				said(20, "Our contract manufacturer is Pegatron, in the Suzhou plant."),
 			),
-			Query: Query{Task: "who manufactures our hardware?", Budget: 2000, Now: benchNow},
-			Gold:  Gold{Carry: []Fact{{Label: "the manufacturer", Any: []string{"pegatron"}}}},
+			Query:    Query{Task: "who manufactures our hardware?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"who builds our devices?", "which contract manufacturer do we use?", "who makes the hardware for us?"},
+			Gold:     Gold{Carry: []Fact{{Label: "the manufacturer", Any: []string{"pegatron"}}}},
 		},
 		{
 			ID: "recall-preference", Family: "memory", Skill: "preference",
@@ -428,8 +443,9 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(30),
 				said(25, "I prefer written proposals over meetings — send me a doc and I will comment on it."),
 			),
-			Query: Query{Task: "how should I bring a proposal to you?", Budget: 2000, Now: benchNow},
-			Gold:  Gold{Carry: []Fact{{Label: "the preference", Any: []string{"written proposal", "send me a doc"}}}},
+			Query:    Query{Task: "how should I bring a proposal to you?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"what's the best way to pitch you an idea?", "how do you like to receive proposals?", "should I just call you with a suggestion?"},
+			Gold:     Gold{Carry: []Fact{{Label: "the preference", Any: []string{"written proposal", "send me a doc"}}}},
 		},
 		{
 			ID: "recall-lexical-needle", Family: "memory", Skill: "lexical",
@@ -438,8 +454,9 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(30),
 				said(18, "The anodising line we use is called Fuyao Line 3 and it has a four week lead time."),
 			),
-			Query: Query{Task: "what is the lead time on Fuyao Line 3?", Budget: 2000, Now: benchNow},
-			Gold:  Gold{Carry: []Fact{{Label: "the lead time", Any: []string{"four week", "4 week"}}}},
+			Query:    Query{Task: "what is the lead time on Fuyao Line 3?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"Fuyao Line 3 lead time?", "how long does Fuyao Line 3 take to deliver?", "when would an order from Fuyao Line 3 arrive?"},
+			Gold:     Gold{Carry: []Fact{{Label: "the lead time", Any: []string{"four week", "4 week"}}}},
 		},
 		{
 			ID: "recall-graph-reach", Family: "memory", Skill: "graph-reach",
@@ -450,7 +467,8 @@ func memoryCases() []Scenario {
 				doc(30, "", "Bonding yield", "Display bonding runs at 71 percent first-pass. Every scrapped unit is absorbed by the units that ship."),
 				doc(29, "", "Packaging", "Recycled moulded pulp tray, $1.90 per unit."),
 			},
-			Query: Query{Task: "why is the per-unit cost higher than the parts add up to?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "why is the per-unit cost higher than the parts add up to?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Wordings: []string{"why does each unit cost more than its components?", "where is the extra per-unit cost coming from?", "what explains the gap between parts cost and unit cost?"},
 			Gold: Gold{Carry: []Fact{
 				{Label: "the yield note, reached by link not by wording", Any: []string{"71 percent", "71%", "scrapped"}},
 			}},
@@ -463,7 +481,8 @@ func memoryCases() []Scenario {
 				said(30, "Tomas runs manufacturing operations and owns every supplier relationship."),
 				said(22, "The tooling freeze needs sign-off from whoever owns supplier relationships."),
 			),
-			Query: Query{Task: "who has to sign off the tooling freeze?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "who has to sign off the tooling freeze?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"whose approval does freezing the tooling need?", "who approves locking the tooling?", "who owns the sign-off on the tooling lock?"},
 			Gold: Gold{Carry: []Fact{
 				{Label: "the person", Any: []string{"tomas"}},
 				{Label: "the link that identifies them", Any: []string{"supplier relationship"}},
@@ -478,7 +497,8 @@ func memoryCases() []Scenario {
 				said(25, "Retail is moving to $229 after the optics quote came back."),
 				said(6, "Final call: retail price is $249. That is locked for launch."),
 			),
-			Query: Query{Task: "what is the retail price?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what is the retail price?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"how much will the glasses sell for?", "what's our price point?", "what are we charging customers?"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the current price", Any: []string{"$249", "249"}}},
 				Avoid: []Fact{
@@ -497,7 +517,8 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(20),
 				said(15, "We decided against Rust for the firmware — the vendor SDK is C only and the bindings were a maintenance sink."),
 			),
-			Query: Query{Task: "what language is the firmware written in?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what language is the firmware written in?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"which programming language does the firmware use?", "are we writing the firmware in Rust?", "what's the device code written in?"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the actual answer", Any: []string{" c only", "vendor sdk is c"}}},
 				Signal: []Fact{
@@ -512,7 +533,8 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(20),
 				said(20, "Do not schedule me anything before 10am — I am useless in the mornings."),
 			),
-			Query: Query{Task: "when should I schedule the supplier call?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "when should I schedule the supplier call?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"what time works for the call with the supplier?", "can I book the vendor call for 9am?", "when's a good slot for the supplier meeting?"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the constraint", Any: []string{"before 10am", "10am"}}},
 				Signal: []Fact{
@@ -527,7 +549,8 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(30),
 				said(20, "Our contract manufacturer is Pegatron, in the Suzhou plant."),
 			),
-			Query: Query{Task: "what did we agree the warranty period would be?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what did we agree the warranty period would be?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"how long is the warranty?", "what warranty did we settle on?", "what's the warranty coverage?"},
 			Gold: Gold{
 				Signal: []Fact{
 					{Label: "admits it does not know", Any: []string{"nothing recorded", "no record", "not know", "nothing on", "no memories", "nothing found", "no matching", "not recorded"}},
@@ -545,7 +568,8 @@ func memoryCases() []Scenario {
 				said(20, "The Suzhou plant handles final assembly."),
 				said(18, "The Suzhou plant runs two shifts."),
 			),
-			Query: Query{Task: "which plant does the optical bonding?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "which plant does the optical bonding?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"who handles optical bonding for us?", "where is the display bonding done?", "which factory bonds the optics?"},
 			Gold: Gold{
 				Signal: []Fact{
 					{Label: "flags that bonding specifically is unrecorded", Any: []string{"nothing recorded", "no record", "not know", "nothing on", "no matching", "not recorded", "unclear"}},
@@ -563,7 +587,8 @@ func memoryCases() []Scenario {
 				doc(27, "tooling", "Tooling — test jigs", "Test jigs: $7,800."),
 				doc(26, "tooling", "Tooling — line retooling", "Assembly line retooling: $16,500."),
 			},
-			Query: Query{Task: "what have we spent on tooling in total?", Project: "tooling", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what have we spent on tooling in total?", Project: "tooling", Budget: 2000, Now: benchNow},
+			Wordings: []string{"how much has tooling cost us so far?", "total tooling spend?", "add up everything we've paid for tooling"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the computed total", Any: []string{"116,000", "116000", "$116"}}},
 			},
@@ -587,7 +612,8 @@ func memoryCases() []Scenario {
 				said(28, "Locked the industrial design today — no more changes to the shell."),
 				said(12, "Kicked off certification prep today."),
 			),
-			Query: Query{Task: "did we lock the industrial design before or after signing with Pegatron?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "did we lock the industrial design before or after signing with Pegatron?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"which came first, signing Pegatron or the industrial design lock?", "was the ID frozen before we signed our manufacturer?", "did the Pegatron contract come before the design freeze?"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the ordering, stated", Any: []string{"after signing", "after the pegatron", "pegatron first", "signed first"}}},
 			},
@@ -608,7 +634,8 @@ func memoryCases() []Scenario {
 				note(35, "user", "kestrel-one", "Ran the drop test series on the magnesium frame."),
 				note(5, "user", "kestrel-one", "Started the packaging design review."),
 			},
-			Query: Query{Task: "what was I working on about five weeks ago?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what was I working on about five weeks ago?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Wordings: []string{"what was on my plate a month and a bit ago?", "what was I doing roughly five weeks back?", "what was I busy with around 35 days ago?"},
 			Gold: Gold{
 				Carry: []Fact{{Label: "the item in the window", Any: []string{"drop test", "magnesium"}}},
 				Avoid: []Fact{{Label: "the recent item, which is out of the window", Any: []string{"packaging design review"}}},
@@ -622,7 +649,8 @@ func memoryCases() []Scenario {
 				doc(20, "", "Ops summary", "First-pass bonding yield is 71 percent."),
 				doc(19, "", "Factory report week 34", "Bonding first-pass yield measured at 63 percent across the week."),
 			),
-			Query: Query{Task: "what is the bonding yield?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what is the bonding yield?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"what yield are we getting on bonding?", "how good is the bonding yield?", "bonding yield number?"},
 			Gold: Gold{
 				Carry: []Fact{
 					{Label: "both figures present", All: []string{"71", "63"}},
@@ -639,8 +667,9 @@ func memoryCases() []Scenario {
 			Setup: append(noiseFacts(200),
 				said(9, "The hinge supplier is Sugatsune and they quoted 11 weeks for the custom detent."),
 			),
-			Query: Query{Task: "how long is the hinge lead time?", Budget: 2000, Now: benchNow},
-			Gold:  Gold{Carry: []Fact{{Label: "the lead time", Any: []string{"11 week", "eleven week"}}}},
+			Query:    Query{Task: "how long is the hinge lead time?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"hinge lead time?", "how many weeks to get hinges?", "when would hinges arrive if we ordered today?"},
+			Gold:     Gold{Carry: []Fact{{Label: "the lead time", Any: []string{"11 week", "eleven week"}}}},
 		},
 	}
 }
@@ -665,7 +694,8 @@ func durability() []Scenario {
 					Next:   "Quote the display driver alternatives",
 				},
 			},
-			Query: Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Query:    Query{Task: "continue the BOM work", Project: "kestrel-one", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"resume the BOM work", "where's the bill of materials at?", "carry on cutting costs"},
 			Gold: Gold{Carry: []Fact{
 				{Label: "the failed approach survived", Any: []string{"waveguide"}},
 				{Label: "the next step survived", Any: []string{"display driver"}},
@@ -680,7 +710,8 @@ func durability() []Scenario {
 				said(20, "Our contract manufacturer is Pegatron, in the Suzhou plant."),
 				said(18, "I prefer written proposals over meetings."),
 			),
-			Query: Query{Task: "who manufactures our hardware?", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "who manufactures our hardware?", Budget: 2000, Now: benchNow},
+			Wordings: []string{"who builds our devices?", "which contract manufacturer do we use?", "who makes our hardware?"},
 			Gold: Gold{Carry: []Fact{
 				{Label: "the fact survived the wipe", Any: []string{"pegatron"}},
 			}},
@@ -694,7 +725,8 @@ func durability() []Scenario {
 				doc(30, "kestrel-one", "Kestrel One", "Smart glasses. Target BOM $118, actual $141.20."),
 				doc(30, "", "Bonding yield", "Display bonding runs at 71 percent first-pass."),
 			},
-			Query: Query{Task: "what is the BOM gap?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Query:    Query{Task: "what is the BOM gap?", Project: "kestrel-one", Budget: 2000, Now: benchNow},
+			Wordings: []string{"how far off target is the BOM?", "how big is the cost gap?", "where does the bill of materials stand against target?"},
 			Gold: Gold{Carry: []Fact{
 				{Label: "the note survived", Any: []string{"141.20", "$141"}},
 			}},

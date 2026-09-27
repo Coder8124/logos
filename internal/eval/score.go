@@ -98,6 +98,16 @@ type Scenario struct {
 	// Systems that keep no source of truth outside their own index return
 	// nothing after this, which is the intended result.
 	DropDerived bool
+
+	// Wordings are other ways a user would ask the same thing, run by Expand
+	// as separate cases. None may contain a gold term, or a reworded case
+	// would pass on its own echo.
+	Wordings []string
+
+	// Base and Axis are set by Expand: the scenario a variant came from, and
+	// what it varies ("" for the case as written). Variant describes it for
+	// the report.
+	Base, Axis, Variant string
 }
 
 // A Score is one adapter's result on one scenario.
@@ -107,6 +117,8 @@ type Score struct {
 	Skill    string
 	Known    Known
 	Adapter  string
+
+	Base, Axis, Variant string
 
 	CarryHit, CarryTotal   int
 	LeakHit, LeakTotal     int
@@ -206,6 +218,10 @@ func grade(sc Scenario, ad string, r Response) Score {
 	out := Score{
 		Scenario: sc.ID, Family: sc.Family, Skill: sc.Skill, Known: sc.Known,
 		Adapter: ad, Tokens: Tokens(r.Text), Budget: sc.Query.Budget, Err: r.Err,
+		Base: sc.Base, Axis: sc.Axis, Variant: sc.Variant,
+	}
+	if out.Base == "" {
+		out.Base = sc.ID
 	}
 	hay := stripEcho(r.Text, sc.Query)
 
