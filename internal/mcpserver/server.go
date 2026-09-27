@@ -1450,6 +1450,8 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	var dropped int
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
+	// Read before the commit, so the history is what came before this checkpoint.
+	earlier, _ := session.History(s.vault, c.Project, session.IntentDepth)
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -1469,6 +1471,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if n := session.DecisionsWithoutReason(c.Decisions); n > 0 {
 		msg += fmt.Sprintf(" Recorded as given; %d %s no reason — \"X, because Y\" lets the next agent see what forced it without rereading the transcript.",
 			n, map[bool]string{true: "decision has", false: "decisions have"}[n == 1])
+	}
+	if session.IntentDropped(*c, earlier) {
+		msg += " Recorded as given; no intent carried: this task's wording matches no earlier checkpoint that gave its reason, though the work before it had one, so resume will say what is being done but not why — pass `intent` again when a task is reworded."
 	}
 	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
 		msg += fmt.Sprintf(" Recorded as given; %d ruled-out %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as `route: ... | observation: ... | layer: environment`, so an agent on another toolchain can tell it does not apply to them.",

@@ -65,3 +65,54 @@ func TestAnotherTasksWhyIsNotHandedOver(t *testing.T) {
 		t.Errorf("the CSS task was handed the payments migration's reason:\n%s", out)
 	}
 }
+
+// An auto record's task is the user's first prompt, never the agent's wording,
+// so it cannot match by task. It continues the agent-written checkpoint before
+// it, and inherits that checkpoint's reason — said to come from there.
+func TestAnAutoRecordInheritsTheWhyOfTheCheckpointItFollows(t *testing.T) {
+	ix := seedVault(t)
+	now := time.Now()
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", Task: "cut the BOM to $118",
+		Intent: "the retailer contract fixes the launch price",
+		Next:   "re-quote the display stack",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.WriteAuto(ix.Vault, session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", Task: "keep going on the bom",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := p.Render(); !strings.Contains(out, "**Why:** the retailer contract fixes the launch price") {
+		t.Errorf("an auto record lost the reason of the work it continues:\n%s", out)
+	}
+}
+
+// Resume reads a handful of checkpoints for their dead ends. The reason for a
+// long task was written further back than that, and must still arrive.
+func TestTheWhyOfALongTaskSurvivesMoreCheckpointsThanResumeReads(t *testing.T) {
+	ix := seedVault(t)
+	now := time.Now()
+	for i := 8; i >= 1; i-- {
+		c := &session.Checkpoint{Project: "kestrel-one", Agent: "claude", Task: "cut the BOM to $118",
+			Next: "keep going", TS: now.Add(-time.Duration(i) * time.Minute).Unix()}
+		if i == 8 {
+			c.Intent = "the retailer contract fixes the launch price"
+		}
+		if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := p.Render(); !strings.Contains(out, "**Why:** the retailer contract fixes the launch price") {
+		t.Errorf("the reason fell out of resume after eight saves of the same task:\n%s", out)
+	}
+}

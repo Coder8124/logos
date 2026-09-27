@@ -126,6 +126,12 @@ type Pack struct {
 	// History is earlier checkpoints on the same project. Only their ruled-out
 	// approaches are used — see Build.
 	History []session.Checkpoint `json:"history,omitempty"`
+	// Intent is why Checkpoint's task matters, and IntentFrom the earlier
+	// checkpoint that said so when Checkpoint itself did not. Resolved in Build
+	// rather than from History because History stops at checkpointDepth, and a
+	// reason stated once at a task's start is older than that by its fifth save.
+	Intent     string      `json:"intent,omitempty"`
+	IntentFrom *IntentFrom `json:"intent_from,omitempty"`
 
 	// Notes is vault content — the actual prose, not just titles. Hits reached
 	// through the graph rather than matched directly carry Via.
@@ -267,6 +273,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		if err == nil && len(all) > 0 {
 			p.Checkpoint = &all[0]
 			p.History = all[1:]
+			p.resolveIntent(ix.Vault, scope)
 		}
 	}
 	p.Reader = req.Agent
@@ -840,4 +847,35 @@ func (p *Pack) noteDrift(dir string) {
 		return
 	}
 	p.Drifted = &gitstate.State{Branch: branch, Commit: commit}
+}
+
+// IntentFrom names the earlier checkpoint a reason was inherited from, so the
+// render can say whose reason it is and how old.
+type IntentFrom struct {
+	Agent string `json:"agent,omitempty"`
+	TS    int64  `json:"ts"`
+}
+
+func (p *Pack) resolveIntent(vault, scope string) {
+	earlier := p.History
+	if strings.TrimSpace(p.Checkpoint.Intent) == "" {
+		if p.Inherited {
+			scope = p.scope()
+		}
+		// Only when the latest checkpoint does not state it: the deeper read
+		// is the price of a long task, not of every resume.
+		if deep, err := session.History(vault, scope, session.IntentDepth); err == nil {
+			for i := range deep {
+				if deep[i].Session == p.Checkpoint.Session {
+					earlier = deep[i+1:]
+					break
+				}
+			}
+		}
+	}
+	why, from := session.IntentFor(*p.Checkpoint, earlier)
+	p.Intent = why
+	if from != nil {
+		p.IntentFrom = &IntentFrom{Agent: from.Agent, TS: from.TS}
+	}
 }

@@ -59,8 +59,8 @@ wrapping up, or when context is running short. Do not wait to be asked.
 Fill in `failed` properly. Anything omitted is lost.
 
 Give every decision its reason ("X, because Y"), and state the task's `intent`
-— why it matters — on its first checkpoint; later checkpoints of the same task
-inherit it. The reasoning is otherwise only in the transcript, and nobody
+— why it matters — on its first checkpoint; later checkpoints with the same task
+wording inherit it, so state it again if you reword the task. The reasoning is otherwise only in the transcript, and nobody
 resuming should have to reread that.
 
 If the user is switching tools — "finish this in Cursor" — use **`handoff`**

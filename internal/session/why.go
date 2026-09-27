@@ -68,9 +68,7 @@ func Touching(vaultDir, path string, limit int) ([]Mention, error) {
 				// The reason is written once, when the task starts, and the save
 				// that lists the file usually comes later — history is newest
 				// first, so the rest of it is this task's past.
-				if strings.TrimSpace(c.Intent) == "" {
-					c.Intent = intentOf(c.Task, history[i+1:])
-				}
+				c.Intent, _ = IntentFor(c, history[i+1:])
 				out = append(out, Mention{Checkpoint: c, Matched: matched})
 			}
 		}
@@ -163,18 +161,4 @@ func pathBase(p string) string {
 		return ""
 	}
 	return filepath.Base(p)
-}
-
-// intentOf is the newest stated reason for task among earlier checkpoints.
-func intentOf(task string, earlier []Checkpoint) string {
-	key := strings.ToLower(strings.Join(strings.Fields(task), " "))
-	if key == "" {
-		return ""
-	}
-	for _, e := range earlier {
-		if strings.ToLower(strings.Join(strings.Fields(e.Task), " ")) == key && strings.TrimSpace(e.Intent) != "" {
-			return e.Intent
-		}
-	}
-	return ""
 }

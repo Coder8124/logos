@@ -577,3 +577,34 @@ func TestACheckpointAsksForTheReasonWhenADecisionHasNone(t *testing.T) {
 		t.Errorf("a decision that gives its reason was second-guessed:\n%s", truncateForLog(line))
 	}
 }
+
+// Inheritance is by task, and agents reword tasks. A reason that stops being
+// carried must be said out loud, not discovered at the next resume.
+func TestACheckpointSaysWhenARewordedTaskDropsItsReason(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	if _, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel", "task": "cut the BOM to $118",
+		"intent": "the retailer contract fixes the launch price", "next": "re-quote",
+	}); !ok {
+		t.Fatal("checkpoint failed")
+	}
+	line, ok := call(t, c, 4, "checkpoint", map[string]any{
+		"project": "kestrel", "task": "cut the BOM to $118", "next": "single-mic quote",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "no intent") {
+		t.Errorf("an inherited reason was reported as dropped:\n%s", truncateForLog(line))
+	}
+	line, ok = call(t, c, 5, "checkpoint", map[string]any{
+		"project": "kestrel", "task": "keep cutting the BOM toward $118", "next": "tooling quote",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "no intent") {
+		t.Errorf("a reworded task dropped its reason with no comment:\n%s", truncateForLog(line))
+	}
+}

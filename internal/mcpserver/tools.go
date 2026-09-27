@@ -181,7 +181,7 @@ var toolDefs = []map[string]any{
 		"inputSchema": obj(map[string]any{
 			"project":   str("the project being worked on"),
 			"task":      str("what you were trying to do"),
-			"intent":    str("why the task matters: the outcome it serves and the constraint that shapes it. Once per task; later checkpoints of it inherit it"),
+			"intent":    str("why the task matters: the outcome it serves and the constraint that shapes it. Once per task; later checkpoints with the same task wording inherit it, so restate it if you reword the task"),
 			"state":     str("where things actually stand now"),
 			"decisions": arrStr("decisions made, each with its reason ('X, because Y') — without the reason the next agent reopens it"),
 			"failed":    arrStr("approaches tried that did NOT work, and why — the most valuable field here. Plain prose is fine; for a record before_you_try can act on precisely, one line as 'route: ... | observation: ... | layer: ... | scope: ... | degree: ... | action: ... | alternative: ...' — see the agent instructions for the vocabulary. A dead end that is about the toolchain you happen to be holding rather than about this codebase is 'layer: environment' — say so, or the next agent, on a different toolchain, cannot tell whether it applies to them"),
@@ -202,7 +202,7 @@ var toolDefs = []map[string]any{
 			"project":   str("the project being handed off"),
 			"to":        str("who is taking over, e.g. 'cursor', 'codex', or a person's name"),
 			"task":      str("what you were trying to do"),
-			"intent":    str("why the task matters: the outcome it serves and the constraint that shapes it. Once per task; later checkpoints of it inherit it"),
+			"intent":    str("why the task matters: the outcome it serves and the constraint that shapes it. Once per task; later checkpoints with the same task wording inherit it, so restate it if you reword the task"),
 			"state":     str("where things actually stand now"),
 			"decisions": arrStr("decisions made, each with its reason ('X, because Y') — without the reason the next agent reopens it"),
 			"failed":    arrStr("approaches tried that did NOT work, and why. Same optional 'route: ... | layer: ... | ...' shape as checkpoint's failed field"),
