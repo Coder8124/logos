@@ -190,3 +190,56 @@ func PossiblySuperseded(scope Scope, when int64, now time.Time) bool {
 	}
 	return now.Sub(time.Unix(when, 0)) > staleAfter
 }
+
+// UnplacedToolchain counts the failed entries that name a tool, a package
+// manager or PATH and carry no layer. "brain binary not on PATH" is about the
+// machine that hit it, and in plain prose it reaches an agent on another
+// toolchain reading like a fact about the code, which that agent then spends
+// its reasoning placing. Guessing the layer here would be worse than leaving it
+// out: a wrong "environment" hides a dead end that does apply. So the count
+// only lets the checkpoint receipt ask the writer, who knows. An entry the
+// writer already placed, at any layer, is not second-guessed.
+func UnplacedToolchain(failed []string) int {
+	n := 0
+	for _, f := range failed {
+		if r := ParseRecord(f); r.Layer != "" && r.Layer != LayerUnclassified {
+			continue
+		}
+		if namesToolchain(f) {
+			n++
+		}
+	}
+	return n
+}
+
+// toolchainWords are whole words that name the machine rather than the code.
+// PATH is matched in capitals only: "the path to the vault" is about the code.
+var toolchainWords = map[string]bool{
+	"brew": true, "homebrew": true, "pip": true, "pip3": true, "pipx": true,
+	"npm": true, "npx": true, "yarn": true, "pnpm": true,
+	"apt-get": true, "cargo": true, "venv": true, "virtualenv": true, "nvm": true,
+	"pyenv": true, "conda": true, "sudo": true, "zsh": true, "bash": true,
+	"powershell": true, "xcode-select": true,
+}
+
+var toolchainPhrases = []string{
+	"command not found", "not installed", "externally-managed", "externally managed",
+	"pep 668", "word-splitting", "word splitting",
+}
+
+func namesToolchain(s string) bool {
+	for _, w := range strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '$')
+	}) {
+		if w == "PATH" || w == "$PATH" || toolchainWords[strings.ToLower(w)] {
+			return true
+		}
+	}
+	lower := strings.ToLower(s)
+	for _, p := range toolchainPhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
