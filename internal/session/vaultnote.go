@@ -108,6 +108,7 @@ func (c Checkpoint) Markdown(follows string) string {
 	b.WriteString("---\n")
 
 	section(&b, secTask, c.Task)
+	section(&b, secIntent, c.Intent)
 	section(&b, secState, c.State)
 	bullets(&b, secDecisions, c.Decisions)
 	bullets(&b, secFailed, c.Failed)
@@ -125,6 +126,7 @@ func (c Checkpoint) Markdown(follows string) string {
 // rather than literals scattered across the renderer.
 const (
 	secTask      = "Task"
+	secIntent    = "Intent"
 	secState     = "State"
 	secDecisions = "Decisions"
 	secFailed    = "Didn't work"
@@ -275,6 +277,8 @@ func ParseCheckpoint(raw string) Checkpoint {
 		switch heading {
 		case secTask:
 			c.Task = unescapeHeadings(text)
+		case secIntent:
+			c.Intent = unescapeHeadings(text)
 		case secState:
 			c.State = unescapeHeadings(text)
 		case secNext:

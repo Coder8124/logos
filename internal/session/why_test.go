@@ -240,3 +240,60 @@ func TestWhyFindsAFileOnlyGitObserved(t *testing.T) {
 		t.Errorf("matched the wrong checkpoint: %q", hits[0].Task)
 	}
 }
+
+// The checkpoint that touched a file is rarely the one that said why the task
+// was started: the reason is written once, at the start, and the save that
+// lists the file comes later. why has to reach back for it, or the reasoning
+// behind the change is back in the transcript.
+func TestWhyCarriesTheReasonTheTaskWasStartedFor(t *testing.T) {
+	dir, db := whyVault(t)
+
+	write(t, db, dir, &Checkpoint{
+		Project: "memory-store",
+		Agent:   "claude",
+		Task:    "make the vault write durable",
+		Intent:  "a crash lost a week of memories, and the vault is the only copy",
+		Next:    "fsync the directory",
+	})
+	write(t, db, dir, &Checkpoint{
+		Project:   "memory-store",
+		Agent:     "codex",
+		Task:      "make the vault write durable",
+		Decisions: []string{"flush() returns an error now, because a swallowed write reads as saved"},
+		Files:     []string{"internal/memory/vaultstore.go"},
+	})
+
+	got, err := Touching(dir, "internal/memory/vaultstore.go", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d checkpoints, want 1", len(got))
+	}
+	if got[0].Intent != "a crash lost a week of memories, and the vault is the only copy" {
+		t.Errorf("the task's reason did not reach the checkpoint that touched the file: %q", got[0].Intent)
+	}
+}
+
+// An auto record touched the file: its task is the user's prompt, so the
+// reason comes from the agent-written checkpoint it follows.
+func TestWhyGivesAnAutoRecordTheReasonOfTheWorkItContinues(t *testing.T) {
+	dir, db := whyVault(t)
+	write(t, db, dir, &Checkpoint{
+		Project: "memory-store", Agent: "claude", Task: "make the vault write durable",
+		Intent: "a crash lost a week of memories", Next: "fsync the directory",
+	})
+	if _, err := WriteAuto(dir, Checkpoint{
+		Project: "memory-store", Agent: "claude", Task: "carry on",
+		Files: []string{"internal/memory/vaultstore.go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Touching(dir, "internal/memory/vaultstore.go", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Intent != "a crash lost a week of memories" {
+		t.Errorf("an auto record that touched the file came back without the reason: %+v", got)
+	}
+}

@@ -47,7 +47,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 		c.Agent = "agent"
 	}
 	c.Auto = true
-	c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = nil, nil, nil, nil, nil, ""
+	c.Intent, c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = "", nil, nil, nil, nil, nil, ""
 	// Kept when the caller set one: an auto checkpoint can be built from the
 	// activity log or from the host's own transcript, and which it was is the
 	// one thing a reader needs to weigh a record nobody reviewed.
@@ -122,7 +122,7 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 		c.Agent = old.Agent
 	}
 	c.Auto = true
-	c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = nil, nil, nil, nil, nil, ""
+	c.Intent, c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = "", nil, nil, nil, nil, nil, ""
 	if c.TS == 0 {
 		c.TS = time.Now().Unix()
 	}

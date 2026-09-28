@@ -51,7 +51,11 @@ Call **`checkpoint`**. Its fields are not interchangeable:
   contradicted|partial|inconclusive|unstable | action: retry|change-method|
   narrow-scope|abandon | alternative: <what to do instead>`. Every field but
   `route` is optional.
-- `decisions` — what you settled, and why.
+- `decisions` — what you settled, each with its reason: "X, because Y". The
+  reason is what stops the next agent reopening it.
+- `intent` — why the task matters: the outcome it serves, the constraint that
+  shapes it. Once per task; later checkpoints with the same task wording
+  inherit it, so state it again if you reword the task.
 - `next` — the single next step.
 
 Put a claim in `verified` only if you ran something that showed it; believing

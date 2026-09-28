@@ -186,6 +186,7 @@ func TestMarkdownRoundTrip(t *testing.T) {
 		Project: "kestrel-one",
 		Agent:   "claude",
 		Task:    "cut the BOM from $141.20 to the $118 target",
+		Intent:  "the launch price only works at $118, and the retailer contract fixes the price",
 		State:   "Three lines are over plan.\n\nThe display stack is the worst of them.",
 		Decisions: []string{
 			"dropped the dual-mic array, saves $4.10",
@@ -576,5 +577,35 @@ func TestAnUnreadableTreeIsStillUnreadableAfterTheIndexIsRebuilt(t *testing.T) {
 	got := ParseCheckpoint(c.Markdown(""))
 	if !got.Git.Unreadable {
 		t.Fatalf("parsed git state %+v says clean; the note was written when git could not read the tree", got.Git)
+	}
+}
+
+// A decision without its reason is the one a later agent reopens: it reads as
+// a preference, and the constraint that forced it is back in the transcript.
+// The examples are real decisions from a working vault, both kinds.
+func TestADecisionWithNoReasonIsCounted(t *testing.T) {
+	bare := []string{
+		"use sqlite",
+		"resolve.sh accepts a candidate only when --version starts with 'brain '",
+		"MayBelongTo passes a slug that ends in -project or contains -project-",
+	}
+	reasoned := []string{
+		"use sqlite, because the vault has to stay on this machine",
+		"Site on main went back to 0.4.10 until 0.5.0 ships, so it never links a release that doesn't exist",
+		"Took the recommended option on every judgment call per the user's instruction to own QA",
+		"flush() returns an error now — a swallowed write reads as saved",
+		"Magnitude check (same unit, within 2x) is the second signal: a restated price stays in range",
+		"kept the retry loop to avoid a second round trip",
+		"Waited for brain-10's merges to land on main before merging, as the user asked",
+		"#226 merged --no-ff, keeping the release branch's history readable",
+		"  ",
+	}
+	if n := DecisionsWithoutReason(append(bare, reasoned...)); n != len(bare) {
+		t.Errorf("counted %d decisions without a reason, want %d", n, len(bare))
+	}
+	for _, d := range reasoned {
+		if DecisionsWithoutReason([]string{d}) != 0 {
+			t.Errorf("a decision that gives its reason was second-guessed: %q", d)
+		}
 	}
 }

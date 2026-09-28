@@ -23,10 +23,16 @@ import (
 // exactly what gets lost when a session ends. A checkpoint without it saves the
 // next agent a paragraph of reading and costs it an afternoon of rediscovery.
 type Checkpoint struct {
-	Session   string
-	Project   string
-	Agent     string
-	Task      string
+	Session string
+	Project string
+	Agent   string
+	Task    string
+	// Intent is why the task matters: the outcome it serves and the constraint
+	// that shapes it. Task says what; a resume that only says what leaves the
+	// next agent rereading the transcript to learn which trade-offs are open,
+	// and picking the one the user already refused. It is written once per task
+	// and handed forward to later checkpoints of it — see contextpack.
+	Intent    string
 	State     string
 	Decisions []string
 	Failed    []string
@@ -248,6 +254,7 @@ func (c *Checkpoint) maskSecrets() []secret.Redaction {
 		}
 	}
 	one("Task", &c.Task)
+	one("Intent", &c.Intent)
 	one("State", &c.State)
 	all("Decisions", c.Decisions)
 	all("Didn't work", c.Failed)
@@ -557,4 +564,61 @@ func NextReadsAsMoreThanOneStep(next string) bool {
 		return true
 	}
 	return strings.Contains(trimmed, "\n")
+}
+
+// DecisionsWithoutReason counts the decisions that state a choice and not what
+// forced it. "use sqlite" reads as a preference, and the next agent with a
+// different one reopens it; "use sqlite, because the vault stays on this
+// machine" is a constraint it can check. The reason is the part only the
+// transcript held, so without it resuming means rereading the conversation.
+//
+// A receipt, not a refusal, for the reason NextReadsAsMoreThanOneStep gives.
+// And lenient on purpose: it looks for any sign of a reason — a connective, a
+// dash or colon introducing one, a second sentence — rather than judging
+// whether the reason is good. In a working vault almost every decision already
+// carries one, and a nudge that fires on those is noise that trains agents to
+// ignore the one that matters.
+func DecisionsWithoutReason(decisions []string) int {
+	n := 0
+	for _, d := range decisions {
+		if d = strings.TrimSpace(d); d != "" && !givesReason(d) {
+			n++
+		}
+	}
+	return n
+}
+
+var reasonWords = map[string]bool{
+	"because": true, "since": true, "so": true, "given": true, "per": true,
+	"why": true, "otherwise": true, "unless": true, "until": true, "though": true,
+	"matching": true, "stops": true, "avoids": true, "prevents": true,
+	"keeps": true, "keeping": true, "as": true, "means": true, "saves": true, "lest": true,
+}
+
+var reasonPairs = []string{
+	"to avoid", "to keep", "to stop", "to prevent", "to ensure", "to match",
+	"to save", "to let", "in order", "rather than", "instead of", "due to",
+}
+
+func givesReason(d string) bool {
+	for _, p := range []string{" — ", " – ", " - ", ": ", "; ", " (", ". "} {
+		if strings.Contains(strings.TrimRight(d, ".!?"), p) {
+			return true
+		}
+	}
+	words := strings.FieldsFunc(strings.ToLower(d), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r == '\'')
+	})
+	for _, w := range words {
+		if reasonWords[w] {
+			return true
+		}
+	}
+	joined := " " + strings.Join(words, " ") + " "
+	for _, p := range reasonPairs {
+		if strings.Contains(joined, " "+p+" ") {
+			return true
+		}
+	}
+	return false
 }

@@ -193,6 +193,17 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	if c.Task != "" {
 		fmt.Fprintf(&head, "**They were doing:** %s\n\n", inline(c.Task))
 	}
+	if why, from := p.Intent, p.IntentFrom; why != "" {
+		if from == nil {
+			fmt.Fprintf(&head, "**Why:** %s\n\n", inline(why))
+		} else {
+			who := from.Agent
+			if who == "" {
+				who = "an earlier agent"
+			}
+			fmt.Fprintf(&head, "**Why:** %s _(from %s's earlier checkpoint of this work, %s)_\n\n", inline(why), inline(who), project.Age(from.TS))
+		}
+	}
 	// Above the session log, and charged with the fixed tier: evidence that a
 	// long standup log can evict is evidence the next agent regenerates by hand.
 	safeToContinue(&head, c, p.Reader)

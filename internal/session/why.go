@@ -55,7 +55,7 @@ func Touching(vaultDir, path string, limit int) ([]Mention, error) {
 		if err != nil {
 			continue // one unreadable project must not hide the rest
 		}
-		for _, c := range history {
+		for i, c := range history {
 			// The agent's claim first, then what git observed. Both are searched
 			// because either can be the only one present: a CLI checkpoint has no
 			// way to state a file list, and a clean tree at checkpoint time
@@ -65,6 +65,10 @@ func Touching(vaultDir, path string, limit int) ([]Mention, error) {
 				matched, ok = mentions(c.Git.Files, path)
 			}
 			if ok {
+				// The reason is written once, when the task starts, and the save
+				// that lists the file usually comes later — history is newest
+				// first, so the rest of it is this task's past.
+				c.Intent, _ = IntentFor(c, history[i+1:])
 				out = append(out, Mention{Checkpoint: c, Matched: matched})
 			}
 		}

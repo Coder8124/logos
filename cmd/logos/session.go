@@ -113,7 +113,7 @@ func runNote(args []string) error {
 func runCheckpoint(args []string) error {
 	project, rest := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--next ...] " +
+		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--intent ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
 			"[--question ...] [--file ...] [--handoff <agent>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
@@ -131,6 +131,8 @@ func runCheckpoint(args []string) error {
 		switch rest[i] {
 		case "--task":
 			c.Task = val()
+		case "--intent", "--why":
+			c.Intent = val()
 		case "--state":
 			c.State = val()
 		case "--next":
@@ -191,6 +193,8 @@ func runCheckpoint(args []string) error {
 	}
 	var dropped int
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
+	// Read before the commit, so the history is what came before this checkpoint.
+	earlier, _ := session.History(ix.Vault, c.Project, session.IntentDepth)
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
@@ -205,6 +209,13 @@ func runCheckpoint(args []string) error {
 	}
 	if session.NextReadsAsMoreThanOneStep(c.Next) {
 		fmt.Println("recorded as given; --next reads as more than one step — the conditional or later parts usually belong in --question, which resume prints as \"Still open\".")
+	}
+	if n := session.DecisionsWithoutReason(c.Decisions); n > 0 {
+		fmt.Printf("recorded as given; %d --decided %s no reason — \"X, because Y\" lets the next agent see what forced it without rereading the transcript.\n",
+			n, map[bool]string{true: "entry gives", false: "entries give"}[n == 1])
+	}
+	if session.IntentDropped(*c, earlier) {
+		fmt.Println("recorded as given; no intent carried: this task's wording matches no earlier checkpoint that gave its reason, though the work before it had one, so resume will say what is being done but not why — pass --intent again when a task is reworded.")
 	}
 	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
 		fmt.Printf("recorded as given; %d --failed %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as \"route: ... | observation: ... | layer: environment\", so an agent on another toolchain can tell it does not apply to them.\n",
@@ -460,6 +471,9 @@ func runCloseAbandoned(project, id string) error {
 func merge(dst *session.Checkpoint, src session.Checkpoint) {
 	if dst.Task == "" {
 		dst.Task = src.Task
+	}
+	if dst.Intent == "" {
+		dst.Intent = src.Intent
 	}
 	if dst.State == "" {
 		dst.State = src.State

@@ -82,6 +82,9 @@ func runWhy(args []string) error {
 		if m.Task != "" {
 			fmt.Printf("    while: %s\n", m.Task)
 		}
+		if m.Intent != "" {
+			fmt.Printf("    because: %s\n", m.Intent)
+		}
 
 		// Dead ends first. They are the expensive half and the reason someone is
 		// asking — a decision explains the shape of the code, a ruled-out
