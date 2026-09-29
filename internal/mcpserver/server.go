@@ -1322,6 +1322,18 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	if err != nil {
 		return "", err
 	}
+	// First, above the pack: the pack's own last word on an unmatched name is
+	// "say so rather than inferring", and an agent that stops there reports
+	// nothing about "Saathi backend" while saathi holds the work. Suggested,
+	// not substituted — the name given is still the one resumed.
+	if pack.Checkpoint == nil && strings.TrimSpace(projectArg) != "" && !s.projectExists(project) {
+		if names, err := session.Scopes(s.vault); err == nil {
+			if near := session.NameInside(project, names); near != "" {
+				chose = fmt.Sprintf("_Did you mean %s? Nothing is filed under %s itself, and %s is the one known project whose name is inside it — call resume with project %q before reporting that nothing is recorded._\n\n",
+					untrusted.Inline(near), untrusted.Inline(project), untrusted.Inline(near), near) + chose
+			}
+		}
+	}
 	out := chose + swept + s.lead(pack) + pack.Render()
 	out += s.ledgerPack("mcp:resume", project, pack)
 	if pack.Checkpoint == nil {

@@ -77,3 +77,30 @@ func TestResumeOfAGivenNameTheVaultDoesNotKnowNamesTheProjectsItDoes(t *testing.
 		t.Errorf("the dead end did not name the project the vault holds:\n%s", out)
 	}
 }
+
+// A tester's agent asked for "Saathi backend" with the work filed as saathi.
+// The name is still honoured — saathi's work is not handed over unasked — but
+// the first thing the agent reads is the name to call again with.
+func TestResumeOfADescriptiveNameSuggestsTheProjectInsideIt(t *testing.T) {
+	t.Setenv("LOGOS_PROJECT", "")
+	c, db, vault := startServer(t)
+	handshake(t, c)
+	if err := session.Init(db); err != nil {
+		t.Fatal(err)
+	}
+	cp := session.Checkpoint{Project: "saathi", Agent: "claude-code", Next: "add auth to the api", TS: time.Now().Unix()}
+	if err := session.Commit(db, vault, &cp); err != nil {
+		t.Fatal(err)
+	}
+
+	out, isErr := c.callText(t, "resume", map[string]any{"project": "Saathi backend"})
+	if isErr {
+		t.Fatalf("resume errored: %s", out)
+	}
+	if strings.Contains(out, "add auth to the api") {
+		t.Errorf("a name the caller gave was swapped for another project:\n%s", out)
+	}
+	if !strings.HasPrefix(out, "_Did you mean saathi?") {
+		t.Errorf("the project inside the name was not the first thing said:\n%s", out)
+	}
+}

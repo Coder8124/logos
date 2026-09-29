@@ -117,3 +117,28 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	return string(b)
 }
+
+// A tester's agent resumed "Saathi backend" with the work filed as saathi, and
+// the output's last word to it was "say so rather than inferring an answer" —
+// an instruction to give up one word away from the record.
+func TestResumingADescriptiveNameThatHoldsAProjectNameSuggestsIt(t *testing.T) {
+	vaultDir := t.TempDir()
+	for _, p := range []string{"saathi", "kestrel"} {
+		dir := filepath.Join(vaultDir, session.CheckpointDir, p)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "20260919-120000-claude.md"), []byte("# checkpoint\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := captureStdout(t, func() { printNothingToResume(vaultDir, "Saathi backend") })
+
+	if !strings.Contains(out, "logos resume saathi") {
+		t.Errorf("the project inside the name was not suggested:\n%s", out)
+	}
+	if strings.Contains(out, "rather than inferring") {
+		t.Errorf("the agent is still told to give up when the record is one name away:\n%s", out)
+	}
+}
