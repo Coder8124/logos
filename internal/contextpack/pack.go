@@ -437,7 +437,12 @@ func (p *Pack) applyWindow(req Request) {
 	}
 	// Everything dated fell outside. Either the window is wrong or the period is
 	// empty; either way, suppressing the whole pack would answer neither.
-	if len(notes) == 0 && len(working) == 0 && len(related) == 0 {
+	// Unless the checkpoint is inside it: then the period is not empty, and
+	// calling it so printed "nothing recorded" above a checkpoint from that very
+	// day. An inferred window is sized from that checkpoint, so without this it
+	// declared itself empty whenever the notes and memories were older.
+	inside := p.Checkpoint != nil && w.Contains(p.Checkpoint.TS)
+	if !inside && len(notes) == 0 && len(working) == 0 && len(related) == 0 {
 		p.Window, p.WindowEmpty = &w, true
 		return
 	}
