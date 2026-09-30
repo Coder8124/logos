@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/activity"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -467,6 +468,16 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	}
 	if n := len(c.Commands); n > maxAutoCommands {
 		c.Commands = c.Commands[n-maxAutoCommands:]
+	}
+	// The record is built from the log, but the next agent reads it through the
+	// transcript, which goes on if the session is resumed: the count now is
+	// where this record's turns end. Without one the record is still written,
+	// and is only not offered for reading — said, so it does not read as a
+	// reading resume forgot to offer.
+	if n, err := ingest.TranscriptTurns(end.Agent, hookSessionID(raw)); err == nil {
+		c.Turns = n
+	} else {
+		fmt.Fprintf(os.Stderr, "logos: the auto record will not be offered for reading: counting its transcript: %v\n", err)
 	}
 	written, err := session.WriteAuto(vault, c)
 	if err != nil {

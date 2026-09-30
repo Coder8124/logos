@@ -337,10 +337,8 @@ func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
 	if !c.Auto {
 		return
 	}
-	if in := c.Inferred; in != nil {
-		if in.Empty() {
-			return // read already; nothing survived the citation filter
-		}
+	in := c.Inferred
+	if !in.Empty() {
 		by := in.By
 		if by == "" {
 			by = "an agent"
@@ -349,10 +347,19 @@ func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
 		list(b, "Worked, "+note, in.Verified)
 		list(b, "Didn't work, "+note, in.Failed)
 		list(b, "Decided, "+note, in.Decided)
+	}
+	// Offered only where harvest will serve it: a record that never counted
+	// its transcript's turns cannot say which are its own.
+	if _, _, ok := ingest.AutoTranscript(*c); !ok || c.Slug == "" || c.Turns == 0 {
 		return
 	}
-	if _, _, ok := ingest.AutoTranscript(*c); ok && c.Slug != "" {
+	switch {
+	case in == nil:
 		fmt.Fprintf(b, "_What this session verified, ruled out or decided can still be read from its transcript: if it bears on your task, call ingest_harvest with session %q, then ingest_distil with what it shows._\n\n", c.Slug)
+	case in.Turns < c.Turns:
+		// The session went on after it was read, and the reading above says
+		// nothing about what followed; left unsaid, it reads as the whole story.
+		fmt.Fprintf(b, "_This session went on after it was read (%d transcript turns then, %d now). If it bears on your task, call ingest_harvest with session %q again, then ingest_distil — that reading replaces the one above._\n\n", in.Turns, c.Turns, c.Slug)
 	}
 }
 

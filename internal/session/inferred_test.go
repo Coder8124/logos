@@ -117,3 +117,26 @@ func TestAnInferenceIsNotWrittenIntoARecordSomebodyMadeTheirOwn(t *testing.T) {
 		t.Errorf("the owned record was changed:\n%s", after)
 	}
 }
+
+// The sweep can grow a record between an agent's harvest and its distil. The
+// reading covers the turns it was served; stored against the grown record it
+// would claim the rest as read.
+func TestAnInferenceIsRefusedWhenTheRecordGrewWhileItWasRead(t *testing.T) {
+	vault := t.TempDir()
+	c, err := WriteAuto(vault, Checkpoint{Project: "shop", Agent: "cursor",
+		State: ActivityLogStateFor("lost-1"), Files: []string{"cart.go"}, Turns: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GrowAuto(vault, c, Checkpoint{Files: []string{"cart.go", "refund.go"}, Turns: 9}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(vault, filepath.FromSlash(c.Slug)+".md")
+	before, _ := os.ReadFile(path)
+	if _, err := InferAuto(vault, c.Slug, Inference{By: "cursor", Turns: 4, Failed: []string{"x (turn 2)"}}); err == nil {
+		t.Error("a reading of 4 turns was stored against a record of 9")
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Errorf("the refused reading changed the record:\n%s", after)
+	}
+}

@@ -59,6 +59,9 @@ type Evidence struct {
 	// queued candidate. The two are sent back differently, and the evidence
 	// says which so the distiller is told the right way.
 	Record string
+	// Covers is the record's transcript turn count when it was served, so
+	// what is read from it is stored as covering exactly that much.
+	Covers int
 }
 
 // citation matches "turn 7", "turns 3 and 9", "[turn 12]", "(turn 4)". The

@@ -121,7 +121,10 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 // was ignored: blockers and next have no inferred form, and a distillation
 // that quietly lost them would read as one that kept them.
 func (s *Session) distilRecord(ref, model string, verified, failed, decided []string, ignored bool) (string, error) {
-	c, drops, redactions, err := ingest.AcceptAuto(s.vault, ref, s.servedWindow(ref), ingest.Distillation{
+	// Looked up exactly, by the slug harvest stored it under: a prefix match
+	// here would hand one record the window another was served in.
+	slug := ingest.RecordSlug(ref)
+	c, drops, redactions, err := ingest.AcceptAuto(s.vault, slug, s.served[slug], ingest.Distillation{
 		Model:    model,
 		Verified: verified,
 		Failed:   failed,

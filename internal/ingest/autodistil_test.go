@@ -107,3 +107,64 @@ func TestOnlyAnAutoRecordCanBeServedForReading(t *testing.T) {
 		t.Error("a path out of the vault was served")
 	}
 }
+
+// A resumed session writes a second record for what followed its first, and
+// its transcript goes on past both. Each record is served its own turns: the
+// first record, served the transcript as it stands, took conclusions about
+// work it never saw, and the second took the first one's.
+func TestAReadingOfARecordIsServedOnlyTheTurnsThatRecordCovers(t *testing.T) {
+	s := worked()
+	s.Turns = append(s.Turns,
+		transcript.Turn{Role: "user", Text: "now the refund path"},
+		transcript.Turn{Role: "tool", Tool: "edit_file", Input: "internal/cart/refund.go"},
+		transcript.Turn{Role: "tool", Tool: "run_terminal_cmd", Input: "go test ./internal/refund", Status: "ok"},
+		transcript.Turn{Role: "user", Text: "and the invoices"},
+		transcript.Turn{Role: "tool", Tool: "edit_file", Input: "internal/invoice/pdf.go"},
+	)
+	vault, _ := recordFrom(t, worked())
+	first, err := session.History(vault, "shop", 0)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("history %v, %v", first, err)
+	}
+	second, err := session.WriteAuto(vault, session.Checkpoint{Project: "shop", Agent: s.Harness,
+		State: first[0].State, Files: []string{"internal/cart/refund.go"}, Turns: 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := findTranscript
+	findTranscript = func(string, string) (*transcript.Session, error) { return s, nil }
+	t.Cleanup(func() { findTranscript = was })
+
+	ev, err := AutoEvidenceFor(vault, first[0].Slug, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ev.Turns) != 3 || ev.Turns[2].Input != "go test ./internal/cart" {
+		t.Errorf("the first record was served %d turns, want its own 3: %+v", len(ev.Turns), ev.Turns)
+	}
+	ev, err = AutoEvidenceFor(vault, second.Slug, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ev.Turns) != 3 || ev.Turns[0].Text != "now the refund path" {
+		t.Errorf("the second record was served %d turns, want turns 4 to 6: %+v", len(ev.Turns), ev.Turns)
+	}
+}
+
+// A record written before records counted their transcript cannot say which
+// turns are its own, and serving the whole transcript is the guess above.
+func TestARecordThatNeverCountedItsTranscriptIsNotServed(t *testing.T) {
+	vault, rec := recordFrom(t, worked())
+	path := filepath.Join(vault, filepath.FromSlash(rec.Slug)+".md")
+	raw, _ := os.ReadFile(path)
+	uncounted := strings.Replace(string(raw), "transcript_turns: 3\n", "", 1)
+	if uncounted == string(raw) {
+		t.Fatal("the record carries no turn count to remove")
+	}
+	if err := os.WriteFile(path, []byte(uncounted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AutoEvidenceFor(vault, rec.Slug, 0); err == nil {
+		t.Error("a record that cannot say which turns are its own was served")
+	}
+}

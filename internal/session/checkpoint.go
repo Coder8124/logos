@@ -79,6 +79,13 @@ type Checkpoint struct {
 	// else's transcript is not that, however good the reader. Nil until an
 	// agent distils the record.
 	Inferred *Inference
+	// Turns is how many turns the transcript behind an auto record held when
+	// the record was written or last grown, as its harness's reader counts
+	// them. A session can be resumed, and its transcript goes on past the
+	// record: without the count, a reading served "the transcript" would cover
+	// work this record never saw and put conclusions about it into this
+	// record. Zero on a record that could not count, which is then not served.
+	Turns int
 	// Redactions is what Commit masked before writing, so the caller can say
 	// so. Not written to the file: the file carries the marker in place.
 	Redactions []secret.Redaction
@@ -95,6 +102,9 @@ type Inference struct {
 	Verified []string
 	Failed   []string
 	Decided  []string
+	// Turns is the record's Turns when it was read. A record that has grown
+	// past it holds work nobody read, and is offered for reading again.
+	Turns int
 }
 
 // Empty reports whether the distillation kept nothing.

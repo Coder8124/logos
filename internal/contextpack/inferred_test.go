@@ -12,7 +12,7 @@ func autoRecordFor(t *testing.T, vault string) session.Checkpoint {
 	t.Helper()
 	c, err := session.WriteAuto(vault, session.Checkpoint{
 		Project: "kestrel-one", Agent: "claude-code", Task: "keep going on the bom",
-		State: session.ActivityLogStateFor("lost-1"), Files: []string{"bom.csv"},
+		State: session.ActivityLogStateFor("lost-1"), Files: []string{"bom.csv"}, Turns: 6,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestResumeOffersToReadWhatAnAutoRecordsTranscriptConcluded(t *testing.T) {
 func TestResumeShowsWhatWasInferredApartFromWhatAnAgentStated(t *testing.T) {
 	ix := seedVault(t)
 	c := autoRecordFor(t, ix.Vault)
-	if _, err := session.InferAuto(ix.Vault, c.Slug, session.Inference{By: "cursor",
+	if _, err := session.InferAuto(ix.Vault, c.Slug, session.Inference{By: "cursor", Turns: 6,
 		Failed:  []string{"re-quoting the display stack from the old vendor went nowhere (turn 4)"},
 		Decided: []string{"kept the 12mm hinge, because the retailer signed off on it (turn 2)"},
 	}); err != nil {
@@ -64,5 +64,29 @@ func TestResumeShowsWhatWasInferredApartFromWhatAnAgentStated(t *testing.T) {
 	}
 	if strings.Contains(out, "Already tried, didn't work") || strings.Contains(out, "Ruled out earlier") {
 		t.Errorf("an inferred failure was shown as a ruling:\n%s", out)
+	}
+}
+
+// A record read and then grown holds work nobody read. Showing the old reading
+// alone presents it as the whole session.
+func TestARecordReadBeforeItGrewIsOfferedForReadingAgain(t *testing.T) {
+	ix := seedVault(t)
+	c := autoRecordFor(t, ix.Vault)
+	if _, err := session.InferAuto(ix.Vault, c.Slug, session.Inference{By: "cursor", Turns: 6,
+		Decided: []string{"kept the 12mm hinge, because the retailer signed off on it (turn 2)"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.GrowAuto(ix.Vault, c, session.Checkpoint{Task: c.Task, State: c.State,
+		Files: []string{"bom.csv", "hinge.step"}, Turns: 11}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if !strings.Contains(out, "went on after it was read (6 transcript turns then, 11 now)") || !strings.Contains(out, "12mm hinge") {
+		t.Errorf("resume did not show the old reading and offer the rest:\n%s", out)
 	}
 }

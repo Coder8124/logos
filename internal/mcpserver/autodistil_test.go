@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func TestAnAgentCanDistilAnAutoRecordFromTheSlugResumeGaveIt(t *testing.T) {
 
 	s := &Session{Server: &Server{DB: testDB(t), vault: t.TempDir()}}
 	rec, err := session.WriteAuto(s.vault, session.Checkpoint{Project: "shop", Agent: "claude-code",
-		State: session.ActivityLogStateFor("lost-1"), Commands: []string{"go test ./cart"}})
+		State: session.ActivityLogStateFor("lost-1"), Commands: []string{"go test ./cart"}, Turns: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,5 +59,43 @@ func TestAnAgentCanDistilAnAutoRecordFromTheSlugResumeGaveIt(t *testing.T) {
 	got := session.ParseCheckpoint(string(raw))
 	if got.Inferred == nil || len(got.Inferred.Verified) != 1 || len(got.Inferred.Decided) != 1 {
 		t.Errorf("the record holds %+v after distilling", got.Inferred)
+	}
+}
+
+// An agent may send back the record's file name rather than the slug it was
+// served under. The filter must still check against the window it was shown:
+// looked up under a different key, it fell back to the default and accepted a
+// citation to a turn the agent never saw.
+func TestADistillationSentByTheRecordsFileNameIsCheckedAgainstTheWindowItWasServed(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "projects")
+	dir := filepath.Join(root, "-work-shop")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
+	var lines []string
+	for i := 0; i < 5; i++ {
+		lines = append(lines, fmt.Sprintf(`{"type":"user","sessionId":"lost-2","cwd":"/work/shop","timestamp":"2026-09-29T10:0%d:00Z","message":{"role":"user","content":"step %d"}}`, i, i))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "lost-2.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Server: &Server{DB: testDB(t), vault: t.TempDir()}}
+	rec, err := session.WriteAuto(s.vault, session.Checkpoint{Project: "shop", Agent: "claude-code",
+		State: session.ActivityLogStateFor("lost-2"), Files: []string{"cart.go"}, Turns: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ingestHarvest(rec.Slug, 2); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := s.ingestDistil(" "+rec.Slug+".md", "claude-code", "", nil, nil, nil,
+		[]string{"settled on step 2, because the user said so (turn 3)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(receipt, "0 decided") {
+		t.Errorf("a citation to a turn cut from what was served was kept:\n%s", receipt)
 	}
 }

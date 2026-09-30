@@ -46,9 +46,15 @@ func (c Checkpoint) Markdown(follows string) string {
 	if c.Auto {
 		b.WriteString("auto: true\n")
 	}
+	if c.Turns > 0 {
+		fmt.Fprintf(&b, "transcript_turns: %d\n", c.Turns)
+	}
 	if in := c.Inferred; in != nil {
 		fmt.Fprintf(&b, "inferred_by: %s\n", yamlStr(in.By))
 		fmt.Fprintf(&b, "inferred_at: %s\n", time.Unix(in.At, 0).Format(time.RFC3339))
+		if in.Turns > 0 {
+			fmt.Fprintf(&b, "inferred_turns: %d\n", in.Turns)
+		}
 	}
 	// The observed half. In frontmatter rather than a prose section because it
 	// is structured, machine-written, and the thing a later query will filter on
@@ -229,16 +235,18 @@ func bullets(b *strings.Builder, heading string, items []string) {
 }
 
 type checkpointFM struct {
-	Project      string `yaml:"project"`
-	Agent        string `yaml:"agent"`
-	Session      string `yaml:"session"`
-	HandoffTo    string `yaml:"handoff_to"`
-	AutoClosed   bool   `yaml:"auto_closed"`
-	Auto         bool   `yaml:"auto"`
-	InferredBy   string `yaml:"inferred_by"`
-	InferredAt   string `yaml:"inferred_at"`
-	FirstSeen    string `yaml:"first_seen"`
-	Checkpointed string `yaml:"checkpointed"`
+	Project       string `yaml:"project"`
+	Agent         string `yaml:"agent"`
+	Session       string `yaml:"session"`
+	HandoffTo     string `yaml:"handoff_to"`
+	AutoClosed    bool   `yaml:"auto_closed"`
+	Auto          bool   `yaml:"auto"`
+	InferredBy    string `yaml:"inferred_by"`
+	InferredAt    string `yaml:"inferred_at"`
+	InferredTurns int    `yaml:"inferred_turns"`
+	Turns         int    `yaml:"transcript_turns"`
+	FirstSeen     string `yaml:"first_seen"`
+	Checkpointed  string `yaml:"checkpointed"`
 	// The observed half, round-tripped so a rebuilt index and a hand-read file
 	// agree with each other.
 	Branch        string   `yaml:"branch"`
@@ -270,6 +278,7 @@ func ParseCheckpoint(raw string) Checkpoint {
 		HandoffTo:  fm.HandoffTo,
 		AutoClosed: fm.AutoClosed,
 		Auto:       fm.Auto,
+		Turns:      fm.Turns,
 		Git: gitstate.State{
 			Branch:     fm.Branch,
 			Commit:     fm.Commit,
@@ -335,7 +344,7 @@ func ParseCheckpoint(raw string) Checkpoint {
 
 func inferred(c *Checkpoint, fm checkpointFM) *Inference {
 	if c.Inferred == nil {
-		c.Inferred = &Inference{By: fm.InferredBy}
+		c.Inferred = &Inference{By: fm.InferredBy, Turns: fm.InferredTurns}
 		if t, err := time.Parse(time.RFC3339, fm.InferredAt); err == nil {
 			c.Inferred.At = t.Unix()
 		}

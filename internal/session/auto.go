@@ -110,6 +110,11 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 	if old.Slug == "" {
 		return Checkpoint{}, fmt.Errorf("an auto record to grow needs the file it was read from")
 	}
+	g, err := lockAutoRecords(vaultDir)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer g.Unlock()
 	path := filepath.Join(vaultDir, filepath.FromSlash(old.Slug)+".md")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -121,7 +126,8 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 	}
 	// An agent's distillation of the session so far is kept. Its citations
 	// are turn numbers into the same transcript, which only grew at the end,
-	// so every one still points at what it named — and it was paid for.
+	// so every one still points at what it named — and it was paid for. Its
+	// own Turns says how far it read, so resume offers what came after.
 	c.Inferred = onDisk.Inferred
 	c.Project, c.Session, c.Slug, c.Git = old.Project, old.Session, old.Slug, old.Git
 	if c.Agent == "" {
@@ -150,7 +156,16 @@ var followsLink = regexp.MustCompile(`pred: follows, obj: "\[\[([^\]]+)\]\]"`)
 // first for the same reason GrowAuto reads it: a record somebody has since made
 // their own is theirs, and a reading of the transcript must not be written into
 // what they reviewed. Only the vault is written; the caller reindexes.
+//
+// in.Turns is how much of the transcript the reading covered. A record that
+// has since grown or been rewritten is refused rather than written: the
+// reading would be stored as covering work it never saw.
 func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
+	g, err := lockAutoRecords(vaultDir)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer g.Unlock()
 	path := filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -159,6 +174,9 @@ func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
 	c := ParseCheckpoint(string(raw))
 	if !c.Auto {
 		return Checkpoint{}, fmt.Errorf("%s is not an auto record, so nothing was inferred into it", slug)
+	}
+	if in.Turns != c.Turns {
+		return Checkpoint{}, fmt.Errorf("%s now covers %d transcript turns, not the %d that were read — nothing was written; harvest it again", slug, c.Turns, in.Turns)
 	}
 	if in.At == 0 {
 		in.At = time.Now().Unix()
@@ -173,4 +191,13 @@ func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
 		return Checkpoint{}, err
 	}
 	return c, nil
+}
+
+// lockAutoRecords serialises rewrites of auto records across processes. The
+// sweep grows a record from one server while an agent distils it through
+// another, and both read the whole file and write it back: without the lock
+// the later write drops the earlier one, and its caller was already told it
+// landed.
+func lockAutoRecords(vaultDir string) (*vault.Guard, error) {
+	return vault.Lock(vaultDir, "auto-records")
 }

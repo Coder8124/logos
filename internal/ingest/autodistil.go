@@ -66,17 +66,37 @@ var findTranscript = func(harness, id string) (*transcript.Session, error) {
 	return nil, fmt.Errorf("%s no longer has transcript %s", harness, id)
 }
 
+// TranscriptTurns is how many turns the transcript harness wrote under id holds
+// now, for a record built without reading it (the Claude Code hook's) to say
+// how much of it the record covers.
+func TranscriptTurns(harness, id string) (int, error) {
+	s, err := findTranscript(harness, id)
+	if err != nil {
+		return 0, err
+	}
+	return len(s.Turns), nil
+}
+
 // IsRecordRef reports whether ref names a checkpoint file rather than a queued
 // candidate: the slug resume prints, "sessions/<project>/<id>".
 func IsRecordRef(ref string) bool {
-	return strings.HasPrefix(filepath.ToSlash(strings.TrimSpace(ref)), session.CheckpointDir+"/")
+	return strings.HasPrefix(RecordSlug(ref), session.CheckpointDir+"/")
+}
+
+// RecordSlug is ref as the record's slug, however an agent spelled it: with
+// the file's .md, stray space, or backslashes. Harvest and distil must key the
+// served window by the same string, or the filter checks a distillation
+// against a window the distiller never saw.
+func RecordSlug(ref string) string {
+	return strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(ref)), ".md")
 }
 
 // AutoEvidenceFor serves the part of an auto record's transcript the record
-// covers: the turns after its agent's last handoff, numbered from one, as the
-// record itself was built from them.
+// covers, numbered from one: the turns up to where the transcript stood when
+// the record was written, after the last record of the same transcript and
+// after its agent's last handoff — as the record itself was built from them.
 func AutoEvidenceFor(vaultDir, slug string, maxTurns int) (Evidence, error) {
-	slug = strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(slug)), ".md")
+	slug = RecordSlug(slug)
 	if strings.Contains(slug, "..") {
 		return Evidence{}, fmt.Errorf("%q is not a checkpoint in this vault", slug)
 	}
@@ -92,14 +112,45 @@ func AutoEvidenceFor(vaultDir, slug string, maxTurns int) (Evidence, error) {
 	if !ok {
 		return Evidence{}, fmt.Errorf("%s does not name the transcript it was built from, so there is nothing to serve", slug)
 	}
+	if c.Turns <= 0 {
+		return Evidence{}, fmt.Errorf("%s was written before auto records noted how much of their transcript they cover, so which turns are its own is unknown and nothing is served", slug)
+	}
 	s, err := findTranscript(harness, id)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("reading the transcript %s was built from: %w", slug, err)
 	}
-	s = afterHandoff(s)
+	if len(s.Turns) < c.Turns {
+		return Evidence{}, fmt.Errorf("the transcript %s was built from now holds %d turns, fewer than the %d it covered — it was rewritten, and nothing is served", slug, len(s.Turns), c.Turns)
+	}
+	start, err := earlierCoverage(vaultDir, c, slug)
+	if err != nil {
+		return Evidence{}, err
+	}
+	rest := *s
+	rest.Turns = s.Turns[start:c.Turns]
+	s = afterHandoff(&rest)
 	cand := Harvest(s)
 	cand.Project = c.Project
-	return serve(Evidence{Candidate: cand, Turns: s.Turns, Record: slug}, maxTurns), nil
+	ev := serve(Evidence{Candidate: cand, Turns: s.Turns, Record: slug}, maxTurns)
+	ev.Covers = c.Turns
+	return ev, nil
+}
+
+// earlierCoverage is where the last record of the same transcript before c
+// stopped. A session resumed after its record was written gets a second
+// record for what followed, and the first one's work is not the second's.
+func earlierCoverage(vaultDir string, c session.Checkpoint, slug string) (int, error) {
+	history, err := session.History(vaultDir, c.Project, 0)
+	if err != nil {
+		return 0, fmt.Errorf("reading the records beside %s: %w", slug, err)
+	}
+	start := 0
+	for _, h := range history {
+		if h.Slug != slug && h.Auto && h.State == c.State && h.Turns < c.Turns && h.Turns > start {
+			start = h.Turns
+		}
+	}
+	return start, nil
 }
 
 // AcceptAuto filters a distillation of an auto record's transcript against the
@@ -124,6 +175,7 @@ func AcceptAuto(vaultDir, slug string, maxTurns int, d Distillation) (session.Ch
 		return out
 	}
 	c, err := session.InferAuto(vaultDir, ev.Record, session.Inference{
+		Turns:    ev.Covers,
 		By:       orDefault(strings.TrimSpace(d.Model), "calling agent"),
 		Verified: mask("Verified", kept.Verified),
 		Failed:   mask("Didn't work", kept.Failed),
