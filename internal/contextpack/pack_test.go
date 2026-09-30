@@ -800,6 +800,41 @@ func TestAnEmptyWindowIsAbandonedRatherThanApplied(t *testing.T) {
 	}
 }
 
+// A tester's resume, filtered to Sep 28–29, said "Nothing recorded falls in
+// that period" directly above a checkpoint from Sep 29. The emptiness test
+// counted notes and memories and never the checkpoint — and an inferred window
+// is sized from that very checkpoint, so it is always inside it. A period that
+// holds the checkpoint is not empty: the older items are set aside and counted.
+func TestAWindowHoldingTheCheckpointIsNotReportedEmpty(t *testing.T) {
+	now := time.Now()
+	p := Pack{
+		Task:       "resume work on saathi",
+		Checkpoint: &session.Checkpoint{Project: "saathi", Next: "wire the auth route", TS: now.Add(-time.Hour).Unix()},
+		Working: []session.Note{
+			{Text: "Ran the migration dry run.", TS: now.AddDate(0, 0, -3).Unix()},
+		},
+	}
+	p.Budget.Limit = DefaultBudget
+	p.applyWindow(Request{Task: p.Task, Since: SinceInferred, Now: now.Unix()})
+
+	if p.Window == nil {
+		t.Fatal("no window was inferred")
+	}
+	if p.WindowEmpty {
+		t.Error("a window holding the checkpoint was reported empty")
+	}
+	if p.OutOfWindow != 1 || len(p.Working) != 0 {
+		t.Errorf("the older note was not set aside and counted: out=%d working=%d", p.OutOfWindow, len(p.Working))
+	}
+	out := p.Render()
+	if strings.Contains(out, "Nothing recorded falls in that period") {
+		t.Errorf("the render calls the period empty above a checkpoint inside it:\n%s", out)
+	}
+	if !strings.Contains(out, "wire the auth route") {
+		t.Errorf("the checkpoint inside the window was not handed over:\n%s", out)
+	}
+}
+
 // A fact written relative to the moment of writing is unreadable without the
 // date it was written on. Three notes each saying "today", recorded weeks
 // apart, are three identical claims until they are dated.
