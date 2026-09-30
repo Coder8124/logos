@@ -352,6 +352,14 @@ func printNothingToResume(vaultDir, project string) {
 	if len(known) > 0 {
 		fmt.Printf("nothing recorded for %q in %s.\n\n", project, vaultDir)
 		fmt.Printf("projects with checkpoints: %s\n", strings.Join(known, ", "))
+		// "Say so" is the right last word for a name with no record near it,
+		// and the wrong one for "Saathi backend" when saathi holds the work:
+		// an agent that obeys it reports nothing one word from the answer.
+		if near := session.NameInside(project, known); near != "" {
+			fmt.Printf("\ndid you mean %s? — logos resume %s\n", near, near)
+			fmt.Printf("\n(nothing is filed under %q itself; the record is probably under %s — resume that before reporting nothing)\n", project, near)
+			return
+		}
 		fmt.Println("\n(no record bearing on this project — say so rather than inferring an answer)")
 		return
 	}
