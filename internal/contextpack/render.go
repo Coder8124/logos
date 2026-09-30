@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/secretary"
@@ -207,6 +208,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// Above the session log, and charged with the fixed tier: evidence that a
 	// long standup log can evict is evidence the next agent regenerates by hand.
 	safeToContinue(&head, c, p.Reader)
+	inferredFromTranscript(&head, c)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	failures(&tail, "Already tried, didn't work", c.Failed)
@@ -319,6 +321,39 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 		return
 	}
 	list(b, "Shown by running", c.Commands)
+}
+
+// inferredFromTranscript shows what an agent read out of an auto record's
+// transcript, or offers the reading when nobody has done it yet.
+//
+// Every heading says "inferred" and "not a ruling", not just the first, because
+// a budget trim or a skim can separate a line from a caveat above it, and an
+// inferred dead end read as a stated one is a route the next agent never tries
+// again on a reader's guess.
+//
+// The offer is a line, not the evidence: the transcript costs tokens, and only
+// the agent in front of the task knows whether that session bears on it.
+func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
+	if !c.Auto {
+		return
+	}
+	if in := c.Inferred; in != nil {
+		if in.Empty() {
+			return // read already; nothing survived the citation filter
+		}
+		by := in.By
+		if by == "" {
+			by = "an agent"
+		}
+		note := fmt.Sprintf("inferred from the transcript by %s, unverified — not a ruling", inline(by))
+		list(b, "Worked, "+note, in.Verified)
+		list(b, "Didn't work, "+note, in.Failed)
+		list(b, "Decided, "+note, in.Decided)
+		return
+	}
+	if _, _, ok := ingest.AutoTranscript(*c); ok && c.Slug != "" {
+		fmt.Fprintf(b, "_What this session verified, ruled out or decided can still be read from its transcript: if it bears on your task, call ingest_harvest with session %q, then ingest_distil with what it shows._\n\n", c.Slug)
+	}
 }
 
 // renderCheckpoint leads the pack: it is the one section nothing else can

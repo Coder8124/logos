@@ -46,6 +46,10 @@ func (c Checkpoint) Markdown(follows string) string {
 	if c.Auto {
 		b.WriteString("auto: true\n")
 	}
+	if in := c.Inferred; in != nil {
+		fmt.Fprintf(&b, "inferred_by: %s\n", yamlStr(in.By))
+		fmt.Fprintf(&b, "inferred_at: %s\n", time.Unix(in.At, 0).Format(time.RFC3339))
+	}
 	// The observed half. In frontmatter rather than a prose section because it
 	// is structured, machine-written, and the thing a later query will filter on
 	// — "what was the tree at, when this was decided" is a lookup, not reading.
@@ -118,6 +122,11 @@ func (c Checkpoint) Markdown(follows string) string {
 	bullets(&b, secQuestions, c.Questions)
 	bullets(&b, secFiles, c.Files)
 	section(&b, secNext, c.Next)
+	if in := c.Inferred; in != nil {
+		bullets(&b, secInferredVerified, in.Verified)
+		bullets(&b, secInferredFailed, in.Failed)
+		bullets(&b, secInferredDecided, in.Decided)
+	}
 
 	return b.String()
 }
@@ -136,6 +145,12 @@ const (
 	secQuestions = "Open questions"
 	secFiles     = "Files"
 	secNext      = "Next"
+	// Headings of their own, not a flag on the ones above: anything that reads
+	// "Didn't work" off a checkpoint — before_you_try, a resume's list of what
+	// was ruled out — must not find a reading of a transcript there.
+	secInferredVerified = "Inferred from the transcript: verified"
+	secInferredFailed   = "Inferred from the transcript: didn't work"
+	secInferredDecided  = "Inferred from the transcript: decided"
 )
 
 func (c Checkpoint) title() string {
@@ -220,6 +235,8 @@ type checkpointFM struct {
 	HandoffTo    string `yaml:"handoff_to"`
 	AutoClosed   bool   `yaml:"auto_closed"`
 	Auto         bool   `yaml:"auto"`
+	InferredBy   string `yaml:"inferred_by"`
+	InferredAt   string `yaml:"inferred_at"`
 	FirstSeen    string `yaml:"first_seen"`
 	Checkpointed string `yaml:"checkpointed"`
 	// The observed half, round-tripped so a rebuilt index and a hand-read file
@@ -300,9 +317,30 @@ func ParseCheckpoint(raw string) Checkpoint {
 			c.Questions = parseBullets(text)
 		case secFiles:
 			c.Files = parseBullets(text)
+		case secInferredVerified:
+			inferred(&c, fm).Verified = parseBullets(text)
+		case secInferredFailed:
+			inferred(&c, fm).Failed = parseBullets(text)
+		case secInferredDecided:
+			inferred(&c, fm).Decided = parseBullets(text)
 		}
 	}
+	// A distillation that kept nothing is still one that happened: without
+	// this, resume would offer the same distillation again after every read.
+	if c.Inferred == nil && (fm.InferredBy != "" || fm.InferredAt != "") {
+		inferred(&c, fm)
+	}
 	return c
+}
+
+func inferred(c *Checkpoint, fm checkpointFM) *Inference {
+	if c.Inferred == nil {
+		c.Inferred = &Inference{By: fm.InferredBy}
+		if t, err := time.Parse(time.RFC3339, fm.InferredAt); err == nil {
+			c.Inferred.At = t.Unix()
+		}
+	}
+	return c.Inferred
 }
 
 // sections splits a body into "## Heading" → text. Content before the first

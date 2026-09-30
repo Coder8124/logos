@@ -29,7 +29,10 @@ type Distillation struct {
 	Verified []string
 	Failed   []string
 	Blockers []string
-	Next     string
+	// Decided is kept only on an auto record: a candidate has nowhere to put
+	// it, and a person reviewing one writes the decisions themselves.
+	Decided []string
+	Next    string
 }
 
 // Drop is one claim the filter refused, and why. Dropped claims are returned,
@@ -52,6 +55,10 @@ type Evidence struct {
 	Turns     []transcript.Turn // full sequence; index+1 is the turn number
 	Served    map[int]bool
 	Elided    int
+	// Record is the auto record this evidence was served for, or "" for a
+	// queued candidate. The two are sent back differently, and the evidence
+	// says which so the distiller is told the right way.
+	Record string
 }
 
 // citation matches "turn 7", "turns 3 and 9", "[turn 12]", "(turn 4)". The
@@ -136,6 +143,7 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 	out.Verified = keep("verified", d.Verified, true)
 	out.Failed = keep("failed", d.Failed, false)
 	out.Blockers = keep("blockers", d.Blockers, false)
+	out.Decided = keep("decided", d.Decided, false)
 	return out, drops
 }
 
@@ -199,16 +207,21 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `logos ingest` to queue the new version", c.Source)
 	}
 
+	return serve(Evidence{Candidate: c, Turns: s.Turns}, maxTurns), nil
+}
+
+// serve marks which turns of ev are shown, abridging a long session.
+func serve(ev Evidence, maxTurns int) Evidence {
 	if maxTurns <= 0 {
 		maxTurns = DefaultMaxTurns
 	}
-	ev := Evidence{Candidate: c, Turns: s.Turns, Served: map[int]bool{}}
-	n := len(s.Turns)
+	ev.Served = map[int]bool{}
+	n := len(ev.Turns)
 	if n <= maxTurns {
 		for i := 1; i <= n; i++ {
 			ev.Served[i] = true
 		}
-		return ev, nil
+		return ev
 	}
 	// Abridged: the opening states the task and the ending states the outcome,
 	// and the middle is where a long session repeats itself. Turn numbers stay
@@ -222,7 +235,7 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 		ev.Served[i] = true
 	}
 	ev.Elided = n - maxTurns
-	return ev, nil
+	return ev
 }
 
 // Render frames the evidence for a distiller. The transcript is another agent's
@@ -276,6 +289,14 @@ func (ev Evidence) Render() string {
 	}
 	b.WriteString("--- END UNTRUSTED TRANSCRIPT ---\n\n")
 
+	if ev.Record != "" {
+		fmt.Fprintf(&b, "Distil this into verified / failed / decided and send it back with ingest_distil, session %q.\n", ev.Record)
+		b.WriteString("Every verified, failed and decided entry must name the turn it came from, as \"turn 12\".\n")
+		b.WriteString("A verified entry needs a successful command or tool result in the turn it cites;\n")
+		b.WriteString("an assistant saying something worked is not an observation of it working.\n")
+		b.WriteString("Uncited entries are dropped before anything is written, and what is kept is shown as inferred, never as the session's own record.\n")
+		return b.String()
+	}
 	b.WriteString("Distil this into verified / failed / next and send it back with ingest_distil.\n")
 	b.WriteString("Every verified and failed entry must name the turn it came from, as \"turn 12\".\n")
 	b.WriteString("A verified entry needs a successful command or tool result in the turn it cites;\n")

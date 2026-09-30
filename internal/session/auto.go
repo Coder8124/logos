@@ -48,6 +48,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	}
 	c.Auto = true
 	c.Intent, c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = "", nil, nil, nil, nil, nil, ""
+	c.Inferred = nil
 	// Kept when the caller set one: an auto checkpoint can be built from the
 	// activity log or from the host's own transcript, and which it was is the
 	// one thing a reader needs to weigh a record nobody reviewed.
@@ -114,9 +115,14 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 	if err != nil {
 		return Checkpoint{}, err
 	}
-	if !ParseCheckpoint(string(raw)).Auto {
+	onDisk := ParseCheckpoint(string(raw))
+	if !onDisk.Auto {
 		return Checkpoint{}, fmt.Errorf("%s is no longer an auto record, so it was not rewritten", old.Slug)
 	}
+	// An agent's distillation of the session so far is kept. Its citations
+	// are turn numbers into the same transcript, which only grew at the end,
+	// so every one still points at what it named — and it was paid for.
+	c.Inferred = onDisk.Inferred
 	c.Project, c.Session, c.Slug, c.Git = old.Project, old.Session, old.Slug, old.Git
 	if c.Agent == "" {
 		c.Agent = old.Agent
@@ -138,3 +144,33 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 
 // followsLink is how Markdown writes the chain backwards; a rewrite keeps it.
 var followsLink = regexp.MustCompile(`pred: follows, obj: "\[\[([^\]]+)\]\]"`)
+
+// InferAuto writes an agent's distillation of an auto record's transcript into
+// that record, in place, and returns it as written. The file is read again
+// first for the same reason GrowAuto reads it: a record somebody has since made
+// their own is theirs, and a reading of the transcript must not be written into
+// what they reviewed. Only the vault is written; the caller reindexes.
+func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
+	path := filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	c := ParseCheckpoint(string(raw))
+	if !c.Auto {
+		return Checkpoint{}, fmt.Errorf("%s is not an auto record, so nothing was inferred into it", slug)
+	}
+	if in.At == 0 {
+		in.At = time.Now().Unix()
+	}
+	c.Inferred = &in
+	c.Slug = slug
+	var follows string
+	if m := followsLink.FindStringSubmatch(string(raw)); m != nil {
+		follows = m[1]
+	}
+	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
+		return Checkpoint{}, err
+	}
+	return c, nil
+}
