@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/agentprompt"
 	"github.com/Coder8124/logos/internal/announce"
 	"github.com/Coder8124/logos/internal/buildinfo"
@@ -1473,23 +1474,8 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if said := secret.Summary(c.Redactions); said != "" {
 		msg += " " + said + "."
 	}
-	if dropped > 0 {
-		msg += fmt.Sprintf(" Dropped %d placeholder %s from failed; leave failed empty when nothing was ruled out.",
-			dropped, map[bool]string{true: "entry", false: "entries"}[dropped == 1])
-	}
-	if session.NextReadsAsMoreThanOneStep(c.Next) {
-		msg += " Recorded as given; `next` reads as more than one step — the parts that are conditional or later usually belong in `questions`, which resume prints as \"Still open\"."
-	}
-	if n := session.DecisionsWithoutReason(c.Decisions); n > 0 {
-		msg += fmt.Sprintf(" Recorded as given; %d %s no reason — \"X, because Y\" lets the next agent see what forced it without rereading the transcript.",
-			n, map[bool]string{true: "decision has", false: "decisions have"}[n == 1])
-	}
-	if session.IntentDropped(*c, earlier) {
-		msg += " Recorded as given; no intent carried: this task's wording matches no earlier checkpoint that gave its reason, though the work before it had one, so resume will say what is being done but not why — pass `intent` again when a task is reworded."
-	}
-	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
-		msg += fmt.Sprintf(" Recorded as given; %d ruled-out %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as `route: ... | observation: ... | layer: environment`, so an agent on another toolchain can tell it does not apply to them.",
-			n, map[bool]string{true: "approach names", false: "approaches name"}[n == 1])
+	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
+		msg += " " + said
 	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)

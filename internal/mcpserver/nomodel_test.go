@@ -558,7 +558,7 @@ func TestACheckpointAsksForTheReasonWhenADecisionHasNone(t *testing.T) {
 	if !ok {
 		t.Fatal("checkpoint failed")
 	}
-	if !strings.Contains(line, "1 decision has no reason") {
+	if !strings.Contains(line, "1 decision without a reason") {
 		t.Errorf("a decision with no reason was recorded with no comment:\n%s", truncateForLog(line))
 	}
 	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
@@ -608,3 +608,4 @@ func TestACheckpointSaysWhenARewordedTaskDropsItsReason(t *testing.T) {
 		t.Errorf("a reworded task dropped its reason with no comment:\n%s", truncateForLog(line))
 	}
 }
+
