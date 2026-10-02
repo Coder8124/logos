@@ -609,3 +609,29 @@ func TestACheckpointSaysWhenARewordedTaskDropsItsReason(t *testing.T) {
 	}
 }
 
+// A state that says the work is done, with nothing under verified, is the
+// checkpoint the next agent is most likely to build on without checking. It is
+// kept as given and the receipt asks for the proof.
+func TestACheckpointThatClaimsDoneWithNothingVerifiedAsksForTheProof(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel", "state": "fixed and merged to main",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "`verified` is empty") {
+		t.Errorf("a done claim with nothing verified was recorded with no comment:\n%s", truncateForLog(line))
+	}
+
+	line, ok = call(t, c, 4, "checkpoint", map[string]any{
+		"project": "kestrel", "state": "fixed and merged to main", "verified": []string{"go test ./... passes"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "is empty") {
+		t.Errorf("a done claim with its proof was second-guessed:\n%s", truncateForLog(line))
+	}
+}

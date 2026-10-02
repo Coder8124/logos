@@ -18,20 +18,20 @@ import (
 // Fields is how one front end names a checkpoint's fields, so a nudge tells
 // the agent the exact thing to type. The paired nouns are singular and plural.
 type Fields struct {
-	Next, Questions, Intent, Failed string
-	Decision, RuledOut              [2]string
+	Next, Questions, Intent, Failed, Verified string
+	Decision, RuledOut                        [2]string
 }
 
 // CLI is `logos checkpoint`'s spelling.
 var CLI = Fields{
-	Next: "--next", Questions: "--question", Intent: "--intent", Failed: "--failed",
+	Next: "--next", Questions: "--question", Intent: "--intent", Failed: "--failed", Verified: "--verified",
 	Decision: [2]string{"--decided entry", "--decided entries"},
 	RuledOut: [2]string{"--failed entry", "--failed entries"},
 }
 
 // MCP is the checkpoint tool's spelling.
 var MCP = Fields{
-	Next: "`next`", Questions: "`questions`", Intent: "`intent`", Failed: "`failed`",
+	Next: "`next`", Questions: "`questions`", Intent: "`intent`", Failed: "`failed`", Verified: "`verified`",
 	Decision: [2]string{"decision", "decisions"},
 	RuledOut: [2]string{"ruled-out approach", "ruled-out approaches"},
 }
@@ -50,6 +50,9 @@ func Checkpoint(c session.Checkpoint, earlier []session.Checkpoint, dropped int,
 		// Said out loud so the agent knows its "none" was not kept as a dead end.
 		out = append(out, fmt.Sprintf("Dropped %s from %s; leave it empty when nothing was ruled out.",
 			count(dropped, [2]string{"placeholder entry", "placeholder entries"}), f.Failed))
+	}
+	if session.ClaimsDoneUnverified(c) {
+		out = append(out, fmt.Sprintf("Recorded as given; the state says the work is done but %s is empty, so the next agent takes that on trust — add the command that showed it.", f.Verified))
 	}
 	if session.NextReadsAsMoreThanOneStep(c.Next) {
 		out = append(out, fmt.Sprintf("Recorded as given; %s reads as more than one step — the parts that are conditional or later usually belong in %s, which resume prints as \"Still open\".", f.Next, f.Questions))

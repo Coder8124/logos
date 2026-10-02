@@ -588,6 +588,50 @@ func DecisionsWithoutReason(decisions []string) int {
 	return n
 }
 
+// ClaimsDoneUnverified reports a state that says the work is finished while
+// verified is empty. That is the most misleading checkpoint there is: the next
+// agent reads "fixed and merged" as settled and builds on it, and the record
+// holds nothing that shows it was ever run. A receipt, not a refusal, for the
+// reason NextReadsAsMoreThanOneStep gives.
+//
+// A claim word counts only when nothing in the two words before it takes it
+// back — "half done", "not fixed yet", "nothing finished" are the opposite
+// claim, and flagging them would teach agents to ignore the nudge.
+func ClaimsDoneUnverified(c Checkpoint) bool {
+	if len(c.Verified) > 0 {
+		return false
+	}
+	words := strings.FieldsFunc(strings.ToLower(c.State), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '\'')
+	})
+	for i, w := range words {
+		if !doneWords[w] {
+			continue
+		}
+		negated := false
+		for j := max(0, i-2); j < i; j++ {
+			if undoneWords[words[j]] || strings.HasSuffix(words[j], "n't") {
+				negated = true
+			}
+		}
+		if !negated {
+			return true
+		}
+	}
+	return false
+}
+
+var doneWords = map[string]bool{
+	"done": true, "complete": true, "completed": true, "finished": true, "fixed": true,
+	"passing": true, "passes": true, "shipped": true, "merged": true,
+	"resolved": true,
+}
+
+var undoneWords = map[string]bool{
+	"not": true, "no": true, "nothing": true, "never": true, "half": true,
+	"almost": true, "nearly": true, "partly": true, "partially": true, "yet": true,
+}
+
 var reasonWords = map[string]bool{
 	"because": true, "since": true, "so": true, "given": true, "per": true,
 	"why": true, "otherwise": true, "unless": true, "until": true, "though": true,

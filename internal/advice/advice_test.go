@@ -20,21 +20,21 @@ func TestBothFrontEndsGiveTheSameNudgesInTheirOwnSpelling(t *testing.T) {
 	}
 	cli := Checkpoint(c, nil, 1, CLI)
 	mcp := Checkpoint(c, nil, 1, MCP)
-	if len(cli) != 4 || len(mcp) != len(cli) {
-		t.Fatalf("got %d CLI and %d MCP sentences, want 4 each:\n%s\n---\n%s",
+	if len(cli) != 5 || len(mcp) != len(cli) {
+		t.Fatalf("got %d CLI and %d MCP sentences, want 5 each:\n%s\n---\n%s",
 			len(cli), len(mcp), strings.Join(cli, "\n"), strings.Join(mcp, "\n"))
 	}
-	for i, want := range []string{"placeholder", "more than one step", "without a reason", "layer: environment"} {
+	for i, want := range []string{"placeholder", "work is done", "more than one step", "without a reason", "layer: environment"} {
 		if !strings.Contains(cli[i], want) || !strings.Contains(mcp[i], want) {
 			t.Errorf("sentence %d does not say %q in both:\n%s\n%s", i, want, cli[i], mcp[i])
 		}
 	}
-	for _, want := range []string{"--next", "--question", "2 --decided entries", "1 --failed entry"} {
+	for _, want := range []string{"--verified", "--next", "--question", "2 --decided entries", "1 --failed entry"} {
 		if !strings.Contains(strings.Join(cli, "\n"), want) {
 			t.Errorf("the CLI receipt does not name %s", want)
 		}
 	}
-	for _, want := range []string{"`next`", "`questions`", "2 decisions", "1 ruled-out approach"} {
+	for _, want := range []string{"`verified`", "`next`", "`questions`", "2 decisions", "1 ruled-out approach"} {
 		if !strings.Contains(strings.Join(mcp, "\n"), want) {
 			t.Errorf("the MCP receipt does not name %s", want)
 		}
