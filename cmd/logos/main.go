@@ -627,15 +627,6 @@ func flagStrs(args []string, name string) []string {
 	return out
 }
 
-func argInt(args []string, pos, def int) int {
-	if pos < len(args) {
-		if v, err := strconv.Atoi(args[pos]); err == nil {
-			return v
-		}
-	}
-	return def
-}
-
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

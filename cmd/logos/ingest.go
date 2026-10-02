@@ -488,15 +488,14 @@ func runIngestStatus() error {
 // come to rest is the user's decision and their corp's policy, not ours.
 func runIngestArchive(args []string) error {
 	dest := ""
-	for _, a := range positionals(args) {
-		// A flag is never the destination. `logos ingest archive --help` used
-		// to create a directory called "--help" and copy raw transcripts into
-		// it, and so did any typo.
-		if strings.HasPrefix(a, "-") {
-			return fmt.Errorf("%s is a flag, not a directory — logos ingest archive takes the directory to copy the transcripts into: logos ingest archive ~/transcripts-backup", a)
-		}
-		dest = a
-		break
+	if pos := positionals(args); len(pos) > 0 {
+		dest = pos[0]
+	}
+	// A flag is never the destination. `logos ingest archive --help` used to
+	// create a directory called "--help" and copy raw transcripts into it, and
+	// so did any typo.
+	if strings.HasPrefix(dest, "-") {
+		return fmt.Errorf("%s is a flag, not a directory — logos ingest archive takes the directory to copy the transcripts into: logos ingest archive ~/transcripts-backup", dest)
 	}
 	if dest == "" {
 		return fmt.Errorf("logos ingest archive needs a directory to copy the transcripts into: logos ingest archive ~/transcripts-backup")

@@ -256,12 +256,7 @@ func Parse(raw, filename string) Candidate {
 	return c
 }
 
-func parseTS(s string) int64 {
-	ts, _ := parseTSChecked(s)
-	return ts
-}
-
-// parseTSChecked is parseTS with the distinction parseTS throws away: a line
+// parseTSChecked keeps a distinction a plain parse would throw away: a line
 // that was absent is not the same as a line that was there and unreadable. The
 // second returns true so the caller can report it rather than carry a zero that
 // reads as "this session has no start time".

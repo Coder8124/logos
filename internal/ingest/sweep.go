@@ -295,16 +295,6 @@ func growRecord(vaultDir string, history []session.Checkpoint, rec session.Check
 	return &grown, nil
 }
 
-// transcriptID is a transcript's id as its path gives it: the part after a
-// Cursor source's '#', or the file's name without its extension.
-func transcriptID(path string) string {
-	if i := strings.LastIndexByte(path, '#'); i >= 0 {
-		return path[i+1:]
-	}
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
 // belongsTo reports whether s is a session of project. The transcript's own
 // Project is the basename of where the host started; the server names the
 // same place by its marker or repository root (scope.Name), so a session

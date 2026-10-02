@@ -5,7 +5,7 @@ import "testing"
 func TestNormalizeSessionIDMatchesConventions(t *testing.T) {
 	// Evidence ids ("answer_<hash>") and haystack ids should compare equal when
 	// they refer to the same session.
-	if normalizeSessionID("answer_280352e9") != normalizeSessionID("answer_280352e9") {
+	if normalizeSessionID("answer_280352e9") != normalizeSessionID("280352e9") {
 		t.Error("identical ids should match")
 	}
 	// A plain haystack id is unchanged.
