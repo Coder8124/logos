@@ -65,6 +65,7 @@ var (
 func SetVault(db *sql.DB, dir string) {
 	vaultMu.Lock()
 	defer vaultMu.Unlock()
+	stamps.Forget(db)
 	if dir == "" {
 		delete(vaults, db)
 		return
@@ -78,47 +79,91 @@ func vaultFor(db *sql.DB) string {
 	return vaults[db]
 }
 
-// flush rewrites the whole file from the database, under the lock every other
-// writer takes. Whole-file because the queue is current state rather than a
-// log: one successful write heals whatever a failed one left behind.
+// stamps holds the insight queue as each store last wrote it. See vault.Stamps.
+var stamps vault.Stamps
+
+// withQueue runs a mutation holding the queue's lock, after adopting whatever
+// the user changed in the file by hand, and passes fn the vault dir ("" for a
+// cache-only store) so it can flushLocked when it is done.
 //
-// Unserialised, two insights queued at the same moment both read the table and
-// both write the file, and the later write wins with a snapshot taken before
-// the other insight existed. Import would then see a row it cannot find in the
-// file, take that for a deletion, and discard a proposal the user never saw.
-func flush(db *sql.DB) error {
+// One lock across reconcile, mutation and write. Unserialised, two insights
+// queued at the same moment both read the table and both write the file, and
+// the later write wins with a snapshot taken before the other insight existed;
+// Import would then take the missing row for a deletion and discard a proposal
+// the user never saw. The reconcile comes first because once a new row is in
+// the cache nothing can tell it apart from a line the user deleted — and
+// without it, the file's promise that deleting a line discards the insight
+// only held if `logos index` ran before the next dream queued another.
+func withQueue(db *sql.DB, fn func(dir string) error) error {
 	dir := vaultFor(db)
 	if dir == "" {
-		return nil // a cache-only store — tests, and handles index.Close unbound
+		return fn("") // a cache-only store — tests, and handles index.Close unbound
 	}
 	g, err := vault.Lock(dir, lockName)
 	if err != nil {
 		return err
 	}
 	defer g.Unlock()
-	return flushLocked(db, dir)
+	if err := reconcileLocked(db, dir); err != nil {
+		return err
+	}
+	return fn(dir)
 }
 
-// flushLocked is flush with the lock already held — Import needs it to write
-// the first copy of a vault that predates this file.
+// reconcileLocked adopts hand edits to the queue file, with the lock held. A
+// file we wrote ourselves is skipped on its hash; an absent file says nothing
+// about what is queued, as Import explains.
+func reconcileLocked(db *sql.DB, dir string) error {
+	raw, err := os.ReadFile(InsightsPath(dir))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if stamps.Ours(db, raw) {
+		return nil
+	}
+	if looksTruncated(string(raw)) {
+		// Import refuses this file and says so on `logos index`. Here it is a
+		// reason not to adopt it, not to fail the write: the rewrite that
+		// follows replaces the torn file with the cache's complete copy.
+		return nil
+	}
+	if _, err := adoptLocked(db, raw); err != nil {
+		return err
+	}
+	stamps.Adopted(db, raw)
+	return nil
+}
+
+// flushLocked rewrites the whole file from the database, with the lock held.
+// Whole-file because the queue is current state rather than a log: one
+// successful write heals whatever a failed one left behind.
 func flushLocked(db *sql.DB, dir string) error {
+	if dir == "" {
+		return nil
+	}
 	all, err := allInsights(db)
 	if err != nil {
 		return err
 	}
 	path := InsightsPath(dir)
 	if len(all) == 0 {
-		// No insights is an absent file, not an empty one. Someone who has
-		// never run a dream pass should not find a page in their vault about
-		// a queue they do not have.
+		// An empty queue is an absent file, so a vault that never dreamed has
+		// no page about it.
+		stamps.Forget(db)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("dreamed insights emptied in the cache but not in the vault: %w", err)
 		}
 		return nil
 	}
 	if err := vault.WriteAtomic(path, []byte(renderInsights(all))); err != nil {
+		// Whatever is on disk now is not what we last recorded writing.
+		stamps.Forget(db)
 		return fmt.Errorf("insight saved to the cache but not to the vault: %w", err)
 	}
+	stamps.Record(db, path)
 	return nil
 }
 
@@ -349,6 +394,18 @@ func Import(db *sql.DB, dir string) (int, error) {
 				"restore the file or delete the partial line to accept it as-is", InsightsFile)
 	}
 
+	restored, err := adoptLocked(db, raw)
+	if err != nil {
+		return restored, err
+	}
+	stamps.Adopted(db, raw)
+	return restored, nil
+}
+
+// adoptLocked makes the cache match the file: every valid line is upserted at
+// its id, and every row with no line is deleted. Returns how many rows it had
+// to create.
+func adoptLocked(db *sql.DB, raw []byte) (int, error) {
 	parsed := parseInsights(string(raw))
 	keep := map[int64]bool{}
 	restored := 0
