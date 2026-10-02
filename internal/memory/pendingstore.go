@@ -42,17 +42,6 @@ func pendingPath(dir string) string {
 	return filepath.Join(dir, Dir, PendingFile)
 }
 
-// flushPending rewrites the queue file from the database. Called after every
-// change to what is pending — a proposal arriving, being accepted, or being
-// rejected — so the file is never a stale view of a queue the user is working.
-//
-// Whole-file, like flush: a queue is current state, not a log, and rebuilding
-// it each time means one successful write heals whatever the last failed one
-// left behind.
-func flushPending(db *sql.DB) error {
-	return withPending(db, func(dir string) error { return flushPendingLocked(db, dir) })
-}
-
 // withPending runs fn holding the review queue's lock, against every process on
 // the machine. Taken *inside* the kind lock wherever both are held — Store's
 // quarantined arrival, Accept — and that order is fixed, because two agents
@@ -72,6 +61,45 @@ func withPending(db *sql.DB, fn func(dir string) error) error {
 	}
 	defer g.Unlock()
 	return fn(dir)
+}
+
+// pendingStamps holds pending.md as each store last wrote it. See vault.Stamps.
+var pendingStamps vault.Stamps
+
+// reconcilePendingLocked adopts hand edits to the queue file, with the queue
+// lock held, and runs before anything that changes the queue and rewrites it.
+//
+// The file tells the user that deleting a line rejects the proposal. Without
+// this, that only held if `logos index` ran first: the next proposal to arrive
+// regenerated the file from the cache, put the deleted line back, and the
+// proposal the user had rejected was waiting for review again. It has to run
+// before the change, not after — once a new proposal is in the cache, nothing
+// can tell it apart from a line the user deleted.
+func reconcilePendingLocked(db *sql.DB, dir string) error {
+	if dir == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(pendingPath(dir))
+	if os.IsNotExist(err) {
+		return nil // says nothing about what is pending; see ImportPending
+	}
+	if err != nil {
+		return err
+	}
+	if pendingStamps.Ours(db, raw) {
+		return nil
+	}
+	if looksTruncated(string(raw)) {
+		// ImportPending refuses this file and says so on `logos index`. Here it
+		// is a reason not to adopt it, not to fail the write: the rewrite that
+		// follows replaces the torn file with the cache's complete queue.
+		return nil
+	}
+	if _, err := adoptPendingLocked(db, raw); err != nil {
+		return err
+	}
+	pendingStamps.Adopted(db, raw)
+	return nil
 }
 
 // flushPendingLocked reads the queue and writes the file with the lock held, and
@@ -96,14 +124,18 @@ func flushPendingLocked(db *sql.DB, dir string) error {
 	if len(pend) == 0 {
 		// An empty queue is an absent file. A reviewer who cleared their backlog
 		// should not find a file telling them they have one.
+		pendingStamps.Forget(db)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("review queue emptied in the cache but not in the vault: %w", err)
 		}
 		return nil
 	}
 	if err := vault.WriteAtomic(path, []byte(renderPending(pend))); err != nil {
+		// Whatever is on disk now is not what we last recorded writing.
+		pendingStamps.Forget(db)
 		return fmt.Errorf("proposal saved to the cache but not to the vault: %w", err)
 	}
+	pendingStamps.Record(db, path)
 	return nil
 }
 
@@ -189,13 +221,25 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 				"restore the file or delete the partial line to accept it as-is", PendingFile)
 	}
 
+	restored, err := adoptPendingLocked(db, raw)
+	if err != nil {
+		return restored, 0, err
+	}
+	pendingStamps.Adopted(db, raw)
+	return restored, 0, nil
+}
+
+// adoptPendingLocked makes the queue in the cache match the file: every line is
+// restored, and every queued row with no line is rejected. Returns how many
+// proposals it had to put back.
+func adoptPendingLocked(db *sql.DB, raw []byte) (int, error) {
 	parsed := parseKind(Fact, string(raw)) // kind= in each record overrides this default
 	keep := map[int64]bool{}
 	restored := 0
 	for _, m := range parsed {
 		id, created, err := upsertPending(db, m)
 		if err != nil {
-			return restored, 0, err
+			return restored, err
 		}
 		keep[id] = true
 		if created {
@@ -208,7 +252,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 	// never be reaped by it.
 	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0")
 	if err != nil {
-		return restored, 0, err
+		return restored, err
 	}
 	type doomed struct {
 		id   int64
@@ -219,7 +263,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 		var d doomed
 		if err := rows.Scan(&d.id, &d.text); err != nil {
 			rows.Close()
-			return restored, 0, err
+			return restored, err
 		}
 		if !keep[d.id] {
 			gone = append(gone, d)
@@ -231,10 +275,10 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 		// flush would take, and the file it would rewrite is the one being read
 		// as the source of truth right here. See rejectRow.
 		if err := rejectRow(db, d.id, d.text); err != nil {
-			return restored, 0, err
+			return restored, err
 		}
 	}
-	return restored, 0, nil
+	return restored, nil
 }
 
 // rescuePendingLocked writes a queue that exists only in the cache out to the

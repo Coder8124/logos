@@ -127,7 +127,7 @@ func TestARestoredProposalKeepsTheDateItWasProposed(t *testing.T) {
 	if _, err := db.Exec("UPDATE memories SET created = ? WHERE id = ?", proposed, m.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := flushPending(db); err != nil {
+	if err := withPending(db, func(dir string) error { return flushPendingLocked(db, dir) }); err != nil {
 		t.Fatal(err)
 	}
 	// A vault from before log.md existed, which is every vault this repair is

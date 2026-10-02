@@ -104,20 +104,35 @@ func Accept(db *sql.DB, id int64) error {
 		if err := reconcileLocked(db, Kind(kind)); err != nil {
 			return err
 		}
-		if _, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ?", id); err != nil {
-			return err
-		}
-		logEvent(db, id, EvAccepted, text, 0)
-		// Now that it is active, it belongs in the vault the same as anything
-		// else — this is the moment it moves out of the review queue and into
-		// memory. Both files change, and the memory file is written first: a
-		// crash between the two leaves a proposal that is already remembered
-		// still listed as pending, which a second accept resolves. The other
-		// order would drop it from the queue with nothing holding it.
-		if err := flushLocked(db, Kind(kind)); err != nil {
-			return err
-		}
-		return flushPending(db)
+		// The queue file is rewritten below too, so its hand edits are adopted
+		// first, under its lock, for the reason reconcilePendingLocked gives.
+		return withPending(db, func(dir string) error {
+			if err := reconcilePendingLocked(db, dir); err != nil {
+				return err
+			}
+			res, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ? AND quarantined = 1", id)
+			if err != nil {
+				return err
+			}
+			// The id was checked before the locks; the user may since have
+			// deleted its line, which rejected it. Accepting a rejection back
+			// into memory would overrule them, and saying nothing would report
+			// an accept that did not happen.
+			if n, _ := res.RowsAffected(); n == 0 {
+				return fmt.Errorf("memory #%d is not in %s — deleting its line there rejected it", id, PendingFile)
+			}
+			logEvent(db, id, EvAccepted, text, 0)
+			// Now that it is active, it belongs in the vault the same as anything
+			// else — this is the moment it moves out of the review queue and into
+			// memory. Both files change, and the memory file is written first: a
+			// crash between the two leaves a proposal that is already remembered
+			// still listed as pending, which a second accept resolves. The other
+			// order would drop it from the queue with nothing holding it.
+			if err := flushLocked(db, Kind(kind)); err != nil {
+				return err
+			}
+			return flushPendingLocked(db, dir)
+		})
 	})
 }
 
@@ -141,6 +156,15 @@ func Reject(db *sql.DB, id int64) error {
 	// rewrite regenerates the file from the queue, so a second rejection landing
 	// between them would write a file that still lists this one.
 	return withPending(db, func(dir string) error {
+		if err := reconcilePendingLocked(db, dir); err != nil {
+			return err
+		}
+		// Already rejected by the hand edit just adopted: the outcome the
+		// caller asked for, but not something this call did, so it says so
+		// rather than logging a second rejection.
+		if !isQueued(db, id) {
+			return fmt.Errorf("memory #%d is not in %s — deleting its line there already rejected it", id, PendingFile)
+		}
 		if err := rejectRow(db, id, text); err != nil {
 			return err
 		}
