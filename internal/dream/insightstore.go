@@ -197,8 +197,9 @@ func renderInsights(all []Insight) string {
 		"memory yet: nothing here is recalled or packed into context until you\n" +
 		"accept it.\n\n")
 	b.WriteString("Run `logos dream review` to accept or reject them. Deleting a line here\n" +
-		"discards that insight on the next `logos index`; this file is the record,\n" +
-		"not the database.\n\n")
+		"discards that insight, from the next insight logos queues or reviews, or the\n" +
+		"next `logos index`, whichever is first; this file is the record, not the\n" +
+		"database.\n\n")
 	for _, in := range all {
 		fmt.Fprintf(&b, "- %s <!-- logos id=%d kind=%s a=%d b=%d conf=%.2f status=%s created=%s",
 			field(in.Text), in.ID, in.Kind, in.EndpointA, in.EndpointB,

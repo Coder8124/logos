@@ -148,7 +148,8 @@ func renderPending(pend []Memory) string {
 	b.WriteString("Memories an agent proposed. None of these is active: nothing here\n" +
 		"is recalled, packed into context, or visible to any agent until you accept it.\n\n")
 	b.WriteString("Run `logos review` to accept or reject them. Deleting a line here\n" +
-		"rejects it on the next `logos index`; this file is the record, not the database.\n\n")
+		"rejects it, from the next proposal logos queues or reviews, or the next\n" +
+		"`logos index`, whichever is first; this file is the record, not the database.\n\n")
 	for _, m := range pend {
 		fmt.Fprintf(&b, "- %s <!-- logos id=%d kind=%s conf=%.2f sal=%.2f src=%s created=%s uses=%d",
 			oneLine(m.Text), m.ID, m.Kind, m.Confidence, m.Salience, orDash(m.Source),

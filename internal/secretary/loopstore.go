@@ -207,8 +207,9 @@ func render(all []Commitment) string {
 	b.WriteString("Things you said you would do. `logos loop` lists what is still open;\n" +
 		"`logos loop done <id>` or `logos loop drop <id>` closes one.\n\n")
 	b.WriteString("Ticking a box here does nothing on its own — the status in each line's\n" +
-		"comment is what counts. Deleting a line forgets that loop entirely on the\n" +
-		"next `logos index`; this file is the record, not the database.\n\n")
+		"comment is what counts. Deleting a line forgets that loop entirely, from the\n" +
+		"next loop logos adds or closes, or the next `logos index`, whichever is first;\n" +
+		"this file is the record, not the database.\n\n")
 	for _, c := range all {
 		box := " "
 		switch c.Status {
