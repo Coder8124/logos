@@ -151,3 +151,22 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// The tokenizer splits WG-4471 into wg and 4471. A query that glued the pieces
+// back into "WG4471" matched neither, so the identifiers a user types to find
+// an exact note — part numbers, ticket ids, versions, kebab-case names — were
+// the ones the lexical arm could not find.
+func TestAnIdentifierWithPunctuationIsFoundExactlyAsWritten(t *testing.T) {
+	ix := newTestIndex(t)
+	seed(t, ix, "quote", "Quote", "part WG-4471 ships in ENG-1234, fixed in 0.4.10 on auto-extract")
+	seed(t, ix, "other", "Other", "wg 9 and 4471 apart, 1234 before eng")
+	for _, q := range []string{"WG-4471", "ENG-1234", "0.4.10", "auto-extract", "where is WG-4471?"} {
+		got, err := ix.lexical(q, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 0 || got[0] != "quote" {
+			t.Errorf("lexical(%q) = %v, want the note that contains it first", q, got)
+		}
+	}
+}

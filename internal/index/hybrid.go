@@ -111,17 +111,19 @@ func (ix *Index) memoryHits(p *provider.Provider, model, query string, k int) []
 // ftsQuery turns free text into a safe FTS5 OR-query. FTS5 treats bare
 // punctuation as syntax, so we keep only alphanumeric tokens and OR them —
 // recall-oriented, since fusion with vectors sorts out precision.
+//
+// Punctuation inside a word splits it into a phrase rather than being dropped.
+// The tokenizer indexed WG-4471 as wg then 4471, so gluing the query into
+// "WG4471" matched nothing; the phrase "WG 4471" matches the identifier as a
+// unit, and not a note that only has wg and 4471 apart.
 func ftsQuery(q string) string {
 	var tokens []string
 	for _, f := range strings.Fields(q) {
-		var b strings.Builder
-		for _, r := range f {
-			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-				b.WriteRune(r)
-			}
-		}
-		if b.Len() > 1 {
-			tokens = append(tokens, `"`+b.String()+`"`)
+		pieces := strings.FieldsFunc(f, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+		})
+		if len(strings.Join(pieces, "")) > 1 {
+			tokens = append(tokens, `"`+strings.Join(pieces, " ")+`"`)
 		}
 	}
 	return strings.Join(tokens, " OR ")
