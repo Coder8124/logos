@@ -609,3 +609,35 @@ func TestADecisionWithNoReasonIsCounted(t *testing.T) {
 		}
 	}
 }
+
+// "Done" with nothing under verified is the checkpoint that misleads most: the
+// next agent builds on a claim nobody showed. The examples that must not fire
+// are the ones a working vault actually holds — work still in progress, a
+// negated claim, and "done" with its proof beside it.
+func TestAStateThatClaimsDoneWithNothingVerifiedIsFlagged(t *testing.T) {
+	for _, state := range []string{
+		"Done. Fix is merged to main.",
+		"#231 fixed and merged; tester's report closed",
+		"All tests passing, feature complete",
+		"shipped in 0.4.10",
+	} {
+		if !ClaimsDoneUnverified(Checkpoint{State: state}) {
+			t.Errorf("a state claiming done with nothing verified was not flagged: %q", state)
+		}
+	}
+	for _, state := range []string{
+		"",
+		"half done: the parser works on one file, the walker is not written",
+		"not fixed yet — the race still shows under -count=50",
+		"isn't merged; waiting on review",
+		"working on the importer; nothing finished",
+		"origin/main = afba4df (pushed)",
+	} {
+		if ClaimsDoneUnverified(Checkpoint{State: state}) {
+			t.Errorf("a state that claims nothing done was flagged: %q", state)
+		}
+	}
+	if ClaimsDoneUnverified(Checkpoint{State: "Done. Fix is merged.", Verified: []string{"go test ./... passes"}}) {
+		t.Error("a done state with its proof under verified was flagged")
+	}
+}

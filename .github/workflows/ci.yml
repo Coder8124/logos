@@ -1,0 +1,51 @@
+# The gate, on every push and pull request.
+#
+# Until this existed the only place CI ran the tests was release.yml, on a tag —
+# so a main that no longer passed `go test` (#229: the site and the npm
+# manifests disagreeing about the version) was found by the release, not by the
+# commit that broke it. These are the commands CLAUDE.md asks for before
+# saying a change works, so a green check here means the same thing a green
+# local run does.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format
+        run: gofmt -l . | grep -v '\.venv' | (! grep .) || (echo "unformatted files above"; exit 1)
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # Pinned, so a new staticcheck release cannot turn main red on its own.
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: Test
+        run: go test ./...
+
+      # The durability tier: crashes between the vault write and the index
+      # write, deleted indexes, torn files. Uncached, because a cached pass of a
+      # test about what survives a crash proves nothing about this commit.
+      - name: Chaos
+        run: go test -count=1 -tags chaos ./chaos/...

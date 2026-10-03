@@ -110,21 +110,20 @@ func Enqueue(db *sql.DB, in *Insight) error {
 	if in.Status == "" {
 		in.Status = Pending
 	}
-	res, err := db.Exec(
-		`INSERT INTO dream_insights (kind, text, endpoint_a, endpoint_b, conf, model, created, status)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		string(in.Kind), in.Text, in.EndpointA, in.EndpointB, in.Conf, in.Model, in.Created, string(in.Status))
-	if err != nil {
-		return err
-	}
-	in.ID, _ = res.LastInsertId()
-	// The vault, second and reported. A row that reached the cache and not the
-	// file is the exact state that made this queue losable, so the caller hears
-	// about it rather than getting a success-shaped result (invariant 4).
-	if err := flush(db); err != nil {
-		return err
-	}
-	return nil
+	return withQueue(db, func(dir string) error {
+		res, err := db.Exec(
+			`INSERT INTO dream_insights (kind, text, endpoint_a, endpoint_b, conf, model, created, status)
+			 VALUES (?,?,?,?,?,?,?,?)`,
+			string(in.Kind), in.Text, in.EndpointA, in.EndpointB, in.Conf, in.Model, in.Created, string(in.Status))
+		if err != nil {
+			return err
+		}
+		in.ID, _ = res.LastInsertId()
+		// The vault, second and reported. A row that reached the cache and not the
+		// file is the exact state that made this queue losable, so the caller hears
+		// about it rather than getting a success-shaped result (invariant 4).
+		return flushLocked(db, dir)
+	})
 }
 
 func scan(rows *sql.Rows) ([]Insight, error) {
@@ -174,13 +173,22 @@ func Get(db *sql.DB, id int64) (Insight, error) {
 // SetStatus records the decision. Rejections are kept, not deleted: "you dreamed
 // this and I said no" is the signal for tuning what the pass proposes later.
 func SetStatus(db *sql.DB, id int64, s Status) error {
-	if _, err := db.Exec("UPDATE dream_insights SET status = ? WHERE id = ?", string(s), id); err != nil {
-		return err
-	}
-	// A verdict that only the cache knows is the same bug as a proposal that
-	// only the cache knows: the next rebuild hands the user back an insight
-	// they already refused.
-	return flush(db)
+	return withQueue(db, func(dir string) error {
+		res, err := db.Exec("UPDATE dream_insights SET status = ? WHERE id = ?", string(s), id)
+		if err != nil {
+			return err
+		}
+		// withQueue may have just adopted a hand edit that deleted this one, and
+		// a verdict on nothing reported as success is how `logos dream reject`
+		// would claim to discard an insight that was already gone.
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("insight %d is not in %s — it was deleted there by hand", id, InsightsFile)
+		}
+		// A verdict that only the cache knows is the same bug as a proposal that
+		// only the cache knows: the next rebuild hands the user back an insight
+		// they already refused.
+		return flushLocked(db, dir)
+	})
 }
 
 func PendingCount(db *sql.DB) (int, error) {
@@ -209,7 +217,9 @@ func Accept(db *sql.DB, p *provider.Provider, embedModel string, in Insight) (bo
 		return false, err
 	}
 	if err := SetStatus(db, in.ID, Accepted); err != nil {
-		return r.Created(), err
+		// The memory is stored either way, so say that rather than leave the
+		// error reading as though the accept did nothing.
+		return r.Created(), fmt.Errorf("remembered as memory #%d, but recording the verdict failed: %w", r.ID, err)
 	}
 	return r.Created(), nil
 }

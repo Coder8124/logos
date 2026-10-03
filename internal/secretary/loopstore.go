@@ -57,6 +57,7 @@ var (
 func SetVault(db *sql.DB, dir string) {
 	vaultMu.Lock()
 	defer vaultMu.Unlock()
+	stamps.Forget(db)
 	if dir == "" {
 		delete(vaults, db)
 		return
@@ -70,30 +71,77 @@ func vaultFor(db *sql.DB) string {
 	return vaults[db]
 }
 
-// flush rewrites the whole file from the database, under the lock every other
-// writer takes. Whole-file because a loop list is current state rather than a
-// log: one successful write heals whatever a failed one left behind.
+// stamps holds loops.md as each store last wrote it. See vault.Stamps.
+var stamps vault.Stamps
+
+// withLoops runs a mutation holding the loop list's lock, after adopting
+// whatever the user changed in the file by hand, and passes fn the vault dir
+// ("" for a cache-only store) so it can flushLocked when it is done.
 //
-// Unserialised, two loops added at the same moment both read the list and both
-// write the file, and the later write wins with a snapshot taken before the
-// other loop existed. Import would then see a row it cannot find in the file,
-// take that for a deletion, and remove a commitment the user never dismissed.
-func flush(db *sql.DB) error {
+// One lock across reconcile, mutation and write, for two reasons. Unserialised,
+// two loops added at the same moment both read the list and both write the
+// file, and the later write wins with a snapshot taken before the other loop
+// existed; Import would then take the missing row for a deletion and remove a
+// commitment the user never dismissed. And the reconcile has to come before the
+// mutation: once a new row is in the cache, nothing can tell it apart from a
+// line the user deleted.
+//
+// Without the reconcile, the file's own promise — delete a line and the loop is
+// forgotten — only held if `logos index` ran before the next `logos loop add`,
+// which regenerated the file from the cache and put the line back.
+func withLoops(db *sql.DB, fn func(dir string) error) error {
 	dir := vaultFor(db)
 	if dir == "" {
-		return nil // a cache-only store — tests, and handles index.Close unbound
+		return fn("") // a cache-only store — tests, and handles index.Close unbound
 	}
 	g, err := vault.Lock(dir, "loops")
 	if err != nil {
 		return err
 	}
 	defer g.Unlock()
-	return flushLocked(db, dir)
+	// Returned rather than written past: rewriting the file over an edit we
+	// could not adopt is the thing this exists to prevent.
+	if err := reconcileLocked(db, dir); err != nil {
+		return err
+	}
+	return fn(dir)
 }
 
-// flushLocked is flush with the lock already held — Import needs it to write
-// the first copy of a vault that predates this file.
+// reconcileLocked adopts hand edits to loops.md, with the lock held. A file we
+// wrote ourselves is skipped on its hash; an absent file says nothing about
+// what is open, as Import explains.
+func reconcileLocked(db *sql.DB, dir string) error {
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if stamps.Ours(db, raw) {
+		return nil
+	}
+	if looksTruncated(string(raw)) {
+		// Import refuses this file and says so when the user runs `logos
+		// index`. Here it is a reason not to adopt the file, not to fail an
+		// unrelated `loop add`: the rewrite that follows replaces the torn
+		// file with the cache's complete copy, which is the repair.
+		return nil
+	}
+	if _, err := adoptLocked(db, raw); err != nil {
+		return err
+	}
+	stamps.Adopted(db, raw)
+	return nil
+}
+
+// flushLocked rewrites the whole file from the database, with the lock held.
+// Whole-file because a loop list is current state rather than a log: one
+// successful write heals whatever a failed one left behind.
 func flushLocked(db *sql.DB, dir string) error {
+	if dir == "" {
+		return nil
+	}
 	all, err := allLoops(db)
 	if err != nil {
 		return err
@@ -103,13 +151,19 @@ func flushLocked(db *sql.DB, dir string) error {
 		// No loops is an absent file, not an empty one. A person who has never
 		// tracked a loop should not find a page in their vault about it.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			stamps.Forget(db)
 			return fmt.Errorf("loops emptied in the cache but not in the vault: %w", err)
 		}
+		stamps.Forget(db)
 		return nil
 	}
 	if err := vault.WriteAtomic(path, []byte(render(all))); err != nil {
+		// Forgotten, not kept: whatever is on disk now is not what we last
+		// recorded writing, and a stale stamp would skip adopting it.
+		stamps.Forget(db)
 		return fmt.Errorf("loop saved to the cache but not to the vault: %w", err)
 	}
+	stamps.Record(db, path)
 	return nil
 }
 
@@ -153,8 +207,9 @@ func render(all []Commitment) string {
 	b.WriteString("Things you said you would do. `logos loop` lists what is still open;\n" +
 		"`logos loop done <id>` or `logos loop drop <id>` closes one.\n\n")
 	b.WriteString("Ticking a box here does nothing on its own — the status in each line's\n" +
-		"comment is what counts. Deleting a line forgets that loop entirely on the\n" +
-		"next `logos index`; this file is the record, not the database.\n\n")
+		"comment is what counts. Deleting a line forgets that loop entirely, from the\n" +
+		"next loop logos adds or closes, or the next `logos index`, whichever is first;\n" +
+		"this file is the record, not the database.\n\n")
 	for _, c := range all {
 		box := " "
 		switch c.Status {
@@ -288,6 +343,17 @@ func Import(db *sql.DB, dir string) (int, error) {
 				"restore the file or delete the partial line to accept it as-is", LoopsFile)
 	}
 
+	restored, err := adoptLocked(db, raw)
+	if err != nil {
+		return restored, err
+	}
+	stamps.Adopted(db, raw)
+	return restored, nil
+}
+
+// adoptLocked makes the cache match the file: every line is upserted at its id,
+// and every row with no line is deleted. Returns how many rows it had to create.
+func adoptLocked(db *sql.DB, raw []byte) (int, error) {
 	parsed := parse(string(raw))
 	keep := map[int64]bool{}
 	restored := 0

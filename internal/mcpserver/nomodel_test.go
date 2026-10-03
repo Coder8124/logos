@@ -558,7 +558,7 @@ func TestACheckpointAsksForTheReasonWhenADecisionHasNone(t *testing.T) {
 	if !ok {
 		t.Fatal("checkpoint failed")
 	}
-	if !strings.Contains(line, "1 decision has no reason") {
+	if !strings.Contains(line, "1 decision without a reason") {
 		t.Errorf("a decision with no reason was recorded with no comment:\n%s", truncateForLog(line))
 	}
 	line, _ = call(t, c, 4, "resume", map[string]any{"project": "kestrel"})
@@ -606,5 +606,32 @@ func TestACheckpointSaysWhenARewordedTaskDropsItsReason(t *testing.T) {
 	}
 	if !strings.Contains(line, "no intent") {
 		t.Errorf("a reworded task dropped its reason with no comment:\n%s", truncateForLog(line))
+	}
+}
+
+// A state that says the work is done, with nothing under verified, is the
+// checkpoint the next agent is most likely to build on without checking. It is
+// kept as given and the receipt asks for the proof.
+func TestACheckpointThatClaimsDoneWithNothingVerifiedAsksForTheProof(t *testing.T) {
+	c, _ := startNoModel(t)
+
+	line, ok := call(t, c, 3, "checkpoint", map[string]any{
+		"project": "kestrel", "state": "fixed and merged to main",
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if !strings.Contains(line, "`verified` is empty") {
+		t.Errorf("a done claim with nothing verified was recorded with no comment:\n%s", truncateForLog(line))
+	}
+
+	line, ok = call(t, c, 4, "checkpoint", map[string]any{
+		"project": "kestrel", "state": "fixed and merged to main", "verified": []string{"go test ./... passes"},
+	})
+	if !ok {
+		t.Fatal("checkpoint failed")
+	}
+	if strings.Contains(line, "is empty") {
+		t.Errorf("a done claim with its proof was second-guessed:\n%s", truncateForLog(line))
 	}
 }

@@ -261,3 +261,71 @@ func TestADuplicatedLineInTheLoopFileDoesNotFailTheImport(t *testing.T) {
 		t.Errorf("open loops = %+v, want the duplicate collapsed into one", open)
 	}
 }
+
+// The next write regenerates the whole file from the cache, so a line deleted
+// by hand only stayed deleted if `logos index` happened to run first. Without
+// that, the next `logos loop add` wrote the struck loop straight back, and the
+// user's edit was undone by an unrelated command that said only "tracked".
+func TestALoopDeletedByHandStaysDeletedWhenTheNextLoopIsAdded(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+	Add(db, &Commitment{Text: "renew the parking permit"})
+	Add(db, &Commitment{Text: "send the tooling PO"})
+
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(line, "renew the parking permit") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(LoopsPath(dir), []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Add(db, &Commitment{Text: "book the freight"}); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(LoopsPath(dir))
+	if strings.Contains(string(after), "renew the parking permit") {
+		t.Errorf("the next add wrote a hand-deleted loop back into %s:\n%s", LoopsFile, after)
+	}
+	if !strings.Contains(string(after), "book the freight") || !strings.Contains(string(after), "send the tooling PO") {
+		t.Errorf("%s lost a loop that was never deleted:\n%s", LoopsFile, after)
+	}
+	open, _ := Open_(db)
+	for _, c := range open {
+		if c.Text == "renew the parking permit" {
+			t.Error("the hand-deleted loop is still open in the cache")
+		}
+	}
+}
+
+// Adopting the file before the write means a loop deleted by hand is gone by the
+// time the update runs. Closing it then touched no row and returned nil, so
+// `logos loop done 4` printed "done [4]" for a loop the file no longer had.
+func TestClosingALoopDeletedByHandSaysItIsGone(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+	c := Commitment{Text: "renew the parking permit"}
+	Add(db, &c)
+	Add(db, &Commitment{Text: "send the tooling PO"})
+	raw, _ := os.ReadFile(LoopsPath(dir))
+	var kept []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(line, "renew the parking permit") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(LoopsPath(dir), []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := SetStatus(db, c.ID, Done)
+	if err == nil || !strings.Contains(err.Error(), LoopsFile) {
+		t.Errorf("closing a loop deleted from %s by hand: err = %v, want one that says the file no longer has it", LoopsFile, err)
+	}
+}

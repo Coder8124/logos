@@ -246,3 +246,53 @@ func TestTheQueueHoldsItsOwnLockName(t *testing.T) {
 		}
 	}
 }
+
+// Same failure as loops.md: the next enqueue regenerated the file from the
+// cache and put a hand-deleted insight straight back in front of the user.
+func TestAnInsightDeletedByHandStaysDeletedWhenTheNextOneArrives(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
+
+	first := Insight{Kind: Connection, Text: "an insight the user deletes by hand", EndpointA: 1, EndpointB: 2, Conf: 0.5}
+	if err := Enqueue(db, &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(InsightsPath(dir), []byte("---\ntype: dream-insights\npending: 0\n---\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second := Insight{Kind: Connection, Text: "a later insight", EndpointA: 3, EndpointB: 4, Conf: 0.5}
+	if err := Enqueue(db, &second); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(InsightsPath(dir))
+	if strings.Contains(string(raw), "deletes by hand") {
+		t.Errorf("the next enqueue wrote a hand-deleted insight back:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "a later insight") {
+		t.Errorf("the new insight is not in the file:\n%s", raw)
+	}
+}
+
+// Adopting the file first means a hand-deleted insight is gone by the time the
+// verdict runs, and a verdict on no row returning nil let `logos dream reject`
+// print "discarded insight 4" for one that was already gone.
+func TestAVerdictOnAnInsightDeletedByHandSaysItIsGone(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
+	in := Insight{Kind: Connection, Text: "an insight the user deletes by hand", EndpointA: 1, EndpointB: 2, Conf: 0.5}
+	if err := Enqueue(db, &in); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(InsightsPath(dir), []byte("---\ntype: dream-insights\npending: 0\n---\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := SetStatus(db, in.ID, Rejected)
+	if err == nil || !strings.Contains(err.Error(), InsightsFile) {
+		t.Errorf("a verdict on an insight deleted from %s: err = %v, want one that says the file no longer has it", InsightsFile, err)
+	}
+}

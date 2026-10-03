@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/contextpack"
-	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -202,24 +202,8 @@ func runCheckpoint(args []string) error {
 	if said := secret.Summary(c.Redactions); said != "" {
 		fmt.Println(said + ".")
 	}
-	if dropped > 0 {
-		// Said out loud so the agent knows its "none" was not kept as a dead end.
-		fmt.Printf("dropped %d placeholder failed entr%s — leave failed empty when nothing was ruled out.\n",
-			dropped, map[bool]string{true: "y", false: "ies"}[dropped == 1])
-	}
-	if session.NextReadsAsMoreThanOneStep(c.Next) {
-		fmt.Println("recorded as given; --next reads as more than one step — the conditional or later parts usually belong in --question, which resume prints as \"Still open\".")
-	}
-	if n := session.DecisionsWithoutReason(c.Decisions); n > 0 {
-		fmt.Printf("recorded as given; %d --decided %s no reason — \"X, because Y\" lets the next agent see what forced it without rereading the transcript.\n",
-			n, map[bool]string{true: "entry gives", false: "entries give"}[n == 1])
-	}
-	if session.IntentDropped(*c, earlier) {
-		fmt.Println("recorded as given; no intent carried: this task's wording matches no earlier checkpoint that gave its reason, though the work before it had one, so resume will say what is being done but not why — pass --intent again when a task is reworded.")
-	}
-	if n := deadend.UnplacedToolchain(c.Failed); n > 0 {
-		fmt.Printf("recorded as given; %d --failed %s a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as \"route: ... | observation: ... | layer: environment\", so an agent on another toolchain can tell it does not apply to them.\n",
-			n, map[bool]string{true: "entry names", false: "entries name"}[n == 1])
+	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.CLI) {
+		fmt.Println(said)
 	}
 	// Deliberately not "run `logos index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user

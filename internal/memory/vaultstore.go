@@ -62,6 +62,7 @@ var (
 // behind.
 func SetVault(db *sql.DB, dir string) {
 	forgetLoggedHigh(db)
+	pendingStamps.Forget(db)
 	vaultMu.Lock()
 	defer vaultMu.Unlock()
 	if dir == "" {

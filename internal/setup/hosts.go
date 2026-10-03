@@ -62,6 +62,7 @@ func claudeCode() Host {
 				return Failed, fmt.Errorf("removed the old logos entry from Claude Code but could not add the new one — run `logos setup` again: %w", err)
 			}
 			if outcome != Registered {
+				//lint:ignore ST1005 the sentence starts with the product's name
 				return Failed, fmt.Errorf("Claude Code still refuses to replace its logos entry after removing it — check `claude mcp list`")
 			}
 			return Updated, nil

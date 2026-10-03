@@ -352,6 +352,38 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		}
 	}
 
+	if m.Quarantined {
+		// A proposal is written down too. Not into memories/<kind>.md — that
+		// would defeat quarantine — but into the queue file, so a review the
+		// user has not got to yet survives deleting the cache. See
+		// internal/memory/pendingstore.go. That file is rewritten whole, so it
+		// gets what the kind file got above: hand edits adopted before the
+		// insert, and the queue lock held from there through the write.
+		var rec Receipt
+		err := withPending(db, func(dir string) error {
+			if err := reconcilePendingLocked(db, dir); err != nil {
+				return err
+			}
+			var err error
+			if rec, err = insertLocked(db, m, vec); err != nil || rec.Outcome != EvQuarantined {
+				return err
+			}
+			rec.Contested, rec.ContestedText = contested, contestedText
+			return flushPendingLocked(db, dir)
+		})
+		return rec, err
+	}
+	rec, err := insertLocked(db, m, vec)
+	if err != nil || rec.Outcome != EvCreated {
+		return rec, err
+	}
+	return rec, flushLocked(db, m.Kind)
+}
+
+// insertLocked is the row half of storeLocked: the insert, and the event that
+// says what it was. The caller holds whichever lock covers the file the row
+// belongs in, and writes that file.
+func insertLocked(db *sql.DB, m *Memory, vec []byte) (Receipt, error) {
 	dup, err := insertMemory(db, m, vec)
 	if err != nil {
 		return Receipt{}, err
@@ -373,14 +405,10 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		// distinct moments, the same way it already distinguishes created
 		// from reinforced. See Accept in quarantine.go for the other half.
 		logEvent(db, m.ID, EvQuarantined, m.Text, 0)
-		// A proposal is written down too. Not into memories/<kind>.md —
-		// that would defeat quarantine — but into the queue file, so a
-		// review the user has not got to yet survives deleting the cache.
-		// See internal/memory/pendingstore.go.
-		return Receipt{Outcome: EvQuarantined, ID: m.ID, Contested: contested, ContestedText: contestedText}, flushPending(db)
+		return Receipt{Outcome: EvQuarantined, ID: m.ID}, nil
 	}
 	logEvent(db, m.ID, EvCreated, m.Text, 0)
-	return Receipt{Outcome: EvCreated, ID: m.ID}, flushLocked(db, m.Kind)
+	return Receipt{Outcome: EvCreated, ID: m.ID}, nil
 }
 
 // idAttempts bounds the retry below. Eight writers colliding on one number is

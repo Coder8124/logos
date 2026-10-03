@@ -87,27 +87,29 @@ func Add(db *sql.DB, c *Commitment) (bool, error) {
 	if c.Status == "" {
 		c.Status = Open
 	}
-	// INSERT OR IGNORE on the fingerprint makes re-running extraction safe and
-	// idempotent, which matters because the daily rollup will call it often.
-	res, err := db.Exec(
-		`INSERT OR IGNORE INTO commitments (text, who, created, due_hint, status, source_ref, fingerprint)
-		 VALUES (?,?,?,?,?,?,?)`,
-		c.Text, c.Who, c.Created, c.DueHint, string(c.Status), c.SourceRef, fingerprint(c.Text, c.Who))
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return false, nil // a fingerprint-equal loop is already on the record
-	}
-	c.ID, _ = res.LastInsertId()
-	// The vault copy, immediately. A loop that reached only the cache is one
-	// the next `logos index` throws away without saying so, and the caller has
-	// to hear that the write is half-done rather than be told "tracked".
-	if err := flush(db); err != nil {
-		return true, err
-	}
-	return true, nil
+	added := false
+	err := withLoops(db, func(dir string) error {
+		// INSERT OR IGNORE on the fingerprint makes re-running extraction safe and
+		// idempotent, which matters because the daily rollup will call it often.
+		res, err := db.Exec(
+			`INSERT OR IGNORE INTO commitments (text, who, created, due_hint, status, source_ref, fingerprint)
+			 VALUES (?,?,?,?,?,?,?)`,
+			c.Text, c.Who, c.Created, c.DueHint, string(c.Status), c.SourceRef, fingerprint(c.Text, c.Who))
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return nil // a fingerprint-equal loop is already on the record
+		}
+		added = true
+		c.ID, _ = res.LastInsertId()
+		// The vault copy, immediately. A loop that reached only the cache is one
+		// the next `logos index` throws away without saying so, and the caller has
+		// to hear that the write is half-done rather than be told "tracked".
+		return flushLocked(db, dir)
+	})
+	return added, err
 }
 
 func Open_(db *sql.DB) ([]Commitment, error) { return list(db, Open) }
@@ -142,10 +144,19 @@ func SetStatus(db *sql.DB, id int64, s Status) error {
 	if s != Open {
 		resolved = time.Now().Unix()
 	}
-	if _, err := db.Exec("UPDATE commitments SET status = ?, resolved_at = ? WHERE id = ?", string(s), resolved, id); err != nil {
-		return err
-	}
-	return flush(db)
+	return withLoops(db, func(dir string) error {
+		res, err := db.Exec("UPDATE commitments SET status = ?, resolved_at = ? WHERE id = ?", string(s), resolved, id)
+		if err != nil {
+			return err
+		}
+		// The caller checked the id before the lock; withLoops may since have
+		// adopted a hand edit that deleted it. Saying nothing would let `logos
+		// loop done` report closing a loop that is no longer on the record.
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("loop %d is not in %s — it was deleted there by hand", id, LoopsFile)
+		}
+		return flushLocked(db, dir)
+	})
 }
 
 func OpenCount(db *sql.DB) (int, error) {

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -165,4 +166,66 @@ func editDistance(a, b string) int {
 		prev, cur = cur, prev
 	}
 	return prev[len(b)]
+}
+
+func argStr(args map[string]any, k string) string {
+	if v, ok := args[k].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// argBool accepts a real bool or the string a model emits when it is being
+// loose about JSON types, which is often enough to matter on a flag that
+// changes which memories come back.
+func argBool(args map[string]any, k string, def bool) bool {
+	switch v := args[k].(type) {
+	case bool:
+		return v
+	case string:
+		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
+			return b
+		}
+	}
+	return def
+}
+
+func argInt(args map[string]any, k string, def int) int {
+	switch v := args[k].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+// argList accepts either a JSON array or a newline/semicolon separated string.
+// Hosts vary in how reliably their models emit arrays for list-shaped
+// arguments, and rejecting a checkpoint because the decisions arrived as a
+// string would lose the work it was recording.
+func argList(args map[string]any, k string) []string {
+	var out []string
+	switch v := args[k].(type) {
+	case []any:
+		for _, it := range v {
+			if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case []string:
+		out = v
+	case string:
+		for _, line := range strings.FieldsFunc(v, func(r rune) bool { return r == '\n' || r == ';' }) {
+			line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*+ "))
+			if line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	return out
 }

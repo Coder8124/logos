@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,7 +285,7 @@ func TestAnUnboundDatabaseStillTakesProposals(t *testing.T) {
 }
 
 // A vault that predates pending.md has proposals in the cache and no file, and
-// nothing repairs that: flushPending only runs when the queue changes, so a
+// nothing repairs that: flushPendingLocked only runs when the queue changes, so a
 // queue nobody is touching stays in the one place that gets deleted. The real
 // vault this was found in had exactly that shape — two proposals from before
 // the file existed, and `logos index` after a wipe reported "the review queue is
@@ -327,4 +328,100 @@ func TestAReviewQueueThatWasNeverWrittenDownIsWrittenDownBeforeItIsLost(t *testi
 	} else if n != 1 {
 		t.Fatalf("restored %d proposals, want 1", n)
 	}
+}
+
+// The next proposal regenerated the queue file from the cache, so a proposal
+// the user had rejected by deleting its line came back for review — and the
+// next `logos index` then had no deletion left to honour.
+func TestAProposalDeletedByHandStaysDeletedWhenTheNextOneArrives(t *testing.T) {
+	db, dir := vaultDB(t)
+	first := Memory{Text: "Sam prefers async reviews", Kind: Person, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &first); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, Dir, PendingFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(line, "Sam prefers async reviews") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	second := Memory{Text: "the release train is weekly", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &second); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if strings.Contains(string(after), "Sam prefers async reviews") {
+		t.Errorf("the next proposal wrote a hand-rejected one back into the queue:\n%s", after)
+	}
+	if !strings.Contains(string(after), "the release train is weekly") {
+		t.Errorf("the new proposal is not in the queue:\n%s", after)
+	}
+}
+
+// Adopting the file first means a proposal whose line the user deleted is
+// already rejected when `logos review` acts on it from a list printed earlier.
+// Accepting it then would overrule the rejection, and rejecting it again would
+// report a second decision nobody made.
+func TestReviewingAProposalDeletedByHandSaysItWasAlreadyRejected(t *testing.T) {
+	for _, verdict := range []struct {
+		name string
+		do   func(*sql.DB, int64) error
+	}{{"accept", Accept}, {"reject", Reject}} {
+		t.Run(verdict.name, func(t *testing.T) {
+			db, dir := vaultDB(t)
+			m := Memory{Text: "Sam prefers async reviews", Kind: Person, Source: "mcp", Quarantined: true}
+			if _, err := Store(db, nil, "", &m); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Store(db, nil, "", &Memory{Text: "the release train is weekly", Kind: Fact, Source: "mcp", Quarantined: true}); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, Dir, PendingFile)
+			raw, _ := os.ReadFile(path)
+			var kept []string
+			for _, line := range strings.Split(string(raw), "\n") {
+				if !strings.Contains(line, "Sam prefers async reviews") {
+					kept = append(kept, line)
+				}
+			}
+			if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			err := verdict.do(db, m.ID)
+			if err == nil || !strings.Contains(err.Error(), PendingFile) {
+				t.Errorf("%s on a proposal deleted from %s: err = %v, want one that says deleting it rejected it", verdict.name, PendingFile, err)
+			}
+			for _, a := range activeTexts(t, db) {
+				if a == "Sam prefers async reviews" {
+					t.Error("a proposal the user rejected by hand was accepted into memory")
+				}
+			}
+		})
+	}
+}
+
+func activeTexts(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.Query("SELECT text FROM memories WHERE quarantined = 0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		rows.Scan(&s)
+		out = append(out, s)
+	}
+	return out
 }

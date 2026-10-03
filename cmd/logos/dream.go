@@ -11,10 +11,6 @@ import (
 	"github.com/Coder8124/logos/internal/router"
 )
 
-// dreamHour is the local hour past which the daemon runs the nightly pass. Zero
-// is midnight; the day just ended, so it is the natural moment to sleep on it.
-const dreamHour = 0
-
 // dreamCmd is the nightly consolidation pass and its review queue.
 //
 //	logos dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
