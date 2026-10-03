@@ -48,6 +48,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	}
 	c.Auto = true
 	c.Intent, c.Decisions, c.Failed, c.Verified, c.Blockers, c.Questions, c.Next = "", nil, nil, nil, nil, nil, ""
+	c.Inferred = nil
 	// Kept when the caller set one: an auto checkpoint can be built from the
 	// activity log or from the host's own transcript, and which it was is the
 	// one thing a reader needs to weigh a record nobody reviewed.
@@ -109,14 +110,25 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 	if old.Slug == "" {
 		return Checkpoint{}, fmt.Errorf("an auto record to grow needs the file it was read from")
 	}
+	g, err := lockAutoRecords(vaultDir)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer g.Unlock()
 	path := filepath.Join(vaultDir, filepath.FromSlash(old.Slug)+".md")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Checkpoint{}, err
 	}
-	if !ParseCheckpoint(string(raw)).Auto {
+	onDisk := ParseCheckpoint(string(raw))
+	if !onDisk.Auto {
 		return Checkpoint{}, fmt.Errorf("%s is no longer an auto record, so it was not rewritten", old.Slug)
 	}
+	// An agent's distillation of the session so far is kept. Its citations
+	// are turn numbers into the same transcript, which only grew at the end,
+	// so every one still points at what it named — and it was paid for. Its
+	// own Turns says how far it read, so resume offers what came after.
+	c.Inferred = onDisk.Inferred
 	c.Project, c.Session, c.Slug, c.Git = old.Project, old.Session, old.Slug, old.Git
 	if c.Agent == "" {
 		c.Agent = old.Agent
@@ -138,3 +150,54 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 
 // followsLink is how Markdown writes the chain backwards; a rewrite keeps it.
 var followsLink = regexp.MustCompile(`pred: follows, obj: "\[\[([^\]]+)\]\]"`)
+
+// InferAuto writes an agent's distillation of an auto record's transcript into
+// that record, in place, and returns it as written. The file is read again
+// first for the same reason GrowAuto reads it: a record somebody has since made
+// their own is theirs, and a reading of the transcript must not be written into
+// what they reviewed. Only the vault is written; the caller reindexes.
+//
+// in.Turns is how much of the transcript the reading covered. A record that
+// has since grown or been rewritten is refused rather than written: the
+// reading would be stored as covering work it never saw.
+func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
+	g, err := lockAutoRecords(vaultDir)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer g.Unlock()
+	path := filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	c := ParseCheckpoint(string(raw))
+	if !c.Auto {
+		return Checkpoint{}, fmt.Errorf("%s is not an auto record, so nothing was inferred into it", slug)
+	}
+	if in.Turns != c.Turns {
+		return Checkpoint{}, fmt.Errorf("%s now covers %d transcript turns, not the %d that were read — nothing was written; harvest it again", slug, c.Turns, in.Turns)
+	}
+	if in.At == 0 {
+		in.At = time.Now().Unix()
+	}
+	c.Inferred = &in
+	c.Slug = slug
+	var follows string
+	if m := followsLink.FindStringSubmatch(string(raw)); m != nil {
+		follows = m[1]
+	}
+	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
+		return Checkpoint{}, err
+	}
+	return c, nil
+}
+
+// lockAutoRecords serialises rewrites of auto records across processes. The
+// sweep grows a record from one server while an agent distils it through
+// another, and both read the whole file and write it back: without the lock
+// the later write drops the earlier one, and its caller was already told it
+// landed.
+func lockAutoRecords(vaultDir string) (*vault.Guard, error) {
+	return vault.Lock(vaultDir, "auto-records")
+}

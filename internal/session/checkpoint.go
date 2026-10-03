@@ -71,11 +71,45 @@ type Checkpoint struct {
 	// without one — see WriteAuto. It records what ran, never what was learned,
 	// so a reader must be able to tell it apart from an agent's own.
 	Auto bool
+	// Inferred is what a later agent read out of an auto record's transcript:
+	// what it verified, ruled out and decided, each citing the turn it came from.
+	// Kept apart from Verified, Failed and Decisions on purpose. Those are an
+	// agent's own testimony, and the next agent treats a failed entry as a
+	// paid-for ruling and will not re-try what it names; a reading of somebody
+	// else's transcript is not that, however good the reader. Nil until an
+	// agent distils the record.
+	Inferred *Inference
+	// Turns is how many turns the transcript behind an auto record held when
+	// the record was written or last grown, as its harness's reader counts
+	// them. A session can be resumed, and its transcript goes on past the
+	// record: without the count, a reading served "the transcript" would cover
+	// work this record never saw and put conclusions about it into this
+	// record. Zero on a record that could not count, which is then not served.
+	Turns int
 	// Redactions is what Commit masked before writing, so the caller can say
 	// so. Not written to the file: the file carries the marker in place.
 	Redactions []secret.Redaction
 	Slug       string // vault slug, set once written
 	TS         int64
+}
+
+// Inference is a distillation of an auto record's transcript. By and At say
+// who read it and when, because an unreviewed claim nobody can attribute is one
+// nobody can weigh.
+type Inference struct {
+	By       string
+	At       int64
+	Verified []string
+	Failed   []string
+	Decided  []string
+	// Turns is the record's Turns when it was read. A record that has grown
+	// past it holds work nobody read, and is offered for reading again.
+	Turns int
+}
+
+// Empty reports whether the distillation kept nothing.
+func (in *Inference) Empty() bool {
+	return in == nil || len(in.Verified)+len(in.Failed)+len(in.Decided) == 0
 }
 
 // CheckpointDir is where checkpoints live inside the vault. A visible folder,

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/transcript"
 )
 
 // endSession runs the note the SessionEnd hook runs, with its payload on stdin.
@@ -148,5 +150,37 @@ func TestTheHookRecordNamesTheSessionItCameFrom(t *testing.T) {
 	}
 	if !strings.Contains(c.State, "("+id+")") {
 		t.Errorf("the hook record does not name its session in full: %q", c.State)
+	}
+}
+
+// The hook writes its record without reading the transcript, so it has to say
+// how far the transcript ran when it did; without that count the record can
+// never be offered for reading, and a resumed session's later records could
+// not tell their turns from this one's.
+func TestTheHookRecordCountsTheTranscriptItCovers(t *testing.T) {
+	standIn(t, "elsewhere")
+	root := filepath.Join(t.TempDir(), "projects")
+	dir := filepath.Join(root, "-work-shop")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
+	lines := []string{
+		`{"type":"user","sessionId":"s-count","cwd":"/work/shop","timestamp":"2026-09-29T10:00:00Z","message":{"role":"user","content":"fix the checkout crash"}}`,
+		`{"type":"assistant","sessionId":"s-count","cwd":"/work/shop","timestamp":"2026-09-29T10:01:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./cart"}}]}}`,
+		`{"type":"user","sessionId":"s-count","cwd":"/work/shop","timestamp":"2026-09-29T10:02:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","is_error":false,"content":"ok"}]}}`,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "s-count.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-count","tool_name":"Bash","tool_input":{"command":"go test ./cart"}}`)
+	endSession(t, "s-count")
+
+	c, err := session.Latest(vaultPath(), "shop")
+	if err != nil || c == nil {
+		t.Fatalf("no checkpoint: %v", err)
+	}
+	if c.Turns != 2 {
+		t.Errorf("the hook record covers %d transcript turns, want the 2 the transcript holds", c.Turns)
 	}
 }

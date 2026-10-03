@@ -47,6 +47,16 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		return b.String(), nil
 	}
 
+	if ingest.IsRecordRef(ref) {
+		ev, err := ingest.AutoEvidenceFor(s.vault, ref, maxTurns)
+		if err != nil {
+			return "", err
+		}
+		s.rememberServed(ev.Record, maxTurns)
+		return s.receipt(fmt.Sprintf("served the transcript behind %s — %d turns of %s session %s", ev.Record, len(ev.Turns), ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))) +
+			"\n\n" + ev.Render(), nil
+	}
+
 	ev, err := ingest.EvidenceFor(s.vault, ref, maxTurns)
 	if err != nil {
 		return "", err
@@ -55,10 +65,7 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 	// citation to an abridged turn, which is only meaningful if the write half
 	// knows what the read half rendered — otherwise a long session is served in
 	// two hundred turns and validated against two thousand.
-	if s.served == nil {
-		s.served = map[string]int{}
-	}
-	s.served[ev.Candidate.SessionID] = maxTurns
+	s.rememberServed(ev.Candidate.SessionID, maxTurns)
 	return s.receipt(fmt.Sprintf("served the harvest for %s session %s", ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))) +
 		"\n\n" + ev.Render(), nil
 }
@@ -66,9 +73,12 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 // ingestDistil takes the distillation back, filters it, and rewrites the
 // candidate. Dropped claims are named: a distillation that lost half its
 // entries must read as one that lost half its entries (invariant 4).
-func (s *Session) ingestDistil(ref, model, next string, verified, failed, blockers []string) (string, error) {
+func (s *Session) ingestDistil(ref, model, next string, verified, failed, blockers, decided []string) (string, error) {
 	if strings.TrimSpace(ref) == "" {
 		return "", fmt.Errorf("ingest_distil needs the session it is distilling — call ingest_harvest first")
+	}
+	if ingest.IsRecordRef(ref) {
+		return s.distilRecord(ref, model, verified, failed, decided, len(blockers) > 0 || strings.TrimSpace(next) != "")
 	}
 	c, drops, redactions, err := ingest.AcceptWithin(s.vault, ref, s.servedWindow(ref), ingest.Distillation{
 		Model:    model,
@@ -99,8 +109,72 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 		}
 		b.WriteString("\n")
 	}
+	if n := len(decided); n > 0 {
+		fmt.Fprintf(&b, "%d decided entr%s not kept: a candidate has no place for them — a person promoting it records the decisions.\n\n", n, pluralY(n))
+	}
 	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  logos ingest review --promote %s\n", shortSession(c.SessionID))
 	return b.String(), nil
+}
+
+// distilRecord writes a distillation into the auto record it was served for.
+// The receipt counts what was kept and names what was dropped, and says what
+// was ignored: blockers and next have no inferred form, and a distillation
+// that quietly lost them would read as one that kept them.
+func (s *Session) distilRecord(ref, model string, verified, failed, decided []string, ignored bool) (string, error) {
+	// Looked up exactly, by the slug harvest stored it under: a prefix match
+	// here would hand one record the window another was served in.
+	slug := ingest.RecordSlug(ref)
+	c, drops, redactions, err := ingest.AcceptAuto(s.vault, slug, s.served[slug], ingest.Distillation{
+		Model:    model,
+		Verified: verified,
+		Failed:   failed,
+		Decided:  decided,
+	})
+	if err != nil {
+		return "", err
+	}
+	in := c.Inferred
+	var b strings.Builder
+	b.WriteString(s.receipt(fmt.Sprintf("inferred into %s — %d verified, %d didn't work, %d decided, marked as read from the transcript by %s, unverified",
+		c.Slug, len(in.Verified), len(in.Failed), len(in.Decided), in.By)))
+	b.WriteString("\n\n")
+	if len(redactions) > 0 {
+		fmt.Fprintf(&b, "%d secret-shaped token(s) redacted before writing:\n", len(redactions))
+		for _, r := range redactions {
+			fmt.Fprintf(&b, "  %s: %s\n", r.Field, r.Reason)
+		}
+		b.WriteString("\n")
+	}
+	if len(drops) > 0 {
+		fmt.Fprintf(&b, "%d claim(s) dropped by the citation filter:\n", len(drops))
+		for _, d := range drops {
+			fmt.Fprintf(&b, "  %s: %s — %s\n", d.Field, clipClaim(d.Claim), d.Reason)
+		}
+		b.WriteString("\n")
+	}
+	if ignored {
+		b.WriteString("blockers and next were not kept: an auto record carries only verified, failed and decided as inferred.\n\n")
+	}
+	b.WriteString("Resume shows these apart from what an agent stated, and before_you_try does not treat them as rulings.\n")
+	return b.String(), nil
+}
+
+func (s *Session) rememberServed(ref string, maxTurns int) {
+	// Remember how much of the session was actually shown. The filter refuses a
+	// citation to an abridged turn, which is only meaningful if the write half
+	// knows what the read half rendered — otherwise a long session is served in
+	// two hundred turns and validated against two thousand.
+	if s.served == nil {
+		s.served = map[string]int{}
+	}
+	s.served[ref] = maxTurns
+}
+
+func pluralY(n int) string {
+	if n == 1 {
+		return "y was"
+	}
+	return "ies were"
 }
 
 func clipClaim(s string) string {

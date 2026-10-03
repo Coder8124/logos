@@ -781,7 +781,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.ingestHarvest(argStr(args, "session"), argInt(args, "max_turns", 0))
 	case "ingest_distil":
 		return s.ingestDistil(argStr(args, "session"), argStr(args, "model"), argStr(args, "next"),
-			argList(args, "verified"), argList(args, "failed"), argList(args, "blockers"))
+			argList(args, "verified"), argList(args, "failed"), argList(args, "blockers"), argList(args, "decided"))
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

@@ -112,6 +112,7 @@ func autoRecord(s *transcript.Session, project string, at int64) (session.Checkp
 		State:      autoState(s),
 		Files:      h.Files,
 		Commands:   masked,
+		Turns:      len(s.Turns),
 		TS:         at,
 		Redactions: found,
 	}, true
