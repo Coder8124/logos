@@ -68,6 +68,12 @@ func Render(proposed string, hits []Ruling) string {
 		if h.Stale {
 			b.WriteString("  ⚠ possibly superseded — version-bound and old enough that the dependency it names may have moved since\n")
 		}
+		// After Stale and on its own line: the age says the world may have
+		// moved, this says the code it blamed did. Commit and paths are
+		// git's, but the paths are as the ruling spelled them, so inlined.
+		if h.Drift != nil {
+			fmt.Fprintf(&b, "  ⚠ %s\n", untrusted.Inline(h.Drift.Note()))
+		}
 	}
 
 	b.WriteString("\nBefore proposing this, say that it has been tried and what happened. ")

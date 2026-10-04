@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/project"
@@ -210,7 +211,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	inferredFromTranscript(&head, c)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
-	failures(&tail, "Already tried, didn't work", c.Failed)
+	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift)
 	list(&tail, "Still open", c.Questions)
 	list(&tail, "Files touched", c.Files)
 	// Predecessors' dead ends, attributed. Cheap — a line each — and the only
@@ -576,7 +577,11 @@ func (p *Pack) priorFailures() []string {
 			if who == "" {
 				who = "an earlier agent"
 			}
-			out = append(out, fmt.Sprintf("(%s) %s", who, flatten(f)))
+			line := fmt.Sprintf("(%s) %s", who, flatten(f))
+			if d := p.RulingDrift[k]; d != nil {
+				line += " — ⚠ " + d.Note()
+			}
+			out = append(out, line)
 		}
 	}
 	return out
@@ -1081,7 +1086,10 @@ func list(b *strings.Builder, heading string, items []string) {
 // now that vocabulary only ever reached before_you_try, so a handoff to another
 // tool delivered either the raw pipe-separated source text or a ruling nobody
 // could place. A free-prose entry still reads exactly as it did.
-func failures(b *strings.Builder, heading string, items []string) {
+//
+// A ruling whose named files changed since it was recorded keeps its line and
+// gains a second one saying so (see Pack.RulingDrift).
+func failures(b *strings.Builder, heading string, items []string, drift map[string]*gitstate.Drift) {
 	if len(items) == 0 {
 		return
 	}
@@ -1090,6 +1098,7 @@ func failures(b *strings.Builder, heading string, items []string) {
 		r := deadend.ParseRecord(it)
 		if !r.Typed() {
 			fmt.Fprintf(b, "- %s\n", inline(it))
+			driftLine(b, drift[normalizeKey(it)])
 			continue
 		}
 		fmt.Fprintf(b, "- %s", inline(r.Route))
@@ -1103,8 +1112,16 @@ func failures(b *strings.Builder, heading string, items []string) {
 			fmt.Fprintf(b, " — try instead: %s", inline(r.Alternative))
 		}
 		b.WriteString("\n")
+		driftLine(b, drift[normalizeKey(it)])
 	}
 	b.WriteString("\n")
+}
+
+func driftLine(b *strings.Builder, d *gitstate.Drift) {
+	if d != nil {
+		// The paths in the note were read out of vault text.
+		fmt.Fprintf(b, "  ⚠ %s\n", inline(d.Note()))
+	}
 }
 
 func dedup(in []string) []string {

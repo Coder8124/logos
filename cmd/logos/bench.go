@@ -44,3 +44,41 @@ func runBench(path string, n int, hybrid bool) error {
 	}
 	return nil
 }
+
+// runBenchQA runs the end-to-end LongMemEval pipeline — retrieve, answer,
+// grade — the metric actually comparable to another memory system's
+// published LongMemEval score, unlike runBench's recall@k.
+func runBenchQA(path string, n int, hybrid bool, depth int) error {
+	rt, err := openRouter()
+	if err != nil {
+		return err
+	}
+	embed, _ := rt.Model(router.T0)
+	genModel, err := rt.ModelFor(router.T1, false)
+	if err != nil {
+		return err
+	}
+	judgeModel, err := rt.ModelFor(router.T1, true)
+	if err != nil {
+		return err
+	}
+
+	mode := "hybrid (vector+BM25)"
+	if !hybrid {
+		mode = "vector-only"
+	}
+	fmt.Printf("· LongMemEval QA accuracy over %d instances · %s · gen %s · judge %s\n", n, mode, genModel, judgeModel)
+	results, err := memory.RunLongMemEvalQA(rt.Local(), embed, genModel, judgeModel, path, n, hybrid, depth, func(done, total int) {
+		fmt.Printf("\r  %d/%d …", done, total)
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\r%40s\r", "")
+
+	fmt.Printf("\n%-26s %8s %6s\n", "category", "accuracy", "n")
+	for _, r := range results {
+		fmt.Printf("%-26s %7.1f%% %6d\n", r.Category, r.Accuracy()*100, r.N)
+	}
+	return nil
+}

@@ -115,6 +115,12 @@ type Pack struct {
 	// until this was rendered the pack printed it with nothing to compare it
 	// against — though the sha was in hand and the tree was one rev-parse away.
 	Drifted *gitstate.State `json:"drifted,omitempty"`
+	// RulingDrift holds, by normalizeKey of the ruling's text, the dead ends
+	// whose named files changed after the commit they were recorded at. Kept
+	// in the pack rather than dropped: a ruling about a rewritten file may
+	// still hold, and the reader is the one who can tell — but only if it is
+	// told the file moved.
+	RulingDrift map[string]*gitstate.Drift `json:"ruling_drift,omitempty"`
 	// Reader is who asked, when the caller said. See Request.Agent.
 	Reader string `json:"reader,omitempty"`
 
@@ -278,6 +284,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	p.Reader = req.Agent
 	p.noteDrift(req.Dir)
+	p.markRulings(req.Dir)
 	// Uncommitted notes get no such fallback. A checkpoint is a finished record
 	// of where the codebase was; an open note is another agent's live work in
 	// another tree, and presenting that as this session's own progress is
@@ -852,6 +859,37 @@ func (p *Pack) noteDrift(dir string) {
 		return
 	}
 	p.Drifted = &gitstate.State{Branch: branch, Commit: commit}
+}
+
+// markRulings measures each handed-over dead end against the commit its
+// checkpoint recorded. Newest first, so a ruling restated in a later
+// checkpoint is measured from the later commit — the one it was last
+// confirmed at.
+func (p *Pack) markRulings(dir string) {
+	if p.Checkpoint == nil {
+		return
+	}
+	a := gitstate.NewAnchors(dir)
+	if a == nil {
+		return
+	}
+	cps := append([]session.Checkpoint{*p.Checkpoint}, p.History...)
+	for _, c := range cps {
+		for _, f := range c.Failed {
+			k := normalizeKey(f)
+			if _, done := p.RulingDrift[k]; done {
+				continue
+			}
+			d, ok := a.Since(c.Git.Commit, f)
+			if !ok {
+				continue
+			}
+			if p.RulingDrift == nil {
+				p.RulingDrift = map[string]*gitstate.Drift{}
+			}
+			p.RulingDrift[k] = &d
+		}
+	}
 }
 
 // IntentFrom names the earlier checkpoint a reason was inherited from, so the
