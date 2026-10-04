@@ -76,10 +76,12 @@ func numeric(s string) bool {
 
 // Akin reports whether two words are the same term in different clothes.
 //
-// A shared prefix of five characters catches the inflections that matter —
-// manufactures/manufacturer, proposal/proposals, quote/quoted — without pulling
-// in a stemmer. Exact matching missed all of them, and a question asked in the
-// user's words rarely uses the same inflection as the note that answers it.
+// One word being a prefix of the other, at least five characters long, catches
+// the inflections that add a suffix — proposal/proposals, quote/quoted,
+// manufacture/manufacturer — without pulling in a stemmer. Exact matching
+// missed all of them, and a question asked in the user's words rarely uses the
+// same inflection as the note that answers it. Two words that both change the
+// ending, manufactures/manufacturer, are not akin.
 func Akin(a, b string) bool {
 	if a == b {
 		return true

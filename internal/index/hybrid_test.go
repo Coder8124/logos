@@ -61,6 +61,25 @@ func TestLexicalFindsExactToken(t *testing.T) {
 	}
 }
 
+func TestAWordWithANonASCIILetterIsFoundAsWritten(t *testing.T) {
+	ix := newTestIndex(t)
+	seed(t, ix, "ideas/naive", "Naïve Bayes", "a naïve baseline before the café survey")
+	seed(t, ix, "trips/greece", "Trip", "two weeks in Ελλάδα")
+	// The ASCII remnants of each word, so a query that drops the accented
+	// letter matches this note instead and the failure is a wrong answer.
+	seed(t, ix, "ideas/other", "Other", "na ve caf")
+
+	for q, want := range map[string]string{"naïve": "ideas/naive", "café": "ideas/naive", "Ελλάδα": "trips/greece"} {
+		got, err := ix.lexical(q, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) == 0 || got[0] != want {
+			t.Errorf("searching %q should surface %s first, got %v", q, want, got)
+		}
+	}
+}
+
 func TestFtsQueryStripsPunctuation(t *testing.T) {
 	// A query full of FTS syntax characters must not error — it should reduce to
 	// a safe OR of the real tokens.
