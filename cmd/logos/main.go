@@ -192,14 +192,12 @@ func main() {
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve":
 		serveTools = toolSetFrom(args)
 		err = runMCPServe()
+	case cmd == "bench" && len(args) >= 2 && args[0] == "memory" && hasFlag(args, "--qa"):
+		err = runBenchQA(args[1], flagInt(args, "--n", 100), !hasFlag(args, "--vector"), flagInt(args, "--depth", 5))
 	case cmd == "bench" && len(args) >= 2 && args[0] == "memory":
 		err = runBench(args[1], flagInt(args, "--n", 100), !hasFlag(args, "--vector"))
 	case cmd == "bench" && len(args) >= 1 && args[0] == "pipeline":
 		err = runPipelineBench()
-	case cmd == "bench" && len(args) >= 2 && args[0] == "continuity" && args[1] == "list":
-		err = listBenchScenarios(flagStr(args, "--only", ""))
-	case cmd == "bench" && len(args) >= 1 && args[0] == "continuity":
-		err = runContinuityBench(args[1:])
 	case cmd == "graph":
 		hops := flagInt(args, "--hops", 0)
 		if hops == 0 {
