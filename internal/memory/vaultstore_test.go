@@ -442,3 +442,47 @@ func TestTheUsageSignalSurvivesDeletingTheIndex(t *testing.T) {
 		t.Errorf("last_used came back as %d, not %d — decay restarts from created", all[0].LastUsed, used)
 	}
 }
+
+// A stamp says "this file's bytes are ones this handle wrote, so its lines are
+// already rows". SetVault forgot that claim on unbind but kept it on a rebind,
+// so a handle moved to a second vault carried claims about the first. When the
+// second vault's file had the same bytes — a copied vault — the next write
+// skipped adopting it and rewrote the file from rows that never held its
+// lines, deleting them from the vault without a word.
+func TestRebindingToAnotherVaultDoesNotTrustTheFirstVaultsStamps(t *testing.T) {
+	db, first := vaultDB(t)
+	m := Memory{Text: "The staging cluster has no rollback", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+
+	second := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(second, Dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(first, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, Dir, "fact.md"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The handle's rows are not the second vault's: it has never read it.
+	if _, err := db.Exec(`DELETE FROM memories`); err != nil {
+		t.Fatal(err)
+	}
+
+	SetVault(db, second)
+	next := Memory{Text: "Deploys go out on Tuesdays", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &next); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(second, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "staging cluster has no rollback") {
+		t.Errorf("the second vault's own line was deleted by a write trusting the first vault's stamp:\n%s", got)
+	}
+}
