@@ -84,3 +84,38 @@ func TestOneHomebrewInstallFirstOnPathReportsNothing(t *testing.T) {
 		t.Errorf("a single install was reported as two: %+v", c)
 	}
 }
+
+// Doctor asks another install its version by running it, and every logos does
+// its startup work before it reads its arguments. A 0.4.x logos's startup
+// adopts ~/brain, writing the vault pointer and renaming .brain, so a 0.5.0
+// doctor next to an old Homebrew logos changed the user's vault by looking.
+func TestAskingAnotherInstallItsVersionCannotTouchTheUsersHomeOrVault(t *testing.T) {
+	prefix := t.TempDir()
+	cellar := filepath.Join(prefix, "Cellar", "logos-mcp", "0.4.9", "bin", "logos")
+	brewAt(t, prefix, "0.4.9")
+	// The old install's startup, as far as this test cares: it writes into
+	// whatever home and vault its environment names, then answers.
+	script := "#!/bin/sh\n" +
+		"mkdir -p \"$HOME/brain\" && touch \"$HOME/brain/adopted\"\n" +
+		"[ -n \"$LOGOS_VAULT\" ] && touch \"$LOGOS_VAULT/touched\"\n" +
+		"[ -n \"$BRAIN_VAULT\" ] && touch \"$BRAIN_VAULT/touched\"\n" +
+		"echo \"logos v0.4.9 darwin/arm64\"\n"
+	if err := os.WriteFile(cellar, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home, vault := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LOGOS_VAULT", vault)
+	t.Setenv("BRAIN_VAULT", vault)
+	self := fakeLogos(t, filepath.Join(t.TempDir(), ".local", "bin", "logos"), "0.5.0")
+
+	c := CheckOtherInstall(self, "v0.5.0")
+	if !strings.Contains(c.Detail, "0.4.9") {
+		t.Fatalf("the Homebrew install's version was not read: %+v", c)
+	}
+	for _, p := range []string{filepath.Join(home, "brain"), filepath.Join(vault, "touched")} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("running the other install to read its version wrote %s", p)
+		}
+	}
+}

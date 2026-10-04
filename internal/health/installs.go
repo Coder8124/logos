@@ -80,13 +80,46 @@ func HomebrewInstall(self string) (path, version string) {
 
 // logosVersion is what a logos at path answers to --version. Bounded, because
 // the file may be any program with that name.
+//
+// It runs in a home of its own with no vault named. Every logos does its
+// startup work before it reads its arguments, and a 0.4.x logos's startup
+// adopts ~/brain — it writes the vault pointer and renames .brain — so asking
+// an old Homebrew install its version changed the user's vault. A version
+// answer needs none of the user's state.
 func logosVersion(path string) (string, bool) {
+	home, err := os.MkdirTemp("", "logos-probe-")
+	if err != nil {
+		return "", false
+	}
+	defer os.RemoveAll(home)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.Env = probeEnv(home)
+	out, err := cmd.Output()
 	fields := strings.Fields(string(out))
 	if err != nil || len(fields) < 2 || fields[0] != "logos" {
 		return "", false
 	}
 	return strings.TrimPrefix(fields[1], "v"), true
+}
+
+// probeEnv is this process's environment with home, config and data dirs
+// pointed at home and every LOGOS_ and BRAIN_ variable removed: those name a
+// vault, a runtime or a host to wire, and the probe must reach none of them.
+func probeEnv(home string) []string {
+	homeVars := map[string]bool{"HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true,
+		"XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_STATE_HOME": true, "XDG_CACHE_HOME": true}
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if homeVars[strings.ToUpper(k)] || strings.HasPrefix(k, "LOGOS_") || strings.HasPrefix(k, "BRAIN_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	for k := range homeVars {
+		env = append(env, k+"="+home)
+	}
+	return env
 }
