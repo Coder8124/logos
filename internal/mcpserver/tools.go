@@ -238,7 +238,7 @@ var toolDefs = []map[string]any{
 	{
 		"name":        "ingest_distil",
 		"annotations": writes(false, true),
-		"description": "Send back your distillation of a session served by ingest_harvest: what was verified, what didn't work, what's next. Every verified and failed entry must name the turn it came from (\"turn 12\"), and a verified entry needs a successful command or tool result in that turn — uncited or unsupported entries are dropped and reported. For a queued session it writes a candidate for the user to review, never a checkpoint; for an auto record it writes verified, failed and decided into that record as inferred from the transcript, shown apart from what an agent stated." + relay,
+		"description": "Send back your distillation of a session served by ingest_harvest: what was verified, what didn't work, what's next. Every verified and failed entry must name the turn it came from (\"turn 12\"), and a verified entry needs a command that ran successfully in that turn (a file edit is not one) — uncited or unsupported entries are dropped and reported. For a queued session it writes a candidate for the user to review, never a checkpoint; for an auto record it writes verified, failed and decided into that record as inferred from the transcript, shown apart from what an agent stated." + relay,
 		"inputSchema": obj(map[string]any{
 			"session":  str("the session id or auto record path you were served"),
 			"verified": arrStr("what the session actually established, each entry citing its turn, e.g. 'the suite passes after the region fix (turn 14)'"),

@@ -90,8 +90,8 @@ func citedTurns(claim string) []int {
 //   - Every claim names a turn. No turn number, no entry.
 //   - The turn must exist and must have been served: a citation to an abridged
 //     turn is a citation to evidence the distiller never saw.
-//   - A `verified` entry additionally needs an observed successful tool result
-//     in one of its cited turns. The distiller may summarise evidence; it may
+//   - A `verified` entry additionally needs an observed successful command in
+//     one of its cited turns. The distiller may summarise evidence; it may
 //     not supply it. "The build passes" backed only by an assistant saying so is
 //     the exact claim that makes the next agent skip running the build.
 //
@@ -126,7 +126,13 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				}
 				ok = true
 				t := ev.Turns[n-1]
-				if t.Role == "tool" && t.Status == "ok" {
+				// Only a command that ran demonstrates anything. A successful
+				// Edit proves the file was written, and "the crash is gone"
+				// citing one was kept as verified. Matching the shell names
+				// rather than excluding the edit names fails safe: a tool not
+				// on the list costs a claim, a missed edit name would let one
+				// through.
+				if t.Role == "tool" && t.Status == "ok" && isShellTool(t.Tool) {
 					sawSuccess = true
 				}
 			}
@@ -135,7 +141,7 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				continue
 			}
 			if needSuccess && !sawSuccess {
-				drops = append(drops, Drop{field, claim, "cites no turn holding a successful command or tool result"})
+				drops = append(drops, Drop{field, claim, "cites no turn holding a command that ran successfully — a file edit or read is not a demonstration"})
 				continue
 			}
 			kept = append(kept, claim)
@@ -295,14 +301,14 @@ func (ev Evidence) Render() string {
 	if ev.Record != "" {
 		fmt.Fprintf(&b, "Distil this into verified / failed / decided and send it back with ingest_distil, session %q.\n", ev.Record)
 		b.WriteString("Every verified, failed and decided entry must name the turn it came from, as \"turn 12\".\n")
-		b.WriteString("A verified entry needs a successful command or tool result in the turn it cites;\n")
+		b.WriteString("A verified entry needs a command that ran successfully in the turn it cites — a file edit is not one;\n")
 		b.WriteString("an assistant saying something worked is not an observation of it working.\n")
 		b.WriteString("Uncited entries are dropped before anything is written, and what is kept is shown as inferred, never as the session's own record.\n")
 		return b.String()
 	}
 	b.WriteString("Distil this into verified / failed / next and send it back with ingest_distil.\n")
 	b.WriteString("Every verified and failed entry must name the turn it came from, as \"turn 12\".\n")
-	b.WriteString("A verified entry needs a successful command or tool result in the turn it cites;\n")
+	b.WriteString("A verified entry needs a command that ran successfully in the turn it cites — a file edit is not one;\n")
 	b.WriteString("an assistant saying something worked is not an observation of it working.\n")
 	b.WriteString("Uncited entries are dropped before anything is written.\n")
 	return b.String()

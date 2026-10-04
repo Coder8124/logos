@@ -333,3 +333,29 @@ func TestAcceptValidatesAgainstTheWindowThatWasServed(t *testing.T) {
 		t.Fatalf("a claim about an unshown turn was written: failed=%v drops=%+v", c.Failed, drops)
 	}
 }
+
+// A file edit that succeeded proves the file was written, not that anything it
+// changed works. A real distillation kept "the crash is gone (turn 2)" where
+// turn 2 was a Claude Code Edit with status ok, and the next agent would have
+// read that as a demonstration and skipped the test run that was never made.
+func TestAVerifiedClaimCitingOnlyASuccessfulFileEditIsDropped(t *testing.T) {
+	ev := ingest.Evidence{
+		Turns: []transcript.Turn{
+			{Role: "user", Text: "fix the crash on an empty cart"},
+			{Role: "tool", Tool: "Edit", Input: "internal/cart/cart.go", Status: "ok"},
+			{Role: "tool", Tool: "Bash", Input: "go test ./internal/cart", Status: "ok"},
+		},
+		Served: map[int]bool{1: true, 2: true, 3: true},
+	}
+
+	got, drops := ingest.Filter(ev, ingest.Distillation{
+		Verified: []string{"the crash is gone (turn 2)", "the cart tests pass (turn 3)"},
+	})
+
+	if len(got.Verified) != 1 || !strings.Contains(got.Verified[0], "turn 3") {
+		t.Fatalf("verified = %v, want only the claim citing the command that ran", got.Verified)
+	}
+	if len(drops) != 1 || !strings.Contains(drops[0].Claim, "turn 2") {
+		t.Fatalf("drops = %+v, want the edit-only claim reported", drops)
+	}
+}
