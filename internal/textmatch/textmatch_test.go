@@ -31,6 +31,10 @@ func TestAkinMatchesInflectionsButNotShortWords(t *testing.T) {
 	if Akin("cart", "carton") {
 		t.Error(`Akin("cart", "carton") = true, want false`)
 	}
+	// The comment once promised this pair; the prefix rule never matched it.
+	if Akin("manufactures", "manufacturer") {
+		t.Error(`Akin("manufactures", "manufacturer") = true, want false — update the comment if this changes`)
+	}
 }
 
 // Jaccard scored this pair at 0.29, so a superseded price was handed over as

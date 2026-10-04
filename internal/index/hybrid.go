@@ -3,6 +3,7 @@ package index
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -116,11 +117,15 @@ func (ix *Index) memoryHits(p *provider.Provider, model, query string, k int) []
 // The tokenizer indexed WG-4471 as wg then 4471, so gluing the query into
 // "WG4471" matched nothing; the phrase "WG 4471" matches the identifier as a
 // unit, and not a note that only has wg and 4471 apart.
+//
+// A letter is any letter, not just ASCII: unicode61 indexes café and naïve as
+// whole words, and an ASCII-only split turned the query into "caf" and "na ve",
+// which never matched them — and did match a note with those fragments.
 func ftsQuery(q string) string {
 	var tokens []string
 	for _, f := range strings.Fields(q) {
 		pieces := strings.FieldsFunc(f, func(r rune) bool {
-			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+			return !(unicode.IsLetter(r) || unicode.IsDigit(r))
 		})
 		if len(strings.Join(pieces, "")) > 1 {
 			tokens = append(tokens, `"`+strings.Join(pieces, " ")+`"`)
