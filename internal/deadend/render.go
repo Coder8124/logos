@@ -27,8 +27,7 @@ import (
 // memory that helps.
 func Render(proposed string, hits []Ruling) string {
 	if len(hits) == 0 {
-		return fmt.Sprintf("No record of anyone trying %q. Nothing in the vault rules it out — "+
-			"which is not the same as it being a good idea, only that it is not a repeat.\n",
+		return fmt.Sprintf("No record of anyone trying %q: not a repeat, which is not the same as it being a good idea.\n",
 			oneLine(proposed))
 	}
 

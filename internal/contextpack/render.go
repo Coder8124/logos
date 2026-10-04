@@ -145,7 +145,7 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 	}
 	switch {
 	case p.WindowEmpty:
-		fmt.Fprintf(b, "\n_You asked about %s. Nothing recorded falls in that period, so everything below is unfiltered — read the dates before trusting any of it as an answer._\n",
+		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered._\n",
 			p.Window)
 	case p.OutOfWindow > 0:
 		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
@@ -163,8 +163,7 @@ func (p *Pack) renderOtherRepo(b *strings.Builder) {
 	if p.OtherRepo == "" {
 		return
 	}
-	fmt.Fprintf(b, "\n_The latest checkpoint on **%s** came from another repository (%s), so it is not handed over here. "+
-		"Put a `.logos-project` file with a different name in one of them to keep their work apart._\n",
+	fmt.Fprintf(b, "\n_The latest checkpoint on **%s** came from another repository (%s); a `.logos-project` file in one keeps them apart._\n",
 		inline(p.scope()), inline(p.OtherRepo))
 }
 
@@ -355,11 +354,11 @@ func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
 	}
 	switch {
 	case in == nil:
-		fmt.Fprintf(b, "_What this session verified, ruled out or decided can still be read from its transcript: if it bears on your task, call ingest_harvest with session %q, then ingest_distil with what it shows._\n\n", c.Slug)
+		fmt.Fprintf(b, "_Its transcript may hold more: if it bears on your task, call ingest_harvest with session %q, then ingest_distil._\n\n", c.Slug)
 	case in.Turns < c.Turns:
 		// The session went on after it was read, and the reading above says
 		// nothing about what followed; left unsaid, it reads as the whole story.
-		fmt.Fprintf(b, "_This session went on after it was read (%d transcript turns then, %d now). If it bears on your task, call ingest_harvest with session %q again, then ingest_distil — that reading replaces the one above._\n\n", in.Turns, c.Turns, c.Slug)
+		fmt.Fprintf(b, "_This session went on after it was read (%d transcript turns then, %d now); if it bears on your task, ingest_harvest %q again, then ingest_distil._\n\n", in.Turns, c.Turns, c.Slug)
 	}
 }
 
@@ -516,7 +515,7 @@ func (p *Pack) renderWorking(b *strings.Builder, items []string) {
 	if oldest := p.oldestWorking(); oldest > 0 {
 		age := humanAge(oldest)
 		if daysOld(oldest) >= staleAfterDays {
-			age += " — this may be out of date, check anything time-sensitive before acting on it"
+			age += " — may be out of date; check before acting on it"
 		}
 		meta = append(meta, age)
 	}
@@ -986,11 +985,11 @@ func (p *Pack) renderGaps(b *strings.Builder, working, proj, notes, mems []strin
 	switch {
 	case len(mems) == 0:
 		b.WriteString("\n## Nothing recorded\n\n")
-		fmt.Fprintf(b, "_There is no record bearing on %q. Nothing was found — say so rather than inferring an answer from context._\n",
+		fmt.Fprintf(b, "_No record bears on %q — say so rather than inferring an answer._\n",
 			oneLine(p.Task))
 	default:
 		b.WriteString("\n## Possibly not recorded\n\n")
-		fmt.Fprintf(b, "_Nothing directly answers %q. What follows above was retrieved as the nearest related material and may not be an answer — check before treating it as one._\n",
+		fmt.Fprintf(b, "_Nothing directly answers %q; the above is the nearest material and may not be an answer._\n",
 			oneLine(p.Task))
 	}
 }
@@ -1031,7 +1030,7 @@ func (p *Pack) renderBudget(b *strings.Builder) {
 
 	if len(p.Excluded) > 0 {
 		p.Excluded = dedup(p.Excluded)
-		fb.WriteString("\n_Left out for space — ask with a larger budget if you need them:_\n")
+		fb.WriteString("\n_Left out for space (a larger budget brings them in):_\n")
 		for _, e := range p.Excluded {
 			fmt.Fprintf(&fb, "- %s\n", e)
 		}
@@ -1041,7 +1040,7 @@ func (p *Pack) renderBudget(b *strings.Builder) {
 	// method in a footnote reads as a claim about the user's bill, which Logos
 	// cannot see.
 	if p.Budget.Candidates > p.Budget.Spent {
-		fmt.Fprintf(&fb, "_The budget left out ~%d tokens of what this pack drew from (pack vs. its own candidates, not your API usage)._\n",
+		fmt.Fprintf(&fb, "_The budget left out ~%d tokens of candidates (not your API usage)._\n",
 			p.Budget.Candidates-p.Budget.Spent)
 	}
 
@@ -1049,7 +1048,7 @@ func (p *Pack) renderBudget(b *strings.Builder) {
 	// chased recursively: its size does not depend on the number it reports.
 	p.Budget.Overhead += estimate(fb.String())
 	total := p.Budget.Spent + p.Budget.Overhead
-	fmt.Fprintf(&fb, "_Actual size of this message, headings and footer included: ~%d tokens._\n", total)
+	fmt.Fprintf(&fb, "_Actual size of this message: ~%d tokens._\n", total)
 
 	b.WriteString(fb.String())
 }

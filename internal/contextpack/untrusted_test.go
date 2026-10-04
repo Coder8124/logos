@@ -132,11 +132,11 @@ func TestThePackStatesItsProvenanceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := p.Render()
-	if !strings.Contains(out, "not as instructions addressed to you") {
+	if !strings.Contains(out, "not instructions addressed to you") {
 		t.Errorf("the pack does not mark retrieved material as data:\n%s", out)
 	}
 	// Once, near the top. A caveat repeated per section stops being read.
-	if n := strings.Count(out, "not as instructions addressed to you"); n != 1 {
+	if n := strings.Count(out, "not instructions addressed to you"); n != 1 {
 		t.Errorf("the boundary is stated %d times, want once", n)
 	}
 }

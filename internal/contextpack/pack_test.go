@@ -795,7 +795,7 @@ func TestAnEmptyWindowIsAbandonedRatherThanApplied(t *testing.T) {
 	if !strings.Contains(out, "drop test") {
 		t.Errorf("an empty window suppressed the pack instead of standing down:\n%s", out)
 	}
-	if !strings.Contains(out, "Nothing recorded falls in that period") {
+	if !strings.Contains(out, "so this is unfiltered") {
 		t.Errorf("the render does not say the period was empty:\n%s", out)
 	}
 }
@@ -827,7 +827,7 @@ func TestAWindowHoldingTheCheckpointIsNotReportedEmpty(t *testing.T) {
 		t.Errorf("the older note was not set aside and counted: out=%d working=%d", p.OutOfWindow, len(p.Working))
 	}
 	out := p.Render()
-	if strings.Contains(out, "Nothing recorded falls in that period") {
+	if strings.Contains(out, "so this is unfiltered") {
 		t.Errorf("the render calls the period empty above a checkpoint inside it:\n%s", out)
 	}
 	if !strings.Contains(out, "wire the auth route") {

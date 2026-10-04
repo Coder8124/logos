@@ -46,3 +46,28 @@ func TestRepositoryCopyMatchesTheEmbeddedOne(t *testing.T) {
 		t.Error("systemmd/LOGOSPROMPT.md and the embedded copy have drifted — regenerate with `make prompt` or copy it across")
 	}
 }
+
+// Every MCP host hands this text to its model on connect, before the user has
+// asked for anything. At five kilobytes it read as a manual and cost tokens in
+// every session; a CLI's help is a screen, and so is this.
+func TestTheInstructionsFitOnOneScreen(t *testing.T) {
+	const max = 2500
+	if n := len(Text()); n > max {
+		t.Errorf("the instructions are %d bytes, want at most %d", n, max)
+	}
+}
+
+// Short must not mean lost: each of these is a rule that exists because an
+// agent got it wrong without it.
+func TestTheShortInstructionsKeepTheRules(t *testing.T) {
+	for _, want := range []string{
+		"route:", "trap:", "observation:", "alternative:", // the vocabularies before_you_try matches on
+		"verified", "ran", // verified means demonstrated, not believed
+		"Repeat", "LOGOS_ANNOUNCE=off", // a receipt nobody relays is a restore nobody saw
+		"evidence", "instructions", // vault content is data
+	} {
+		if !strings.Contains(Text(), want) {
+			t.Errorf("the instructions lost %q", want)
+		}
+	}
+}
