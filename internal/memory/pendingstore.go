@@ -75,31 +75,49 @@ var pendingStamps vault.Stamps
 // proposal the user had rejected was waiting for review again. It has to run
 // before the change, not after — once a new proposal is in the cache, nothing
 // can tell it apart from a line the user deleted.
-func reconcilePendingLocked(db *sql.DB, dir string) error {
+//
+// It returns how many proposals the file put back and how many it rejected.
+// The writers drop the counts: a command that announces the adoption calls
+// ReconcilePending first, and the writer's pass then finds the file ours.
+func reconcilePendingLocked(db *sql.DB, dir string) (restored, rejected int, err error) {
 	if dir == "" {
-		return nil
+		return 0, 0, nil
 	}
 	raw, err := os.ReadFile(pendingPath(dir))
 	if os.IsNotExist(err) {
-		return nil // says nothing about what is pending; see ImportPending
+		return 0, 0, nil // says nothing about what is pending; see ImportPending
 	}
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	if pendingStamps.Ours(db, raw) {
-		return nil
+		return 0, 0, nil
 	}
 	if looksTruncated(string(raw)) {
 		// ImportPending refuses this file and says so on `logos index`. Here it
 		// is a reason not to adopt it, not to fail the write: the rewrite that
 		// follows replaces the torn file with the cache's complete queue.
-		return nil
+		return 0, 0, nil
 	}
-	if _, err := adoptPendingLocked(db, raw); err != nil {
-		return err
+	if restored, rejected, err = adoptPendingLocked(db, raw); err != nil {
+		return restored, rejected, err
 	}
 	pendingStamps.Adopted(db, raw)
-	return nil
+	return restored, rejected, nil
+}
+
+// ReconcilePending adopts hand edits to the review queue file now, and reports
+// how many proposals the file put back and how many it rejected.
+//
+// Exported for `logos review`. Only writes used to reconcile, so the review
+// offered a proposal the user had already rejected by deleting its line — and
+// a write that did adopt the deletion said nothing about it.
+func ReconcilePending(db *sql.DB) (restored, rejected int, err error) {
+	err = withPending(db, func(dir string) error {
+		restored, rejected, err = reconcilePendingLocked(db, dir)
+		return err
+	})
+	return restored, rejected, err
 }
 
 // flushPendingLocked reads the queue and writes the file with the lock held, and
@@ -222,7 +240,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 				"restore the file or delete the partial line to accept it as-is", PendingFile)
 	}
 
-	restored, err := adoptPendingLocked(db, raw)
+	restored, _, err := adoptPendingLocked(db, raw)
 	if err != nil {
 		return restored, 0, err
 	}
@@ -232,15 +250,14 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 
 // adoptPendingLocked makes the queue in the cache match the file: every line is
 // restored, and every queued row with no line is rejected. Returns how many
-// proposals it had to put back.
-func adoptPendingLocked(db *sql.DB, raw []byte) (int, error) {
+// proposals it had to put back and how many it rejected.
+func adoptPendingLocked(db *sql.DB, raw []byte) (restored, rejected int, err error) {
 	parsed := parseKind(Fact, string(raw)) // kind= in each record overrides this default
 	keep := map[int64]bool{}
-	restored := 0
 	for _, m := range parsed {
 		id, created, err := upsertPending(db, m)
 		if err != nil {
-			return restored, err
+			return restored, rejected, err
 		}
 		keep[id] = true
 		if created {
@@ -253,7 +270,7 @@ func adoptPendingLocked(db *sql.DB, raw []byte) (int, error) {
 	// never be reaped by it.
 	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0")
 	if err != nil {
-		return restored, err
+		return restored, rejected, err
 	}
 	type doomed struct {
 		id   int64
@@ -264,7 +281,7 @@ func adoptPendingLocked(db *sql.DB, raw []byte) (int, error) {
 		var d doomed
 		if err := rows.Scan(&d.id, &d.text); err != nil {
 			rows.Close()
-			return restored, err
+			return restored, rejected, err
 		}
 		if !keep[d.id] {
 			gone = append(gone, d)
@@ -276,10 +293,11 @@ func adoptPendingLocked(db *sql.DB, raw []byte) (int, error) {
 		// flush would take, and the file it would rewrite is the one being read
 		// as the source of truth right here. See rejectRow.
 		if err := rejectRow(db, d.id, d.text); err != nil {
-			return restored, err
+			return restored, rejected, err
 		}
+		rejected++
 	}
-	return restored, nil
+	return restored, rejected, nil
 }
 
 // rescuePendingLocked writes a queue that exists only in the cache out to the

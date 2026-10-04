@@ -107,7 +107,7 @@ func Accept(db *sql.DB, id int64) error {
 		// The queue file is rewritten below too, so its hand edits are adopted
 		// first, under its lock, for the reason reconcilePendingLocked gives.
 		return withPending(db, func(dir string) error {
-			if err := reconcilePendingLocked(db, dir); err != nil {
+			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
 				return err
 			}
 			res, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ? AND quarantined = 1", id)
@@ -156,7 +156,7 @@ func Reject(db *sql.DB, id int64) error {
 	// rewrite regenerates the file from the queue, so a second rejection landing
 	// between them would write a file that still lists this one.
 	return withPending(db, func(dir string) error {
-		if err := reconcilePendingLocked(db, dir); err != nil {
+		if _, _, err := reconcilePendingLocked(db, dir); err != nil {
 			return err
 		}
 		// Already rejected by the hand edit just adopted: the outcome the

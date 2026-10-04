@@ -361,7 +361,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		// insert, and the queue lock held from there through the write.
 		var rec Receipt
 		err := withPending(db, func(dir string) error {
-			if err := reconcilePendingLocked(db, dir); err != nil {
+			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
 				return err
 			}
 			var err error
