@@ -121,7 +121,11 @@ func filesInCommand(cmd string) []string {
 		if strings.HasPrefix(tok, "-") {
 			continue
 		}
-		if !strings.Contains(tok, "/") && !hasSourceExt(tok) {
+		// A slash alone is not a file: `go test ./cart`, `cd /repo` and a sed
+		// expression all have one and name a package, a directory and a
+		// substitution. A file at the end of a path has an extension; one
+		// without is lost here, which costs a bullet the command line still shows.
+		if !hasSourceExt(tok) && !(strings.Contains(tok, "/") && len(path.Ext(tok)) > 1) {
 			continue
 		}
 		if strings.ContainsAny(tok, "*?$`") {

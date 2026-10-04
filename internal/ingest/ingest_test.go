@@ -425,3 +425,22 @@ func TestACandidateWhoseTimestampCannotBeReadSaysSoInsteadOfLookingHealthy(t *te
 		t.Error("a candidate with no timestamps at all was reported as damaged")
 	}
 }
+
+// `go test ./cart` names a package, not a file. Taking every argument with a
+// slash in it as a file put "cart" in a record's Files beside the cart.go that
+// was actually edited, and the next agent reads Files as what was touched.
+func TestAPackageArgumentToACommandIsNotListedAsATouchedFile(t *testing.T) {
+	c := ingest.Harvest(&transcript.Session{
+		Harness: "claude-code",
+		ID:      "s",
+		Turns: []transcript.Turn{
+			{Role: "tool", Tool: "Edit", Input: "/Users/alice/shop/cart/cart.go", Status: "ok"},
+			{Role: "tool", Tool: "Bash", Input: "cd /Users/alice/shop && go test ./cart ./internal/... && sed -i '' s/a/b/ cart/notes.md", Status: "ok"},
+		},
+	})
+
+	want := []string{"/Users/alice/shop/cart/cart.go", "cart/notes.md"}
+	if strings.Join(c.Files, " ") != strings.Join(want, " ") {
+		t.Fatalf("files = %v, want %v — only what a command names as a file", c.Files, want)
+	}
+}
