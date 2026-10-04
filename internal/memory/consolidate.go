@@ -3,6 +3,7 @@ package memory
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"time"
@@ -190,6 +191,13 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	gone := map[int64]bool{}
 	const gate = 0.80
 
+	// A refused write stops the pass rather than being counted: the counts were
+	// reported as "merged N" whether or not the UPDATE went through, so a
+	// database that refused every write produced a success receipt over a store
+	// nothing had changed. What did go through is still flushed below, and the
+	// error comes back with those counts.
+	var werr error
+pairs:
 	for i := 0; i < len(mems); i++ {
 		if gone[mems[i].ID] {
 			continue
@@ -223,9 +231,9 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 				if older.Salience >= newer.Salience {
 					keep, drop = older, newer
 				}
-				db.Exec("UPDATE memories SET salience = ?, confidence = MIN(1.0, confidence + 0.05), uses = uses + ? WHERE id = ?",
-					math.Min(1, keep.Salience+0.1), drop.Uses, keep.ID)
-				db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", keep.ID, drop.ID)
+				if werr = mergeInto(db, keep, drop); werr != nil {
+					break pairs
+				}
 				logEvent(db, keep.ID, EvMerged, keep.Text, drop.ID)
 				logEvent(db, drop.ID, EvSuperseded, drop.Text, keep.ID)
 				gone[drop.ID] = true
@@ -233,7 +241,9 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 			case "update":
 				// The newer fact wins; the older is superseded but retained, with a
 				// pointer to what replaced it so the timeline can show the change.
-				db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", newer.ID, older.ID)
+				if _, werr = db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", newer.ID, older.ID); werr != nil {
+					break pairs
+				}
 				logEvent(db, older.ID, EvSuperseded, older.Text, newer.ID)
 				gone[older.ID] = true
 				superseded++
@@ -245,11 +255,30 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	if merged+superseded > 0 {
 		for _, k := range kinds {
 			if err := flush(db, k); err != nil {
-				return merged, superseded, err
+				return merged, superseded, errors.Join(werr, err)
 			}
 		}
 	}
-	return merged, superseded, nil
+	return merged, superseded, werr
+}
+
+// mergeInto folds drop into keep in one transaction. As two separate writes, a
+// failure between them left keep's salience raised for a merge that never
+// happened, with drop still active beside it.
+func mergeInto(db *sql.DB, keep, drop Memory) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("UPDATE memories SET salience = ?, confidence = MIN(1.0, confidence + 0.05), uses = uses + ? WHERE id = ?",
+		math.Min(1, keep.Salience+0.1), drop.Uses, keep.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", keep.ID, drop.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func classify(rt *router.Router, model, older, newer string) string {

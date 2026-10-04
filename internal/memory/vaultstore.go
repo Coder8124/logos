@@ -63,11 +63,15 @@ var (
 func SetVault(db *sql.DB, dir string) {
 	forgetLoggedHigh(db)
 	pendingStamps.Forget(db)
+	// On every bind, not only on unbind: a stamp describes a file in the vault
+	// it was taken in. Carried across a rebind, a copied vault's file matched
+	// it byte for byte, the next write skipped adopting it, and the rewrite
+	// deleted every line the handle's rows did not already hold.
+	dropStamps(db)
 	vaultMu.Lock()
 	defer vaultMu.Unlock()
 	if dir == "" {
 		delete(vaults, db)
-		dropStamps(db)
 		return
 	}
 	vaults[db] = dir
