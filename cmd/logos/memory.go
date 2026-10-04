@@ -147,6 +147,11 @@ func memoryCmd(args []string) error {
 		}
 		m, s, err := memory.Consolidate(ix.DB, rt)
 		if err != nil {
+			// What went through before the failure is real and already in the
+			// vault; an error alone would read as "nothing changed".
+			if m+s > 0 {
+				fmt.Printf("merged %d duplicates · superseded %d outdated before stopping\n", m, s)
+			}
 			return err
 		}
 		fmt.Printf("merged %d duplicates · superseded %d outdated · %d faded from disuse (ranked lower, not removed)\n", m, s, faded)
