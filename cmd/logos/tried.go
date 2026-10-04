@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/deadend"
@@ -57,6 +58,9 @@ func runTried(args []string) error {
 	hits, semanticErr, err := deadend.CheckNoting(ix.Vault, ix.DB, embed, model, proposed, flagStr(args, "--project", ""), 6)
 	if err != nil {
 		return err
+	}
+	if dir, err := os.Getwd(); err == nil {
+		deadend.MarkDrift(hits, dir)
 	}
 	fmt.Print(deadend.Render(proposed, hits))
 	fmt.Print(deadend.SemanticSkipped(semanticErr))

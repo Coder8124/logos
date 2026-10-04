@@ -62,7 +62,9 @@ func (s *Server) lead(pack contextpack.Pack) string {
 //
 // here is the project the check is counted under in the usage ledger, which is
 // not project: the search stays unscoped, the count belongs to the work here.
-func (s *Server) beforeYouTry(approach, project, here string) (string, error) {
+// dir is the repository the agent stands in, which the rulings found are
+// measured against: one blaming a file changed since is marked so.
+func (s *Server) beforeYouTry(approach, project, here, dir string) (string, error) {
 	if strings.TrimSpace(approach) == "" {
 		return "", fmt.Errorf("before_you_try needs the approach you are considering")
 	}
@@ -73,6 +75,7 @@ func (s *Server) beforeYouTry(approach, project, here string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	deadend.MarkDrift(hits, dir)
 	// The corpus is gathered unranked and unfiltered (p=nil, so RecallProcedures
 	// takes its All()-backed fallback with no reinforcement side effect) — Check
 	// does its own lexical-plus-semantic scoring below, and a candidate the

@@ -56,6 +56,10 @@ const (
 	// KindCheckpoint is where an agent stopped: state, decisions, what failed,
 	// what is next.
 	KindCheckpoint Kind = "checkpoint"
+	// KindCommit is a change to the project's code: Title is the file, Text the
+	// commit message. A ruling is only as current as the code it was about,
+	// and without this a scenario had no way to move the code underneath one.
+	KindCommit Kind = "commit"
 )
 
 // An Event is one thing that happened, in the order it happened. Scenarios are
@@ -65,7 +69,7 @@ type Event struct {
 	Actor   string // "user", "claude", "cursor" — who produced this
 	Kind    Kind
 	Project string
-	Title   string // for KindDoc
+	Title   string // for KindDoc; the file changed, for KindCommit
 	Text    string
 
 	// Checkpoint fields. Adapters with a checkpoint primitive should map these
@@ -82,6 +86,9 @@ type Event struct {
 // present, nothing is abbreviated — so that a system scoring badly on this
 // suite cannot blame the harness for withholding information.
 func (e Event) Flatten() string {
+	if e.Kind == KindCommit {
+		return "Commit to " + e.Title + ": " + e.Text
+	}
 	if e.Kind != KindCheckpoint {
 		if e.Title != "" {
 			return e.Title + "\n" + e.Text

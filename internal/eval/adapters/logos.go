@@ -11,12 +11,14 @@ package adapters
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/eval"
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -30,7 +32,10 @@ import (
 // benchmark-only retrieval path — if the suite scores well, the shipped product
 // scores well.
 type Logos struct {
-	root  string // a scratch vault, never the user's
+	root string // a scratch vault, never the user's
+	// repo is the scenario's code, created by its first commit event. Kept
+	// outside the vault, as a project's repository is.
+	repo  string
 	ix    *index.Index
 	embed *provider.Provider
 	model string
@@ -59,6 +64,10 @@ func (b *Logos) Reset() error {
 	}
 	if b.root != "" {
 		os.RemoveAll(b.root)
+	}
+	if b.repo != "" {
+		os.RemoveAll(b.repo)
+		b.repo = ""
 	}
 	root, err := os.MkdirTemp("", "eval-logos-")
 	if err != nil {
@@ -92,6 +101,9 @@ func (b *Logos) Close() error {
 	if b.ix != nil {
 		b.ix.Close()
 	}
+	if b.repo != "" {
+		os.RemoveAll(b.repo)
+	}
 	if b.root != "" {
 		return os.RemoveAll(b.root)
 	}
@@ -118,13 +130,62 @@ func (b *Logos) Write(ev eval.Event) error {
 		return err
 
 	case eval.KindCheckpoint:
-		return session.Commit(b.ix.DB, b.root, &session.Checkpoint{
+		c := &session.Checkpoint{
 			Project: ev.Project, Agent: ev.Actor, Task: ev.Task,
 			State: ev.Text, Decisions: ev.Decisions, Failed: ev.Failed,
 			Questions: ev.Questions, Next: ev.Next, TS: ev.TS,
-		})
+		}
+		// The repository the agent stood in, as checkpoint reads it in use.
+		// Left to Commit, it would read whatever directory the benchmark runs
+		// from.
+		if b.repo != "" {
+			c.Git = gitstate.Read(b.repo)
+		}
+		return session.Commit(b.ix.DB, b.root, c)
+
+	case eval.KindCommit:
+		return b.commit(ev)
 	}
 	return fmt.Errorf("unknown event kind %q", ev.Kind)
+}
+
+// commit changes one file in the scenario's repository, dated when the event
+// happened so the history reads in the scenario's order.
+func (b *Logos) commit(ev eval.Event) error {
+	if b.repo == "" {
+		repo, err := os.MkdirTemp("", "eval-repo-")
+		if err != nil {
+			return err
+		}
+		b.repo = repo
+		if err := b.git(ev.TS, "init", "-q"); err != nil {
+			return err
+		}
+	}
+	path := filepath.Join(b.repo, filepath.FromSlash(ev.Title))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// The message as the content, so every commit to a file changes it.
+	if err := os.WriteFile(path, []byte(ev.Text+"\n"), 0o644); err != nil {
+		return err
+	}
+	if err := b.git(ev.TS, "add", "--", ev.Title); err != nil {
+		return err
+	}
+	return b.git(ev.TS, "commit", "-q", "-m", ev.Text)
+}
+
+func (b *Logos) git(ts int64, args ...string) error {
+	args = append([]string{"-c", "user.name=eval", "-c", "user.email=eval@localhost", "-c", "commit.gpgsign=false"}, args...)
+	cmd := exec.Command("git", args...)
+	cmd.Dir = b.repo
+	date := fmt.Sprintf("@%d +0000", ts)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return nil
 }
 
 // writeDoc lays a document into the vault the way a person would: the project's
@@ -161,7 +222,7 @@ func (b *Logos) Read(q eval.Query) (eval.Response, error) {
 		b.dirty = false
 	}
 	pack, err := contextpack.Build(b.ix, b.embed, b.model, contextpack.Request{
-		Task: q.Task, Hint: q.Project, Budget: q.Budget, Now: q.Now,
+		Task: q.Task, Hint: q.Project, Budget: q.Budget, Now: q.Now, Dir: b.repo,
 	})
 	if err != nil {
 		return eval.Response{}, err

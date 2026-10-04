@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/textmatch"
@@ -75,6 +76,27 @@ type Ruling struct {
 	// names may have moved since — see PossiblySuperseded. Never grounds for
 	// dropping the ruling, only for saying so.
 	Stale bool `json:"stale,omitempty"`
+	// Commit is the repository's HEAD when the checkpoint holding this was
+	// written. Empty for a working note, which records no repository.
+	Commit string `json:"commit,omitempty"`
+	// Drift is set when the files this ruling names have changed since
+	// Commit — see MarkDrift. Like Stale, a reason to say so, never to drop it.
+	Drift *gitstate.Drift `json:"drift,omitempty"`
+}
+
+// MarkDrift notes, on each ruling, whether the files it names have changed in
+// the repository at dir since it was recorded. Only the rulings about to be
+// shown are measured: it costs a git call per named file.
+func MarkDrift(hits []Ruling, dir string) {
+	a := gitstate.NewAnchors(dir)
+	if a == nil {
+		return
+	}
+	for i := range hits {
+		if d, ok := a.Since(hits[i].Commit, hits[i].Record.Raw); ok {
+			hits[i].Drift = &d
+		}
+	}
 }
 
 // failureMarkers are how people write down that something did not work.
@@ -147,7 +169,7 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				rec := ParseRecord(textmatch.Flatten(f))
 				out = append(out, Ruling{
 					Text: rec.Route, Project: proj, Agent: c.Agent,
-					When: c.TS, Slug: c.Slug, Source: FromCheckpoint,
+					When: c.TS, Slug: c.Slug, Source: FromCheckpoint, Commit: c.Git.Commit,
 					Record: rec, Stale: PossiblySuperseded(rec.Scope, c.TS, time.Now()),
 				})
 			}

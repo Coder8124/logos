@@ -54,6 +54,10 @@ func said(days int, text string) Event {
 	return Event{TS: ago(days), Actor: "user", Kind: KindFact, Text: text}
 }
 
+func commit(days int, project, path, message string) Event {
+	return Event{TS: ago(days), Actor: "user", Kind: KindCommit, Project: project, Title: path, Text: message}
+}
+
 func msg(days int, actor, text string) Event {
 	return Event{TS: ago(days), Actor: actor, Kind: KindMessage, Text: text}
 }
@@ -413,6 +417,32 @@ func continuity() []Scenario {
 				},
 				Avoid: []Fact{
 					{Label: "housekeeping crowding out the blocker", Any: []string{"colour swatches", "typo in the packaging"}},
+				},
+			},
+		},
+		{
+			ID: "handoff-dead-end-code-moved", Family: "continuity", Skill: "staleness",
+			Why:   "A dead end blamed on one file, and that file was rewritten since. Obeyed as settled, it stops the fix that now works.",
+			Known: KnownStrength,
+			Setup: []Event{
+				doc(40, "ingest-svc", "Ingest service", "Loads vendor CSV exports into the warehouse."),
+				commit(30, "ingest-svc", "internal/parse/reader.go", "Parse CSV exports with a buffered reader"),
+				{
+					TS: ago(14), Actor: "claude", Kind: KindCheckpoint, Project: "ingest-svc",
+					Task:   "import the 3GB vendor export",
+					Failed: []string{"streaming the 3GB export through the parser — internal/parse/reader.go loads the whole file into memory first, so it runs out of memory at about 2GB"},
+					Next:   "Split the export into 500MB chunks before importing",
+				},
+				commit(4, "ingest-svc", "internal/parse/reader.go", "Read CSV input in 64KB chunks instead of loading the whole file"),
+			},
+			Query:    Query{Task: "import the 3GB vendor export", Project: "ingest-svc", Agent: "cursor", Budget: 4000, Now: benchNow},
+			Wordings: []string{"load the big vendor CSV", "get the large export into the warehouse", "pick up the vendor import"},
+			Gold: Gold{
+				Carry: []Fact{
+					{Label: "the dead end itself", Any: []string{"whole file into memory", "out of memory"}},
+				},
+				Signal: []Fact{
+					{Label: "the dead end is flagged as recorded before its file changed", Any: []string{"changed since", "may no longer hold"}},
 				},
 			},
 		},

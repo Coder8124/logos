@@ -748,7 +748,7 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		// the vault on purpose, and the project only labels which rulings came
 		// from elsewhere. Scoping it to the current folder would suppress the
 		// cross-project warnings that are the whole reason it exists.
-		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"), s.resolveScope(argStr(args, "project")))
+		out, err := s.beforeYouTry(argStr(args, "approach"), argStr(args, "project"), s.resolveScope(argStr(args, "project")), scopeDir(s.roots))
 		// Counted under the current folder even though the search above is
 		// deliberately unscoped: what is being counted is that this agent is
 		// about to change something here, which is the point a session starts
