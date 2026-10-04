@@ -48,3 +48,21 @@ func TestMemoryAddStoresAFactWithNoModelRuntimeRunning(t *testing.T) {
 		t.Errorf("the fact was not stored:\n%s", out)
 	}
 }
+
+// #235: LOGOS_EMBED=off is what the hook relies on to keep its work local and
+// fast, and `logos index` and search honour it. `memory add` took its model
+// from the router and never asked, so with a runtime up the fact was embedded
+// anyway.
+func TestMemoryAddDoesNotEmbedWithEmbeddingsOff(t *testing.T) {
+	rr := newRecordingRuntime(t, "nomic-embed-text", "gemma3:4b")
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	t.Setenv("LOGOS_RUNTIME", rr.URL)
+	t.Setenv("LOGOS_EMBED", "off")
+
+	if err := memoryCmd([]string{"add", "the release runner keeps its cache on the second disk"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rr.embedded(); len(got) != 0 {
+		t.Errorf("memory add with LOGOS_EMBED=off sent %d embeddings request(s): %v", len(got), got)
+	}
+}

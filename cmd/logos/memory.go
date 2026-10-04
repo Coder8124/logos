@@ -103,9 +103,14 @@ func memoryCmd(args []string) error {
 		}
 		var local *provider.Provider
 		var embed string
-		if rt == nil {
+		// LOGOS_EMBED=off is asked here as `logos index` and search ask it: the
+		// hook relies on it to keep the work local and fast, and the router's
+		// T0 choice alone embedded the fact anyway whenever a runtime was up.
+		_, embedOn := embedModel()
+		switch {
+		case rt == nil:
 			fmt.Fprintln(os.Stderr, "· no model runtime — storing without embedding; duplicates match by exact text")
-		} else {
+		case embedOn:
 			local = rt.Local()
 			embed, _ = rt.Model(router.T0)
 		}
