@@ -111,6 +111,9 @@ func dreamReview() error {
 	if err := dream.InitQueue(ix.DB); err != nil {
 		return err
 	}
+	if err := announceInsightEdits(ix.DB); err != nil {
+		return err
+	}
 
 	ins, err := dream.List(ix.DB, dream.Pending)
 	if err != nil {
@@ -151,6 +154,9 @@ func dreamDecide(args []string, accept bool) error {
 	if err := dream.InitQueue(ix.DB); err != nil {
 		return err
 	}
+	if err := announceInsightEdits(ix.DB); err != nil {
+		return err
+	}
 
 	if !accept {
 		if err := dream.SetStatus(ix.DB, id, dream.Rejected); err != nil {
@@ -188,4 +194,15 @@ func memText(db *sql.DB, id int64) string {
 		return fmt.Sprintf("memory %d", id)
 	}
 	return t
+}
+
+// announceInsightEdits adopts hand edits to the insight queue before review,
+// accept or reject reads it, and says what they did. See announceAdoption.
+func announceInsightEdits(db *sql.DB) error {
+	restored, removed, err := dream.Reconcile(db)
+	if err != nil {
+		return err
+	}
+	announceAdoption(dream.InsightsFile, "insight", "discarded", restored, removed)
+	return nil
 }

@@ -47,6 +47,13 @@ func runReview(args []string) error {
 	if err := memory.Init(ix.DB); err != nil {
 		return err
 	}
+	// Before the queue is read: a proposal whose line the user deleted is one
+	// they already rejected, and offering it again asks them twice.
+	restored, rejected, err := memory.ReconcilePending(ix.DB)
+	if err != nil {
+		return err
+	}
+	announceAdoption(memory.PendingFile, "proposal", "rejected", restored, rejected)
 
 	memories, err := memory.Pending(ix.DB)
 	if err != nil {

@@ -23,6 +23,13 @@ func commitmentCmd(args []string) error {
 	if err := secretary.Init(ix.DB); err != nil {
 		return err
 	}
+	// Before the list as well as the writes: listing is when a person checks
+	// that deleting a line took, and it read the cache alone.
+	restored, removed, err := secretary.Reconcile(ix.DB)
+	if err != nil {
+		return err
+	}
+	announceAdoption(secretary.LoopsFile, "loop", "forgotten", restored, removed)
 
 	// `list` is a synonym for the bare form, not a subcommand of its own. Every
 	// other listing verb here takes it, the help line named only the three verbs

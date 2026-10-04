@@ -100,39 +100,63 @@ func withLoops(db *sql.DB, fn func(dir string) error) error {
 	}
 	defer g.Unlock()
 	// Returned rather than written past: rewriting the file over an edit we
-	// could not adopt is the thing this exists to prevent.
-	if err := reconcileLocked(db, dir); err != nil {
+	// could not adopt is the thing this exists to prevent. The counts are
+	// dropped here, not lost: a command that wants to announce the adoption
+	// calls Reconcile first, and this pass then finds the file stamped as ours.
+	// What it still catches is an edit made between the two.
+	if _, _, err := reconcileLocked(db, dir); err != nil {
 		return err
 	}
 	return fn(dir)
 }
 
+// Reconcile adopts hand edits to loops.md now, and reports how many loops the
+// file put back and how many it forgot.
+//
+// Exported for the commands that read or change the list. Only writes used to
+// reconcile, so `logos loop` listed a loop the user had deleted from the file —
+// at exactly the moment they ran it to check that the deletion took — and a
+// write that did adopt the edit said nothing about it. A file we wrote is one
+// read and a hash compare, so calling this before every list is cheap.
+func Reconcile(db *sql.DB) (restored, removed int, err error) {
+	dir := vaultFor(db)
+	if dir == "" {
+		return 0, 0, nil
+	}
+	g, err := vault.Lock(dir, "loops")
+	if err != nil {
+		return 0, 0, err
+	}
+	defer g.Unlock()
+	return reconcileLocked(db, dir)
+}
+
 // reconcileLocked adopts hand edits to loops.md, with the lock held. A file we
 // wrote ourselves is skipped on its hash; an absent file says nothing about
 // what is open, as Import explains.
-func reconcileLocked(db *sql.DB, dir string) error {
+func reconcileLocked(db *sql.DB, dir string) (restored, removed int, err error) {
 	raw, err := os.ReadFile(LoopsPath(dir))
 	if os.IsNotExist(err) {
-		return nil
+		return 0, 0, nil
 	}
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	if stamps.Ours(db, raw) {
-		return nil
+		return 0, 0, nil
 	}
 	if looksTruncated(string(raw)) {
 		// Import refuses this file and says so when the user runs `logos
 		// index`. Here it is a reason not to adopt the file, not to fail an
 		// unrelated `loop add`: the rewrite that follows replaces the torn
 		// file with the cache's complete copy, which is the repair.
-		return nil
+		return 0, 0, nil
 	}
-	if _, err := adoptLocked(db, raw); err != nil {
-		return err
+	if restored, removed, err = adoptLocked(db, raw); err != nil {
+		return restored, removed, err
 	}
 	stamps.Adopted(db, raw)
-	return nil
+	return restored, removed, nil
 }
 
 // flushLocked rewrites the whole file from the database, with the lock held.
@@ -343,7 +367,7 @@ func Import(db *sql.DB, dir string) (int, error) {
 				"restore the file or delete the partial line to accept it as-is", LoopsFile)
 	}
 
-	restored, err := adoptLocked(db, raw)
+	restored, _, err := adoptLocked(db, raw)
 	if err != nil {
 		return restored, err
 	}
@@ -352,11 +376,12 @@ func Import(db *sql.DB, dir string) (int, error) {
 }
 
 // adoptLocked makes the cache match the file: every line is upserted at its id,
-// and every row with no line is deleted. Returns how many rows it had to create.
-func adoptLocked(db *sql.DB, raw []byte) (int, error) {
+// and every row with no line is deleted. Returns how many rows it had to create
+// and how many it deleted — both, because invariant 3 asks for the number, and
+// a deletion is the half a user is most likely to want confirmed.
+func adoptLocked(db *sql.DB, raw []byte) (restored, removed int, err error) {
 	parsed := parse(string(raw))
 	keep := map[int64]bool{}
-	restored := 0
 	// The file tells the user a line is theirs to delete, which makes a
 	// copy-pasted line an expected edit rather than an exotic one. Two lines
 	// with the same text collide on the fingerprint UNIQUE index, which
@@ -374,7 +399,7 @@ func adoptLocked(db *sql.DB, raw []byte) (int, error) {
 		seen[fp] = true
 		created, err := upsert(db, c)
 		if err != nil {
-			return restored, err
+			return restored, removed, err
 		}
 		keep[c.ID] = true
 		if created {
@@ -388,14 +413,14 @@ func adoptLocked(db *sql.DB, raw []byte) (int, error) {
 	// leaving the row would put the text back in the file on the next flush.
 	rows, err := db.Query("SELECT id FROM commitments")
 	if err != nil {
-		return restored, err
+		return restored, removed, err
 	}
 	var gone []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return restored, err
+			return restored, removed, err
 		}
 		if !keep[id] {
 			gone = append(gone, id)
@@ -404,10 +429,11 @@ func adoptLocked(db *sql.DB, raw []byte) (int, error) {
 	rows.Close()
 	for _, id := range gone {
 		if _, err := db.Exec("DELETE FROM commitments WHERE id = ?", id); err != nil {
-			return restored, err
+			return restored, removed, err
 		}
+		removed++
 	}
-	return restored, nil
+	return restored, removed, nil
 }
 
 // upsert restores one loop at the id the file gives it, so every reference to
