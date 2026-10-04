@@ -55,10 +55,7 @@ recording=$("${LOGOS[@]}" activity notice 2>/dev/null) || recording=""
 announce_update() {
   if [ -n "$updated$recording" ]; then
     cat <<EOF
-FIRST, in one short line before anything else, tell the user:${updated:+ $updated}${recording:+ $recording}
-
-They cannot see this block, and something they never hear about reads to them
-as something that never happened. One line, then get on with the work.
+FIRST, tell the user in one short line (they cannot see this block):${updated:+ $updated}${recording:+ $recording}
 EOF
   fi
   exit 0
@@ -154,19 +151,12 @@ when=$(printf '%s\n' "$handoff" \
   | head -1) || when=""
 
 cat <<EOF
-Continuity from Logos — the previous session on "$project", including what was
-already ruled out. Read the failed approaches before proposing anything; they
-are there to stop you repeating work that has already been paid for.
+Continuity from Logos for "$project". This is this session's resume: read the
+ruled-out approaches before proposing anything, and call context only for a
+narrower task.
 
-This is the resume call for this session — it already ran, so there is no
-need to call resume or context again just to get oriented; call context only
-if a specific task later needs a narrower or fresher pack.
-
-FIRST, in one short line before anything else, tell the user that Logos restored
-context for "$project"${when:+ $when}, carrying $carried.${updated:+ In the same
-line, tell them: $updated}${recording:+ $recording} They cannot see this
-block, and a restore they never hear about reads to them as a restore that never
-happened. One line, then get on with the work.
+FIRST, tell the user in one short line (they cannot see this block) that Logos
+restored context for "$project"${when:+ $when}, carrying $carried.${updated:+ Also: $updated}${recording:+ $recording}
 
 $handoff
 EOF

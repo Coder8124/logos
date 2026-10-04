@@ -273,6 +273,13 @@ func TestWhyWithoutModel(t *testing.T) {
 			t.Errorf("why did not carry %q:\n%s", want, truncateForLog(line))
 		}
 	}
+	// The footer is Logos talking about the answer, not the answer; it arrives
+	// on every why, so it is one short line. The result arrives JSON-encoded.
+	for _, l := range strings.Split(line, `\n`) {
+		if strings.Contains(l, "not an analysis of the code") && len(l) > 100 {
+			t.Errorf("why's footer is %d characters, want at most 100:\n%s", len(l), l)
+		}
+	}
 
 	// A file with no history must say nothing was recorded — never imply the
 	// code is arbitrary, which is a claim about the code rather than the record.

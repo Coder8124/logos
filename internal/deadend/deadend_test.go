@@ -127,6 +127,9 @@ func TestSilenceIsNotEndorsement(t *testing.T) {
 	if !strings.Contains(out, "not the same as it being a good idea") {
 		t.Errorf("absence of a ruling must not read as approval:\n%s", out)
 	}
+	if n := len(out) - len("rewrite the firmware in Rust"); n > 100 {
+		t.Errorf("the no-record answer is %d characters around the proposal, want one short line:\n%s", n, out)
+	}
 }
 
 // An agent killed before it could check in leaves its findings only in working

@@ -166,8 +166,7 @@ func (s *Server) why(file string, limit int, here string) (string, error) {
 		writeList(&b, "Still open", m.Questions)
 		fmt.Fprintf(&b, "Source: %s\n\n", m.Slug)
 	}
-	b.WriteString("This is what was recorded while the file was touched, not an analysis of " +
-		"the code. Treat it as evidence about intent, and check it still holds.\n")
+	b.WriteString("Recorded while the file was touched, not an analysis of the code: check it still holds.\n")
 	// Counted only when a ruled-out approach came back: a why that returned
 	// decisions alone kept nobody from repeating anything.
 	if ruled > 0 {
