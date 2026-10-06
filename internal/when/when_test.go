@@ -24,6 +24,24 @@ func TestResolvesWindows(t *testing.T) {
 			out:  []time.Time{days(5), days(45), now},
 		},
 		{
+			// "back" says what "ago" says (#222).
+			text: "what was I working on roughly five weeks back?",
+			in:   []time.Time{days(35), days(30), days(41)},
+			out:  []time.Time{days(5), days(45), now},
+		},
+		{
+			// "And a bit" puts the point past a month, not around it, so a
+			// review from last week is not a month and a bit ago (#222).
+			text: "the decision from a month and a bit ago",
+			in:   []time.Time{days(30), days(38), days(48)},
+			out:  []time.Time{days(5), days(15), days(60), now},
+		},
+		{
+			text: "the call a week or so ago",
+			in:   []time.Time{days(7), days(2), days(13)},
+			out:  []time.Time{days(20), now.Add(time.Hour)},
+		},
+		{
 			// No vagueness marker, so the window is half a unit either side —
 			// tight enough to mean a particular week.
 			text: "what happened five weeks ago",
@@ -114,6 +132,8 @@ func TestDeclinesEverythingElse(t *testing.T) {
 		"continue the OTA assessment",
 		"what was the previous decision on batteries",
 		"plan the next DVT spin",
+		"why did we push the launch two weeks back?",
+		"the build slipped a month back",
 		"why is the per-unit cost higher than the parts add up to?",
 		"",
 	} {
