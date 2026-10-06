@@ -132,10 +132,19 @@ func runIndex(watch bool) error {
 		// list the user finished, not one the rebuild threw away. The count is
 		// every loop put back, closed ones included — they are what stops a
 		// dismissed commitment being extracted and surfaced all over again.
-		if loops, err := ix.SyncLoops(); err != nil {
+		if loops, rescuedLoops, err := ix.SyncLoops(); err != nil {
 			fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
-		} else if loops > 0 {
-			fmt.Printf("restored %d tracked %s — run `logos loop`\n", loops, plural(loops, "loop"))
+		} else {
+			if loops > 0 {
+				fmt.Printf("restored %d tracked %s — run `logos loop`\n", loops, plural(loops, "loop"))
+			}
+			// The other direction, said for the reason the rescued memories are:
+			// a write to the vault failed earlier, and the process told about it
+			// has exited.
+			if rescuedLoops > 0 {
+				fmt.Printf("wrote %d tracked %s to the vault — %s only in the index\n",
+					rescuedLoops, plural(rescuedLoops, "loop"), wasWere(rescuedLoops))
+			}
 		}
 
 		// Dreamed insights, after the memories they cite. Announced for the
@@ -144,9 +153,14 @@ func runIndex(watch bool) error {
 		// rebuild threw away. The count is every insight put back, reviewed
 		// ones included — they are what stops a rejected connection being
 		// proposed all over again.
-		if seen, err := ix.SyncInsights(); err != nil {
+		seen, rescuedInsights, err := ix.SyncInsights()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "· could not restore dreamed insights:", err)
-		} else if seen > 0 {
+		} else if rescuedInsights > 0 {
+			fmt.Printf("wrote %d dreamed %s to the vault — %s only in the index\n",
+				rescuedInsights, plural(rescuedInsights, "insight"), wasWere(rescuedInsights))
+		}
+		if err == nil && seen > 0 {
 			// Rejections are restored too — they are the record of what the user
 			// already refused. Only point at the review command when there is
 			// actually something waiting behind it.

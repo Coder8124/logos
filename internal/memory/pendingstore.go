@@ -151,10 +151,51 @@ func flushPendingLocked(db *sql.DB, dir string) error {
 	if err := vault.WriteAtomic(path, []byte(renderPending(pend))); err != nil {
 		// Whatever is on disk now is not what we last recorded writing.
 		pendingStamps.Forget(db)
+		markPendingUnflushed(db, path)
 		return fmt.Errorf("proposal saved to the cache but not to the vault: %w", err)
 	}
+	// The whole queue is on disk now, so whatever an earlier failure stranded
+	// went out with it. quarantined = 1 because the active memories' mark
+	// describes their own files, which this write never touched.
+	db.Exec("UPDATE memories SET unflushed = 0 WHERE quarantined = 1 AND unflushed = 1")
 	pendingStamps.Record(db, path)
 	return nil
+}
+
+// markPendingUnflushed flags the queued proposals the cache holds and the
+// queue file on disk does not, after a write of that file failed. The same
+// column markUnflushed uses for active memories, scoped by quarantined: for a
+// proposal, the file it belongs in is this one.
+//
+// Persistent for the reason markUnflushed gives: the next command starts with
+// no stamp, adopts the file, and without the mark would reject the stranded
+// proposal as a line the user deleted — a decision logged in their name on a
+// proposal they never saw.
+//
+// Errors are dropped: this runs on the failure path of a write that is already
+// returning the error that says what went wrong.
+func markPendingUnflushed(db *sql.DB, path string) {
+	onDisk := map[int64]bool{}
+	if raw, err := os.ReadFile(path); err == nil {
+		for _, m := range parseKind(Fact, string(raw)) {
+			onDisk[m.ID] = true
+		}
+	}
+	rows, err := db.Query("SELECT id FROM memories WHERE quarantined = 1 AND superseded = 0")
+	if err != nil {
+		return
+	}
+	var stranded []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil && !onDisk[id] {
+			stranded = append(stranded, id)
+		}
+	}
+	rows.Close()
+	for _, id := range stranded {
+		db.Exec("UPDATE memories SET unflushed = 1 WHERE id = ?", id)
+	}
 }
 
 // renderPending writes the queue the way a person would want to read it, and
@@ -245,7 +286,19 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 		return restored, 0, err
 	}
 	pendingStamps.Adopted(db, raw)
-	return restored, 0, nil
+	// Proposals a failed write left only in the cache, which the adopt kept.
+	// Written out now, for the reason the absent-file branch gives.
+	var rescued int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM memories WHERE quarantined = 1 AND superseded = 0 AND unflushed = 1").Scan(&rescued); err != nil {
+		return restored, 0, err
+	}
+	if rescued > 0 {
+		if err := flushPendingLocked(db, dir); err != nil {
+			return restored, 0, err
+		}
+	}
+	return restored, rescued, nil
 }
 
 // adoptPendingLocked makes the queue in the cache match the file: every line is
@@ -268,7 +321,9 @@ func adoptPendingLocked(db *sql.DB, raw []byte) (restored, rejected int, err err
 	// A line the user deleted is a rejection. Only rows this file could have
 	// described are eligible — an active memory is not in the queue and must
 	// never be reaped by it.
-	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0")
+	// unflushed = 0: a proposal whose write failed was never in the file, so
+	// its absence there is not a rejection. See markPendingUnflushed.
+	rows, err := db.Query("SELECT id, text FROM memories WHERE quarantined = 1 AND superseded = 0 AND unflushed = 0")
 	if err != nil {
 		return restored, rejected, err
 	}

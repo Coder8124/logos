@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func TestADreamedInsightSurvivesDeletingTheIndex(t *testing.T) {
 	}
 
 	wiped := testDB(t)
-	n, err := Import(wiped, dir)
+	n, _, err := Import(wiped, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestAReviewedInsightComesBackWithItsVerdict(t *testing.T) {
 	}
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, dir); err != nil {
+	if _, _, err := Import(wiped, dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,7 +126,7 @@ func TestDeletingALineDropsTheInsight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, dir); err != nil {
+	if _, _, err := Import(db, dir); err != nil {
 		t.Fatal(err)
 	}
 	left, err := List(db, Pending)
@@ -159,7 +160,7 @@ func TestARebuildWritesDownAQueueThatOnlyTheCacheKnew(t *testing.T) {
 		t.Fatalf("expected no vault file yet, got %v", err)
 	}
 
-	if _, err := Import(db, dir); err != nil {
+	if _, _, err := Import(db, dir); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(InsightsPath(dir))
@@ -188,7 +189,7 @@ func TestAnInsightTextCannotBreakOutOfItsRecord(t *testing.T) {
 	}
 
 	wiped := testDB(t)
-	if _, err := Import(wiped, dir); err != nil {
+	if _, _, err := Import(wiped, dir); err != nil {
 		t.Fatal(err)
 	}
 	back, err := List(wiped, Pending)
@@ -218,7 +219,7 @@ func TestATruncatedFileIsRefusedRatherThanTreatedAsDeletions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, dir); err == nil {
+	if _, _, err := Import(db, dir); err == nil {
 		t.Fatal("expected an incomplete file to be refused, got no error")
 	}
 	left, err := List(db, Pending)
@@ -294,5 +295,114 @@ func TestAVerdictOnAnInsightDeletedByHandSaysItIsGone(t *testing.T) {
 	err := SetStatus(db, in.ID, Rejected)
 	if err == nil || !strings.Contains(err.Error(), InsightsFile) {
 		t.Errorf("a verdict on an insight deleted from %s: err = %v, want one that says the file no longer has it", InsightsFile, err)
+	}
+}
+
+// strandRoot makes the vault root unwritable, so the next write of the insight
+// file fails the way a read-only mount or a full disk does, and returns the
+// function that lets writes through again.
+func strandRoot(t *testing.T, dir string) (unstrand func()) {
+	t.Helper()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	t.Cleanup(func() {
+		if !restored {
+			os.Chmod(dir, 0o700)
+		}
+	})
+	return func() {
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func queued(t *testing.T, db *sql.DB, text string) bool {
+	t.Helper()
+	all, err := List(db, Pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range all {
+		if in.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+func insight(text string) *Insight {
+	return &Insight{Kind: Connection, Text: text, EndpointA: 11, EndpointB: 22, Conf: 0.6, Model: "qwen3:8b"}
+}
+
+// The failed write forgot its stamp so the next write would adopt the file, and
+// that adopt found no line for the insight and deleted it as one the user had
+// removed. An insight is a model run nobody has reviewed yet; the next dream
+// pass destroyed the one it should have written out.
+func TestAnInsightTheVaultRefusedSurvivesTheNextEnqueue(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
+
+	if err := Enqueue(db, insight("the tooling delay and the ship date are one risk")); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strandRoot(t, dir)
+	if err := Enqueue(db, insight("the supplier audit and the BOM cut share a cause")); err == nil {
+		t.Fatal("queueing an insight in an unwritable vault reported success")
+	}
+	unstrand()
+
+	if err := Enqueue(db, insight("the battery choice drives the enclosure size")); err != nil {
+		t.Fatal(err)
+	}
+	if !queued(t, db, "the supplier audit and the BOM cut share a cause") {
+		t.Fatal("the next enqueue deleted the insight the vault refused, as though the user had removed its line")
+	}
+	raw, err := os.ReadFile(InsightsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "the supplier audit and the BOM cut share a cause") {
+		t.Errorf("the insight is still only in the cache:\n%s", raw)
+	}
+}
+
+// `logos index` writes a stranded insight out, and says it did.
+func TestReindexingWritesOutAnInsightTheVaultNeverGot(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
+
+	if err := Enqueue(db, insight("the tooling delay and the ship date are one risk")); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strandRoot(t, dir)
+	if err := Enqueue(db, insight("the supplier audit and the BOM cut share a cause")); err == nil {
+		t.Fatal("queueing an insight in an unwritable vault reported success")
+	}
+	unstrand()
+
+	restored, rescued, err := Import(db, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 0 || rescued != 1 {
+		t.Errorf("restored %d, rescued %d; want 0 and 1", restored, rescued)
+	}
+	raw, err := os.ReadFile(InsightsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "the supplier audit and the BOM cut share a cause") {
+		t.Errorf("reindexing left the insight only in the cache:\n%s", raw)
+	}
+	if _, rescued, _ := Import(db, dir); rescued != 0 {
+		t.Errorf("a second reindex rescued %d insights again; the mark outlived the write that settled it", rescued)
 	}
 }
