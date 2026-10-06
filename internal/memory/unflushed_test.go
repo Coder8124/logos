@@ -335,3 +335,24 @@ func TestReindexingWritesOutAProposalTheVaultNeverGot(t *testing.T) {
 		t.Errorf("doctor would report %d memories not in the vault; a pending proposal is not a memory", n)
 	}
 }
+
+// The mark is the only thing that stops the next write rejecting a proposal the
+// vault refused — in the user's name — so a mark that did not land is a second
+// failure the caller must hear about.
+func TestAProposalThatCouldNotBeMarkedSaysSo(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := db.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE OF unflushed ON memories
+		WHEN NEW.unflushed = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	strand(t, dir)
+
+	m := Memory{Text: "the batch ran at 3am", Kind: Fact, Source: "mcp", Quarantined: true}
+	_, err := Store(db, nil, "", &m)
+	if err == nil {
+		t.Fatal("queueing a proposal in an unwritable vault reported success")
+	}
+	if !strings.Contains(err.Error(), "could not mark") {
+		t.Errorf("err = %v, want one that says the proposal is unprotected from the next write", err)
+	}
+}

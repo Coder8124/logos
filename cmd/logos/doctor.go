@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"github.com/Coder8124/logos/internal/buildinfo"
+	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/mcpserver"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 )
@@ -334,6 +336,10 @@ func gatherHealth() health.Report {
 		if ix, err := index.Open(vault); err == nil {
 			defer ix.Close()
 			session.Init(ix.DB) // so the abandonment check reads a table rather than an error
+			// And so durability counts loops and insights rather than skipping them
+			// as stores this vault never used.
+			secretary.Init(ix.DB)
+			dream.InitQueue(ix.DB)
 			in.DB = ix.DB
 		}
 	}

@@ -185,7 +185,10 @@ func flushLocked(db *sql.DB, dir string) error {
 		// Forgotten, not kept: whatever is on disk now is not what we last
 		// recorded writing, and a stale stamp would skip adopting it.
 		stamps.Forget(db)
-		markUnflushed(db, path)
+		if merr := markUnflushed(db, path); merr != nil {
+			return fmt.Errorf("loop saved to the cache but not to the vault: %w "+
+				"(and could not mark it for the next write, which may now delete it: %v)", err, merr)
+		}
 		return fmt.Errorf("loop saved to the cache but not to the vault: %w", err)
 	}
 	// The whole list is on disk now, so whatever an earlier failure stranded
@@ -205,9 +208,11 @@ func flushLocked(db *sql.DB, dir string) error {
 // against the bytes on disk, since a failed atomic write leaves the previous
 // file intact and every loop in it is still durable.
 //
-// Errors are dropped: this runs on the failure path of a write that is already
-// returning the error that says what went wrong.
-func markUnflushed(db *sql.DB, path string) {
+// Its error is returned, not dropped: the mark is the only thing between the
+// stranded row and the next write's adopt, so a mark that did not land is a
+// second failure the caller must hear about. The caller appends it to the
+// write's own error rather than replacing it.
+func markUnflushed(db *sql.DB, path string) error {
 	onDisk := map[int64]bool{}
 	if raw, err := os.ReadFile(path); err == nil {
 		for _, c := range parse(string(raw)) {
@@ -216,7 +221,7 @@ func markUnflushed(db *sql.DB, path string) {
 	}
 	rows, err := db.Query("SELECT id FROM commitments")
 	if err != nil {
-		return
+		return err
 	}
 	var stranded []int64
 	for rows.Next() {
@@ -225,10 +230,25 @@ func markUnflushed(db *sql.DB, path string) {
 			stranded = append(stranded, id)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
 	rows.Close()
 	for _, id := range stranded {
-		db.Exec("UPDATE commitments SET unflushed = 1 WHERE id = ?", id)
+		if _, err := db.Exec("UPDATE commitments SET unflushed = 1 WHERE id = ?", id); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// Unflushed counts the loops the cache holds and loops.md does not, for doctor:
+// until the next write carries them out, they are one `rm -rf .logos` from gone.
+func Unflushed(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM commitments WHERE unflushed = 1").Scan(&n)
+	return n, err
 }
 
 // allLoops reads every commitment, open and closed, oldest first — the file is

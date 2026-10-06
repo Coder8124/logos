@@ -317,6 +317,15 @@ func Unflushed(db *sql.DB) (int, error) {
 	return n, err
 }
 
+// UnflushedPending counts the proposals in the review queue the cache holds and
+// memories/pending.md does not — a separate number from Unflushed because the
+// file at risk is a different one, and so is the noun doctor names it by.
+func UnflushedPending(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE unflushed = 1 AND superseded = 0 AND quarantined = 1").Scan(&n)
+	return n, err
+}
+
 // Reconcile adopts whatever the user did to one kind's file by hand, before
 // anything overwrites it.
 //

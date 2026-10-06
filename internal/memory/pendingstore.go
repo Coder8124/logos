@@ -151,7 +151,10 @@ func flushPendingLocked(db *sql.DB, dir string) error {
 	if err := vault.WriteAtomic(path, []byte(renderPending(pend))); err != nil {
 		// Whatever is on disk now is not what we last recorded writing.
 		pendingStamps.Forget(db)
-		markPendingUnflushed(db, path)
+		if merr := markPendingUnflushed(db, path); merr != nil {
+			return fmt.Errorf("proposal saved to the cache but not to the vault: %w "+
+				"(and could not mark it for the next write, which may now delete it: %v)", err, merr)
+		}
 		return fmt.Errorf("proposal saved to the cache but not to the vault: %w", err)
 	}
 	// The whole queue is on disk now, so whatever an earlier failure stranded
@@ -172,9 +175,11 @@ func flushPendingLocked(db *sql.DB, dir string) error {
 // proposal as a line the user deleted — a decision logged in their name on a
 // proposal they never saw.
 //
-// Errors are dropped: this runs on the failure path of a write that is already
-// returning the error that says what went wrong.
-func markPendingUnflushed(db *sql.DB, path string) {
+// Its error is returned, not dropped: the mark is the only thing between the
+// stranded row and the next write's adopt, so a mark that did not land is a
+// second failure the caller must hear about. The caller appends it to the
+// write's own error rather than replacing it.
+func markPendingUnflushed(db *sql.DB, path string) error {
 	onDisk := map[int64]bool{}
 	if raw, err := os.ReadFile(path); err == nil {
 		for _, m := range parseKind(Fact, string(raw)) {
@@ -183,7 +188,7 @@ func markPendingUnflushed(db *sql.DB, path string) {
 	}
 	rows, err := db.Query("SELECT id FROM memories WHERE quarantined = 1 AND superseded = 0")
 	if err != nil {
-		return
+		return err
 	}
 	var stranded []int64
 	for rows.Next() {
@@ -192,10 +197,17 @@ func markPendingUnflushed(db *sql.DB, path string) {
 			stranded = append(stranded, id)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
 	rows.Close()
 	for _, id := range stranded {
-		db.Exec("UPDATE memories SET unflushed = 1 WHERE id = ?", id)
+		if _, err := db.Exec("UPDATE memories SET unflushed = 1 WHERE id = ?", id); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // renderPending writes the queue the way a person would want to read it, and

@@ -433,3 +433,27 @@ func TestReindexingWritesOutALoopTheVaultNeverGot(t *testing.T) {
 		t.Errorf("a second reindex rescued %d loops again; the mark outlived the write that settled it", rescued)
 	}
 }
+
+// The mark is the only thing that stops the next write deleting a loop the vault
+// refused, so a mark that did not land is a second failure the caller must hear
+// about — not a bookkeeping detail dropped on the error path.
+func TestALoopThatCouldNotBeMarkedSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+	if _, err := Add(db, &Commitment{Text: "send Dana the deck"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE OF unflushed ON commitments
+		WHEN NEW.unflushed = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	strandRoot(t, dir)
+
+	_, err := Add(db, &Commitment{Text: "call the vendor back"})
+	if err == nil {
+		t.Fatal("adding a loop to an unwritable vault reported success")
+	}
+	if !strings.Contains(err.Error(), "could not mark") {
+		t.Errorf("err = %v, want one that says the loop is unprotected from the next write", err)
+	}
+}

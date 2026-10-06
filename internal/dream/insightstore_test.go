@@ -406,3 +406,29 @@ func TestReindexingWritesOutAnInsightTheVaultNeverGot(t *testing.T) {
 		t.Errorf("a second reindex rescued %d insights again; the mark outlived the write that settled it", rescued)
 	}
 }
+
+// The mark is the only thing that stops the next write deleting an insight the
+// vault refused, so a mark that did not land is a second failure the caller
+// must hear about.
+func TestAnInsightThatCouldNotBeMarkedSaysSo(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	SetVault(db, dir)
+	t.Cleanup(func() { SetVault(db, "") })
+	if err := Enqueue(db, insight("the tooling delay and the ship date are one risk")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE OF unflushed ON dream_insights
+		WHEN NEW.unflushed = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	strandRoot(t, dir)
+
+	err := Enqueue(db, insight("the supplier audit and the BOM cut share a cause"))
+	if err == nil {
+		t.Fatal("queueing an insight in an unwritable vault reported success")
+	}
+	if !strings.Contains(err.Error(), "could not mark") {
+		t.Errorf("err = %v, want one that says the insight is unprotected from the next write", err)
+	}
+}
