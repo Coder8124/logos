@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -192,5 +194,72 @@ func TestRememberingAQueuedFactAgainSaysItIsStillQueued(t *testing.T) {
 		if !strings.Contains(receipt, "still queued") || !strings.Contains(receipt, "`logos review`") {
 			t.Errorf("the receipt should say the fact is still queued for review, got %q", receipt)
 		}
+	}
+}
+
+// queueThenDelete queues one proposal through MCP, into a vault bound the way
+// index.Open binds it, and then deletes its line from the queue file by hand —
+// which the file itself tells the user rejects it.
+func queueThenDelete(t *testing.T) *testClient {
+	t.Helper()
+	t.Setenv("LOGOS_REVIEW_ALL", "1")
+	c, db, dir := startServer(t)
+	memory.SetVault(db, dir)
+	t.Cleanup(func() { memory.SetVault(db, "") })
+	handshake(t, c)
+	if out, isErr := c.callText(t, "remember", map[string]any{"text": "Staging DB is on port 5433."}); isErr {
+		t.Fatalf("remember reported error: %s", out)
+	}
+	path := filepath.Join(dir, memory.Dir, memory.PendingFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.SplitAfter(string(raw), "\n") {
+		if !strings.Contains(line, "port 5433") {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) == len(strings.SplitAfter(string(raw), "\n")) {
+		t.Fatalf("the proposal never reached %s:\n%s", path, raw)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// #241, the MCP half. Every read appends the review-queue count, and it was read
+// straight from the cache: a proposal the user rejected by deleting its line was
+// still "waiting for your review", and the rejection went unsaid until some
+// later write adopted it without a word.
+func TestARecallAfterAHandDeletedProposalSaysItWasRejected(t *testing.T) {
+	c := queueThenDelete(t)
+	out, isErr := c.callText(t, "recall", map[string]any{"query": "what port is the staging database on"})
+	if isErr {
+		t.Fatalf("recall errored: %s", out)
+	}
+	if !strings.Contains(out, "1 proposal rejected") {
+		t.Errorf("recall did not say the deleted line rejected a proposal:\n%s", out)
+	}
+	if strings.Contains(out, "waiting for your review") {
+		t.Errorf("recall still counts the proposal the user rejected:\n%s", out)
+	}
+}
+
+// The other MCP path that adopts the queue file: a remember that queues. Its
+// receipt said "queued" on a call that had also rejected a proposal.
+func TestAQueuedRememberAfterAHandDeletedProposalSaysItWasRejected(t *testing.T) {
+	c := queueThenDelete(t)
+	receipt, isErr := c.callText(t, "remember", map[string]any{"text": "The deploy window is Tuesday."})
+	if isErr {
+		t.Fatalf("remember reported error: %s", receipt)
+	}
+	if !strings.Contains(receipt, "queued memory") {
+		t.Fatalf("expected the second fact to queue, got %q", receipt)
+	}
+	if !strings.Contains(receipt, "1 proposal rejected") {
+		t.Errorf("the receipt did not say the deleted line rejected a proposal: %q", receipt)
 	}
 }

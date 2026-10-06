@@ -63,7 +63,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	if said := secret.Summary(r.Redactions); said != "" {
 		msg += " " + said + "."
 	}
-	return msg, nil
+	return msg + queueAdoption(r.QueueRestored, r.QueueRejected), nil
 }
 
 func (s *Session) rememberReceipt(r memory.Receipt, kind memory.Kind, where string) string {
@@ -355,6 +355,43 @@ func (s *Server) shell() string {
 // having been stored. A failed count is said, not swallowed, but does not fail
 // the read it is attached to.
 func (s *Server) awaitingReview() string {
+	// Adopt hand edits to the queue file first, as `logos review` does: a
+	// proposal whose line the user deleted is one they rejected, and counting
+	// it asks them to review it again. Said, because the read just discarded
+	// something.
+	restored, rejected, err := memory.ReconcilePending(s.DB)
+	if err != nil {
+		return fmt.Sprintf("\n\n(could not read the user's edits to the review queue: %v)", err) + s.pendingLine()
+	}
+	return queueAdoption(restored, rejected) + s.pendingLine()
+}
+
+// queueAdoption says what a hand edit to the review queue file did to the
+// queue, in the words `logos review` prints for the same adoption. Empty when
+// nothing changed, which is nearly always.
+func queueAdoption(restored, rejected int) string {
+	var parts []string
+	if rejected > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s rejected", rejected, proposals(rejected)))
+	}
+	if restored > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s taken from the file", restored, proposals(restored)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n\nadopted the user's edit to %s/%s: %s", memory.Dir, memory.PendingFile, strings.Join(parts, ", "))
+}
+
+func proposals(n int) string {
+	if n == 1 {
+		return "proposal"
+	}
+	return "proposals"
+}
+
+// pendingLine is the count half of awaitingReview.
+func (s *Server) pendingLine() string {
 	n, err := memory.PendingCount(s.DB)
 	if err != nil {
 		return fmt.Sprintf("\n\n(could not count the memories waiting for review: %v)", err)
