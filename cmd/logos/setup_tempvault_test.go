@@ -150,7 +150,7 @@ func TestSetupRefusesToWireABinaryGoRunWillDelete(t *testing.T) {
 	t.Cleanup(func() { executable = old })
 
 	var err error
-	captureStdout(t, func() { err = wireHosts(dir, wireOpts{}) })
+	captureStdout(t, func() { _, err = wireHosts(dir, wireOpts{}) })
 
 	if err == nil || !strings.Contains(err.Error(), "go build") {
 		t.Fatalf("setup wired a go run binary: err=%v", err)

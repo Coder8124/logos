@@ -218,7 +218,8 @@ func mcpInstallCmd(args []string) error {
 	if _, err := os.Stat(abs); err != nil {
 		return fmt.Errorf("vault not found at %s — run `logos setup` first, or pass --vault", abs)
 	}
-	return wireHosts(abs, wireOptsFrom(args))
+	_, err = wireHosts(abs, wireOptsFrom(args))
+	return err
 }
 
 // mcpUninstallCmd is `logos mcp uninstall [--host NAME]`, the way back out of
