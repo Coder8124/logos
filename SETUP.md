@@ -661,7 +661,9 @@ logos doctor [--verbose] [--probe] | key set|rm <ref>  health; --verbose adds ru
 ```
 
 Environment: `LOGOS_VAULT` (default `~/logos`), `LOGOS_MODEL`, `LOGOS_EMBED`,
-`LOGOS_AGENT` (the name recorded in the session trail, default `cli`).
+`LOGOS_AGENT` (the name recorded in the session trail, default `cli`),
+`LOGOS_RUNTIME` (an OpenAI-compatible base URL to use instead of probing
+localhost, or `off` for no model runtime at all).
 
 ---
 

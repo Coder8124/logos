@@ -247,8 +247,8 @@ func vaultPath() string { return vault.Path() }
 // LOGOS_RUNTIME overrides discovery with an explicit OpenAI-compatible base URL
 // (LOGOS_RUNTIME_KEY for a bearer token). Discovery only probes localhost ports,
 // so this is the only way to point logos at a runtime on another host, or at one
-// on a non-standard port — and the only way to exercise the no-runtime path on a
-// machine that happens to have Ollama up.
+// on a non-standard port. LOGOS_RUNTIME=off is the no-runtime path on a machine
+// that happens to have Ollama up.
 func findProvider() (*provider.Provider, error) {
 	if p := provider.Configured(); p != nil {
 		fmt.Fprintf(os.Stderr, "· runtime %s (LOGOS_RUNTIME)\n", p.BaseURL)
@@ -256,6 +256,9 @@ func findProvider() (*provider.Provider, error) {
 	}
 	found := provider.Discover()
 	if len(found) == 0 {
+		if provider.Off() {
+			return nil, fmt.Errorf("no model runtime: LOGOS_RUNTIME=off")
+		}
 		return nil, fmt.Errorf("no local model runtime found — start Ollama, LM Studio, Jan or Msty, or set LOGOS_RUNTIME")
 	}
 	p := found[0]

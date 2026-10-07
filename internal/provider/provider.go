@@ -110,12 +110,12 @@ type Discovered struct {
 }
 
 // Configured is the runtime LOGOS_RUNTIME names (LOGOS_RUNTIME_KEY for a bearer
-// token), or nil when it is unset. Discovery only probes localhost ports, so
-// this is the only way to reach a runtime on another host or a non-standard
-// port.
+// token), or nil when it is unset or off. Discovery only probes localhost
+// ports, so this is the only way to reach a runtime on another host or a
+// non-standard port.
 func Configured() *Provider {
 	url := os.Getenv("LOGOS_RUNTIME")
-	if url == "" {
+	if url == "" || Off() {
 		return nil
 	}
 	return New("configured", url, os.Getenv("LOGOS_RUNTIME_KEY"))
@@ -145,10 +145,21 @@ func Resolve() []Discovered {
 	return []Discovered{{p, models}}
 }
 
+// Off reports LOGOS_RUNTIME=off: no runtime, whatever answers on localhost.
+// The ports are fixed, so without it a machine with Ollama running could not
+// show — to a test, a first-run script, or a user deciding whether they need a
+// model — what logos does with none.
+func Off() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("LOGOS_RUNTIME")), "off")
+}
+
 // Discover probes the well-known ports and reports what is actually running.
 // This is what lets the app say "found LM Studio running Qwen3" on first launch
 // instead of presenting an empty endpoint configuration box.
 func Discover() []Discovered {
+	if Off() {
+		return nil
+	}
 	probe := &http.Client{Timeout: 400 * time.Millisecond}
 	var out []Discovered
 
