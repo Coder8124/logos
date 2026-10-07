@@ -152,12 +152,25 @@ func scopesOf(vaultDir, project string) ([]string, error) {
 // cache as it was rather than half a file's rows.
 func refresh(db *sql.DB, vaultDir, scope string) error {
 	dir := filepath.Join(vaultDir, session.CheckpointDir, filepath.FromSlash(scope))
+	onDisk, err := stamps(dir)
+	if err != nil {
+		return err
+	}
+	known, err := knownStamps(db, scope)
+	if err != nil {
+		return err
+	}
+	return apply(db, dir, scope, onDisk, known)
+}
+
+// stamps is each checkpoint file in dir with its size and mtime.
+func stamps(dir string) (map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	onDisk := map[string]string{}
 	for _, e := range entries {
@@ -170,22 +183,34 @@ func refresh(db *sql.DB, vaultDir, scope string) error {
 		}
 		onDisk[e.Name()] = fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 	}
+	return onDisk, nil
+}
 
+// knownStamps is each checkpoint file the cache holds rows for in scope, with
+// the stamp it had when they were filed.
+func knownStamps(db *sql.DB, scope string) (map[string]string, error) {
 	known := map[string]string{}
 	rows, err := db.Query(`SELECT DISTINCT file, stamp FROM ruling_files WHERE scope = ?`, scope)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var file, stamp string
 		if err := rows.Scan(&file, &stamp); err != nil {
-			rows.Close()
-			return err
+			return nil, err
 		}
 		known[file] = stamp
 	}
-	rows.Close()
+	return known, rows.Err()
+}
 
+// apply files what changed between known and onDisk. known is read outside
+// the transaction, so it can be out of date by the time apply runs: another
+// hook may have filed the same files in between. Every write here replaces a
+// file's rows rather than adding to them, so that costs a repeated parse and
+// never a duplicate.
+func apply(db *sql.DB, dir, scope string, onDisk, known map[string]string) error {
 	var stale, fresh []string
 	for file, stamp := range known {
 		if onDisk[file] != stamp {
@@ -207,11 +232,18 @@ func refresh(db *sql.DB, vaultDir, scope string) error {
 	}
 	defer tx.Rollback()
 	for _, file := range stale {
+		if onDisk[file] != "" {
+			continue // changed, not gone: replaced below with the rest of fresh
+		}
 		if _, err := tx.Exec(`DELETE FROM ruling_files WHERE scope = ? AND file = ?`, scope, file); err != nil {
 			return err
 		}
 	}
 	for _, file := range fresh {
+		// Deleted even when known had no rows for it — see apply's comment.
+		if _, err := tx.Exec(`DELETE FROM ruling_files WHERE scope = ? AND file = ?`, scope, file); err != nil {
+			return err
+		}
 		raw, err := os.ReadFile(filepath.Join(dir, file))
 		if err != nil {
 			continue // unreadable now; no row, so the next refresh tries again
