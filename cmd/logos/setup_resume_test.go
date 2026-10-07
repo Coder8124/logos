@@ -169,3 +169,33 @@ func TestSetupWithYesWritesNoMemoriesFromHistory(t *testing.T) {
 		t.Errorf("setup --yes did not point at the history it left unread:\n%s", out)
 	}
 }
+
+// What setup offers to seed is a claim about the repository's history, so a
+// part of that history git refused to read is named there as it is by `logos
+// bootstrap` (#204) — not left to read as a history that had nothing in it.
+func TestSetupNamesTheHistoryGitRefusedBeforeOfferingSeeds(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Desktop")
+	t.Setenv("LOGOS_RUNTIME", "off")
+	repo := repoToSetUpIn(t, "orchard", 24)
+	// One old commit's root tree gone, as in a treeless clone: the commits
+	// still list, the files they changed cannot.
+	out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD~5^{tree}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := strings.TrimSpace(string(out))
+	if err := os.Remove(filepath.Join(repo, ".git", "objects", tree[:2], tree[2:])); err != nil {
+		t.Fatal(err)
+	}
+
+	got := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if !strings.Contains(got, "git refused to read") {
+		t.Errorf("setup offered seeds without naming the history git refused:\n%s", got)
+	}
+}

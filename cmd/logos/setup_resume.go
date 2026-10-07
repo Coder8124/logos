@@ -49,6 +49,8 @@ func firstResume(vaultDir string, wired []string, opts wireOpts) {
 		return
 	}
 
+	// openEvents is the vault the hosts were wired to: setupCmd pinned
+	// LOGOS_VAULT to it for the run.
 	ix, err := openEvents()
 	if err != nil {
 		fmt.Printf("\n  resume     could not open the vault to show it: %v\n", err)
@@ -165,9 +167,14 @@ func writeSetupCheckpoint(ix *index.Index, project string, wired []string) error
 // --yes does not take it: these are claims about the user's own project,
 // recalled later as if they had made them, so they read them first.
 func offerBootstrap(root, project string, yes bool) {
-	found, _ := bootstrap.FromGitHistory(root, 12)
+	found, unread := bootstrap.FromGitHistory(root, 12)
 	if len(found) == 0 {
 		return
+	}
+	// What follows is drawn from the history, so a part git would not read is
+	// named first, as `logos bootstrap` names it (#204).
+	for _, what := range unread {
+		fmt.Printf("  history    git refused to read %s here, so nothing below is drawn from it\n", what)
 	}
 	if yes {
 		fmt.Printf("  history    %d %s could be seeded from this repository's git history — `logos bootstrap` shows them first\n",
