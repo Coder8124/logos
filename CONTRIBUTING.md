@@ -91,6 +91,14 @@ relay it.
 on stderr at minimum. Degrading is fine and often correct — no model runtime
 falls back to lexical search — but degrading quietly is not.
 
+**A hook is held to one indexed lookup.** A hook runs before or after every
+tool call, so it may not load a model, embed anything, or read the vault's
+files one by one; with no index it says nothing and never blocks. State that
+outlives one run lives in the vault, or in a cache table declared in
+`cmd/logos/index_cache_test.go` that a rebuild may lose. The edit hook
+(`cmd/logos/hook_edit.go`) is the worked example, and
+`TestTheEditHookStaysUnderItsBudgetOnALargeVault` the test that holds it there.
+
 **Nothing leaves the machine.** No telemetry, no network calls outside a local
 model runtime the user configured. A change that adds an outbound request needs
 a very good reason and a way to turn it off.
