@@ -90,7 +90,7 @@ func (a *Anchors) Since(commit, text string) (Drift, bool) {
 	}
 	var d Drift
 	var specs []string
-	for _, name := range namedFiles(text) {
+	for _, name := range NamedFiles(text) {
 		spec := pathspec(name)
 		n, ok := a.count(commit, spec)
 		if !ok {
@@ -113,6 +113,17 @@ func (a *Anchors) Since(commit, text string) (Drift, bool) {
 	}
 	d.Commit = commit
 	return d, true
+}
+
+// Changes counts the commits since commit that touched the one file name. ok
+// is false when that cannot be measured — no repository, a commit this clone
+// does not have — which is not the same answer as zero: "has not changed
+// since" is a claim, and Since's false covers both.
+func (a *Anchors) Changes(commit, name string) (n int, ok bool) {
+	if a == nil || !shaPattern.MatchString(commit) || name == "" {
+		return 0, false
+	}
+	return a.count(commit, pathspec(name))
 }
 
 func (a *Anchors) count(commit string, specs ...string) (int, bool) {
@@ -143,11 +154,11 @@ func pathspec(name string) string {
 	return ":(glob)**/" + name
 }
 
-// namedFiles picks out what in text reads as a repository file: a relative
+// NamedFiles picks out what in text reads as a repository file: a relative
 // path with a directory, or a bare name with an extension. Paths come first,
 // because "internal/parse/reader.go" means one file and "reader.go" may mean
 // several.
-func namedFiles(text string) []string {
+func NamedFiles(text string) []string {
 	var paths, bare []string
 	seen := map[string]bool{}
 	for _, tok := range strings.Fields(text) {

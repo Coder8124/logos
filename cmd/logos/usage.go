@@ -81,7 +81,7 @@ func runUsage(args []string) error {
 	if project != "" {
 		who = project
 	}
-	if t.Packs == 0 && t.DeadEndChecks == 0 {
+	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 {
 		fmt.Printf("· nothing recorded for %s yet — %s fills as context packs are sent\n", who, filepath.Join(v, usagepkg.Dir))
 		fmt.Println("  (resume, context) and recorded dead ends are handed back (before_you_try, tried, why)")
 		printUnreadable(bad, v)
@@ -103,6 +103,10 @@ func runUsage(args []string) error {
 	fmt.Printf("· %d check%s handed back %d recorded dead end%s before a retry\n",
 		t.DeadEndChecks, pluralS(t.DeadEndChecks), t.Rulings, pluralS(t.Rulings))
 	fmt.Println("  (before_you_try, tried and why — dead ends returned, not mistakes proven avoided)")
+	if t.AtEdit > 0 {
+		fmt.Printf("· %d ruling%s shown at edit time, to an agent opening a file the ruling names\n",
+			t.AtEdit, pluralS(t.AtEdit))
+	}
 
 	fmt.Println("· handoffs: not counted — the alternative is a summary written or pasted by hand, and Logos")
 	fmt.Println("  never sees how long that would have been; a guess is not shown as a number")
