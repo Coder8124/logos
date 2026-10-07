@@ -21,9 +21,17 @@ import (
 // a host that gets malformed output from a hook may disable it.
 func hookCmd(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: logos hook <cursor|codex> session-start")
+		return fmt.Errorf("usage: logos hook <cursor|codex> session-start, or logos hook claude-code pre-edit")
 	}
 	host, event := args[0], args[1]
+	if host == "claude-code" {
+		// Claude Code's session start is the plugin's bash hook; the edit hook
+		// is the one it calls the binary for. See hook_edit.go.
+		if event == "pre-edit" {
+			editHookCmd(os.Stdin, os.Stdout, vaultPath())
+		}
+		return nil
+	}
 	if _, known := hookShapes[host]; !known {
 		return fmt.Errorf("logos hook: unknown host %q — known: cursor, codex", host)
 	}

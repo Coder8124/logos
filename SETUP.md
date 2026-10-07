@@ -497,6 +497,14 @@ flagged as possibly not transferring.
 The mechanism is a morning's work. The two years of accumulated *we tried that*
 is not — which is the part that compounds.
 
+In Claude Code the plugin also brings a ruling to the edit it bears on. Before
+an agent edits a file that a recorded dead end names, a pre-tool hook adds one
+line beside the edit — who ruled it out, when, and whether the file has changed
+since — once per file per session, and nothing when no ruling names the file.
+It never blocks the edit, and `logos usage` counts how often it spoke. This
+needs a host with pre-tool hooks: Cursor, Codex and the MCP-only hosts get
+nothing at edit time, and reach the same rulings through `before_you_try`.
+
 ### Why is this code like this?
 
 `before_you_try` fires on a proposal. `why` fires on a **file** — the other

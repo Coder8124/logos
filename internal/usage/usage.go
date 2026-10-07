@@ -38,6 +38,7 @@ const Dir = "usage"
 const (
 	KindPack    = "pack"     // a context pack was handed to an agent
 	KindDeadEnd = "dead-end" // a recorded dead end was handed back before a retry
+	KindAtEdit  = "at-edit"  // a ruling naming a file was shown as that file was edited
 )
 
 // Event is one line of the ledger.
@@ -189,7 +190,10 @@ type Totals struct {
 	// dead end, and Rulings the dead ends they returned between them.
 	DeadEndChecks int
 	Rulings       int
-	Since         int64
+	// AtEdit is how many rulings an edit hook put in front of an agent as it
+	// opened a file they name — kept apart from Rulings, which an agent asked for.
+	AtEdit int
+	Since  int64
 }
 
 // Saved is what the packs' budgets left out, in tokens.
@@ -214,6 +218,8 @@ func Sum(events []Event, project string) Totals {
 		case KindDeadEnd:
 			t.DeadEndChecks++
 			t.Rulings += e.Rulings
+		case KindAtEdit:
+			t.AtEdit += e.Rulings
 		}
 	}
 	return t
