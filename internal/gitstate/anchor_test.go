@@ -103,9 +103,9 @@ func TestOutsideARepositoryNothingDrifts(t *testing.T) {
 }
 
 func TestNamedFilesPicksPathsAndFileNamesOutOfProse(t *testing.T) {
-	got := namedFiles("`internal/parse/reader.go:42` loads it all (see reader.go, go.mod and https://x.io/a.go); v1.2 at 3.5GB, ../etc/passwd, /abs/b.go, internal/parse")
+	got := NamedFiles("`internal/parse/reader.go:42` loads it all (see reader.go, go.mod and https://x.io/a.go); v1.2 at 3.5GB, ../etc/passwd, /abs/b.go, internal/parse")
 	want := []string{"internal/parse/reader.go", "go.mod"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("namedFiles = %q, want %q", got, want)
+		t.Fatalf("NamedFiles = %q, want %q", got, want)
 	}
 }

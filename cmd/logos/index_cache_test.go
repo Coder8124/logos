@@ -56,6 +56,8 @@ var cacheOnlyTables = map[string]string{
 	"notes_fts":      "the full-text index over notes, refilled by Sync from the same files",
 	"meta":           "last_sync, which a rebuild is itself the new value of",
 	"replay_state":   "a read cursor, cache-only on purpose — see internal/replay/state.go",
+	"ruling_files":   "files named in checkpoints' Failed lists, re-read from sessions/ by the edit hook on its next run",
+	"ruling_shown":   "which rulings the edit hook already showed this session; losing it shows one once more",
 }
 
 // createdTables finds every table the code can create by reading the source,
