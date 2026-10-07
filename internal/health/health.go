@@ -371,6 +371,14 @@ func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 
 func checkRuntime(rt *provider.Provider, configured, model string) Check {
 	c := Check{Name: "model runtime"}
+	if strings.EqualFold(strings.TrimSpace(configured), "off") {
+		// Asked for, not missing: there is nothing to start and nothing to
+		// install, only the setting to unset.
+		c.State = OK
+		c.Detail = "none — LOGOS_RUNTIME=off; memories and notes are matched by keyword, not meaning"
+		c.Fix = "unset LOGOS_RUNTIME to use a runtime on this machine"
+		return c
+	}
 	if rt == nil && configured != "" {
 		// Failed, unlike having none: the user named this runtime, the server
 		// will not fall back to localhost, and "install Ollama" would be

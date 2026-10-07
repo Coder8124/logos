@@ -154,6 +154,19 @@ func TestNoRuntimeIsNotAFailure(t *testing.T) {
 	}
 }
 
+// LOGOS_RUNTIME=off is the user saying they want no runtime. Read as a runtime
+// named "off", it failed doctor with "start the runtime at off" — on exactly
+// the no-runtime machine the setting exists to stand in for.
+func TestARuntimeTurnedOffIsNotAFailure(t *testing.T) {
+	c := find(t, Run(Input{Vault: t.TempDir(), Configured: "off", EmbedModel: "nomic-embed-text"}), "model runtime")
+	if c.State == Failed {
+		t.Errorf("LOGOS_RUNTIME=off reported as a failed runtime: %s / %s", c.Detail, c.Fix)
+	}
+	if !strings.Contains(c.Detail, "LOGOS_RUNTIME=off") {
+		t.Errorf("detail %q does not say the runtime was turned off", c.Detail)
+	}
+}
+
 // Checkpoints live at sessions/<project>/<id>.md. Listing only the top level of
 // sessions/ finds nothing and reports "no checkpoints yet" on a vault full of
 // them — which would make the one check that observes continuity useless
