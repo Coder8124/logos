@@ -274,6 +274,21 @@ func apply(db *sql.DB, dir, scope string, onDisk, known map[string]string) error
 	return tx.Commit()
 }
 
+// Shown reports whether session has already been shown a ruling for rel,
+// without recording anything: the edit hook asks before it does the work of a
+// line, and records only once the line is printed.
+func Shown(db *sql.DB, sessionID, rel string) (bool, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return false, nil
+	}
+	if _, err := db.Exec(atEditSchema); err != nil {
+		return false, err
+	}
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM ruling_shown WHERE session = ? AND path = ?`, sessionID, rel).Scan(&n)
+	return n > 0, err
+}
+
 // FirstShowing reports whether this is the first time in session that a ruling
 // was shown for rel, and records that it now has been. One line per file per
 // session: an agent editing reader.go twenty times needs the ruling once, and a

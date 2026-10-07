@@ -265,3 +265,53 @@ func TestTheEditHookStaysUnderItsBudgetOnALargeVault(t *testing.T) {
 		t.Errorf("warm hook took %s on 2,001 checkpoints; it was 0.08s end to end when measured", took)
 	}
 }
+
+// A session in one repository editing a file in another must be shown the
+// other repository's rulings, never its own about a file that happens to sit
+// at the same path.
+func TestARulingIsNotShownForTheSamePathInAnotherRepository(t *testing.T) {
+	here, vault, db := editRepo(t)
+	ruleOut(t, db, vault, here, readerRuling)
+	there := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", there).CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	commitTo(t, there, "internal/parse/reader.go", "another reader\n")
+
+	payload, _ := json.Marshal(map[string]any{
+		"session_id": "s1", "cwd": here,
+		"tool_input": map[string]string{"file_path": filepath.Join(there, "internal/parse/reader.go")},
+	})
+	var out bytes.Buffer
+	editHookCmd(bytes.NewReader(payload), &out, vault)
+	if out.Len() != 0 {
+		t.Errorf("a ruling about this repository's reader.go was shown for another repository's:\n%s", out.String())
+	}
+}
+
+// A hook past its budget prints nothing. Whatever it was doing must not count
+// as the session having seen the ruling, or the agent never sees it at all.
+func TestARulingTheHookRanOutOfTimeToShowIsShownOnTheNextEdit(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, readerRuling)
+
+	defer func(d time.Duration) { editHookBudget = d }(editHookBudget)
+	editHookBudget = time.Nanosecond
+	if got := edit(t, vault, repo, "s1", "internal/parse/reader.go"); got != "" {
+		t.Skip("the lookup beat a one-nanosecond budget; nothing timed out to test")
+	}
+	// Let the abandoned lookup finish whatever it would have written.
+	time.Sleep(500 * time.Millisecond)
+	editHookBudget = 3 * time.Second
+
+	if got := edit(t, vault, repo, "s1", "internal/parse/reader.go"); got == "" {
+		t.Error("a ruling the hook never printed was counted as shown, so the session never saw it")
+	}
+	events, _, err := usagepkg.Read(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := usagepkg.Sum(events, "").AtEdit; n != 1 {
+		t.Errorf("the usage ledger counts %d showings at edit, want 1 — the one that timed out printed nothing", n)
+	}
+}

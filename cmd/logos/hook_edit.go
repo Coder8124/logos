@@ -32,7 +32,7 @@ import (
 // editHookBudget is how long the hook may take before it gives up and says
 // nothing. Below the plugin's 5s hook timeout so the host never has to kill it,
 // and long enough for a first refresh of a cold cache.
-const editHookBudget = 3 * time.Second
+var editHookBudget = 3 * time.Second
 
 // editPayload is the part of Claude Code's PreToolUse input the hook reads.
 // Edit, Write and MultiEdit all carry the target as tool_input.file_path.
@@ -45,70 +45,101 @@ type editPayload struct {
 }
 
 func editHookCmd(in io.Reader, out io.Writer, vaultDir string) {
-	done := make(chan string, 1)
+	done := make(chan *atEdit, 1)
 	go func() { done <- rulingAtEdit(in, vaultDir) }()
+	var r *atEdit
 	select {
-	case line := <-done:
-		if line == "" {
-			return
-		}
-		raw, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
-			"hookEventName":     "PreToolUse",
-			"additionalContext": line,
-		}})
-		if err == nil {
-			fmt.Fprintln(out, string(raw))
-		}
+	case r = <-done:
 	case <-time.After(editHookBudget):
-		// A busy index or a slow git is not a reason to stall an edit. The
-		// process exits behind this return and takes the work with it.
+		// A busy index or a slow git is not a reason to stall an edit. Nothing
+		// was marked shown or counted, so the next edit tries again; the
+		// lookup's index handle is closed whenever it gets there.
+		go func() {
+			if r := <-done; r != nil {
+				r.ix.Close()
+			}
+		}()
+		return
+	}
+	if r == nil {
+		return
+	}
+	defer r.ix.Close()
+	// Marked only now that the line is in hand: a showing that ran out of time
+	// printed nothing, and counting it would hide the ruling for the rest of
+	// the session. A hook beside this one that marked it first has shown it.
+	if first, err := deadend.FirstShowing(r.ix.DB, r.session, r.rel); err != nil || !first {
+		return
+	}
+	raw, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
+		"hookEventName":     "PreToolUse",
+		"additionalContext": r.line,
+	}})
+	if err != nil {
+		return
+	}
+	fmt.Fprintln(out, string(raw))
+	// Counts only, as every ledger line: that a ruling was shown, never which.
+	if err := usagepkg.Record(vaultDir, usagepkg.Event{
+		Kind: usagepkg.KindAtEdit, Project: r.project, Via: "claude-code", Rulings: 1,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: showed a ruling at edit but could not record it in the usage ledger: %v\n", err)
 	}
 }
 
-// rulingAtEdit is the context line for this edit, or "" when there is none.
-func rulingAtEdit(in io.Reader, vaultDir string) string {
+// atEdit is a ruling found for an edit and not yet shown, with the open index
+// the showing is recorded in.
+type atEdit struct {
+	ix                 *index.Index
+	line, session, rel string
+	project            string
+}
+
+// rulingAtEdit finds the line for this edit, or nil when there is none or this
+// session has already been shown it. It writes nothing that says a ruling was
+// shown — it may be abandoned at the budget — only the lookup cache.
+func rulingAtEdit(in io.Reader, vaultDir string) *atEdit {
 	var p editPayload
 	if err := json.NewDecoder(io.LimitReader(in, 1<<20)).Decode(&p); err != nil {
-		return ""
+		return nil
 	}
 	file := p.ToolInput.FilePath
 	if file == "" || vaultDir == "" {
-		return ""
+		return nil
 	}
 	if _, err := os.Stat(filepath.Join(vaultDir, ".logos", "index.db")); err != nil {
-		return ""
+		return nil
 	}
 	dir := p.Cwd
 	if dir == "" {
 		dir = filepath.Dir(file)
 	}
-	project := projectFor(dir)
+	// The project comes from the repository the file is in, not the session's:
+	// rel is a path in that repository, and another project's ruling about the
+	// same path is about a different file.
 	root, rel := repoRelative(file, dir)
+	project := projectFor(root)
 	if project == "" || rel == "" {
-		return ""
+		return nil
 	}
 
 	ix, err := index.Open(vaultDir)
 	if err != nil {
-		return ""
+		return nil
 	}
-	defer ix.Close()
+	if shown, err := deadend.Shown(ix.DB, p.SessionID, rel); err != nil || shown {
+		ix.Close()
+		return nil
+	}
 	hits, err := deadend.AtPath(ix.DB, vaultDir, project, rel)
 	if err != nil || len(hits) == 0 {
-		return ""
+		ix.Close()
+		return nil
 	}
-	if first, err := deadend.FirstShowing(ix.DB, p.SessionID, rel); err != nil || !first {
-		return ""
+	return &atEdit{
+		ix: ix, line: renderAtEdit(hits, rel, gitstate.NewAnchors(root)),
+		session: p.SessionID, rel: rel, project: project,
 	}
-
-	line := renderAtEdit(hits, rel, gitstate.NewAnchors(root))
-	// Counts only, as every ledger line: that a ruling was shown, never which.
-	if err := usagepkg.Record(vaultDir, usagepkg.Event{
-		Kind: usagepkg.KindAtEdit, Project: project, Via: "claude-code", Rulings: 1,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "logos: showed a ruling at edit but could not record it in the usage ledger: %v\n", err)
-	}
-	return line
 }
 
 // repoRelative is file as the repository names it, and the repository's root.
