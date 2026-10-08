@@ -104,12 +104,34 @@ const (
 	CosineGap = 0.15
 )
 
-// Evidence reports, per candidate, whether anything ties it to the query: a
-// query term it contains, or a vector close enough both absolutely and to the
-// best vector match. Without evidence a candidate is not an answer, however it
-// ranks among the others.
+// Measured on a scratch vault of 432 memories about one project (its own 400
+// commit subjects plus 32 labelled facts) and 18 labelled queries: any shared
+// word admitted a memory, so a project's common vocabulary — "written",
+// "claude code", "release" — let most of the vault through, and the 0.15 gap
+// admitted the rest of a flat field. Weighting the shared words, and holding a
+// vector-only match closer, took precision from 27% to 33% with the same
+// recall there, and from 31% to 39% on the 32 facts alone, where three answers
+// that had got in on a coincidental word ("tag" in "-tags") were lost. Swept 0.3-0.9 and
+// 0.05-0.15: lower LexicalShare or a wider gap gave the noise back, a higher
+// share or narrower gap started dropping answers. Ranking was not the lever:
+// score fusion, qwen3-embedding:0.6b, and a 4B chat model as judge were all
+// measured and none ranked the answers higher.
+const (
+	// LexicalShare is how much of the best match's shared-word weight a memory
+	// must carry before its words are evidence on their own.
+	LexicalShare = 0.7
+	// VectorOnlyGap is CosineGap for a memory sharing no word with the query.
+	// 0.12, not 0.10, which measured 2 points more precise on the 32 facts but
+	// sits exactly on a paraphrase 0.10 below the answer, the case
+	// TestAMemoryFarBelowTheBestMatchIsLeftOut keeps.
+	VectorOnlyGap = 0.12
+)
+
+// Evidence reports, per candidate, whether anything ties it to the query:
+// enough of the query's distinctive words, a few of them backed by a vector
+// close to the best match, or a vector alone that is closer still. Without
+// evidence a candidate is not an answer, however it ranks among the others.
 func Evidence(query string, qVec []float32, cands []Candidate) []bool {
-	qterms := tokenize(query)
 	cos := make([]float64, len(cands))
 	best := math.Inf(-1)
 	for i, c := range cands {
@@ -119,9 +141,65 @@ func Evidence(query string, qVec []float32, cands []Candidate) []bool {
 			best = math.Max(best, cos[i])
 		}
 	}
+	lex := sharedWeight(query, cands)
+	bestLex := 0.0
+	for _, l := range lex {
+		bestLex = math.Max(bestLex, l)
+	}
+	near := func(i int, gap float64) bool { return cos[i] >= MinCosine && cos[i] >= best-gap }
 	out := make([]bool, len(cands))
 	for i := range cands {
-		out[i] = sharesATerm(qterms, tokenize(cands[i].Text)) || (cos[i] >= MinCosine && cos[i] >= best-CosineGap)
+		switch {
+		case lex[i] == 0:
+			out[i] = near(i, VectorOnlyGap)
+		case lex[i] >= LexicalShare*bestLex:
+			out[i] = true
+		case math.IsInf(cos[i], -1):
+			// No vector to confirm or refute a weak match: without a runtime
+			// the words are all the evidence there is, and dropping them cost
+			// a keyword-only machine over a third of its answers (86% recall
+			// to 53% on the same 32 facts).
+			out[i] = true
+		default:
+			out[i] = near(i, CosineGap)
+		}
+	}
+	return out
+}
+
+// sharedWeight is, per candidate, the summed weight of the query words it
+// shares, each weighted by how few candidates share it. A word most of the
+// project uses ties a memory to the query about as much as the project name
+// does; a word only the answer uses is what makes it the answer.
+func sharedWeight(query string, cands []Candidate) []float64 {
+	var qterms []string
+	seen := map[string]bool{}
+	for _, t := range tokenize(query) {
+		if !gateStop[t] && !seen[t] {
+			seen[t] = true
+			qterms = append(qterms, t)
+		}
+	}
+	has := make([][]bool, len(cands))
+	df := make([]int, len(qterms))
+	for i, c := range cands {
+		toks := tokenize(c.Text)
+		has[i] = make([]bool, len(qterms))
+		for j, q := range qterms {
+			if sharesATerm([]string{q}, toks) {
+				has[i][j] = true
+				df[j]++
+			}
+		}
+	}
+	n := float64(len(cands))
+	out := make([]float64, len(cands))
+	for i := range cands {
+		for j := range qterms {
+			if has[i][j] {
+				out[i] += math.Log(1 + n/float64(df[j]))
+			}
+		}
 	}
 	return out
 }
