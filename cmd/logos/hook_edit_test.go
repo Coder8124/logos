@@ -219,6 +219,9 @@ func TestTheEditHookStaysUnderItsBudgetOnALargeVault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a vault of 2,000 checkpoints")
 	}
+	if raceEnabled {
+		t.Skip("a wall-clock budget means nothing under the race detector; the macOS CI job runs this")
+	}
 	repo, vault, db := editRepo(t)
 	ruleOut(t, db, vault, repo, readerRuling)
 
