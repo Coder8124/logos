@@ -229,6 +229,13 @@ type Receipt struct {
 	ContestedText string `json:"contested_text,omitempty"`
 	// Redactions is what Store masked out of the text before keeping it.
 	Redactions []secret.Redaction `json:"redactions,omitempty"`
+	// QueueRestored and QueueRejected are what a queued store adopted from a
+	// hand edit to the review queue file before inserting: lines the user added,
+	// and lines they deleted, which rejects those proposals. The store does it
+	// on the way to rewriting the file, and a caller that cannot see it reports
+	// "queued" on a call that also discarded something in the user's name.
+	QueueRestored int `json:"queue_restored,omitempty"`
+	QueueRejected int `json:"queue_rejected,omitempty"`
 }
 
 // OutcomeNoop means nothing was stored — there was nothing to store.
@@ -361,11 +368,13 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		// insert, and the queue lock held from there through the write.
 		var rec Receipt
 		err := withPending(db, func(dir string) error {
-			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
+			restored, rejected, err := reconcilePendingLocked(db, dir)
+			if err != nil {
 				return err
 			}
-			var err error
-			if rec, err = insertLocked(db, m, vec); err != nil || rec.Outcome != EvQuarantined {
+			rec, err = insertLocked(db, m, vec)
+			rec.QueueRestored, rec.QueueRejected = restored, rejected
+			if err != nil || rec.Outcome != EvQuarantined {
 				return err
 			}
 			rec.Contested, rec.ContestedText = contested, contestedText
