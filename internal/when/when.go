@@ -85,7 +85,7 @@ func Parse(text string, now time.Time) (Window, bool) {
 	// is the article, so the shape that requires it has to be tried first.
 	for _, m := range matchers {
 		loc := m.re.FindStringSubmatchIndex(s)
-		if loc == nil {
+		if loc == nil || (m.unless != nil && m.unless.MatchString(s)) {
 			continue
 		}
 		groups := make([]string, 0, 4)
@@ -107,7 +107,10 @@ func Parse(text string, now time.Time) (Window, bool) {
 }
 
 type matcher struct {
-	re      *regexp.Regexp
+	re *regexp.Regexp
+	// unless, when it matches anywhere in the text, means the phrase is not
+	// temporal there. Declining costs a filter; misreading costs the answer.
+	unless  *regexp.Regexp
 	resolve func(groups []string, now time.Time) (Window, bool)
 }
 
@@ -121,11 +124,21 @@ var numbers = map[string]int{
 const numWords = `\d+|a|an|one|couple of|couple|two|few|three|four|five|six|seven|eight|nine|ten|eleven|twelve`
 const unitWords = `hour|day|week|fortnight|month|quarter|year`
 
+// agoShape is a point in the past up to its final word, which "ago" and "back"
+// both end.
+const agoShape = `(about|around|roughly|approximately|some)?\s*(` + numWords + `)\s+(` + unitWords + `)s?\s+(and a bit\s+|or so\s+)?`
+
 var matchers = []matcher{
-	// "about five weeks ago", "3 days ago", "a month ago"
+	// "about five weeks ago", "3 days ago", "a month and a bit ago"
 	{
-		re: regexp.MustCompile(
-			`\b(about|around|roughly|approximately|some)?\s*(` + numWords + `)\s+(` + unitWords + `)s?\s+ago\b`),
+		re:      regexp.MustCompile(`\b` + agoShape + `ago\b`),
+		resolve: agoWindow,
+	},
+	// "roughly five weeks back" — but not "pushed the launch two weeks back",
+	// which is a distance something moved, not when it happened.
+	{
+		re:      regexp.MustCompile(`\b` + agoShape + `back\b`),
+		unless:  regexp.MustCompile(`\b(?:push|pushed|pushing|move|moved|moving|set|slip|slipped|slid|delay|delayed|postpone|postponed|bump|bumped)\b`),
 		resolve: agoWindow,
 	},
 	// "in the last two weeks", "over the past month", "within the last 3 days"
@@ -164,7 +177,10 @@ var matchers = []matcher{
 // about a particular Tuesday, and someone who says "three days ago" is. So the
 // window is half the unit either side — and a vagueness marker ("about",
 // "roughly") doubles it, since that word exists precisely to say the number is
-// approximate.
+// approximate. "Or so" after the unit is the same marker in a different place.
+// "And a bit" is not: it says the point is past the number, not around it, so
+// the centre moves a quarter unit further back and the width stays — widening
+// it instead would reach "a month and a bit ago" into last week (#222).
 func agoWindow(g []string, now time.Time) (Window, bool) {
 	n, ok := count(g[1])
 	if !ok {
@@ -176,8 +192,12 @@ func agoWindow(g []string, now time.Time) (Window, bool) {
 	}
 	centre := now.Add(-time.Duration(n) * span)
 	half := span / 2
-	if g[0] != "" {
+	hedge := strings.TrimSpace(g[3])
+	if g[0] != "" || hedge == "or so" {
 		half = span
+	}
+	if hedge == "and a bit" {
+		centre = centre.Add(-span / 4)
 	}
 	return Window{From: centre.Add(-half), To: centre.Add(half)}, true
 }

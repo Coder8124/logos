@@ -132,6 +132,9 @@ func Evidence(query string, qVec []float32, cands []Candidate) []bool {
 // ranker, so the stemming stays out of bm25, where it would move LongMemEval.
 func sharesATerm(q, doc []string) bool {
 	for _, a := range q {
+		if gateStop[a] {
+			continue
+		}
 		for _, b := range doc {
 			if sameStem(a, b) {
 				return true
@@ -141,10 +144,22 @@ func sharesATerm(q, doc []string) bool {
 	return false
 }
 
-// sameStem: equal, or one word an inflection of the other — a shared prefix of
-// at least three letters that stops at most two short of the shorter word
-// (own/owns/owned, reply/replies, release/releases), which "cat" and "cache"
-// do not have.
+// gateStop are words a question and a memory share without being about the
+// same thing: "what database do we use" and "we ship releases with argo cd"
+// (#224). Kept out of the gate only, not out of stop, because stop feeds bm25
+// and moving bm25 moves LongMemEval.
+var gateStop = map[string]bool{
+	"we": true, "our": true, "us": true, "should": true, "can": true, "could": true,
+	"would": true, "will": true, "where": true, "why": true, "which": true, "who": true,
+	"there": true, "their": true, "they": true, "your": true, "about": true, "from": true,
+}
+
+// sameStem: equal, or one word an inflection of the other. Past a shared prefix
+// of at least three letters, what is left of each word must be an inflection
+// ending (own/owned, reply/replies, release/releasing, stop/stopped). A bare
+// shared prefix is not enough: use/user, replies/repo, form/format share letters
+// and nothing else, and each such match returned and reinforced an unrelated
+// memory (#224).
 func sameStem(a, b string) bool {
 	if a == b {
 		return true
@@ -153,7 +168,38 @@ func sameStem(a, b string) bool {
 	for n < len(a) && n < len(b) && a[n] == b[n] {
 		n++
 	}
-	return n >= 3 && n >= min(len(a), len(b))-2
+	if n < 3 {
+		return false
+	}
+	ta, tb := tail(a[:n], a[n:]), tail(b[:n], b[n:])
+	if ta > tb {
+		ta, tb = tb, ta
+	}
+	switch ta + "|" + tb {
+	case "|d", "|ed", "|es", "|ing", "|s", "d|s", "ed|es", "ed|ing", "ed|s", "es|ing", "es|s", "ing|s":
+		return true
+	case "e|ed", "e|es", "e|ing", "e|s":
+		// release/releasing: the stem's silent e is dropped before -ing and
+		// -ed. Bare "e" against nothing is car/care, two words.
+		return true
+	case "ied|y", "ies|y", "ied|ies":
+		return true
+	}
+	return false
+}
+
+// tail is the part of a word past the shared prefix, with a doubled final
+// consonant folded away (stop/stopped) and "d" kept only after an e
+// (release/released), so fin/find is not an inflection.
+func tail(prefix, rest string) string {
+	last := prefix[len(prefix)-1]
+	if len(rest) > 2 && rest[0] == last && (rest[1:] == "ed" || rest[1:] == "ing") {
+		return rest[1:]
+	}
+	if rest == "d" && last != 'e' {
+		return "x"
+	}
+	return rest
 }
 
 // HybridRank fuses vector and BM25 rankings, returning candidate IDs best-first.

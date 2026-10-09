@@ -80,3 +80,64 @@ func TestWithoutEmbeddingsAnInflectedWordStillCounts(t *testing.T) {
 		t.Errorf("want only the replies memory, got %v", texts(got))
 	}
 }
+
+// The gate counted any shared word, and "we" is not a stopword to bm25, so
+// "what database do we use" returned "we ship releases with argo cd" and
+// reinforced it (#224). A pronoun or a modal ties a question to nothing.
+func TestAPronounTheQueryAndAMemoryShareIsNotEvidence(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "we ship releases with argo cd", Fact, 0.5, nil)
+	storeVec(t, db, "our team should review every migration", Fact, 0.5, nil)
+
+	got, err := RecallInProject(db, nil, "", "what database should we use for our app", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("memories tied to the query only by we/our/should came back: %v", texts(got))
+	}
+}
+
+// sameStem accepted any three shared letters when the shorter word had at most
+// five, so "use" matched "user" and "replies" matched "repo" (#224). A shared
+// prefix is an inflection only when what follows it on each side is one.
+func TestAWordThatOnlySharesItsFirstLettersIsNotTheSameWord(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "the user prefers short replies", Preference, 0.5, nil)
+	storeVec(t, db, "credentials for the repo come from the secrets manager", Fact, 0.5, nil)
+
+	got, err := RecallInProject(db, nil, "", "which database do we use", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("use~user leaked: %v", texts(got))
+	}
+
+	got, err = RecallInProject(db, nil, "", "how should I format my replies", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !containsText(got, "short replies") {
+		t.Errorf("want only the replies memory, not replies~repo, got %v", texts(got))
+	}
+}
+
+func TestSameStemKeepsInflectionsAndRefusesSharedPrefixes(t *testing.T) {
+	for _, p := range [][2]string{
+		{"reply", "replies"}, {"own", "owns"}, {"own", "owned"}, {"owns", "owned"},
+		{"release", "releases"}, {"release", "released"}, {"release", "releasing"},
+		{"replies", "replied"}, {"stop", "stopped"}, {"stop", "stopping"}, {"deploy", "deploys"},
+	} {
+		if !sameStem(p[0], p[1]) || !sameStem(p[1], p[0]) {
+			t.Errorf("%s and %s are one word inflected and were not matched", p[0], p[1])
+		}
+	}
+	for _, p := range [][2]string{
+		{"use", "user"}, {"replies", "repo"}, {"cat", "cache"}, {"car", "care"}, {"form", "format"},
+	} {
+		if sameStem(p[0], p[1]) || sameStem(p[1], p[0]) {
+			t.Errorf("%s and %s share letters, not a word, and were matched", p[0], p[1])
+		}
+	}
+}
