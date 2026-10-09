@@ -1,6 +1,9 @@
 package mcpserver
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -119,8 +122,7 @@ func TestAHostWithItsOwnHooksIsLeftToThem(t *testing.T) {
 // somebody else's work to a session that did nothing.
 func TestATranscriptThatEndedBeforeThisServerStartedIsNotRecorded(t *testing.T) {
 	srv, vault := testServer(t)
-	srv.startedAt = time.Now()
-	sess := &Session{Server: srv, clientAgent: "cursor"}
+	sess := &Session{Server: srv, clientAgent: "cursor", startedAt: time.Now()}
 
 	stale := workedIn("cursor", "shop")
 	stale.Started = time.Now().Add(-4 * time.Hour).Unix()
@@ -157,5 +159,43 @@ func TestAProjectWorkedOnAfterCheckpointingAnotherIsStillRecorded(t *testing.T) 
 	}
 	if c == nil {
 		t.Fatal("a project worked on after checkpointing a different one was not recorded")
+	}
+}
+
+// Two clients served by one Server each have their own start. When the start
+// lived on Server, a second client connecting moved the first one's too, so a
+// transcript that ran during the first session and ended before the second
+// connected was taken for a stale one and its unsaved work was not recorded.
+func TestASecondClientConnectingDoesNotMoveTheFirstOnesStart(t *testing.T) {
+	vault := t.TempDir()
+	srv := &Server{DB: testDB(t), vault: vault}
+	ts := workedIn("cursor", "shop")
+	fakeTranscripts(t, ts)
+
+	inA, feedA := io.Pipe()
+	var outA bytes.Buffer
+	doneA := make(chan error, 1)
+	go func() { doneA <- srv.Serve(inA, &outA) }()
+	fmt.Fprintln(feedA, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"cursor"}}}`)
+	fmt.Fprintln(feedA, `{"jsonrpc":"2.0","id":2,"method":"ping"}`)
+
+	// The transcript ends while the first client is connected, and the second
+	// connects a clear second later — start times are compared in whole seconds.
+	ts.Ended = time.Now().Unix()
+	time.Sleep(1100 * time.Millisecond)
+	if err := srv.Serve(strings.NewReader(""), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	feedA.Close()
+	if err := <-doneA; err != nil {
+		t.Fatal(err)
+	}
+	c, err := session.Latest(vault, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c == nil {
+		t.Error("the first client's unsaved work was not recorded once a second client had connected")
 	}
 }
