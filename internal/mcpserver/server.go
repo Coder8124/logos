@@ -105,9 +105,6 @@ type Server struct {
 	// `npx @noeton/logos`, or a full path. Receipts that send the user to a
 	// command use it; empty means `logos`.
 	Shell string
-	// startedAt is when Serve began, used at stdin close to tell this session's
-	// transcript from one a window closed hours ago left behind.
-	startedAt time.Time
 	// toolSet is the tool set a host is shown and may call; nil is every tool.
 	// See SetTools.
 	toolSet map[string]bool
@@ -155,6 +152,11 @@ type Session struct {
 	// model. See identity.go. Empty for a host that omits clientInfo, or before
 	// initialize has run.
 	clientAgent string
+
+	// startedAt is when Serve began, used at stdin close to tell this session's
+	// transcript from one a window closed hours ago left behind. Per session:
+	// on Server, a second client connecting moved the first one's start.
+	startedAt time.Time
 
 	// served records how many turns of each ingested session this session
 	// showed the model, so ingest_distil validates citations against what was
@@ -288,9 +290,8 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			return err
 		}
 	}
-	s.startedAt = time.Now()
 	out := json.NewEncoder(w)
-	sess := &Session{Server: s}
+	sess := &Session{Server: s, startedAt: time.Now()}
 	// A host with no hooks never tells Logos a session ended, so stdin closing
 	// is the only notice there is. See recordUnsaved.
 	defer sess.recordUnsaved()
