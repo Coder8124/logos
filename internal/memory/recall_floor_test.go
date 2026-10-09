@@ -141,3 +141,56 @@ func TestSameStemKeepsInflectionsAndRefusesSharedPrefixes(t *testing.T) {
 		}
 	}
 }
+
+// Any shared word was evidence, so in a vault of a few hundred memories about
+// one project "how should commit messages be written" came back with every
+// note that happened to say "written", each at a cosine far below the answer.
+// A memory that carries only a small share of what the best match shares
+// with the query has to be near it in meaning as well.
+func TestAMemorySharingOnlyAnIncidentalWordNeedsTheVectorToAgree(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "commit messages are one sentence with no trailing period", Fact, 0.5, []float32{1, 0, 0})
+	storeVec(t, db, "the session note is written only when work is uncheckpointed", Fact, 0.5, []float32{0.6, 0.8, 0})
+
+	got, err := RecallInProject(db, embedRuntime(t, false), "nomic-embed-text", "how should commit messages be written", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !containsText(got, "commit messages") {
+		t.Errorf("want only the commit memory, not the one sharing just \"written\", got %v", texts(got))
+	}
+}
+
+// The same rule must not cost a machine with no embedding model: there is no
+// vector to confirm a weak keyword match, so the keyword stays the evidence.
+func TestWithoutEmbeddingsAWeakKeywordMatchIsStillReturned(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "commit messages are one sentence with no trailing period", Fact, 0.5, nil)
+	storeVec(t, db, "the session note is written only when work is uncheckpointed", Fact, 0.5, nil)
+
+	got, err := RecallInProject(db, nil, "", "how should commit messages be written", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("with no vectors both keyword matches should stay, got %v", texts(got))
+	}
+}
+
+// A memory with no word in common with the query rode in on the 0.15 cosine
+// gap, which in a flat field of same-project memories is wide enough to admit
+// most of the project. With nothing else tying it to the query, the vector
+// alone has to put it close to the best match.
+func TestAMemoryOnlyTheVectorReachesMustBeCloseToTheBestMatch(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "the embedding model is nomic-embed-text", Fact, 0.5, []float32{1, 0, 0})
+	storeVec(t, db, "chaos tests must pass before a release", Fact, 0.5, []float32{0.87, 0.493, 0})
+
+	got, err := RecallInProject(db, embedRuntime(t, false), "nomic-embed-text", "which embedding model", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !containsText(got, "nomic") {
+		t.Errorf("want only the embedding memory, got %v", texts(got))
+	}
+}
