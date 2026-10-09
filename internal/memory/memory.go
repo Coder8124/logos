@@ -12,6 +12,7 @@ package memory
 import (
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -252,6 +253,11 @@ func (r Receipt) Created() bool { return r.Outcome == EvCreated }
 // instead of "remembered".
 func (r Receipt) Queued() bool { return r.Outcome == EvQuarantined }
 
+// ErrOnlySecret is Store refusing a memory that was nothing but a credential.
+// Its own value so a bulk caller can count these as refusals rather than
+// stopping on the first one, or reporting them as failures to write.
+var ErrOnlySecret = errors.New("nothing to remember once the credential in it was masked — a secret is not stored as a memory")
+
 // Store embeds a memory and saves it, deduplicated on its normalised text so
 // the same fact learned twice does not accumulate. The receipt distinguishes a
 // new memory from a corroborated one.
@@ -269,7 +275,7 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	// check above and was stored as the fact "[REDACTED]". Refused, not a
 	// noop, so the agent learns why nothing was kept.
 	if strings.Trim(strings.ReplaceAll(m.Text, secret.Marker, ""), " \t\n.,;:'\"`") == "" {
-		return Receipt{Outcome: OutcomeNoop, Redactions: redactions}, fmt.Errorf("nothing to remember once the credential in it was masked — a secret is not stored as a memory")
+		return Receipt{Outcome: OutcomeNoop, Redactions: redactions}, ErrOnlySecret
 	}
 	if m.Created == 0 {
 		m.Created = time.Now().Unix()

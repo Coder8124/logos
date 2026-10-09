@@ -138,6 +138,8 @@ func main() {
 		err = runIngest(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
+	case cmd == "import":
+		err = runImport(args)
 	case cmd == "insights":
 		err = runInsights(args)
 	case cmd == "usage":

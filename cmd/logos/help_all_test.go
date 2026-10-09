@@ -33,6 +33,7 @@ func TestHelpAllNamesEveryFlagTheParsersAccept(t *testing.T) {
 		// tells the user "--path needs --harness", naming a flag help never did.
 		{"ingest", "--path"},
 		{"bootstrap", "--dir"},
+		{"import", "--from claude-mem"},
 		{"why", "--limit"},
 		// Not flags but whole verbs, and the shipped context-connect skill tells
 		// users to run both — so they were discoverable from the plugin and not

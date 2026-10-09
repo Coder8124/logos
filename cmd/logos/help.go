@@ -91,6 +91,8 @@ CONTINUITY
     logos continuity                  vault-wide: which projects checkpoint, which have gone quiet
     logos bootstrap [project] [--dir DIR] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
+    logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]
+                                      bring claude-mem's observations over as memories
     logos context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     logos tried <approach> [--project X]
