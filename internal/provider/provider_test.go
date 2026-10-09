@@ -71,6 +71,33 @@ func TestAConfiguredRuntimeThatDoesNotAnswerIsNoneRatherThanADiscoveredOne(t *te
 	}
 }
 
+// A machine with Ollama up had no way to show what logos does without one: the
+// ports are fixed, and a dead LOGOS_RUNTIME only reached the callers that ask
+// Resolve, not setup's own Discover. "off" has to reach both.
+func TestRuntimeOffFindsNothingEvenWithARuntimeAnswering(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"nomic-embed-text"}]}`)
+	}))
+	defer srv.Close()
+	old := LocalEndpoints
+	LocalEndpoints = []LocalEndpoint{{"Ollama", srv.URL + "/v1"}}
+	t.Cleanup(func() { LocalEndpoints = old })
+	if len(Discover()) != 1 {
+		t.Fatal("the fake runtime was not discovered, so this test proves nothing")
+	}
+
+	t.Setenv("LOGOS_RUNTIME", "off")
+	if got := Discover(); got != nil {
+		t.Errorf("Discover with LOGOS_RUNTIME=off = %+v, want nothing", got)
+	}
+	if got := Resolve(); got != nil {
+		t.Errorf("Resolve with LOGOS_RUNTIME=off = %+v, want nothing", got)
+	}
+	if p := Configured(); p != nil {
+		t.Errorf("Configured with LOGOS_RUNTIME=off = %s, want none — \"off\" is not a URL", p.BaseURL)
+	}
+}
+
 func TestAConfiguredRuntimeIsTheOnlyCandidateAndGetsItsKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" || r.Header.Get("Authorization") != "Bearer sekrit" {

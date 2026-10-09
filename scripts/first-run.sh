@@ -4,6 +4,7 @@
 # home directory.
 #
 #   ./scripts/first-run.sh
+#   LOGOS_RUNTIME=off ./scripts/first-run.sh    # as a machine with no model runtime
 #
 # Every first-run defect this repository has shipped was invisible from the
 # developer's own laptop, because that laptop already has a vault, a recorded
@@ -21,11 +22,11 @@
 # from a published npm tarball. Those need a second user account. This is the
 # part that can be automated, run before that.
 #
-# Nor can it take away a model runtime. Discovery probes localhost:11434 and the
-# three ports beside it (internal/provider), with no environment override, so a
-# developer with Ollama running sees the with-a-runtime path no matter what HOME
-# says. The no-runtime first run — the common one — has to be read from a machine
-# that genuinely has none, or from openRouterOptional's own tests.
+# A model runtime is not in HOME: discovery probes localhost:11434 and the three
+# ports beside it (internal/provider), so a developer with Ollama running sees
+# the with-a-runtime path whatever HOME says. LOGOS_RUNTIME=off is passed
+# through to every command, and is how to walk the no-runtime first run — the
+# common one — on a machine that has one.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -48,11 +49,15 @@ run() {
 	shift
 	printf '\n\033[1m$ logos %s\033[0m\n' "$what"
 	env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" \
-		PATH=/usr/bin:/bin TERM="${TERM:-dumb}" "$BIN" "$@"
+		PATH=/usr/bin:/bin TERM="${TERM:-dumb}" ${RUNTIME:+LOGOS_RUNTIME="$RUNTIME"} "$BIN" "$@"
 	printf '\033[2m[exit %d]\033[0m\n' $?
 }
 
+# Read before env -i throws it away.
+RUNTIME=${LOGOS_RUNTIME:-}
+
 echo "fake home: $HOME_DIR"
+[ -n "$RUNTIME" ] && echo "LOGOS_RUNTIME=$RUNTIME"
 
 # Before setup: every verb a curious user might type first. None of them should
 # build half a vault, and each should say what to do instead.

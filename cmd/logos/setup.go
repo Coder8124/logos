@@ -131,7 +131,8 @@ func setupCmd(args []string) error {
 	if rec == recordSkipMove && !opts.dryRun && !opts.none {
 		return fmt.Errorf("no hosts were wired: this machine's vault is still %s, and wiring them to %s would leave the two disagreeing — pass --move-vault to move it here", vault.Recorded(), dir)
 	}
-	if err := wireHosts(dir, opts); err != nil {
+	wired, err := wireHosts(dir, opts)
+	if err != nil {
 		return err
 	}
 	// The record is machine-wide but --host, or a no at the prompt, wires only
@@ -147,6 +148,9 @@ func setupCmd(args []string) error {
 		}
 	}
 	reportHistoryOnThisMachine()
+	if len(wired) > 0 {
+		firstResume(dir, wired, opts)
+	}
 	return nil
 }
 
@@ -219,7 +223,7 @@ var (
 	integrationChecks = health.Integration
 )
 
-func wireHosts(vault string, opts wireOpts) error {
+func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 	// --no-hosts is for someone evaluating logos, or setting up a second vault
 	// on a machine that already has one wired. Until it existed the only way to
 	// create and index a vault was to also repoint every AI tool on the machine
@@ -227,11 +231,11 @@ func wireHosts(vault string, opts wireOpts) error {
 	if opts.none {
 		fmt.Println("\n  hosts      --no-hosts: nothing was wired")
 		fmt.Println("             `logos mcp install` connects them when you are ready")
-		return nil
+		return nil, nil
 	}
 	srv, err := logosServer(vault)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Under npx the server would be registered as `npx -y @noeton/logos`, and
 	// npx asks npm's registry on every launch: offline that waited 70 seconds
@@ -280,7 +284,7 @@ func wireHosts(vault string, opts wireOpts) error {
 	// when the command exits. Every check passes during the run, then no host
 	// can start the server.
 	if !opts.yes && goRunBinary(bin) {
-		return fmt.Errorf("%s is a `go run` build that Go deletes when this command exits — "+
+		return nil, fmt.Errorf("%s is a `go run` build that Go deletes when this command exits — "+
 			"build one that stays (`go build -o ~/.local/bin/logos ./cmd/logos` or `go install ./cmd/logos`) and run setup from it, or pass --yes to wire this one anyway", bin)
 	}
 
@@ -290,7 +294,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		// Named off the same list the match was made against. Reaching past the
 		// seam to setup.Hosts() meant the message could list a roster the match
 		// never consulted.
-		return fmt.Errorf("unknown host %s — logos knows: %s",
+		return nil, fmt.Errorf("unknown host %s — logos knows: %s",
 			strings.Join(unmatched, ", "), strings.Join(setup.Names(known), ", "))
 	}
 	// The README offers the plugin and this command side by side, and someone
@@ -411,7 +415,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			if opts.dryRun {
 				fmt.Println("\n  --dry-run: nothing was written.")
 			}
-			return nil
+			return nil, nil
 		}
 		// A named host that is missing is not "no hosts found": with Cursor
 		// installed, `--host codex` told the user to install Cursor and exited
@@ -431,7 +435,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			if len(hosts) > 1 {
 				verb = "are"
 			}
-			return fmt.Errorf("%s %s not installed here (%s); nothing was wired",
+			return nil, fmt.Errorf("%s %s not installed here (%s); nothing was wired",
 				strings.Join(setup.Names(hosts), ", "), verb, here)
 		}
 		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
@@ -442,12 +446,12 @@ func wireHosts(vault string, opts wireOpts) error {
 			// guess about — and the vault half of it did have something to say.
 			fmt.Println("\n  --dry-run: nothing was written.")
 		}
-		return nil
+		return nil, nil
 	}
 
 	if opts.dryRun {
 		fmt.Println("\n  --dry-run: nothing was written.")
-		return nil
+		return nil, nil
 	}
 	wire := opts.yes
 	if !wire {
@@ -456,7 +460,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		// (`brew install … && logos setup`) take a run that wired nothing as a
 		// success; the user found out when their AI tool had no Logos.
 		if !ok {
-			return fmt.Errorf("nothing was wired: no terminal to ask — re-run with --yes to wire the %d host(s) found", present)
+			return nil, fmt.Errorf("nothing was wired: no terminal to ask — re-run with --yes to wire the %d host(s) found", present)
 		}
 		wire = answer == "" || answer == "y" || answer == "yes"
 	}
@@ -471,7 +475,7 @@ func wireHosts(vault string, opts wireOpts) error {
 			}
 		}
 		fmt.Printf("  to wire only some, keep the ones you want: logos mcp install %s\n", strings.Join(pick, " "))
-		return nil
+		return nil, nil
 	}
 
 	if showPlan {
@@ -641,7 +645,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		if !ok {
 			fmt.Println("\n  The hosts are configured but the server did not pass its own check.")
 			fmt.Println("  `logos doctor --integration` re-runs this.")
-			return nil
+			return nil, nil
 		}
 	}
 
@@ -650,12 +654,12 @@ func wireHosts(vault string, opts wireOpts) error {
 		// hosts found. Install … Cursor" under Cursor's own error contradicted
 		// the line above it, and exiting 0 hid that nothing was wired.
 		if failed > 0 {
-			return fmt.Errorf("%d %s found, none wired — fix the error above and re-run `logos mcp install`",
+			return nil, fmt.Errorf("%d %s found, none wired — fix the error above and re-run `logos mcp install`",
 				failed, plural(failed, "host"))
 		}
 		fmt.Printf("\n  No MCP hosts found. Install one of %s\n", strings.Join(setup.Names(known), ", "))
 		fmt.Println("  and re-run `logos mcp install`.")
-		return nil
+		return nil, nil
 	}
 	offerActivityRecording(vault, opts.yes)
 
@@ -688,7 +692,7 @@ func wireHosts(vault string, opts wireOpts) error {
 		offerPinRemoval(self)
 	}
 	tryTheHandoff(os.Stdout, wiredHosts, cmd, hint)
-	return nil
+	return wiredHosts, nil
 }
 
 // tryTheHandoff prints setup's closing steps. It names the hosts setup just

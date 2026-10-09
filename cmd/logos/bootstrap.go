@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,10 +66,7 @@ func runBootstrap(args []string) error {
 	}
 
 	fmt.Printf("From the git history of %s, scoped to project %q:\n\n", dir, project)
-	for i, c := range found {
-		fmt.Printf("  %d. %s\n", i+1, c.Text)
-		fmt.Printf("     %s · confidence %.2f\n\n", c.Evidence, c.Confidence)
-	}
+	printSeeds(found)
 
 	if dryRun {
 		fmt.Printf("%d memories would be written. Nothing was.\n", len(found))
@@ -80,7 +76,18 @@ func runBootstrap(args []string) error {
 		fmt.Println("Nothing written.")
 		return nil
 	}
+	return storeSeeds(found, project)
+}
 
+func printSeeds(found []bootstrap.Candidate) {
+	for i, c := range found {
+		fmt.Printf("  %d. %s\n", i+1, c.Text)
+		fmt.Printf("     %s · confidence %.2f\n\n", c.Evidence, c.Confidence)
+	}
+}
+
+// storeSeeds writes what the user said yes to, and says how to take it back.
+func storeSeeds(found []bootstrap.Candidate, project string) error {
 	ix, err := openEvents()
 	if err != nil {
 		return err
@@ -131,12 +138,9 @@ func runBootstrap(args []string) error {
 	return nil
 }
 
+// confirmBootstrap reads through setup's one shared scanner: setup offers
+// bootstrap between its own prompts, and a second reader on stdin would read
+// ahead and swallow the answers meant for them.
 func confirmBootstrap(n int) bool {
-	fmt.Printf("Write these %d memories? [y/N] ", n)
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil {
-		return false
-	}
-	answer := strings.ToLower(strings.TrimSpace(line))
-	return answer == "y" || answer == "yes"
+	return confirmNo(fmt.Sprintf("Write these %d memories?", n))
 }
