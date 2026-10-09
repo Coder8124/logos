@@ -6,6 +6,19 @@
 # commit that broke it. These are the commands CLAUDE.md asks for before
 # saying a change works, so a green check here means the same thing a green
 # local run does.
+#
+# The same reasoning reaches further than the tests. Packaging only ran on a
+# tag, so a PR that broke scripts/release.sh or the npm wrapper was found by
+# the release; it runs here now, and the wrapper's stdio test is driven on
+# macOS and Windows as well, because that is where a stray byte on stdout
+# corrupts the MCP stream for real users. The race detector and govulncheck
+# each found a live bug the day they were added: a second MCP client moved the
+# first one's start time, and the shipped binary reached 14 fixed stdlib
+# vulnerabilities.
+#
+# Branch protection should require exactly one check, `ci ok`, which fails if
+# any job before it failed. Adding or renaming a job then needs no change to
+# the protection rules.
 
 name: ci
 
@@ -13,16 +26,26 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, for what changes without a commit: a newly published vulnerability
+  # in the toolchain or a dependency.
+  schedule:
+    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
 
+# A new push to a PR supersedes the run before it. main's runs are never
+# cancelled: each one is the record of whether that commit was good.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -31,21 +54,166 @@ jobs:
       - name: Format
         run: gofmt -l . | grep -v '\.venv' | (! grep .) || (echo "unformatted files above"; exit 1)
 
+      - name: go.mod is tidy
+        run: go mod tidy -diff
+
       - name: Build
         run: go build ./...
 
       - name: Vet
         run: go vet ./...
 
+      # The Windows binary ships but its tests cannot run there yet (two dozen
+      # of them drive /bin/sh). Vetting for windows at least type-checks every
+      # file, tests included, against the platform's build tags.
+      - name: Vet for Windows
+        run: GOOS=windows go vet ./...
+
       # Pinned, so a new staticcheck release cannot turn main red on its own.
       - name: Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
+      # Not pinned in effect: the tool is, but the vulnerability database it
+      # reads is live. A new advisory can turn a PR red that did not cause it —
+      # deliberately, since the fix is usually a toolchain bump and the
+      # alternative is shipping the advisory.
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
+  test-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Under the race detector, because the MCP server is built to serve
+      # clients concurrently and a race there is silent until it corrupts state.
+      - name: Test (race)
+        run: go test -race ./...
+
+  test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Most users are on a Mac; path, temp-directory and process behaviour
+      # differ enough from Linux to be worth a run of their own.
       - name: Test
         run: go test ./...
 
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       # The durability tier: crashes between the vault write and the index
       # write, deleted indexes, torn files. Uncached, because a cached pass of a
       # test about what survives a crash proves nothing about this commit.
       - name: Chaos
         run: go test -count=1 -tags chaos ./chaos/...
+
+  # The release build, minus the publishing: the same script and the same npm
+  # packaging release.yml runs on a tag. The archives are kept for a week, so a
+  # reviewer can try a PR's binary without building it.
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Versioned as the npm wrapper is, because build.js looks the archives up
+      # by that version.
+      - name: Build binaries
+        run: ./scripts/release.sh "v$(node -p "require('./npm/package.json').version")"
+
+      - name: Build and test npm packages
+        working-directory: npm
+        run: |
+          node scripts/build.js
+          node scripts/test.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logos-binaries
+          path: dist/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-platforms
+          path: npm/platforms/
+          retention-days: 7
+
+  # The wrapper's own test, on the hosts the package job cannot be: it proves an
+  # MCP handshake through `npx @noeton/logos` carries the protocol and nothing
+  # else, which is the failure a Windows or macOS user would actually meet.
+  wrapper:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-platforms
+          path: npm/platforms
+      # Artifacts do not keep the executable bit.
+      - name: Restore the executable bit
+        if: runner.os != 'Windows'
+        run: chmod +x npm/platforms/*/bin/logos
+      - name: Test npm wrapper
+        working-directory: npm
+        run: node scripts/test.js
+
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit messages
+        run: >-
+          scripts/check-commits.sh
+          ${{ github.event.pull_request.base.sha }}
+          ${{ github.event.pull_request.head.sha }}
+
+  ci-ok:
+    name: ci ok
+    if: always()
+    needs: [lint, test-linux, test-macos, chaos, package, wrapper, commits]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # `commits` is skipped on push and schedule; skipped is not a failure.
+      - name: Every job passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo '${{ toJSON(needs) }}'
+          exit 1
+      - run: echo "every job passed"

@@ -214,8 +214,13 @@ cp internal/agentprompt/LOGOSPROMPT.md systemmd/LOGOSPROMPT.md
   is wrong here.
 - Commit messages are one sentence, written as a statement of what is now true —
   `A rename moves the project's directory whether or not it holds a checkpoint yet`.
+  No trailing period and no attribution trailer; `scripts/check-commits.sh
+  origin/main` checks a branch the way CI does.
 - New behaviour comes with a test that fails without it.
 - `go test ./...`, `go vet ./...` and `gofmt -l .` clean before you open it.
+  CI also runs the race detector, the chaos tier, staticcheck, govulncheck, a
+  macOS test run, and a packaging build whose npm wrapper is driven on Linux,
+  macOS and Windows. One check, `ci ok`, sums them up.
 
 ## Reporting bugs
 
