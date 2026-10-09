@@ -57,7 +57,10 @@ CREATE TABLE IF NOT EXISTS commitments (
     status     TEXT NOT NULL DEFAULT 'open',
     source_ref TEXT,
     fingerprint TEXT UNIQUE,
-    resolved_at INTEGER NOT NULL DEFAULT 0
+    resolved_at INTEGER NOT NULL DEFAULT 0,
+    -- unflushed marks a loop the cache holds and loops.md does not, because
+    -- the write that should have put it there failed. See markUnflushed.
+    unflushed  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS commitments_status ON commitments(status, created);
 `
@@ -69,6 +72,7 @@ func Init(db *sql.DB) error {
 	// Migration for stores created before the weekly review needed to know when
 	// a loop was closed.
 	db.Exec("ALTER TABLE commitments ADD COLUMN resolved_at INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE commitments ADD COLUMN unflushed INTEGER NOT NULL DEFAULT 0")
 	return nil
 }
 

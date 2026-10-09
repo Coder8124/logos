@@ -218,7 +218,7 @@ func (ix *Index) SyncLog() (int, error) {
 // indistinguishable from having finished everything on it.
 //
 // Returns how many loops it put back.
-func (ix *Index) SyncLoops() (int, error) {
+func (ix *Index) SyncLoops() (restored, rescued int, err error) {
 	return secretary.Import(ix.DB, ix.Vault)
 }
 
@@ -229,7 +229,7 @@ func (ix *Index) SyncLoops() (int, error) {
 // back before the proposal about them can be read.
 //
 // Returns how many insights it put back.
-func (ix *Index) SyncInsights() (int, error) {
+func (ix *Index) SyncInsights() (restored, rescued int, err error) {
 	return dream.Import(ix.DB, ix.Vault)
 }
 

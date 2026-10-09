@@ -219,7 +219,9 @@ func flushLocked(db *sql.DB, kind Kind) error {
 	// stranded went out with it, because the export rewrites the entire file
 	// rather than appending — which is also why a single later write of any
 	// memory of this kind repairs every stranded one.
-	db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND unflushed = 1", string(kind))
+	// quarantined = 0: a proposal's mark is about the queue file, which this
+	// write never touched. See markPendingUnflushed.
+	db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND quarantined = 0 AND unflushed = 1", string(kind))
 	// Remember the file we just produced, so the next reconcile can recognise it
 	// as ours and skip a full pass. Read back rather than hashing what we think
 	// we wrote: if the export and the file on disk ever disagree, the stamp must
@@ -311,7 +313,16 @@ func UnflushedIDs(db *sql.DB) map[int64]bool {
 // is what `logos doctor` needs in order to say so. Zero is the normal answer.
 func Unflushed(db *sql.DB) (int, error) {
 	var n int
-	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE unflushed = 1 AND superseded = 0").Scan(&n)
+	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE unflushed = 1 AND superseded = 0 AND quarantined = 0").Scan(&n)
+	return n, err
+}
+
+// UnflushedPending counts the proposals in the review queue the cache holds and
+// memories/pending.md does not — a separate number from Unflushed because the
+// file at risk is a different one, and so is the noun doctor names it by.
+func UnflushedPending(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM memories WHERE unflushed = 1 AND superseded = 0 AND quarantined = 1").Scan(&n)
 	return n, err
 }
 
@@ -391,8 +402,13 @@ func reconcileLocked(db *sql.DB, kind Kind) error {
 		keep[id] = true
 	}
 
+	// unflushed = 0 because a row whose write the vault refused was never in
+	// the file, so its absence there is not a deletion. The stamp hid this
+	// inside one process; the next CLI command starts without one, runs this
+	// pass, and used to forget the memory just before the write that would
+	// have carried it out.
 	rows, err := db.Query(
-		`SELECT id FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0`, string(kind))
+		`SELECT id FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 AND unflushed = 0`, string(kind))
 	if err != nil {
 		return err
 	}
@@ -652,7 +668,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 		if err := Export(db, dir); err != nil {
 			return 0, 0, err
 		}
-		db.Exec("UPDATE memories SET unflushed = 0")
+		db.Exec("UPDATE memories SET unflushed = 0 WHERE quarantined = 0")
 		return 0, rescued, nil
 	}
 
@@ -723,7 +739,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 			// and the next run tries again.
 			return imported, 0, fmt.Errorf("memories are in the cache that the vault still will not take: %w", err)
 		}
-		db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND unflushed = 1", string(kind))
+		db.Exec("UPDATE memories SET unflushed = 0 WHERE kind = ? AND quarantined = 0 AND unflushed = 1", string(kind))
 		dropStamp(db, kind)
 	}
 	return imported, rescued, nil

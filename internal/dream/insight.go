@@ -72,14 +72,22 @@ CREATE TABLE IF NOT EXISTS dream_insights (
     conf       REAL NOT NULL,
     model      TEXT NOT NULL,
     created    INTEGER NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'pending'
+    status     TEXT NOT NULL DEFAULT 'pending',
+    -- unflushed marks an insight the cache holds and the vault's insight file
+    -- does not, because the write that should have put it there failed. See
+    -- markUnflushed.
+    unflushed  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS dream_insights_status ON dream_insights(status, created);
 `
 
 func InitQueue(db *sql.DB) error {
-	_, err := db.Exec(QueueSchema)
-	return err
+	if _, err := db.Exec(QueueSchema); err != nil {
+		return err
+	}
+	// Migration for queues created before a failed write was recorded.
+	db.Exec("ALTER TABLE dream_insights ADD COLUMN unflushed INTEGER NOT NULL DEFAULT 0")
+	return nil
 }
 
 // Validate enforces the invariants that make the queue trustworthy — checked on

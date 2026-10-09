@@ -209,3 +209,150 @@ func TestALaterWriteOfTheSameKindClearsTheMark(t *testing.T) {
 		t.Errorf("the mark was cleared but the memory is not in the file:\n%s", raw)
 	}
 }
+
+// Every CLI command is its own process, so the stamp that lets a write skip the
+// reconcile pass does not survive to the next command. That pass compared the
+// file against the cache, found the stranded memory missing, and forgot it as a
+// line the user had deleted — before the write that would have carried it out.
+// A row the file never had cannot have been deleted from it.
+func TestAMemoryTheVaultRefusedSurvivesTheNextWriteFromAnotherProcess(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	landed := Memory{Text: "the alpha widget needs a warm cache", Kind: Fact, Source: "test"}
+	if _, err := Store(db, nil, "", &landed); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strand(t, dir)
+	stranded := Memory{Text: "a fact that cannot land", Kind: Fact, Source: "test"}
+	if _, err := Store(db, nil, "", &stranded); err == nil {
+		t.Fatal("storing into an unwritable vault reported success")
+	}
+	unstrand()
+	dropStamps(db) // the next command starts with none
+
+	later := Memory{Text: "the beta widget runs cold", Kind: Fact, Source: "test"}
+	if _, err := Store(db, nil, "", &later); err != nil {
+		t.Fatal(err)
+	}
+	if !remembers(t, db, stranded.Text) {
+		t.Fatal("the next write forgot the memory the vault refused, as though the user had deleted it")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, Dir, string(Fact)+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), stranded.Text) {
+		t.Errorf("the memory is still only in the cache:\n%s", raw)
+	}
+	if n, _ := Unflushed(db); n != 0 {
+		t.Errorf("%d memories still marked after a write that carried them out", n)
+	}
+}
+
+func isPending(t *testing.T, db *sql.DB, text string) bool {
+	t.Helper()
+	pend, err := Pending(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range pend {
+		if m.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+// The review queue's version of the same loss, and the harsher one: the next
+// proposal's reconcile found no line for the stranded proposal and *rejected* it
+// — logged as the user's decision, on a proposal they never saw.
+func TestAProposalTheVaultRefusedSurvivesTheNextProposal(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	first := Memory{Text: "deploys go out on Tuesdays", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &first); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strand(t, dir)
+	stranded := Memory{Text: "the staging cluster is us-east-2", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &stranded); err == nil {
+		t.Fatal("queueing a proposal in an unwritable vault reported success")
+	}
+	unstrand()
+
+	later := Memory{Text: "Priya owns the billing service", Kind: Person, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &later); err != nil {
+		t.Fatal(err)
+	}
+	if !isPending(t, db, stranded.Text) {
+		t.Fatal("the next proposal rejected the one the vault refused, on the user's behalf")
+	}
+	raw, err := os.ReadFile(pendingPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), stranded.Text) {
+		t.Errorf("the proposal is still only in the cache:\n%s", raw)
+	}
+}
+
+// `logos index` writes a stranded proposal out and counts it as a rescue, not
+// a restore — and a successful write of active memories of the same kind must
+// not have cleared its mark first, since that write never touches the queue.
+func TestReindexingWritesOutAProposalTheVaultNeverGot(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	first := Memory{Text: "deploys go out on Tuesdays", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &first); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strand(t, dir)
+	stranded := Memory{Text: "the staging cluster is us-east-2", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &stranded); err == nil {
+		t.Fatal("queueing a proposal in an unwritable vault reported success")
+	}
+	unstrand()
+	active := Memory{Text: "the alpha widget needs a warm cache", Kind: Fact, Source: "test"}
+	if _, err := Store(db, nil, "", &active); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, rescued, err := ImportPending(db, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 0 || rescued != 1 {
+		t.Errorf("restored %d, rescued %d; want 0 and 1", restored, rescued)
+	}
+	raw, err := os.ReadFile(pendingPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), stranded.Text) {
+		t.Errorf("reindexing left the proposal only in the cache:\n%s", raw)
+	}
+	if n, _ := Unflushed(db); n != 0 {
+		t.Errorf("doctor would report %d memories not in the vault; a pending proposal is not a memory", n)
+	}
+}
+
+// The mark is the only thing that stops the next write rejecting a proposal the
+// vault refused — in the user's name — so a mark that did not land is a second
+// failure the caller must hear about.
+func TestAProposalThatCouldNotBeMarkedSaysSo(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := db.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE OF unflushed ON memories
+		WHEN NEW.unflushed = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	strand(t, dir)
+
+	m := Memory{Text: "the batch ran at 3am", Kind: Fact, Source: "mcp", Quarantined: true}
+	_, err := Store(db, nil, "", &m)
+	if err == nil {
+		t.Fatal("queueing a proposal in an unwritable vault reported success")
+	}
+	if !strings.Contains(err.Error(), "could not mark") {
+		t.Errorf("err = %v, want one that says the proposal is unprotected from the next write", err)
+	}
+}

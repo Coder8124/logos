@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/vault"
@@ -1261,6 +1263,110 @@ func TestDoctorReportsMemoriesThatReachedTheIndexAndNotTheVault(t *testing.T) {
 	}
 	if c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "durability"); c.State != OK {
 		t.Errorf("durability state = %q after the memories were written out, want %q", c.State, OK)
+	}
+}
+
+// #238 kept a loop, a dreamed insight or a proposal whose vault write failed,
+// where before it was deleted by the next write. Kept is only half the fix: the
+// row now lives in the cache alone, and a doctor that counted only memories and
+// working notes called that vault healthy — "everything in the index is in the
+// vault" — over data one `rm -rf .logos` destroys.
+func TestDoctorReportsALoopInsightOrProposalTheVaultRefused(t *testing.T) {
+	cases := []struct {
+		name, want string
+		// strand returns the directory to make unwritable; write is the store
+		// call that must then fail; rescue is what `logos index` runs.
+		strand func(dir string) string
+		write  func(ix *index.Index) error
+		rescue func(ix *index.Index, dir string) error
+	}{
+		{
+			name: "loop", want: "1 tracked loop",
+			strand: func(dir string) string { return dir },
+			write: func(ix *index.Index) error {
+				_, err := secretary.Add(ix.DB, &secretary.Commitment{Text: "send Dana the deck", Who: "Dana"})
+				return err
+			},
+			rescue: func(ix *index.Index, dir string) error {
+				_, _, err := secretary.Import(ix.DB, dir)
+				return err
+			},
+		},
+		{
+			name: "insight", want: "1 dreamed insight",
+			strand: func(dir string) string { return dir },
+			write: func(ix *index.Index) error {
+				return dream.Enqueue(ix.DB, &dream.Insight{Kind: dream.Connection, Text: "the batch and the outage share a cause",
+					EndpointA: 11, EndpointB: 22, Conf: 0.6, Model: "qwen3:8b"})
+			},
+			rescue: func(ix *index.Index, dir string) error {
+				_, _, err := dream.Import(ix.DB, dir)
+				return err
+			},
+		},
+		{
+			name: "proposal", want: "1 proposal",
+			strand: func(dir string) string { return filepath.Join(dir, memory.Dir) },
+			write: func(ix *index.Index) error {
+				m := memory.Memory{Text: "the batch ran at 3am", Kind: memory.Fact, Source: "mcp", Quarantined: true}
+				_, err := memory.Store(ix.DB, nil, "", &m)
+				return err
+			},
+			rescue: func(ix *index.Index, dir string) error {
+				_, _, err := memory.ImportPending(ix.DB, dir)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ix, err := index.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ix.Close()
+			// What `logos doctor` does before it checks, so every half answers.
+			if err := memory.Init(ix.DB); err != nil {
+				t.Fatal(err)
+			}
+			if err := secretary.Init(ix.DB); err != nil {
+				t.Fatal(err)
+			}
+			if err := dream.InitQueue(ix.DB); err != nil {
+				t.Fatal(err)
+			}
+
+			locked := tc.strand(dir)
+			if err := os.MkdirAll(locked, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(locked, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(locked, 0o700) })
+			if err := tc.write(ix); err == nil {
+				t.Fatal("writing into an unwritable vault reported success")
+			}
+
+			c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "durability")
+			if c.State != Failed {
+				t.Errorf("durability = %q (%s) with the %s the vault never got, want %q", c.State, c.Detail, tc.name, Failed)
+			}
+			if !strings.Contains(c.Detail, tc.want) {
+				t.Errorf("detail does not say how much is at risk: %q, want %q", c.Detail, tc.want)
+			}
+
+			if err := os.Chmod(locked, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.rescue(ix, dir); err != nil {
+				t.Fatal(err)
+			}
+			if c := find(t, Run(Input{Vault: dir, DB: ix.DB}), "durability"); c.State != OK {
+				t.Errorf("durability = %q (%s) after the %s was written out, want %q", c.State, c.Detail, tc.name, OK)
+			}
+		})
 	}
 }
 

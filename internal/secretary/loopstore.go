@@ -185,10 +185,70 @@ func flushLocked(db *sql.DB, dir string) error {
 		// Forgotten, not kept: whatever is on disk now is not what we last
 		// recorded writing, and a stale stamp would skip adopting it.
 		stamps.Forget(db)
+		if merr := markUnflushed(db, path); merr != nil {
+			return fmt.Errorf("loop saved to the cache but not to the vault: %w "+
+				"(and could not mark it for the next write, which may now delete it: %v)", err, merr)
+		}
 		return fmt.Errorf("loop saved to the cache but not to the vault: %w", err)
 	}
+	// The whole list is on disk now, so whatever an earlier failure stranded
+	// went out with it.
+	db.Exec("UPDATE commitments SET unflushed = 0 WHERE unflushed = 1")
 	stamps.Record(db, path)
 	return nil
+}
+
+// markUnflushed flags the loops the cache holds and the file on disk does not,
+// after a write of that file failed.
+//
+// Persistent rather than a stamp kept in memory, because every CLI command is
+// its own process: the next `loop add` starts with no stamp, adopts the file,
+// and without the mark would delete the stranded loop as a line the user had
+// removed — right before the write that would have carried it out. Measured
+// against the bytes on disk, since a failed atomic write leaves the previous
+// file intact and every loop in it is still durable.
+//
+// Its error is returned, not dropped: the mark is the only thing between the
+// stranded row and the next write's adopt, so a mark that did not land is a
+// second failure the caller must hear about. The caller appends it to the
+// write's own error rather than replacing it.
+func markUnflushed(db *sql.DB, path string) error {
+	onDisk := map[int64]bool{}
+	if raw, err := os.ReadFile(path); err == nil {
+		for _, c := range parse(string(raw)) {
+			onDisk[c.ID] = true
+		}
+	}
+	rows, err := db.Query("SELECT id FROM commitments")
+	if err != nil {
+		return err
+	}
+	var stranded []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil && !onDisk[id] {
+			stranded = append(stranded, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, id := range stranded {
+		if _, err := db.Exec("UPDATE commitments SET unflushed = 1 WHERE id = ?", id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Unflushed counts the loops the cache holds and loops.md does not, for doctor:
+// until the next write carries them out, they are one `rm -rf .logos` from gone.
+func Unflushed(db *sql.DB) (int, error) {
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM commitments WHERE unflushed = 1").Scan(&n)
+	return n, err
 }
 
 // allLoops reads every commitment, open and closed, oldest first — the file is
@@ -333,10 +393,11 @@ func unfield(s string) string {
 // has not bound to a store yet.
 //
 // Returns how many loops it had to put back — a row already in the cache was
-// never lost and is not announced as recovered.
-func Import(db *sql.DB, dir string) (int, error) {
+// never lost and is not announced as recovered — and how many it rescued the
+// other way, out of a cache that was their only copy and into the file.
+func Import(db *sql.DB, dir string) (restored, rescued int, err error) {
 	if err := Init(db); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	// The same lock the writers take. The destructive half below reads the file
 	// and then removes every row missing from it; run against a file another
@@ -344,7 +405,7 @@ func Import(db *sql.DB, dir string) (int, error) {
 	// briefly absent.
 	g, err := vault.Lock(dir, "loops")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer g.Unlock()
 
@@ -356,23 +417,40 @@ func Import(db *sql.DB, dir string) (int, error) {
 		// mutation, because a vault that has loops only in its cache is one
 		// rebuild away from losing them, and this is the command people run
 		// right before that happens.
-		return 0, flushLocked(db, dir)
+		if err := db.QueryRow("SELECT COUNT(*) FROM commitments").Scan(&rescued); err != nil {
+			return 0, 0, err
+		}
+		if err := flushLocked(db, dir); err != nil {
+			return 0, 0, err
+		}
+		return 0, rescued, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if looksTruncated(string(raw)) {
-		return 0, fmt.Errorf(
+		return 0, 0, fmt.Errorf(
 			"refusing to import an incomplete loop list (%s ends mid-record); "+
 				"restore the file or delete the partial line to accept it as-is", LoopsFile)
 	}
 
-	restored, _, err := adoptLocked(db, raw)
+	restored, _, err = adoptLocked(db, raw)
 	if err != nil {
-		return restored, err
+		return restored, 0, err
 	}
 	stamps.Adopted(db, raw)
-	return restored, nil
+	// Loops a failed write left only in the cache, which adoptLocked kept. This
+	// is the command people run right before deleting that cache, so they go
+	// out now rather than at the next mutation, and the count says so.
+	if err := db.QueryRow("SELECT COUNT(*) FROM commitments WHERE unflushed = 1").Scan(&rescued); err != nil {
+		return restored, 0, err
+	}
+	if rescued > 0 {
+		if err := flushLocked(db, dir); err != nil {
+			return restored, 0, err
+		}
+	}
+	return restored, rescued, nil
 }
 
 // adoptLocked makes the cache match the file: every line is upserted at its id,
@@ -411,7 +489,9 @@ func adoptLocked(db *sql.DB, raw []byte) (restored, removed int, err error) {
 	// row goes with it — unlike a dropped loop, which they asked to keep as
 	// dismissed, a deleted line has no representation left in the vault, and
 	// leaving the row would put the text back in the file on the next flush.
-	rows, err := db.Query("SELECT id FROM commitments")
+	// unflushed = 0: a loop whose write failed was never in the file, so its
+	// absence there is not a deletion. See markUnflushed.
+	rows, err := db.Query("SELECT id FROM commitments WHERE unflushed = 0")
 	if err != nil {
 		return restored, removed, err
 	}

@@ -20,9 +20,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/transcript"
@@ -179,50 +181,64 @@ func checkDurability(db *sql.DB) Check {
 		c.State, c.Detail = Unknown, "no index open"
 		return c
 	}
-	// The two halves are asked separately and degrade separately. A store that
-	// predates the column answers neither; a database opened without the session
-	// tables — every caller but `logos doctor`, which initialises them first —
-	// answers only the first. Letting the missing half veto the other would hide
-	// a real memory at risk behind a table nobody in this vault had used yet.
-	mems, merr := memory.Unflushed(db)
-	notes, nerr := session.Unflushed(db)
-	if merr != nil && nerr != nil {
+	// Every store that can strand a row is asked, and each degrades on its own.
+	// A store that predates the column, or a database opened without that
+	// store's table — every caller but `logos doctor`, which initialises them
+	// first — answers only for the rest. Letting a missing half veto the others
+	// would hide a real memory at risk behind a table nobody in this vault had
+	// used yet. Loops, insights and proposals are here because #238 stopped the
+	// next write deleting theirs: kept and uncounted, they read as healthy.
+	halves := []struct {
+		count func(*sql.DB) (int, error)
+		noun  func(int) string
+		every string
+	}{
+		{memory.Unflushed, func(n int) string { return fmt.Sprintf("%d memor%s", n, plural(n)) }, "memory"},
+		{session.Unflushed, func(n int) string { return fmt.Sprintf("%d working %s", n, pluralWord(n, "note")) }, "working note"},
+		{secretary.Unflushed, func(n int) string { return fmt.Sprintf("%d tracked %s", n, pluralWord(n, "loop")) }, "tracked loop"},
+		{dream.Unflushed, func(n int) string { return fmt.Sprintf("%d dreamed %s", n, pluralWord(n, "insight")) }, "dreamed insight"},
+		{memory.UnflushedPending, func(n int) string { return fmt.Sprintf("%d %s", n, pluralWord(n, "proposal")) }, "proposal"},
+	}
+	var parts, measured []string
+	for _, h := range halves {
+		n, err := h.count(db)
+		if err != nil {
+			continue
+		}
+		measured = append(measured, h.every)
+		if n > 0 {
+			parts = append(parts, h.noun(n))
+		}
+	}
+	if len(measured) == 0 {
 		// Saying "ok" here would be the same silence-as-success this package
 		// exists to refuse.
 		c.State, c.Detail = Unknown, "this index does not record which writes reached the vault"
 		return c
 	}
-	if merr != nil {
-		mems = 0
-	}
-	if nerr != nil {
-		notes = 0
-	}
-	if mems+notes == 0 {
+	if len(parts) == 0 {
 		c.State, c.Detail = OK, "everything in the index is in the vault"
-		if merr != nil || nerr != nil {
-			// Half a measurement, reported as half a measurement. "Everything"
+		if len(measured) < len(halves) {
+			// Part of a measurement, reported as part of one. "Everything"
 			// would be a claim about rows this call never looked at.
-			c.Detail = "every memory in the index is in the vault"
-			if merr != nil {
-				c.Detail = "every working note in the index is in the vault"
-			}
+			c.Detail = "every " + joinAnd(measured) + " in the index is in the vault"
 		}
 		return c
 	}
-	var parts []string
-	if mems > 0 {
-		parts = append(parts, fmt.Sprintf("%d memor%s", mems, plural(mems)))
-	}
-	if notes > 0 {
-		parts = append(parts, fmt.Sprintf("%d working %s", notes, pluralWord(notes, "note")))
-	}
 	c.State = Failed
-	c.Detail = strings.Join(parts, " and ") + " reached the index but not the vault"
+	c.Detail = joinAnd(parts) + " reached the index but not the vault"
 	// index, not a repair command, because `logos index` is what writes them
 	// out — and naming it here is also what tells the user it is safe to run.
 	c.Fix = "check the vault is writable, then run `logos index` to write them out"
 	return c
+}
+
+// joinAnd is "a", "a and b", "a, b and c".
+func joinAnd(items []string) string {
+	if len(items) <= 1 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 func checkNotes(dir string, db *sql.DB) Check {

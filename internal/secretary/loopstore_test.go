@@ -39,7 +39,7 @@ func TestOpenLoopsSurviveDeletingTheIndex(t *testing.T) {
 	}
 
 	rebuilt := vaultDB(t, dir) // the cache, thrown away and rebuilt from the vault
-	restored, err := Import(rebuilt, dir)
+	restored, _, err := Import(rebuilt, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestAClosedLoopDoesNotComeBackOpen(t *testing.T) {
 	}
 
 	rebuilt := vaultDB(t, dir)
-	if _, err := Import(rebuilt, dir); err != nil {
+	if _, _, err := Import(rebuilt, dir); err != nil {
 		t.Fatal(err)
 	}
 	if n, _ := OpenCount(rebuilt); n != 0 {
@@ -113,7 +113,7 @@ func TestALoopDeletedFromTheFileIsGoneAfterAnImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, dir); err != nil {
+	if _, _, err := Import(db, dir); err != nil {
 		t.Fatal(err)
 	}
 	open, _ := Open_(db)
@@ -135,7 +135,7 @@ func TestImportRefusesATruncatedLoopFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, dir); err == nil {
+	if _, _, err := Import(db, dir); err == nil {
 		t.Fatal("expected an incomplete loop file to be refused, got no error")
 	}
 	if n, _ := OpenCount(db); n != 1 {
@@ -153,7 +153,7 @@ func TestAnAbsentLoopFileLeavesTheCacheAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restored, err := Import(db, dir)
+	restored, _, err := Import(db, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestADuplicatedLineInTheLoopFileDoesNotFailTheImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Import(db, dir); err != nil {
+	if _, _, err := Import(db, dir); err != nil {
 		t.Fatalf("a duplicated line failed the import: %v", err)
 	}
 	open, _ := Open_(db)
@@ -327,5 +327,133 @@ func TestClosingALoopDeletedByHandSaysItIsGone(t *testing.T) {
 	err := SetStatus(db, c.ID, Done)
 	if err == nil || !strings.Contains(err.Error(), LoopsFile) {
 		t.Errorf("closing a loop deleted from %s by hand: err = %v, want one that says the file no longer has it", LoopsFile, err)
+	}
+}
+
+// strandRoot makes the vault root unwritable, so the next write of loops.md
+// fails the way a read-only mount or a full disk does, and returns the function
+// that lets writes through again.
+func strandRoot(t *testing.T, dir string) (unstrand func()) {
+	t.Helper()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	restored := false
+	t.Cleanup(func() {
+		if !restored {
+			os.Chmod(dir, 0o700)
+		}
+	})
+	return func() {
+		restored = true
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func hasLoop(t *testing.T, db *sql.DB, text string) bool {
+	t.Helper()
+	open, err := Open_(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range open {
+		if c.Text == text {
+			return true
+		}
+	}
+	return false
+}
+
+// The failed write said "saved to the cache but not to the vault", and forgot
+// its stamp so the next write would adopt whatever was on disk. That adopt found
+// no line for the loop and deleted it as one the user had removed by hand — the
+// next `loop add` destroyed the loop it should have written out.
+func TestALoopTheVaultRefusedSurvivesTheNextAdd(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+
+	if _, err := Add(db, &Commitment{Text: "call the vendor back"}); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strandRoot(t, dir)
+	if _, err := Add(db, &Commitment{Text: "send Priya the contract"}); err == nil {
+		t.Fatal("adding a loop to an unwritable vault reported success")
+	}
+	unstrand()
+
+	if _, err := Add(db, &Commitment{Text: "book the review room"}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasLoop(t, db, "send Priya the contract") {
+		t.Fatal("the next add deleted the loop the vault refused, as though the user had removed its line")
+	}
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "send Priya the contract") {
+		t.Errorf("the loop is still only in the cache:\n%s", raw)
+	}
+}
+
+// `logos index` is the full reconcile people run right before deleting the
+// cache, so it is where a stranded loop has to be written out — and said to
+// be, because the user was told about the failure once, by a process that has
+// since exited.
+func TestReindexingWritesOutALoopTheVaultNeverGot(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+
+	if _, err := Add(db, &Commitment{Text: "call the vendor back"}); err != nil {
+		t.Fatal(err)
+	}
+	unstrand := strandRoot(t, dir)
+	if _, err := Add(db, &Commitment{Text: "send Priya the contract"}); err == nil {
+		t.Fatal("adding a loop to an unwritable vault reported success")
+	}
+	unstrand()
+
+	restored, rescued, err := Import(db, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 0 || rescued != 1 {
+		t.Errorf("restored %d, rescued %d; want 0 and 1 — a rescue reported as a restore, or not at all, hides that the cache was its only copy", restored, rescued)
+	}
+	raw, err := os.ReadFile(LoopsPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "send Priya the contract") {
+		t.Errorf("reindexing left the loop only in the cache:\n%s", raw)
+	}
+	if _, rescued, _ := Import(db, dir); rescued != 0 {
+		t.Errorf("a second reindex rescued %d loops again; the mark outlived the write that settled it", rescued)
+	}
+}
+
+// The mark is the only thing that stops the next write deleting a loop the vault
+// refused, so a mark that did not land is a second failure the caller must hear
+// about — not a bookkeeping detail dropped on the error path.
+func TestALoopThatCouldNotBeMarkedSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	db := vaultDB(t, dir)
+	if _, err := Add(db, &Commitment{Text: "send Dana the deck"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER refuse_mark BEFORE UPDATE OF unflushed ON commitments
+		WHEN NEW.unflushed = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`); err != nil {
+		t.Fatal(err)
+	}
+	strandRoot(t, dir)
+
+	_, err := Add(db, &Commitment{Text: "call the vendor back"})
+	if err == nil {
+		t.Fatal("adding a loop to an unwritable vault reported success")
+	}
+	if !strings.Contains(err.Error(), "could not mark") {
+		t.Errorf("err = %v, want one that says the loop is unprotected from the next write", err)
 	}
 }
