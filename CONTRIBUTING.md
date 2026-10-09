@@ -22,7 +22,7 @@ uses of the old name.
 
 ## Build
 
-Go 1.26.5 or newer. No cgo — the SQLite driver is `modernc.org/sqlite`, so the
+Go 1.26.9 or newer. No cgo — the SQLite driver is `modernc.org/sqlite`, so the
 tree builds and cross-compiles without a C toolchain.
 
 ```sh
