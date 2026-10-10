@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
@@ -234,5 +235,48 @@ func TestSetupOffersNoHistoryOverAVaultWhoseOnlyWorkIsInAWorktree(t *testing.T) 
 
 	if strings.Contains(out, "logos bootstrap") {
 		t.Errorf("setup offered history to seed a vault that holds a worktree's checkpoint:\n%s", out)
+	}
+}
+
+// An agent that only ever called note_progress left work behind. Setup's
+// checkpoint folded those notes in under a State saying no work had been
+// recorded, signed by setup — the notes survived inside a record denying them.
+func TestSetupDoesNotFileAnUnfinishedAgentsNotesUnderItsOwnCheckpoint(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Desktop")
+	t.Setenv("LOGOS_RUNTIME", "off")
+	repoToSetUpIn(t, "orchard", 1)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	session.SetVault(ix.DB, dir)
+	if _, err := session.AddNoteAt(ix.DB, "orchard", "claude-code", "the grafting table is half migrated",
+		time.Now().Add(-2*session.ParallelGrace).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	session.SetVault(ix.DB, "")
+	ix.Close()
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if n := checkpointsUnder(filepath.Join(dir, session.CheckpointDir, "orchard")); n != 0 {
+		t.Errorf("setup wrote %d checkpoint(s) over an agent's unfinished notes", n)
+	}
+	if !strings.Contains(out, "none written by setup") {
+		t.Errorf("setup did not say why it wrote no checkpoint:\n%s", out)
+	}
+	if !strings.Contains(out, "the grafting table is half migrated") {
+		t.Errorf("the resume shown does not carry the agent's notes:\n%s", out)
 	}
 }
