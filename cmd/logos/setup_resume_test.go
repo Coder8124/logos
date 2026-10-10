@@ -199,3 +199,40 @@ func TestSetupNamesTheHistoryGitRefusedBeforeOfferingSeeds(t *testing.T) {
 		t.Errorf("setup offered seeds without naming the history git refused:\n%s", got)
 	}
 }
+
+// The empty-vault test counted sessions/<project>/*.md but not a worktree's
+// sessions/<project>/<worktree>/*.md, so a vault whose only work was on a
+// branch read as empty and setup offered memories from history on top of it.
+func TestSetupOffersNoHistoryOverAVaultWhoseOnlyWorkIsInAWorktree(t *testing.T) {
+	dir := setupInFakeHome(t)
+	fakeHosts(t, "Fakey Desktop")
+	t.Setenv("LOGOS_RUNTIME", "off")
+	repoToSetUpIn(t, "orchard", 24)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Commit(ix.DB, dir, &session.Checkpoint{
+		Project: "greenhouse/heating", Agent: "claude-code", Task: "the boiler schedule",
+		State: "thermostat wired", Next: "tune the night setback",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	out := captureStdout(t, func() {
+		if err := setupCmd([]string{"--vault", dir, "--yes"}); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	})
+
+	if strings.Contains(out, "logos bootstrap") {
+		t.Errorf("setup offered history to seed a vault that holds a worktree's checkpoint:\n%s", out)
+	}
+}

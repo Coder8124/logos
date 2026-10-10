@@ -73,7 +73,7 @@ func firstResume(vaultDir string, wired []string, opts wireOpts) {
 		// Only into a vault with nothing in it: memories derived from history
 		// are recalled as if someone had asserted them, so they are offered
 		// where there is nothing else yet, and never on top of real work.
-		if n, err := memory.Count(ix.DB); err == nil && n == 0 && checkpointsUnder(filepath.Join(vaultDir, session.CheckpointDir)) == 0 {
+		if n, err := memory.Count(ix.DB); err == nil && n == 0 && checkpointsInVault(filepath.Join(vaultDir, session.CheckpointDir)) == 0 {
 			offerBootstrap(root, project, opts.yes)
 		}
 		if err := writeSetupCheckpoint(ix, project, wired); err != nil {
