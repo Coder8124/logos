@@ -31,8 +31,10 @@ for sha in $(git rev-list --no-merges "${base}..${head}"); do
   esac
   [[ "$subject" == *. ]] && fail "$short" "subject ends with a period: $subject"
   # Attribution of any kind — a trailer or a generated-by line — stays out of
-  # the history, whoever or whatever wrote the change.
-  if grep -qiE '^(co-authored-by|signed-off-by|generated-by):|generated with' <<<"$body"; then
+  # the history, whoever or whatever wrote the change. Anchored to the line
+  # start, past a leading emoji: unanchored, "generated with go generate" in an
+  # ordinary body failed the check.
+  if grep -qiE '^((co-authored-by|signed-off-by|generated-by):|[^[:alnum:]]*generated with)' <<<"$body"; then
     fail "$short" "attribution line in the message: $subject"
   fi
 done
