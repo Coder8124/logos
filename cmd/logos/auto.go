@@ -122,9 +122,22 @@ func printAutoLog(w io.Writer, vault string) error {
 	}
 	fmt.Fprintf(w, "\nthe last week, from %s:\n", auto.LogPath(vault))
 	for _, e := range entries {
-		what := fmt.Sprintf("%s n=%d", e.Switch, e.N)
-		if e.Failed != "" {
-			what = fmt.Sprintf("%s failed: %s", e.Switch, e.Failed)
+		what := string(e.Switch)
+		switch {
+		case e.Started:
+			what += " started"
+		case e.Failed != "":
+			what += " failed: " + e.Failed
+		default:
+			if len(e.Counts) == 0 || e.N != 0 {
+				what += fmt.Sprintf(" n=%d", e.N)
+			}
+			for _, c := range e.Counts {
+				what += fmt.Sprintf(" %s=%d", c.Name, c.N)
+			}
+			if e.Skipped != "" {
+				what += " skipped: " + e.Skipped
+			}
 		}
 		where := ""
 		if e.Project != "" {
