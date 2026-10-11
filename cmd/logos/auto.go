@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
 )
@@ -38,6 +39,10 @@ func runAuto(args []string) error {
 			return err
 		}
 	case verb == "status" && len(args) == 1:
+		if err := printAutoSwitches(os.Stdout, vault); err != nil {
+			return err
+		}
+		return printAutoLog(os.Stdout, vault)
 	case verb == "config" && len(args) == 1:
 		printAutoSwitches(os.Stdout, vault)
 		printAutoFixed(os.Stdout)
@@ -93,4 +98,39 @@ func printAutoFixed(w io.Writer) {
 	for _, f := range auto.Fixed {
 		fmt.Fprintf(w, "  %-16s %s\n", f.Name, f.Why)
 	}
+}
+
+// logAuto records what auto did out of sight. A log that cannot be written is
+// said on stderr: the action itself happened and was reported where it ran,
+// but the next resume will not repeat it, and that is worth knowing.
+func logAuto(e auto.Entry) {
+	if err := auto.Record(vaultPath(), e); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: could not write %s, so the next resume will not mention this: %v\n", auto.LogFile, err)
+	}
+}
+
+// printAutoLog is the week of what auto did, every project, one line each, so
+// "what has Logos been doing without me" has an answer that is not a resume.
+func printAutoLog(w io.Writer, vault string) error {
+	entries, err := auto.Entries(vault, "", time.Now().Add(-7*24*time.Hour))
+	if err != nil {
+		return fmt.Errorf("could not read %s: %w", auto.LogPath(vault), err)
+	}
+	if len(entries) == 0 {
+		fmt.Fprintf(w, "\nauto has done nothing out of sight in the last week (%s)\n", auto.LogPath(vault))
+		return nil
+	}
+	fmt.Fprintf(w, "\nthe last week, from %s:\n", auto.LogPath(vault))
+	for _, e := range entries {
+		what := fmt.Sprintf("%s n=%d", e.Switch, e.N)
+		if e.Failed != "" {
+			what = fmt.Sprintf("%s failed: %s", e.Switch, e.Failed)
+		}
+		where := ""
+		if e.Project != "" {
+			where = " on " + e.Project
+		}
+		fmt.Fprintf(w, "  %s  %s%s\n", e.At.Local().Format("Mon 2 Jan 15:04"), what, where)
+	}
+	return nil
 }

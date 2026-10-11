@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -88,5 +89,27 @@ func TestARecordReadBeforeItGrewIsOfferedForReadingAgain(t *testing.T) {
 	out := p.Render()
 	if !strings.Contains(out, "went on after it was read (6 transcript turns then, 11 now)") || !strings.Contains(out, "12mm hinge") {
 		t.Errorf("resume did not show the old reading and offer the rest:\n%s", out)
+	}
+}
+
+// The offer is the distil switch: with it off, the record still shows and the
+// offer to read its transcript does not.
+func TestTheDistilSwitchOffDropsTheOfferToReadTheTranscript(t *testing.T) {
+	ix := seedVault(t)
+	c := autoRecordFor(t, ix.Vault)
+	if err := auto.Set(ix.Vault, "distil", false); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if strings.Contains(out, "ingest_harvest") {
+		t.Errorf("resume offered the distil with its switch off:\n%s", out)
+	}
+	if !strings.Contains(out, c.Task) {
+		t.Errorf("the auto record itself went with the offer:\n%s", out)
 	}
 }

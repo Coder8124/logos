@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/index"
@@ -45,6 +46,9 @@ type editPayload struct {
 }
 
 func editHookCmd(in io.Reader, out io.Writer, vaultDir string) {
+	if !auto.On(vaultDir, auto.RulingsAtEdit) {
+		return
+	}
 	done := make(chan *atEdit, 1)
 	go func() { done <- rulingAtEdit(in, vaultDir) }()
 	var r *atEdit
