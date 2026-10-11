@@ -282,3 +282,24 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges, mems)
 	return nil
 }
+
+// runIndexAuto is `logos index --auto`, the rebuild the MCP server launches
+// rather than run before its handshake. Under a lock and checked again, since
+// every host's server starts at once and each one saw the index missing.
+func runIndexAuto() error {
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	g, err := vault.Lock(ix.Vault, "auto-index")
+	if err != nil {
+		return err
+	}
+	defer g.Unlock()
+	if synced, err := ix.Synced(); err != nil || synced {
+		return err
+	}
+	rebuildIndex(ix)
+	return nil
+}

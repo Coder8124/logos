@@ -95,7 +95,7 @@ func buildStdioServer() (*mcpserver.Server, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	checkIndex(ix)
+	checkIndexInBackground(ix)
 
 	srv, err := newMCPServer(ix.DB, vault)
 	if err != nil {
