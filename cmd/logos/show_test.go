@@ -106,3 +106,34 @@ func totalUses(t *testing.T) int {
 	}
 	return n
 }
+
+// A pinned procedure never enters a context pack, so Pinned leaves it out —
+// and the recent list skipped every pinned memory, so the page dropped it
+// without a word.
+func TestShowListsAPinnedProcedureAmongTheProjectsMemories(t *testing.T) {
+	standIn(t, "elsewhere")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	m := &memory.Memory{Text: "route: run migrations with --lock | trap: two deploys race | verify: logos doctor", Kind: memory.Procedure, Source: "manual", Project: "shop"}
+	if _, err := memory.Store(ix.DB, nil, "", m); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Pin(ix.DB, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	out := captureStdout(t, func() {
+		if err := runShow([]string{"shop"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "run migrations with --lock") {
+		t.Errorf("the pinned procedure is missing from the page:\n%s", out)
+	}
+}
