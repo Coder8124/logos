@@ -49,7 +49,9 @@ func runAuto(args []string) error {
 		}
 		return printAutoLog(os.Stdout, vault)
 	case verb == "config" && len(args) == 1:
-		printAutoSwitches(os.Stdout, vault)
+		if err := printAutoSwitches(os.Stdout, vault); err != nil {
+			return err
+		}
 		printAutoFixed(os.Stdout)
 		fmt.Println("\n  logos auto config <switch> on|off")
 		return nil
