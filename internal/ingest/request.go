@@ -45,8 +45,10 @@ func Request(prompt string) (string, bool) {
 		if line == "" {
 			continue
 		}
+		// "Hi!" on a line of its own opens the request rather than replacing
+		// it; the hook path folds the same prompt onto one line and keeps it.
 		if asksNothing(line) {
-			return "", false
+			continue
 		}
 		return text.Ellipsize(line, 120), true
 	}

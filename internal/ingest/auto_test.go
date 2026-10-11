@@ -182,3 +182,15 @@ func TestASessionWithNoRequestHasNoTask(t *testing.T) {
 		t.Errorf("task = %q, want none", c.Task)
 	}
 }
+
+// The hook path folds a prompt onto one line and kept "Hi! Can you fix…";
+// the transcript path read "Hi!" alone and threw the whole turn away. One
+// session got two different tasks depending on which path recorded it.
+func TestAGreetingOnItsOwnLineDoesNotHideTheRequestAfterIt(t *testing.T) {
+	if got, ok := Request("Hi!\n\nCan you fix the checkout crash?"); !ok || got != "Can you fix the checkout crash?" {
+		t.Errorf("Request = %q, %v, want the line after the greeting", got, ok)
+	}
+	if _, ok := Request("thanks\nok"); ok {
+		t.Error("a turn of only acknowledgements asks for nothing")
+	}
+}
