@@ -722,6 +722,13 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		return s.listMemories(s.resolveProject(""))
 	case "forget":
 		return s.forget(argStr(args, "id"))
+	case "correct":
+		out, stored, err := s.correct(argStr(args, "id"), argStr(args, "text"))
+		// Counted as unsaved work for the reason remember is.
+		if stored {
+			s.recordedWork(s.resolveScope(""))
+		}
+		return out, err
 	case "pin_memory":
 		return s.pinMemory(argStr(args, "id"), argBool(args, "unpin", false))
 	case "exclude_memory":

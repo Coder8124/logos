@@ -120,6 +120,7 @@ MEMORY
     logos memory [add <fact>|forget <id>|log|history <id>|graph|diff]   persistent memory
     logos memory [health|consolidate|pin <id>|unpin <id>|exclude <id>]
                                       what it knows about itself, and what to keep or ignore
+    logos memory correct <id> "<what is true now>"   replace a wrong memory; the old one stays in its history
     logos memory log [--project P] [--n N]   what changed in what it knows, newest first
     logos activity [--project P] [--kind K] [--tool T] [--days N] [--json]
                                       every prompt, tool call and turn the host reported —

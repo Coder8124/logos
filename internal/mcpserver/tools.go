@@ -103,6 +103,15 @@ var toolDefs = []map[string]any{
 		"inputSchema": obj(map[string]any{"id": str("memory id")}, "id"),
 	},
 	{
+		"name":        "correct",
+		"annotations": writes(false, false),
+		"description": "Replace a wrong memory by id with what is true now; the old one stays in history, out of recall. Use instead of forget + remember." + relay,
+		"inputSchema": obj(map[string]any{
+			"id":   str("memory id"),
+			"text": str("what is true now"),
+		}, "id", "text"),
+	},
+	{
 		"name":        "pin_memory",
 		"annotations": writes(false, true),
 		"description": "Always include a memory in this project's context packs; unpin true undoes it." + relay,

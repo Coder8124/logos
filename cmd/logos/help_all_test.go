@@ -56,7 +56,7 @@ func TestHelpAllNamesEveryFlagTheParsersAccept(t *testing.T) {
 			mem += line + "\n"
 		}
 	}
-	for _, sub := range []string{"health", "consolidate", "pin", "unpin", "exclude"} {
+	for _, sub := range []string{"health", "consolidate", "pin", "unpin", "exclude", "correct"} {
 		if !strings.Contains(mem, sub) {
 			t.Errorf("logos memory %s works, and `logos help all` never says so", sub)
 		}

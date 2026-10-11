@@ -186,7 +186,7 @@ func TestHandshakeAndToolDiscovery(t *testing.T) {
 	}
 	want := map[string]bool{
 		// memory: what do you know about X
-		"remember": true, "recall": true, "list_memories": true, "forget": true,
+		"remember": true, "recall": true, "list_memories": true, "forget": true, "correct": true,
 		"pin_memory": true, "exclude_memory": true,
 		"memory_diff": true, "list_projects": true,
 		// continuity: where were we
@@ -824,4 +824,28 @@ func TestACheckpointFieldCannotForgeStructureInWhy(t *testing.T) {
 		t.Fatalf("why reported error: %s", out)
 	}
 	forgedLines(t, "why", out)
+}
+
+// With review-if-contested on — the default — remembering "9090" after "8080"
+// queues it as a dispute. A correction is the user settling that dispute, so it
+// goes active at once, and recall stops offering the old port.
+func TestCorrectReplacesAMemoryWithoutQueueingTheCorrection(t *testing.T) {
+	c, _, _ := startServer(t)
+	handshake(t, c)
+
+	c.callText(t, "remember", map[string]any{"text": "Staging runs on port 8080.", "kind": "fact"})
+	list, _ := c.callText(t, "list_memories", nil)
+	id := firstID(t, list)
+
+	out, isErr := c.callText(t, "correct", map[string]any{"id": id, "text": "Staging runs on port 9090."})
+	if isErr || !strings.Contains(out, "replaces #"+id) {
+		t.Fatalf("correct returned %q (error %v), want a receipt naming #%s", out, isErr, id)
+	}
+	recall, _ := c.callText(t, "recall", map[string]any{"query": "staging port"})
+	if strings.Contains(recall, "8080") || !strings.Contains(recall, "9090") {
+		t.Errorf("recall after the correction:\n%s", recall)
+	}
+	if out, isErr := c.callText(t, "correct", map[string]any{"id": id, "text": "Staging runs on port 7070."}); !isErr {
+		t.Errorf("correcting a replaced memory again succeeded: %s", out)
+	}
 }

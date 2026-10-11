@@ -221,6 +221,34 @@ func (s *Server) forget(idStr string) (string, error) {
 	return "Forgotten.", nil
 }
 
+// correct replaces a memory in one call. Without it an agent told "that is
+// wrong" reached for forget and remember, which erased what was believed before
+// and then queued the correction as a contradiction of the very memory it
+// replaced — a fact the user just stated, waiting on the user to approve it.
+func (s *Session) correct(idStr, text string) (string, bool, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(idStr), 10, 64)
+	if err != nil {
+		return "", false, fmt.Errorf("correct needs a numeric memory id")
+	}
+	res, err := ops.Correct(s.DB, ops.CorrectRequest{
+		ID:     id,
+		Memory: memory.Memory{Text: text, Salience: 0.7, Source: "mcp", Agent: s.clientAgent, Turn: s.citeTurn()},
+		Embed:  s.embed, Model: s.embedModel,
+	})
+	if err != nil {
+		return "", false, err
+	}
+	c := res.Correction
+	what := fmt.Sprintf("corrected in logos — memory #%d replaces #%d; #%d stays in its history, out of recall", c.ID, c.Replaced, c.Replaced)
+	if c.Existing {
+		what = fmt.Sprintf("corrected in logos — memory #%d is replaced by #%d, which already said that; #%d stays in its history", c.Replaced, c.ID, c.Replaced)
+	}
+	if res.Outcome.Failed() {
+		return "", true, errors.New(upperFirst(what) + res.Outcome.Text())
+	}
+	return s.receipt(what) + res.Outcome.Text(), true, nil
+}
+
 // pinMemory sets or clears always-include. unpin covers both directions of
 // override (see memory.Unpin) so a host does not need a third tool just to
 // walk back an exclude_memory call.

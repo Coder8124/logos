@@ -95,24 +95,9 @@ func memoryCmd(args []string) error {
 		if text == "" {
 			return fmt.Errorf("usage: logos memory add <fact> [--project <name>]")
 		}
-		// A fact needs no model to be stored. Without a runtime it dedups by exact
-		// text rather than by meaning, as the MCP remember tool does.
-		rt, err := openRouterOptional()
+		local, embed, err := memoryEmbedder()
 		if err != nil {
 			return err
-		}
-		var local *provider.Provider
-		var embed string
-		// LOGOS_EMBED=off is asked here as `logos index` and search ask it: the
-		// hook relies on it to keep the work local and fast, and the router's
-		// T0 choice alone embedded the fact anyway whenever a runtime was up.
-		_, embedOn := embedModel()
-		switch {
-		case rt == nil:
-			fmt.Fprintln(os.Stderr, "· no model runtime — storing without embedding; duplicates match by exact text")
-		case embedOn:
-			local = rt.Local()
-			embed, _ = rt.Model(router.T0)
 		}
 		res, err := ops.Remember(ix.DB, ops.RememberRequest{
 			Memory: memory.Memory{
@@ -190,6 +175,44 @@ func memoryCmd(args []string) error {
 			return err
 		}
 		fmt.Println("forgotten.")
+	case "correct":
+		// No flags, so none can end up inside the correction: `--project` is
+		// the one a user reaches for, and the project comes from the memory.
+		if err := checkFlags("logos memory correct", args[1:], flagSpec{}); err != nil {
+			return err
+		}
+		id := parseID(args)
+		text := ""
+		if len(args) > 2 {
+			text = strings.TrimSpace(strings.Join(args[2:], " "))
+		}
+		if id == 0 || text == "" {
+			return fmt.Errorf(`usage: logos memory correct <id> "<what is true now>"`)
+		}
+		local, embed, err := memoryEmbedder()
+		if err != nil {
+			return err
+		}
+		res, err := ops.Correct(ix.DB, ops.CorrectRequest{
+			ID:     id,
+			Memory: memory.Memory{Text: text, Salience: 0.7, Source: "manual"},
+			Embed:  local, Model: embed,
+		})
+		if err != nil {
+			return err
+		}
+		c := res.Correction
+		if c.Existing {
+			fmt.Printf("corrected — memory #%d is replaced by #%d, which already said that. #%d stays in its history.\n", c.Replaced, c.ID, c.Replaced)
+		} else {
+			fmt.Printf("corrected — memory #%d replaces #%d. #%d stays in its history, out of recall.\n", c.ID, c.Replaced, c.Replaced)
+		}
+		for _, n := range res.Outcome.Notes {
+			if !n.Failed {
+				fmt.Println(n.Text)
+			}
+		}
+		return res.Outcome.Err()
 	case "pin":
 		id := parseID(args)
 		if id == 0 {
@@ -531,4 +554,26 @@ func truncateLine(s string, n int) string {
 		return s[:n-1] + "…"
 	}
 	return s
+}
+
+// memoryEmbedder picks how a fact typed at the terminal is embedded. A fact
+// needs no model to be stored: without a runtime it dedups by exact text
+// rather than by meaning, as the MCP remember tool does.
+func memoryEmbedder() (*provider.Provider, string, error) {
+	rt, err := openRouterOptional()
+	if err != nil {
+		return nil, "", err
+	}
+	// LOGOS_EMBED=off is asked here as `logos index` and search ask it: the
+	// hook relies on it to keep the work local and fast, and the router's T0
+	// choice alone embedded the fact anyway whenever a runtime was up.
+	_, embedOn := embedModel()
+	switch {
+	case rt == nil:
+		fmt.Fprintln(os.Stderr, "· no model runtime — storing without embedding; duplicates match by exact text")
+	case embedOn:
+		embed, _ := rt.Model(router.T0)
+		return rt.Local(), embed, nil
+	}
+	return nil, "", nil
 }
