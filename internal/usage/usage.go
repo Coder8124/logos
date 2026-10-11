@@ -309,9 +309,10 @@ func isResume(e Event) bool { return e.Kind == KindPack && strings.HasSuffix(e.V
 // Handoff reports whether e is a resume that handed one agent's checkpoint to
 // another. Both names must be known: "cli" is what a shell gets when nothing
 // said who is asking, and counting it as different from every agent would
-// make each person's own resume a handoff.
+// make each person's own resume a handoff — on either side, since a
+// checkpoint written from a shell is signed "cli" too.
 func Handoff(e Event) bool {
-	if !isResume(e) || e.From == "" || e.Reader == "" || e.Reader == "cli" {
+	if !isResume(e) || e.From == "" || e.From == "cli" || e.Reader == "" || e.Reader == "cli" {
 		return false
 	}
 	return e.Reader != e.From
@@ -324,6 +325,10 @@ func Handoff(e Event) bool {
 // `logos usage kestrel` counting only one of them. A path is its project's
 // name, and a worktree's work is its project's: the total is per project.
 // Applied on read as well, so a ledger written before this still sums right.
+// SameProject reports whether two spellings of a project are filed under one
+// name — a worktree scope and its project, a path and its name.
+func SameProject(a, b string) bool { return projectKey(a) == projectKey(b) }
+
 func projectKey(p string) string {
 	p = scope.NormalizeArg(p)
 	if i := strings.Index(p, "/"); i > 0 {

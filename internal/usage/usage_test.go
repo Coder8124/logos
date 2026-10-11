@@ -136,7 +136,8 @@ func TestAWeekOfUsageCountsOnlyTheLastSevenDays(t *testing.T) {
 
 // A handoff is a resume of a checkpoint another agent wrote. One agent reading
 // its own last checkpoint is continuity, not a handoff; a reader nobody named
-// ("cli", or no one) cannot be said to differ from anyone.
+// ("cli", or no one) cannot be said to differ from anyone — and neither can a
+// checkpoint a shell wrote as "cli", which is usually the same person's.
 func TestAResumeOfAnotherAgentsCheckpointIsCountedAsAHandoff(t *testing.T) {
 	events := []Event{
 		{TS: 1, Kind: KindPack, Via: "mcp:resume", Reader: "codex", From: "claude-code"},
@@ -144,8 +145,9 @@ func TestAResumeOfAnotherAgentsCheckpointIsCountedAsAHandoff(t *testing.T) {
 		{TS: 3, Kind: KindPack, Via: "cli:resume", Reader: "cli", From: "claude-code"},
 		{TS: 4, Kind: KindPack, Via: "cli:resume", Reader: "cursor", From: ""},
 		{TS: 5, Kind: KindPack, Via: "mcp:context", Reader: "codex", From: "claude-code"},
+		{TS: 6, Kind: KindPack, Via: "mcp:resume", Reader: "claude-code", From: "cli"},
 	}
-	if got := Sum(events, ""); got.Handoffs != 1 || got.Restores != 4 {
-		t.Errorf("Sum = %+v, want 1 handoff (codex reading claude-code's) out of 4 restores", got)
+	if got := Sum(events, ""); got.Handoffs != 1 || got.Restores != 5 {
+		t.Errorf("Sum = %+v, want 1 handoff (codex reading claude-code's) out of 5 restores", got)
 	}
 }
