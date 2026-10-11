@@ -23,8 +23,13 @@ func runAuto(args []string) error {
 	if len(args) > 0 {
 		verb = strings.ToLower(args[0])
 	}
+	// Bare is status, not on: somebody asking what auto is would otherwise turn
+	// on dream, which spends a local model's time and is off until asked for.
+	if verb == "" {
+		verb, args = "status", []string{"status"}
+	}
 	switch {
-	case verb == "" || verb == "on":
+	case verb == "on":
 		if len(args) > 1 {
 			return fmt.Errorf(autoUsage)
 		}
