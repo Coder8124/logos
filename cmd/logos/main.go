@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
@@ -337,14 +338,39 @@ func openIndex() (*index.Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	checkIndex(ix)
+	return ix, nil
+}
+
+// checkIndex says, or with the index switch on repairs, an index no Sync has
+// finished on. On stderr, which over MCP stdio is the host's log and never the
+// protocol stream.
+func checkIndex(ix *index.Index) {
 	switch synced, err := ix.Synced(); {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "logos: could not tell whether the index was ever built: %v\n", err)
+	case !synced && auto.On(ix.Vault, auto.Index):
+		rebuildIndex(ix)
 	case !synced:
 		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
-			"answers from an empty one — `logos index` builds it from the vault")
+			"answers from an empty one — `logos index` builds it from the vault (or `logos auto config index on`)")
 	}
-	return ix, nil
+}
+
+// rebuildIndex is the index switch: the cache rebuilt from the vault before the
+// command that found it missing answers. Text only, since a model may not be
+// up and the command is waiting; `logos index` adds the vectors. Its report goes
+// to stderr, because stdout is that command's answer and may be JSON.
+func rebuildIndex(ix *index.Index) {
+	fmt.Fprintln(os.Stderr, "logos: this vault had no index (deleted, or never built) — auto is rebuilding it from the vault, text only; `logos index` adds embeddings")
+	if err := indexPass(ix, os.Stderr, nil, ""); err != nil {
+		// Said as what it leaves: the command still runs, on whatever part of
+		// the index the pass got through.
+		fmt.Fprintf(os.Stderr, "logos: the rebuild failed, so what follows may answer from a partial index — `logos index` retries: %v\n", err)
+		logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, Failed: err.Error()})
+		return
+	}
+	logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, N: 1})
 }
 
 // openIndexQuiet is openIndex for the command that builds the index, which

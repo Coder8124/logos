@@ -95,6 +95,7 @@ func buildStdioServer() (*mcpserver.Server, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	checkIndex(ix)
 
 	srv, err := newMCPServer(ix.DB, vault)
 	if err != nil {
@@ -174,6 +175,7 @@ func runMCPServeHTTP(port int) error {
 		return err
 	}
 	defer ix.Close()
+	checkIndex(ix)
 
 	token, err := mcpserver.LoadOrCreateToken(vault)
 	if err != nil {
