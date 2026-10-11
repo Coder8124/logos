@@ -17,9 +17,11 @@ import (
 // global=true opts out, for the things that really do apply everywhere — a
 // standing preference about how the user likes replies is not a fact about
 // this repository.
-func (s *Session) remember(text, kindStr, projectArg string, global bool) (string, error) {
+// remember also reports whether a memory now exists, which is not the same as
+// err == nil: one the vault refused is a tool error, and still in the cache.
+func (s *Session) remember(text, kindStr, projectArg string, global bool) (string, bool, error) {
 	if strings.TrimSpace(text) == "" {
-		return "", fmt.Errorf("remember needs text")
+		return "", false, fmt.Errorf("remember needs text")
 	}
 	project := ""
 	if !global {
@@ -45,7 +47,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 		Embed: s.embed, Model: s.embedModel,
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	// Name the scope in the receipt. The host shows this to the user, and
 	// "which pile did that go in" is the one thing they cannot otherwise see.
@@ -56,14 +58,14 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	what := s.rememberReceipt(res.Receipt, kind, where)
 	switch {
 	case what == "":
-		return "Nothing stored." + res.Outcome.Text(), nil
+		return "Nothing stored." + res.Outcome.Text(), false, nil
 	case res.Outcome.Failed():
 		// A tool error, so the host does not read a half-done write as done —
 		// but with the receipt in it, which is what the agent needs to act on
 		// it. Without the announcement badge, which the user reads as "done".
-		return "", errors.New(upperFirst(what) + res.Outcome.Text())
+		return "", true, errors.New(upperFirst(what) + res.Outcome.Text())
 	}
-	return s.receipt(what) + res.Outcome.Text(), nil
+	return s.receipt(what) + res.Outcome.Text(), true, nil
 }
 
 func (s *Session) rememberReceipt(r memory.Receipt, kind memory.Kind, where string) string {

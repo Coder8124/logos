@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -267,5 +268,36 @@ func TestASessionThatOnlyReadsTheVaultIsNotWarned(t *testing.T) {
 
 	if nudge := said(s); nudge != "" {
 		t.Errorf("a session that only read the vault was told it had unsaved work: %q", nudge)
+	}
+}
+
+// A remember the vault refused is now a tool error, but the memory is in the
+// cache with an id, and a session whose writes are not reaching the vault is
+// the one whose checkpoint matters most. Counting only clean successes left it
+// the one session the nudge never warned.
+func TestAMemoryTheVaultRefusedStillCountsAsWork(t *testing.T) {
+	s := workingSession(t)
+	memory.SetVault(s.DB, s.vault)
+	t.Cleanup(func() { memory.SetVault(s.DB, "") })
+	memDir := filepath.Join(s.vault, memory.Dir)
+	if err := os.MkdirAll(memDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(memDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(memDir, 0o700) })
+
+	for i := 0; i < workBeforeNudge; i++ {
+		if _, err := s.dispatch("remember", map[string]any{
+			"text":    fmt.Sprintf("the cart total is computed in cents, rule %d", i),
+			"project": "shop",
+		}); err == nil {
+			t.Fatal("the vault refused the write and remember reported success")
+		}
+	}
+
+	if said(s) == "" {
+		t.Error("a session whose memories are only in the cache was never told to checkpoint")
 	}
 }
