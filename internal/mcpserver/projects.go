@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/untrusted"
@@ -34,27 +34,10 @@ func (s *Server) knownProjects() string {
 	return ". Known projects: " + strings.Join(parts, ", ")
 }
 
-// projectExists reports whether the vault has ever heard this exact name —
-// either a memory filed under it or a session directory carrying it. Both are
-// consulted because a project can have checkpoints and no memory, or memory
-// and no checkpoint, and either one makes the name real.
+// projectExists reports whether the vault has ever heard this name. See
+// ops.ProjectExists.
 func (s *Server) projectExists(name string) bool {
-	if ok, err := memory.HasProject(s.DB, name); err == nil && ok {
-		return true
-	}
-	names, err := session.Scopes(s.vault)
-	if err != nil {
-		return false
-	}
-	for _, n := range names {
-		// Either direction counts: a worktree scope is "shop/fix-auth" while
-		// the enumerator lists "shop", so a name can be the parent of a known
-		// scope or a scope under a known parent.
-		if n == name || strings.HasPrefix(n, name+"/") || strings.HasPrefix(name, n+"/") {
-			return true
-		}
-	}
-	return false
+	return ops.ProjectExists(s.DB, s.vault, name)
 }
 
 // knownProjectsSentence is knownProjects punctuated as an answer rather than

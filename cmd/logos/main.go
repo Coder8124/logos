@@ -120,6 +120,8 @@ func main() {
 		err = search(rest)
 	case cmd == "search":
 		err = fmt.Errorf("usage: logos search <query>")
+	case cmd == "recall":
+		err = recallCmd(args)
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
 	case cmd == "ask":

@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -8,8 +9,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
-	"github.com/Coder8124/logos/internal/procedure"
-	"github.com/Coder8124/logos/internal/secret"
+	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/untrusted"
 )
 
@@ -36,19 +36,13 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	case memory.Procedure:
 		kind = memory.Procedure
 	}
-	// A procedure earns its slot by naming what goes wrong without it — the
-	// trap test. Refuse here, with the reason, rather than storing a
-	// convention that will never be flagged as one again: a rejected write
-	// must not come back looking like a stored one.
-	if kind == memory.Procedure {
-		if err := procedure.Validate(procedure.ParseRecord(text)); err != nil {
-			return "", err
-		}
-	}
-	r, err := memory.Store(s.DB, s.embed, s.embedModel, &memory.Memory{
-		Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
-		Quarantined:       reviewEverythingMCP(),
-		ReviewIfContested: !trustMCP(),
+	res, err := ops.Remember(s.DB, ops.RememberRequest{
+		Memory: memory.Memory{
+			Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
+			Quarantined:       reviewEverythingMCP(),
+			ReviewIfContested: !trustMCP(),
+		},
+		Embed: s.embed, Model: s.embedModel,
 	})
 	if err != nil {
 		return "", err
@@ -59,29 +53,36 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 	if project != "" {
 		where = project
 	}
-	msg := s.rememberReceipt(r, kind, where)
-	if said := secret.Summary(r.Redactions); said != "" {
-		msg += " " + said + "."
+	what := s.rememberReceipt(res.Receipt, kind, where)
+	switch {
+	case what == "":
+		return "Nothing stored." + res.Outcome.Text(), nil
+	case res.Outcome.Failed():
+		// A tool error, so the host does not read a half-done write as done —
+		// but with the receipt in it, which is what the agent needs to act on
+		// it. Without the announcement badge, which the user reads as "done".
+		return "", errors.New(upperFirst(what) + res.Outcome.Text())
 	}
-	return msg + queueAdoption(r.QueueRestored, r.QueueRejected), nil
+	return s.receipt(what) + res.Outcome.Text(), nil
 }
 
 func (s *Session) rememberReceipt(r memory.Receipt, kind memory.Kind, where string) string {
 	// A receipt rather than "Remembered." — the host is about to tell the user
 	// what happened, and creating a fact is not the same as confirming one it
-	// already had, or queuing one that still needs a yes.
+	// already had, or queuing one that still needs a yes. Unbadged, and empty
+	// when nothing was stored: the caller decides whether it reads as done.
 	switch r.Outcome {
 	case memory.EvReinforced:
 		if r.StillQueued {
-			return s.receipt(fmt.Sprintf("still queued — memory #%d (%s, %s) is waiting for review; the user runs `%s review` to accept or reject it", r.Ref, kind, where, s.shell()))
+			return fmt.Sprintf("still queued — memory #%d (%s, %s) is waiting for review; the user runs `%s review` to accept or reject it", r.Ref, kind, where, s.shell())
 		}
-		return s.receipt(fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where))
+		return fmt.Sprintf("already knew that — reinforced memory #%d (%s, %s)", r.Ref, kind, where)
 	case memory.EvQuarantined:
-		return s.receipt(s.quarantineReceipt(r.ID, string(kind), where, r))
+		return s.quarantineReceipt(r.ID, string(kind), where, r)
 	case memory.EvCreated:
-		return s.receipt(fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where))
+		return fmt.Sprintf("stored in logos — memory #%d (%s, %s)", r.ID, kind, where)
 	}
-	return "Nothing stored."
+	return ""
 }
 
 // trustMCP and reviewEverythingMCP are the two ends of how much scrutiny a
@@ -119,72 +120,30 @@ func reviewEverythingMCP() bool { return os.Getenv("LOGOS_REVIEW_ALL") != "" }
 // agent that genuinely wants another project's history can have it, but has to
 // say so rather than getting it by accident.
 func (s *Session) recall(query string, k int, projectArg string, allProjects bool) (string, error) {
-	if strings.TrimSpace(query) == "" {
-		return "", fmt.Errorf("recall needs a query")
-	}
-	var (
-		mems []memory.Memory
-		err  error
-	)
 	project := ""
 	if !allProjects {
 		project = s.resolveProject(projectArg)
 	}
-	if project == "" {
-		mems, err = memory.Recall(s.DB, s.embed, s.embedModel, query, k)
-	} else {
-		mems, err = memory.RecallInProject(s.DB, s.embed, s.embedModel, query, project, k)
-	}
+	r, err := ops.Recall(s.DB, ops.RecallQuery{
+		Query: query, Limit: k, Project: project,
+		Embed: s.embed, Model: s.embedModel, Shell: s.shell(),
+	})
 	if err != nil {
 		return "", err
 	}
-	if len(mems) == 0 {
-		if project != "" {
-			// A typo and a real project with nothing on the subject used to get
-			// the same sentence, and the agent draws the same conclusion from
-			// it: this work has no recorded facts, carry on without them. Only
-			// one of those is true. resolveProject accepts any string, so the
-			// check has to be here.
-			if !s.projectExists(project) {
-				return fmt.Sprintf("No project named %s in this vault%s", untrusted.Inline(project), s.knownProjectsSentence()) + s.awaitingReview(), nil
-			}
-			return fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project) + s.awaitingReview(), nil
-		}
-		return "No relevant memories." + s.awaitingReview(), nil
-	}
-	var b strings.Builder
-	// A memory the vault never got is still usable and still true — it is just
-	// one `rm -rf .logos` from gone, and the README tells people that command
-	// is safe. The write reported the failure once, to a caller that has since
-	// exited; every reader after that saw a row indistinguishable from a
-	// durable one. See memory.UnflushedIDs.
-	stranded := memory.UnflushedIDs(s.DB)
-	for _, m := range mems {
-		// Tag anything from outside the current project, so a fact borrowed
-		// from elsewhere cannot be read as this project's own settled truth.
-		switch {
-		// Inline, because each memory is one bullet and a stored fact may contain
-		// anything: a newline plus "## Where we left off" turned a recalled fact
-		// into a section of logos's own frame, with a "Next step" the reading
-		// agent had no way to tell from the real one.
-		case m.Project == "" || m.Project == project:
-			fmt.Fprintf(&b, "- (%s%s) %s\n", m.Kind, notDurable(stranded[m.ID]), untrusted.Inline(m.Text))
-		default:
-			fmt.Fprintf(&b, "- (%s, from %s%s) %s\n", m.Kind, m.Project, notDurable(stranded[m.ID]), untrusted.Inline(m.Text))
+	ifEmpty := "No relevant memories."
+	if project != "" {
+		// A typo and a real project with nothing on the subject used to get
+		// the same sentence, and the agent draws the same conclusion from
+		// it: this work has no recorded facts, carry on without them. Only
+		// one of those is true. resolveProject accepts any string, so the
+		// check has to be here.
+		ifEmpty = fmt.Sprintf("No relevant memories in %s. Pass all_projects to search every project.", project)
+		if len(r.Memories) == 0 && !s.projectExists(project) {
+			ifEmpty = fmt.Sprintf("No project named %s in this vault%s", untrusted.Inline(project), s.knownProjectsSentence())
 		}
 	}
-	return strings.TrimRight(b.String(), "\n") + s.awaitingReview(), nil
-}
-
-// notDurable marks a memory that is in the cache and not in the vault. Worded
-// as a fact about where it is rather than a warning, because the memory itself
-// is fine — an agent should still use it, and should know not to rely on it
-// being there tomorrow.
-func notDurable(stranded bool) string {
-	if !stranded {
-		return ""
-	}
-	return ", not yet saved to the vault"
+	return r.Text(ifEmpty), nil
 }
 
 // fromProject names the project a memory belongs to when it is not the one the
@@ -242,7 +201,7 @@ func (s *Server) listMemories(here string) (string, error) {
 		case memory.PinNever:
 			tag = " [excluded]"
 		}
-		fmt.Fprintf(&b, "[%d] (%s%s%s)%s %s\n", m.ID, m.Kind, fromProject(m.Project, here), notDurable(stranded[m.ID]), tag, untrusted.Inline(m.Text))
+		fmt.Fprintf(&b, "[%d] (%s%s%s)%s %s\n", m.ID, m.Kind, fromProject(m.Project, here), ops.NotDurable(stranded[m.ID]), tag, untrusted.Inline(m.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
@@ -348,59 +307,8 @@ func (s *Server) shell() string {
 	return s.Shell
 }
 
-// awaitingReview is the line every read appends while the review queue is not
-// empty. Quarantine keeps an agent's memories out of recall until the user says
-// yes, and a user who is never told there is anything to say yes to leaves them
-// there for good — while the agent reads the empty recall as the fact never
-// having been stored. A failed count is said, not swallowed, but does not fail
-// the read it is attached to.
+// awaitingReview is the review queue's report, appended to every read. See
+// ops.ReviewQueue.
 func (s *Server) awaitingReview() string {
-	// Adopt hand edits to the queue file first, as `logos review` does: a
-	// proposal whose line the user deleted is one they rejected, and counting
-	// it asks them to review it again. Said, because the read just discarded
-	// something.
-	restored, rejected, err := memory.ReconcilePending(s.DB)
-	if err != nil {
-		return fmt.Sprintf("\n\n(could not read the user's edits to the review queue: %v)", err) + s.pendingLine()
-	}
-	return queueAdoption(restored, rejected) + s.pendingLine()
-}
-
-// queueAdoption says what a hand edit to the review queue file did to the
-// queue, in the words `logos review` prints for the same adoption. Empty when
-// nothing changed, which is nearly always.
-func queueAdoption(restored, rejected int) string {
-	var parts []string
-	if rejected > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s rejected", rejected, proposals(rejected)))
-	}
-	if restored > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s taken from the file", restored, proposals(restored)))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("\n\nadopted the user's edit to %s/%s: %s", memory.Dir, memory.PendingFile, strings.Join(parts, ", "))
-}
-
-func proposals(n int) string {
-	if n == 1 {
-		return "proposal"
-	}
-	return "proposals"
-}
-
-// pendingLine is the count half of awaitingReview.
-func (s *Server) pendingLine() string {
-	n, err := memory.PendingCount(s.DB)
-	if err != nil {
-		return fmt.Sprintf("\n\n(could not count the memories waiting for review: %v)", err)
-	}
-	if n == 0 {
-		return ""
-	}
-	if n == 1 {
-		return fmt.Sprintf("\n\n1 memory is waiting for your review — `%s review`", s.shell())
-	}
-	return fmt.Sprintf("\n\n%d memories are waiting for your review — `%s review`", n, s.shell())
+	return ops.ReviewQueue(s.DB, s.shell()).Text()
 }

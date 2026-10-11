@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/scope"
-	"github.com/Coder8124/logos/internal/secret"
 )
 
 // memoryCmd inspects and edits the assistant's persistent memory — the facts it
@@ -114,13 +114,17 @@ func memoryCmd(args []string) error {
 			local = rt.Local()
 			embed, _ = rt.Model(router.T0)
 		}
-		r, err := memory.Store(ix.DB, local, embed, &memory.Memory{
-			Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual",
-			Project: project, Created: time.Now().Unix(),
+		res, err := ops.Remember(ix.DB, ops.RememberRequest{
+			Memory: memory.Memory{
+				Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual",
+				Project: project, Created: time.Now().Unix(),
+			},
+			Embed: local, Model: embed,
 		})
 		if err != nil {
 			return err
 		}
+		r := res.Receipt
 		// Which of the three things happened, not just "done". Storing a fact
 		// the vault already held is a different outcome from learning a new
 		// one, and a user who cannot tell them apart will keep re-adding.
@@ -138,9 +142,14 @@ func memoryCmd(args []string) error {
 		default:
 			fmt.Println("nothing to remember.")
 		}
-		if said := secret.Summary(r.Redactions); said != "" {
-			fmt.Println(said + ".")
+		for _, n := range res.Outcome.Notes {
+			if !n.Failed {
+				fmt.Println(n.Text)
+			}
 		}
+		// The receipt above is what did happen; the exit status is what did
+		// not. A store the vault refused is both.
+		return res.Outcome.Err()
 	case "consolidate":
 		rt, err := openRouter()
 		if err != nil {
