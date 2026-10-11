@@ -229,3 +229,22 @@ func TestAcceptsAreCountedByHandAndByTheSwitchApart(t *testing.T) {
 		t.Errorf("another project's accepts were counted: %d by hand, %d auto", hand, auto)
 	}
 }
+
+// A memory written in a worktree is filed under the worktree's scope, and
+// `logos usage` totals per project; counting only the bare name left a
+// worktree's accepts out of its project's week.
+func TestAWorktreesAcceptsAreCountedWithItsProject(t *testing.T) {
+	db, _ := store(t)
+	for _, p := range []string{"kestrel/feature", "kestrelx"} {
+		r, err := Store(db, nil, "", &Memory{Text: "staging runs on port 9090 in " + p, Kind: Fact, Source: "mcp", Project: p, Quarantined: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Accept(db, r.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hand, auto, err := AcceptedSince(db, 0, "kestrel"); err != nil || hand != 1 || auto != 0 {
+		t.Errorf("AcceptedSince(kestrel) = %d by hand, %d auto, %v; want the worktree's 1 and not kestrelx's", hand, auto, err)
+	}
+}

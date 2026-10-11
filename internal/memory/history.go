@@ -292,13 +292,16 @@ func SeenTexts(db *sql.DB) (map[string]bool, error) {
 
 // AcceptedSince counts the review queue's accepts at or after since, a Unix
 // time, by a person and by the review switch apart: an accept nobody watched
-// is not the same evidence as one somebody read. project "" counts every scope.
-// Read from the log, which ImportLog rebuilds from memories/log.md, so the
-// count survives deleting the index.
+// is not the same evidence as one somebody read. project "" counts every scope;
+// a project counts its worktrees' scopes ("brain/feature") with it, as the
+// usage ledger totals them. By prefix with the slash, not LIKE, so a project
+// named with _ or % matches only itself. Read from the log, which ImportLog
+// rebuilds from memories/log.md, so the count survives deleting the index.
 func AcceptedSince(db *sql.DB, since int64, project string) (byHand, auto int, err error) {
 	rows, err := db.Query(`SELECT event, COUNT(*) FROM memory_log
-		 WHERE ts >= ? AND event IN (?, ?) AND (? = '' OR project = ?) GROUP BY event`,
-		since, EvAccepted, EvAutoAccepted, project, project)
+		 WHERE ts >= ? AND event IN (?, ?)
+		   AND (? = '' OR project = ? OR substr(project, 1, length(?) + 1) = ? || '/') GROUP BY event`,
+		since, EvAccepted, EvAutoAccepted, project, project, project, project)
 	if err != nil {
 		return 0, 0, err
 	}
