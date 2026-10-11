@@ -120,3 +120,62 @@ func TestACorrectionKeepsThePinAndRefusesAMemoryAlreadyReplaced(t *testing.T) {
 		t.Error("correcting a memory that does not exist succeeded")
 	}
 }
+
+// The fingerprint is unique across the vault, so the corrected text can
+// already belong to a memory somewhere else. Folding the correction into that
+// one would leave this project with no current version of the fact; in the
+// same project and kind it is the right answer, and the pin goes with it.
+func TestACorrectionThatMatchesAnotherMemoryOnlyFoldsIntoOneInTheSameProject(t *testing.T) {
+	db, _ := vaultDB(t)
+	store := func(text, project string, queued bool) *Memory {
+		m := &Memory{Text: text, Kind: Fact, Source: "manual", Project: project, Quarantined: queued}
+		if _, err := Store(db, nil, "", m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	active := func(id int64) bool {
+		all, _ := All(db)
+		for _, m := range all {
+			if m.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	old := store("Staging runs on port 8080", "shop", false)
+	store("Staging runs on port 9090", "blog", false)
+	if _, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 9090", Source: "manual"}); err == nil {
+		t.Error("a correction folded into a memory of another project")
+	}
+	if !active(old.ID) {
+		t.Error("a refused correction retired the memory it was correcting")
+	}
+
+	queued := store("Staging runs on port 7070", "shop", true)
+	if _, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 7070", Source: "manual"}); err == nil {
+		t.Error("a correction folded into a proposal still waiting for review")
+	}
+	hist, _ := History(db, queued.ID)
+	for _, e := range hist {
+		if e.Event == EvReinforced {
+			t.Error("a refused correction reinforced the queued proposal it matched")
+		}
+	}
+
+	same := store("Staging runs on port 6060", "shop", false)
+	if err := Pin(db, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 6060", Source: "manual"})
+	if err != nil || !res.Existing || res.ID != same.ID {
+		t.Fatalf("correcting to an existing memory's text returned %+v, %v; want #%d, existing", res, err, same.ID)
+	}
+	all, _ := All(db)
+	for _, m := range all {
+		if m.ID == same.ID && m.Pin != PinAlways {
+			t.Errorf("the memory the correction folded into has pin %d, want the old memory's pin", m.Pin)
+		}
+	}
+}

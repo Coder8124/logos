@@ -241,7 +241,7 @@ func memoryCmd(args []string) error {
 		}
 		fmt.Println("excluded — kept on record, never surfaced. `logos memory unpin` to reverse.")
 	default:
-		return fmt.Errorf("usage: logos memory [add <fact> [--project P] | forget <id> | pin <id> | unpin <id> | exclude <id> | log [--project P] | history <id> | diff | health | consolidate]")
+		return fmt.Errorf("usage: logos memory [add <fact> [--project P] | correct <id> <text> | forget <id> | pin <id> | unpin <id> | exclude <id> | log [--project P] | history <id> | diff | health | consolidate]")
 	}
 	return nil
 }

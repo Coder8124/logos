@@ -2,6 +2,7 @@ package memory
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -97,52 +98,94 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 		}
 		m.Project = project
 
+		// The fingerprint is unique across the whole vault, so the corrected
+		// text may already be some memory's. Settled here, before anything is
+		// written: insertLocked's answer to a duplicate is to reinforce it,
+		// which for a refusal below would leave a "reinforced" line in the log
+		// of a correction that never happened.
 		fp := fingerprint(m.Text)
 		var owner, ownerSuperseded int64
-		if db.QueryRow("SELECT id, superseded FROM memories WHERE fingerprint = ?", fp).Scan(&owner, &ownerSuperseded) == nil {
-			if owner == id {
+		var ownerQueued bool
+		var ownerKind, ownerProject string
+		var ownerPin int
+		if db.QueryRow("SELECT id, superseded, quarantined, kind, project, pin FROM memories WHERE fingerprint = ?", fp).
+			Scan(&owner, &ownerSuperseded, &ownerQueued, &ownerKind, &ownerProject, &ownerPin) == nil {
+			switch {
+			case owner == id:
 				return fmt.Errorf("memory #%d already says that", id)
-			}
-			// Correcting back to wording that was itself replaced earlier. That
-			// row is out of the vault already, so a rebuild would free the
-			// fingerprint anyway; freeing it now makes the live store agree,
-			// instead of reinforcing a memory recall will never return.
-			if ownerSuperseded != 0 {
+			case ownerSuperseded != 0:
+				// Correcting back to wording that was itself replaced earlier.
+				// That row is out of the vault already, so a rebuild would free
+				// the fingerprint anyway; freeing it now makes the live store
+				// agree, instead of reinforcing a memory recall never returns.
 				if _, err := db.Exec("UPDATE memories SET fingerprint = NULL WHERE id = ?", owner); err != nil {
 					return err
 				}
+				owner = 0
+			case ownerQueued:
+				return fmt.Errorf("memory #%d already says that and is waiting for review — accept it with `logos review`, then forget #%d", owner, id)
+			case Kind(ownerKind) != m.Kind || ownerProject != project:
+				// Folding into it would retire this project's version of the
+				// fact in favour of another scope's — the move the inheritance
+				// above exists to prevent — and its file is not under our lock.
+				return fmt.Errorf("memory #%d (%s, %s) already says that word for word — word the correction differently, or forget #%d", owner, ownerKind, scopeName(ownerProject), id)
 			}
 		}
 
-		var vec []byte
-		if p != nil {
-			if vecs, err := p.Embed(embedModel, []string{m.Text}); err == nil && len(vecs) == 1 {
-				vec = floatsToBlob(vecs[0])
+		if owner > 0 {
+			// Same kind, same project: this is the memory the user means, and
+			// the correction corroborates it rather than adding a twin.
+			res.ID, res.Existing = owner, true
+			db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", owner)
+			logEvent(db, owner, EvReinforced, m.Text, 0)
+		} else {
+			var vec []byte
+			if p != nil {
+				if vecs, err := p.Embed(embedModel, []string{m.Text}); err == nil && len(vecs) == 1 {
+					vec = floatsToBlob(vecs[0])
+				}
 			}
-		}
-		rec, err := insertLocked(db, m, vec)
-		if err != nil {
-			return err
-		}
-		switch {
-		case rec.Outcome == EvReinforced && rec.StillQueued:
-			return fmt.Errorf("memory #%d already says that and is waiting for review — accept it with `logos review`, then forget #%d", rec.Ref, id)
-		case rec.Outcome == EvReinforced:
-			res.Existing = true
-		case pin != PinNone:
-			// The pin was the user's judgement about the fact, not the wording;
-			// dropping it would quietly take a standing instruction out of every
-			// context pack the moment it was fixed.
-			if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, rec.ID); err != nil {
+			rec, err := insertLocked(db, m, vec)
+			if err != nil {
 				return err
 			}
+			if rec.Outcome != EvCreated {
+				// Another kind's writer stored this exact text between the check
+				// above and the insert.
+				return fmt.Errorf("memory #%d was stored with the same text a moment ago — run the correction again", rec.ID)
+			}
+			res.ID, ownerPin = rec.ID, PinNone
 		}
-		res.ID = rec.ID
-		if _, err := db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", res.ID, id); err != nil {
-			return err
-		}
-		logEvent(db, id, EvSuperseded, oldText, res.ID)
-		return flushLocked(db, m.Kind)
+		// From here the new row exists, so whatever fails, the kind file is
+		// still written: a row only the index holds is forgotten by the next
+		// reconcile, and the caller is told about a memory that then vanishes.
+		err = carryLocked(db, id, res.ID, oldText, pin, ownerPin)
+		return errors.Join(err, flushLocked(db, m.Kind))
 	})
 	return res, err
+}
+
+// carryLocked is the half of Correct after the replacement exists: the pin,
+// then the old memory retired in its favour.
+func carryLocked(db *sql.DB, old, replacement int64, oldText string, pin, replacementPin int) error {
+	// The pin was the user's judgement about the fact, not the wording; dropping
+	// it would quietly take a standing instruction out of every context pack
+	// the moment it was fixed. A pin the replacement already has is its own.
+	if pin != PinNone && replacementPin == PinNone {
+		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, replacement); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", replacement, old); err != nil {
+		return err
+	}
+	logEvent(db, old, EvSuperseded, oldText, replacement)
+	return nil
+}
+
+func scopeName(project string) string {
+	if project == "" {
+		return "global"
+	}
+	return project
 }
