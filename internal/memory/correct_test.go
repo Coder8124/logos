@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -223,5 +224,34 @@ func TestACorrectionOfAnExcludedMemoryIsRecalled(t *testing.T) {
 	}
 	if mems, _ = Recall(db, nil, "", "staging port", 5); !recalled(mems, "Staging runs on port 7070") {
 		t.Error("a correction folded into an excluded memory is not recalled")
+	}
+}
+
+// The owner of the corrected text is settled before anything is written so a
+// refused correction leaves no trace. Another kind's writer can still store the
+// same text between that check and the insert; the correction is refused then
+// too, and must not be logged as having reinforced the memory it lost to.
+func TestACorrectionThatLosesTheRaceForItsTextLeavesNoTrace(t *testing.T) {
+	db, _ := vaultDB(t)
+	old := Memory{Text: "Staging runs on port 8080", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &old); err != nil {
+		t.Fatal(err)
+	}
+	var rival Memory
+	correctRace = func(db *sql.DB, text string) {
+		rival = Memory{Text: text, Kind: Preference, Source: "manual"}
+		if _, err := Store(db, nil, "", &rival); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { correctRace = func(*sql.DB, string) {} })
+	if _, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 9090", Source: "manual"}); err == nil {
+		t.Fatal("a correction whose text was stored a moment earlier succeeded")
+	}
+	hist, _ := History(db, rival.ID)
+	for _, e := range hist {
+		if e.Event == EvReinforced {
+			t.Error("the refused correction is logged as reinforcing the memory it lost to")
+		}
 	}
 }

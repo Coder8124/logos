@@ -145,16 +145,22 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 					vec = floatsToBlob(vecs[0])
 				}
 			}
-			rec, err := insertLocked(db, m, vec)
+			correctRace(db, m.Text)
+			// insertMemory, not insertLocked: on a duplicate the latter
+			// reinforces it, and a correction refused here would leave that
+			// reinforcement in the log — the trace the check above exists to
+			// avoid.
+			dup, err := insertMemory(db, m, vec)
 			if err != nil {
 				return err
 			}
-			if rec.Outcome != EvCreated {
+			if dup > 0 {
 				// Another kind's writer stored this exact text between the check
 				// above and the insert.
-				return fmt.Errorf("memory #%d was stored with the same text a moment ago — run the correction again", rec.ID)
+				return fmt.Errorf("memory #%d was stored with the same text a moment ago — run the correction again", dup)
 			}
-			res.ID, ownerPin = rec.ID, PinNone
+			logEvent(db, m.ID, EvCreated, m.Text, 0)
+			res.ID, ownerPin = m.ID, PinNone
 		}
 		// From here the new row exists, so whatever fails, the kind file is
 		// still written: a row only the index holds is forgotten by the next
@@ -164,6 +170,10 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 	})
 	return res, err
 }
+
+// correctRace runs between Correct's fingerprint check and its insert. A test
+// stores the same text there, as another kind's writer could.
+var correctRace = func(db *sql.DB, text string) {}
 
 // carryLocked is the half of Correct after the replacement exists: the pin,
 // then the old memory retired in its favour.
