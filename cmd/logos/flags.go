@@ -82,7 +82,7 @@ var commandFlags = map[string]flagSpec{
 	"version":  {},
 	"note":     {},
 	"reflect":  {},
-	"index":    {bare: []string{"--watch"}},
+	"index":    {bare: []string{"--watch", "--auto"}},
 	"migrate":  {bare: []string{"--dry-run", "--yes", "-y"}},
 	"replay":   {bare: []string{"--peek"}},
 	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report"}},

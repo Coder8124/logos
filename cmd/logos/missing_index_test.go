@@ -172,3 +172,63 @@ func TestAHookNeverRebuildsTheIndex(t *testing.T) {
 		t.Errorf("a hook rebuilt the index, or did not say it was missing:\n%s", errOut)
 	}
 }
+
+// An MCP host gives the server a few seconds to answer its handshake, and a
+// rebuild on a large vault takes longer, so the host would drop the server for
+// a cache it does not need. The server hands the rebuild to a process of its
+// own and answers at once.
+func TestTheMCPServerRebuildsAMissingIndexInAProcessOfItsOwn(t *testing.T) {
+	standIn(t, "shop")
+	if err := os.WriteFile(filepath.Join(vaultPath(), "cache.md"), []byte("# Cache\n\nThe cart cache expires.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_EMBED", "off")
+	if err := auto.Set(vaultPath(), "index", true); err != nil {
+		t.Fatal(err)
+	}
+	deleteIndex(t)
+	var launched []string
+	old := auto.Launch
+	auto.Launch = func(_ string, args ...string) error { launched = args; return nil }
+	t.Cleanup(func() { auto.Launch = old })
+
+	errOut := captureStderr(t, func() {
+		_, closeIndex, err := buildStdioServer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		closeIndex()
+	})
+	if strings.Join(launched, " ") != "index --auto" {
+		t.Fatalf("the server launched %q, want the rebuild in a process of its own", launched)
+	}
+	// The launched process runs main, which refuses a flag the command does not
+	// declare before the command ever sees it.
+	if err := checkCommandFlags(launched[0], launched[1:]); err != nil {
+		t.Fatalf("the launched rebuild would be refused on its own command line: %v", err)
+	}
+	if !strings.Contains(errOut, "no index") || strings.Contains(errOut, "rebuilding it from the vault, text only") {
+		t.Errorf("the server did not say the rebuild was handed off:\n%s", errOut)
+	}
+
+	captureStderr(t, func() {
+		if err := runIndexAuto(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	ix, err := openIndexQuiet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if synced, err := ix.Synced(); err != nil || !synced {
+		t.Fatalf("the launched rebuild left the index unbuilt (%v)", err)
+	}
+	entries, err := auto.Entries(vaultPath(), "", time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := auto.Summary(entries); !strings.Contains(got, "rebuilt the missing index") {
+		t.Errorf("the next resume will not say the index was rebuilt: %q", got)
+	}
+}

@@ -116,7 +116,11 @@ func main() {
 	case cmd == "update":
 		err = updateCmd(args)
 	case cmd == "index":
-		err = runIndex(hasFlag(args, "--watch"))
+		if hasFlag(args, "--auto") {
+			err = runIndexAuto()
+		} else {
+			err = runIndex(hasFlag(args, "--watch"))
+		}
 	case cmd == "search" && rest != "":
 		err = search(rest)
 	case cmd == "search":
@@ -361,6 +365,27 @@ func checkIndex(ix *index.Index) {
 		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
 			"answers from an empty one — `logos index` builds it from the vault (or `logos auto config index on`)")
 	}
+}
+
+// checkIndexInBackground is checkIndex for the MCP server. Its host waits a
+// few seconds for the handshake and drops a server that misses it, and a
+// rebuild on a large vault takes longer — so the switch's rebuild runs as
+// `logos index --auto` in a process of its own, and the server answers from
+// the empty index until it lands, saying so.
+func checkIndexInBackground(ix *index.Index) {
+	synced, err := ix.Synced()
+	if err != nil || synced || !auto.On(ix.Vault, auto.Index) {
+		checkIndex(ix)
+		return
+	}
+	if err := auto.Launch(ix.Vault, "index", "--auto"); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: this vault has no index (deleted, or never built), and the rebuild could not be started, "+
+			"so this server answers from an empty one — `logos index` builds it: %v\n", err)
+		logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, Failed: err.Error()})
+		return
+	}
+	fmt.Fprintln(os.Stderr, "logos: this vault has no index (deleted, or never built) — auto is rebuilding it in the background, "+
+		"and this server answers from an empty one until it is done")
 }
 
 // rebuildIndex is the index switch: the cache rebuilt from the vault before the
