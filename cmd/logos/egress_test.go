@@ -42,6 +42,24 @@ func TestDoctorEgressNamesEveryAddressAndSaysThereAreNoOthers(t *testing.T) {
 	}
 }
 
+// doctor and setup run each host's own CLI to read its registration, and
+// Claude Code reaches api.anthropic.com every time it starts. That is not
+// logos's request, but it is one running logos causes, and a list that left it
+// out was caught by the chaos-tier proxy, not by anyone reading the list.
+func TestDoctorEgressNamesTheHostCLIsItRunsAndThatTheyMakeTheirOwnRequests(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	out := captureStdout(t, func() {
+		if err := doctorEgress(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, w := range []string{"claude mcp list", "their own requests"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("doctor --egress does not say %q:\n%s", w, out)
+		}
+	}
+}
+
 // A runtime on another machine is the one configured address that does leave
 // it, and the list says so rather than filing it with the localhost probes.
 func TestDoctorEgressFlagsAConfiguredRuntimeOnAnotherHost(t *testing.T) {

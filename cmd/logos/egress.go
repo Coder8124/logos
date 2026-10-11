@@ -64,10 +64,19 @@ func doctorEgress() error {
 	fmt.Println("      `claude plugin marketplace update` + `claude plugin update`, at most once a day,")
 	fmt.Println("      when the plugin is behind this logos; Claude Code makes the request")
 
+	// Not logos's requests, but ones running logos causes: the chaos-tier proxy
+	// caught `logos doctor` reaching api.anthropic.com through `claude mcp list`
+	// while this list said nothing of it.
+	fmt.Println("  Your agent hosts' own CLIs — when `logos doctor` or `logos setup` runs them")
+	fmt.Println("      `claude mcp list`, `claude plugin --help`, `codex mcp …` and the like, to read each")
+	fmt.Println("      host's registration; those programs make their own requests (Claude Code reaches")
+	fmt.Println("      api.anthropic.com when it starts), none of them carrying anything from your vault")
+
 	fmt.Println("  `logos mcp serve-http` — listens on 127.0.0.1 only, and contacts nothing")
 	fmt.Println()
 	fmt.Println("There are no others: no telemetry, no crash reports, no usage pings.")
-	fmt.Println("To watch for yourself: `lsof -i -a -c logos` while it runs, or a firewall like Little Snitch.")
+	fmt.Println("To watch for yourself: `lsof -i -a -c logos` while it runs (add `-c claude` for the host CLIs),")
+	fmt.Println("or a firewall like Little Snitch.")
 	return nil
 }
 

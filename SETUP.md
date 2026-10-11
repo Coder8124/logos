@@ -729,6 +729,34 @@ cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather
 than tool-calling — small local models are unreliable at tool schemas and
 near-perfect with a JSON schema enforced at the sampler.
 
+### Checking that nothing leaves
+
+`logos doctor --egress` lists every address this logos can contact, and when:
+the model runtime (the localhost ports it probes, or `LOGOS_RUNTIME`, flagged
+when it names another machine), GitHub for `logos update`, the runtime's model
+download during `logos setup`, the daily plugin update Claude Code runs for
+it, and the agent hosts' own CLIs that `doctor` and `setup` start. It ends by
+saying there are no others. The T3 cloud tier is listed with its state; no
+command in this version calls it.
+
+Don't take the list's word for it:
+
+```console
+$ lsof -i -a -c logos -c claude      # open connections, while a session runs
+$ HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 logos resume
+```
+
+The second runs a command with every non-loopback request sent to a port
+nothing listens on, so anything that tried to leave would fail; the local
+runtime is still reached, because loopback bypasses the proxy. A firewall that
+asks per connection, such as Little Snitch or LuLu, shows the same thing for
+as long as you leave it on.
+
+The repository checks it on every change. A unit test pins the four files
+that can open a connection to the ones `--egress` accounts for, and the chaos
+tier runs the CLI and every MCP tool behind a proxy that refuses anything
+bound off the machine, and fails if it sees a single request.
+
 ### Opening the vault in Obsidian
 
 The vault is a folder of markdown, so Obsidian opens it as it is: *Open folder
