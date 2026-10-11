@@ -30,7 +30,7 @@ import (
 // whose failures are someone else's bug report.
 
 // runNote appends a working note: cheap, uncommitted, the working tree.
-func runNote(args []string) error {
+func runNote(args []string) (err error) {
 	// One argument is the note, and the project is the directory you are
 	// standing in — `logos resume`'s own empty-state message says to run
 	// `logos note <project> "..."`, having worked the project out from the cwd
@@ -66,15 +66,21 @@ func runNote(args []string) error {
 	// hook did before it wrote checkpoints.
 	//
 	// The "may have avoided" receipt comes from the same payload and is said
-	// whatever the switch, after the line the hook sorts its outcome by.
+	// whatever the switch, after the line the hook sorts its outcome by. It is
+	// worked out last, so a slow one cannot spend the hook's seconds before
+	// the checkpoint is written, and only when the end succeeded: the hook
+	// says it only then, and one recorded in the ledger but never said is
+	// one the next end of this session thinks it already said.
 	var raw []byte
 	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() {
-		var err error
 		if raw, err = io.ReadAll(io.LimitReader(os.Stdin, 4<<20)); err != nil {
 			return err
 		}
-		receipt := sessionReceipt(vaultPath(), project, raw)
-		defer fmt.Print(receipt)
+		defer func() {
+			if err == nil {
+				fmt.Print(sessionReceipt(vaultPath(), project, raw))
+			}
+		}()
 	}
 	if raw != nil && auto.On(vaultPath(), auto.Checkpoint) {
 		c, err := autoCheckpoint(vaultPath(), project, raw)

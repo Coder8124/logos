@@ -191,3 +191,86 @@ esac`)
 		t.Errorf("the hook did not say the receipt:\n%s", out)
 	}
 }
+
+// The activity row keeps 160 characters of a tool call, so a long path is cut
+// before the file's name. A cut path that could not be matched read as the
+// session never touching the file, and the receipt claimed the ruling avoided
+// in a session that edited exactly that file.
+func TestAnEditWhosePathWasCutShortIsNotTakenForStayingAway(t *testing.T) {
+	standIn(t, "elsewhere")
+	checkCart(t, "shop")
+	hookEvent(t, "PostToolUse", `{"session_id":"s-long","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"cache the cart"}}`)
+	long := "/work/shop/" + strings.Repeat("vendored/", 20) + "internal/cart/cache.go"
+	hookEvent(t, "PostToolUse", `{"session_id":"s-long","tool_name":"Edit","tool_input":{"file_path":"`+long+`"}}`)
+
+	if out := endSession(t, "s-long"); strings.Contains(out, "may have avoided") {
+		t.Errorf("an edit whose path was cut short was taken for staying away:\n%s", out)
+	}
+}
+
+// Two sessions on different projects can run before_you_try in the same
+// minute; the ledger line of one is not the other's check.
+func TestACheckRecordedForAnotherProjectIsNotOnThisSessionsReceipt(t *testing.T) {
+	standIn(t, "elsewhere")
+	checkCart(t, "kestrel")
+	hookEvent(t, "PostToolUse", `{"session_id":"s-near","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"cache the cart"}}`)
+
+	if out := endSession(t, "s-near"); strings.Contains(out, "may have avoided") {
+		t.Errorf("a check another project's session made is on this one's receipt:\n%s", out)
+	}
+}
+
+// The hook says the receipt only beside a session end that worked. One worked
+// out before a failed checkpoint was recorded in the ledger and said nowhere,
+// and the next end of the session, finding it already credited, never said
+// it either.
+func TestAReceiptIsNotRecordedWhenTheSessionEndFailed(t *testing.T) {
+	standIn(t, "elsewhere")
+	checkCart(t, "shop")
+	hookEvent(t, "PostToolUse", `{"session_id":"s-fail","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"cache the cart"}}`)
+	hookEvent(t, "PostToolUse", `{"session_id":"s-fail","tool_name":"Bash","tool_input":{"command":"go test ./cart"}}`)
+	// A file where the project's session directory goes: the checkpoint cannot
+	// be written.
+	if err := os.WriteFile(filepath.Join(vaultPath(), "sessions", "shop"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_NOTE_IF_UNCOMMITTED", "1")
+	t.Setenv("LOGOS_AUTO_CHECKPOINT", "1")
+	restore := setStdin(t, []byte(`{"session_id":"s-fail","reason":"prompt_input_exit"}`))
+	out := captureStdout(t, func() {
+		if err := runNote([]string{"shop", "claude-code session ended"}); err == nil {
+			t.Error("the session end succeeded with no way to write the checkpoint")
+		}
+	})
+	restore()
+	if strings.Contains(out, "may have avoided") {
+		t.Errorf("a failed session end printed a receipt the hook throws away:\n%s", out)
+	}
+	events, _, err := usagepkg.Read(vaultPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := usagepkg.Sum(events, "").Avoided; got != 0 {
+		t.Errorf("a failed session end recorded %d avoided in the ledger, want 0", got)
+	}
+}
+
+// checkCart records one ruling about internal/cart/cache.go, in project
+// kestrel, as handed back by a before_you_try run in project.
+func checkCart(t *testing.T, project string) {
+	t.Helper()
+	commitRulings(t, &session.Checkpoint{
+		Project: "kestrel", Agent: "codex", Task: "speed up checkout", TS: time.Now().Add(-time.Hour).Unix(),
+		Failed: []string{"caching the cart — internal/cart/cache.go evicts on every write, so it never hits"},
+	})
+	rulings, err := deadend.Collect(vaultPath(), nil, "kestrel")
+	if err != nil || len(rulings) != 1 {
+		t.Fatalf("collect: %v, %d rulings", err, len(rulings))
+	}
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindDeadEnd, Via: "mcp:before_you_try", Project: project,
+		Rulings: len(rulings), Refs: usagepkg.RulingRefs(rulings),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

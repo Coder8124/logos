@@ -63,11 +63,19 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 		}
 	}
 	touched := map[string]bool{}
+	// blind is an edit whose path the activity row cut short. Which file it
+	// was is gone with the tail, so it may have been any file a ruling names,
+	// and staying away from them is not something this session can be shown
+	// to have done.
+	blind := false
 	for _, a := range events {
 		if a.Kind != activity.KindTool {
 			continue
 		}
 		if f := strings.TrimPrefix(a.Summary, a.Tool+" "); f != a.Summary && isWork(a.Tool) && a.Tool != "Bash" {
+			if strings.HasSuffix(f, "…") {
+				blind = true
+			}
 			touched[filepath.ToSlash(f)] = true
 		}
 		via := checkVia(a)
@@ -75,8 +83,11 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 			continue
 		}
 		best := -1
+		// The project as well as the time: a session on another project can
+		// run the same check in the same minute.
 		for i, e := range ledger {
-			if used[i] || e.Kind != usagepkg.KindDeadEnd || e.Via != via || e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
+			if used[i] || e.Kind != usagepkg.KindDeadEnd || e.Via != via || !usagepkg.SameProject(e.Project, project) ||
+				e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
 				continue
 			}
 			if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
@@ -90,7 +101,7 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 			}
 		}
 	}
-	if len(shown) == 0 {
+	if len(shown) == 0 || blind {
 		return nil, nil
 	}
 
