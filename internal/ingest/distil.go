@@ -142,12 +142,8 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 					sawSuccess = true
 				}
 				// A user-role turn can still be the host's: AGENTS.md, a system
-				// reminder, a continuation summary. Request is the rule that
-				// already tells those from what the person asked.
-				if t.Role == "user" {
-					_, asked := Request(t.Text)
-					sawPerson = sawPerson || asked
-				}
+				// reminder, a continuation summary.
+				sawPerson = sawPerson || t.Role == "user" && PersonWrote(t.Text)
 			}
 			if !ok {
 				drops = append(drops, Drop{field, claim, strings.Join(bad, "; ")})

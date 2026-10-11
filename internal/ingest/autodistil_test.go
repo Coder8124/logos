@@ -223,3 +223,25 @@ func TestAWantCitingHostTextInTheUsersTurnIsDropped(t *testing.T) {
 		t.Errorf("dropped %+v, want the two citing host text", drops)
 	}
 }
+
+// "no" answering the agent's question is the person's whole reply, and often
+// the correction itself. The task line skips a bare yes or no because it is
+// not the opening request; a want citing one is citing the person.
+func TestAWantCitingThePersonsBareAnswerIsKept(t *testing.T) {
+	s := worked()
+	s.Turns = append(s.Turns,
+		transcript.Turn{Role: "assistant", Text: "Should I drop the v1 endpoint, or keep it for old clients?"},
+		transcript.Turn{Role: "user", Text: "no"},
+	)
+	n := len(s.Turns)
+	vault, rec := recordFrom(t, s)
+
+	want := fmt.Sprintf("the v1 endpoint kept for old clients (turn %d, turn %d)", n-1, n)
+	c, drops, _, err := AcceptAuto(vault, rec.Slug, 0, Distillation{Wanted: []string{want}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred == nil || len(c.Inferred.Wanted) != 1 {
+		t.Errorf("kept %+v, dropped %+v, want the answer kept", c.Inferred, drops)
+	}
+}

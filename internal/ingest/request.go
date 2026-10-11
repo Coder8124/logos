@@ -20,31 +20,7 @@ import (
 // The hook path keeps a prompt cut to one line of 160 characters, so a wrapper
 // may have lost its closing tag; one that is never closed runs to the end.
 func Request(prompt string) (string, bool) {
-	if strings.HasPrefix(strings.TrimSpace(prompt), continuedSession) {
-		return "", false
-	}
-	var command string
-	if m := commandName.FindStringSubmatch(prompt); m != nil {
-		command = m[1]
-		args := ""
-		if a := commandArgs.FindStringSubmatch(prompt); a != nil {
-			args = strings.TrimSpace(a[1])
-		}
-		// A command with no arguments says which button was pressed, not what
-		// for: /clear, /logos:context-connect.
-		if args == "" {
-			return "", false
-		}
-		prompt = command + " " + args
-	}
-	for _, w := range hostWrappers {
-		prompt = w.ReplaceAllString(prompt, " ")
-	}
-	for _, line := range strings.Split(prompt, "\n") {
-		line = strings.Join(strings.Fields(line), " ")
-		if line == "" {
-			continue
-		}
+	for _, line := range personsLines(prompt) {
 		// "Hi!" on a line of its own opens the request rather than replacing
 		// it; the hook path folds the same prompt onto one line and keeps it.
 		if asksNothing(line) {
@@ -53,6 +29,44 @@ func Request(prompt string) (string, bool) {
 		return text.Ellipsize(line, 120), true
 	}
 	return "", false
+}
+
+// PersonWrote says whether anything in a user-role turn is the person's own,
+// once the host's text is taken out. Unlike Request it keeps a bare "no": as
+// an answer to the agent's question it is the person's whole reply, and often
+// the correction itself.
+func PersonWrote(prompt string) bool {
+	return len(personsLines(prompt)) > 0
+}
+
+// personsLines is what is left of a prompt once the host's text is taken out,
+// one non-empty line each, whitespace folded.
+func personsLines(prompt string) []string {
+	if strings.HasPrefix(strings.TrimSpace(prompt), continuedSession) {
+		return nil
+	}
+	if m := commandName.FindStringSubmatch(prompt); m != nil {
+		args := ""
+		if a := commandArgs.FindStringSubmatch(prompt); a != nil {
+			args = strings.TrimSpace(a[1])
+		}
+		// A command with no arguments says which button was pressed, not what
+		// for: /clear, /logos:context-connect.
+		if args == "" {
+			return nil
+		}
+		prompt = m[1] + " " + args
+	}
+	for _, w := range hostWrappers {
+		prompt = w.ReplaceAllString(prompt, " ")
+	}
+	var out []string
+	for _, line := range strings.Split(prompt, "\n") {
+		if line = strings.Join(strings.Fields(line), " "); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // FirstRequest is the first of prompts that asks for something. The first is
