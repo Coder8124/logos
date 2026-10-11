@@ -191,3 +191,24 @@ func TestADryRunImportWritesNothing(t *testing.T) {
 		t.Errorf("a dry run wrote %d memories", len(got))
 	}
 }
+
+// The path went into the SQLite URI as typed, where `?` starts the query and
+// `#` the fragment, so a store in a directory with either in its name passed
+// the existence check and then failed to open.
+func TestAClaudeMemStoreImportsFromADirectoryNamedWithURICharacters(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	t.Setenv("LOGOS_EMBED", "off")
+	made := claudeMemFixture(t, [][4]string{{"kestrel", "Staging runs on port 9090", "", ""}})
+	odd := filepath.Join(t.TempDir(), "mem?v=2#old%20copy")
+	if err := os.MkdirAll(odd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(odd, "claude-mem.db")
+	if err := os.Rename(made, db); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := importFrom(t, db); !strings.Contains(out, "Imported 1") {
+		t.Errorf("the store did not import:\n%s", out)
+	}
+}
