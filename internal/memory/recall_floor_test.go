@@ -177,6 +177,24 @@ func TestWithoutEmbeddingsAWeakKeywordMatchIsStillReturned(t *testing.T) {
 	}
 }
 
+// A vector from the embedding model a user switched away from is not evidence
+// against a match: cosine scores a length mismatch 0, which the gate read as a
+// vector that disagreed, so changing LOGOS_EMBED silently dropped every weak
+// keyword match among the memories stored before the switch.
+func TestAMemoryEmbeddedByAnotherModelKeepsItsWeakKeywordMatch(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "commit messages are one sentence with no trailing period", Fact, 0.5, []float32{1, 0, 0})
+	storeVec(t, db, "the session note is written only when work is uncheckpointed", Fact, 0.5, []float32{0, 1, 0, 0})
+
+	got, err := RecallInProject(db, embedRuntime(t, false), "nomic-embed-text", "how should commit messages be written", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("a memory whose vector is another model's should keep its keyword match, got %v", texts(got))
+	}
+}
+
 // A memory with no word in common with the query rode in on the 0.15 cosine
 // gap, which in a flat field of same-project memories is wide enough to admit
 // most of the project. With nothing else tying it to the query, the vector
