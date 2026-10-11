@@ -82,8 +82,19 @@ type Memory struct {
 	// ReviewIfContested queues this memory only when it contradicts something
 	// already stored, instead of queueing it unconditionally. Set on the way
 	// in; Quarantined is the answer on the way out. See contestedMemory.
-	ReviewIfContested bool    `json:"-"`
-	Score             float64 `json:"score"` // set on recall: relevance to the query
+	ReviewIfContested bool `json:"-"`
+	// Turn cites the transcript turn a queued proposal was made in, as TurnRef
+	// writes it. Contests is the memory it contradicted when it queued. Both
+	// are what the review switch decides by (see internal/ops/autoreview.go),
+	// and both are written into the queue file, because a decision the index
+	// alone remembered would be forgotten by the rebuild that follows.
+	Turn     string `json:"turn,omitempty"`
+	Contests int64  `json:"contests,omitempty"`
+	// AutoAccepted is when the review switch accepted this memory, or 0 when a
+	// person did or nobody had to. Written into the memory's vault line, so
+	// `logos review --undo-auto` still finds it after the index is deleted.
+	AutoAccepted int64   `json:"auto_accepted,omitempty"`
+	Score        float64 `json:"score"` // set on recall: relevance to the query
 	// Pin overrides ranking entirely: PinAlways forces inclusion in a context
 	// pack regardless of relevance score, PinNever removes a memory from
 	// recall while leaving it on record. See PinAlways and PinNever.
@@ -186,6 +197,12 @@ func Init(db *sql.DB) error {
 	// every memory anyone already has on doctor's at-risk list.
 	db.Exec("ALTER TABLE memories ADD COLUMN unflushed INTEGER NOT NULL DEFAULT 0")
 	db.Exec("CREATE INDEX IF NOT EXISTS memories_unflushed ON memories(unflushed)")
+	// The review switch. Empty and 0 are what every existing row honestly is:
+	// no turn was cited, nothing was contested on record, and a person (or
+	// nobody) accepted it — which leaves every one of them out of the switch.
+	db.Exec("ALTER TABLE memories ADD COLUMN turn TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE memories ADD COLUMN contests INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE memories ADD COLUMN auto_accepted INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
@@ -361,6 +378,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 	if m.ReviewIfContested && !m.Quarantined {
 		if id, text, ok := contestedMemory(db, qvec, m.Text); ok {
 			m.Quarantined = true
+			m.Contests = id
 			contested, contestedText = id, text
 		}
 	}
@@ -463,10 +481,10 @@ func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 		// memory's number is never handed to an unrelated one. See nextID.
 		id := nextID(db)
 		res, err := db.Exec(
-			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined))
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests)
 		if err != nil {
 			return 0, err
 		}
@@ -1240,4 +1258,13 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ContestedNow is contestedMemory for a memory already stored: whether its
+// text contradicts another memory, by text alone. The review switch asks it at
+// the moment it would accept, not only when the proposal arrived, because a
+// memory pinned or stored since can be the one it now disputes.
+func ContestedNow(db *sql.DB, id int64, text string) (int64, bool) {
+	other, _, ok := contestedMemory(db, nil, text)
+	return other, ok && other != id
 }

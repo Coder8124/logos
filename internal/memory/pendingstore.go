@@ -231,6 +231,12 @@ func renderPending(pend []Memory) string {
 		if m.Agent != "" {
 			fmt.Fprintf(&b, " agent=%s", strings.ReplaceAll(m.Agent, " ", "-"))
 		}
+		if m.Turn != "" {
+			fmt.Fprintf(&b, " turn=%s", logField(m.Turn))
+		}
+		if m.Contests != 0 {
+			fmt.Fprintf(&b, " contests=%d", m.Contests)
+		}
 		b.WriteString(" -->\n")
 	}
 	return b.String()
@@ -410,10 +416,10 @@ func upsertPending(db *sql.DB, m Memory) (int64, bool, error) {
 		id = nextID(db)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, fingerprint, quarantined)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
+		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, fingerprint, quarantined, turn, contests)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
 		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-		m.Source, m.Agent, m.Created, m.Uses, fingerprint(m.Text)); err != nil {
+		m.Source, m.Agent, m.Created, m.Uses, fingerprint(m.Text), m.Turn, m.Contests); err != nil {
 		return 0, false, err
 	}
 	// No event. Putting a proposal back is not proposing it, and logging one
