@@ -143,3 +143,27 @@ func TestAnAutoFileThatCannotBeReadRunsNothing(t *testing.T) {
 		}
 	}
 }
+
+// Load reads the last line for a switch, so a change that rewrote only the
+// first would print the old state, exit 0, and change nothing.
+func TestASwitchWrittenTwiceByHandIsChangedEverywhere(t *testing.T) {
+	vault := t.TempDir()
+	hand := "- dream: on\nauto: on\n\nlater, again:\n- dream: on\nauto: on\n"
+	if err := os.WriteFile(Path(vault), []byte(hand), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(vault, "dream", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMaster(vault, false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.On(Dream) || c.Master == nil || *c.Master {
+		raw, _ := os.ReadFile(Path(vault))
+		t.Errorf("auto config changed the first line and left the one that counts:\n%s", raw)
+	}
+}

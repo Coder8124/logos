@@ -317,7 +317,9 @@ func render(raw string, c Config) string {
 		}
 		if m := switchLine.FindStringSubmatch(t); m != nil {
 			s := Switch(strings.ToLower(m[1]))
-			if v, ok := c.Hand[s]; ok && !seen[s] {
+			// Every line for it, not the first: Load reads the last, so a
+			// file holding a switch twice would keep its old value.
+			if v, ok := c.Hand[s]; ok {
 				lines[i] = "- " + string(s) + ": " + onOff(v)
 				seen[s] = true
 			}
