@@ -64,6 +64,11 @@ func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
 	if _, _, err := memory.ReconcilePending(db); err != nil {
 		return 0, fmt.Errorf("could not read the user's edits to the review queue: %w", err)
 	}
+	// A deleted line is logged as the user's rejection now, as it is noticed,
+	// and that is "your last review". Accepts stamped with an earlier clock
+	// would fall before it and drop out of every count of what the switch did
+	// since.
+	now = later(now, time.Now())
 	pending, err := memory.Pending(db)
 	if err != nil {
 		return 0, err
@@ -153,4 +158,11 @@ func RunAutoReview(db *sql.DB, vault, project string) string {
 		return fmt.Sprintf("auto: the review switch %v\n\n", err)
 	}
 	return ""
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
