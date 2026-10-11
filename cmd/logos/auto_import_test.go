@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,5 +132,104 @@ func TestAForgottenImportIsNotBroughtBackByTheImportSwitch(t *testing.T) {
 		if strings.HasPrefix(m.Text, "Staging") {
 			t.Fatalf("the forgotten memory came back: %q", m.Text)
 		}
+	}
+}
+
+const pastedKey = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+// What the timeline holds is the masked text Store wrote, so a forgotten import
+// with a secret in it has to be recognised by its masked text too.
+func TestAForgottenImportWithASecretInItIsNotBroughtBack(t *testing.T) {
+	standIn(t, "shop")
+	db, _ := claudeMemAt(t, [][4]string{{"kestrel", "Deploy with key " + pastedKey, "", ""}})
+	if err := auto.Set(vaultPath(), string(auto.Import), true); err != nil {
+		t.Fatal(err)
+	}
+	importFrom(t, db)
+	forgetImported(t, "Deploy")
+
+	if n, err := importAuto(); err != nil || n.imported != 0 {
+		t.Fatalf("the switch imported %d (%v); the forgotten memory came back", n.imported, err)
+	}
+}
+
+// claude-mem changes nearly every session. An observation that was nothing but
+// a key is refused once; reporting it again on every run would bury the one
+// line that matters under the same old refusal.
+func TestARefusedObservationIsReportedOnceNotOnEveryRun(t *testing.T) {
+	standIn(t, "shop")
+	db, _ := claudeMemAt(t, [][4]string{{"kestrel", pastedKey, "", ""}})
+	if err := auto.Set(vaultPath(), string(auto.Import), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := runImportAuto(); err != nil {
+		t.Fatal(err)
+	}
+	addObservation(t, db, "kestrel", "Staging runs on port 9090")
+	n, err := importAuto()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.refused != 0 || n.imported != 1 {
+		t.Fatalf("the second run refused %d and imported %d, want 0 and the new one", n.refused, n.imported)
+	}
+}
+
+func forgetImported(t *testing.T, prefix string) {
+	t.Helper()
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	ms, err := memory.All(ix.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if strings.HasPrefix(m.Text, prefix) {
+			if err := memory.Forget(ix.DB, m.ID); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatalf("no memory starting %q to forget", prefix)
+}
+
+func addObservation(t *testing.T, path, project, title string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO observations
+		(memory_session_id, project, type, title, created_at, created_at_epoch)
+		VALUES ('s2', ?, 'discovery', ?, '2026-10-02', 2000)`, project, title); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Reinstalling claude-mem starts its row ids over, below where the last
+// import stopped; a mark that outlived its store would skip everything new.
+func TestAReinstalledClaudeMemIsReadFromItsFirstRow(t *testing.T) {
+	standIn(t, "shop")
+	db, _ := claudeMemAt(t, twoObservations)
+	if err := auto.Set(vaultPath(), string(auto.Import), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := runImportAuto(); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := os.ReadFile(claudeMemFixture(t, [][4]string{{"kestrel", "Builds run on the arm64 runners", "", ""}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(db, fresh, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := importAuto(); err != nil || n.imported != 1 {
+		t.Fatalf("the reinstalled store's first observation: imported %d (%v), want 1", n.imported, err)
 	}
 }

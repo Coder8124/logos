@@ -8,12 +8,14 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/claudemem"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/untrusted"
 )
 
@@ -46,7 +48,7 @@ func runImport(args []string) error {
 	}
 	only := strings.TrimSpace(flagStr(args, "--project", ""))
 
-	found, err := readClaudeMem(path, only)
+	found, _, err := readClaudeMem(path, only, 0)
 	if err != nil {
 		return err
 	}
@@ -117,6 +119,8 @@ func runImport(args []string) error {
 type importCounts struct {
 	imported, present, refused, masked int
 	embedded                           bool
+	// through is the last claude-mem row an automatic import has read.
+	through int
 }
 
 // storeImported writes memories read from another tool, with the counts both
@@ -173,8 +177,33 @@ func runImportAuto() error {
 		logAuto(auto.Entry{Switch: auto.Import, Failed: untrusted.Inline(err.Error())})
 		return err
 	}
-	logAuto(auto.Entry{Switch: auto.Import, N: n.imported, Counts: []auto.Count{{Name: "present", N: n.present}, {Name: "refused", N: n.refused}}})
+	logAuto(auto.Entry{Switch: auto.Import, N: n.imported, Counts: []auto.Count{
+		{Name: "present", N: n.present}, {Name: "refused", N: n.refused}, {Name: "through", N: n.through}}})
 	return nil
+}
+
+// importedThrough is the last claude-mem row the last automatic import that
+// finished read, or 0. claude-mem changes nearly every session, and reading
+// its whole store each time re-offered every observation refused as nothing
+// but a key, so every resume repeated the same refusal. Kept in auto-log.md,
+// in the vault, so deleting the index does not start the store over.
+func importedThrough(vault string) (int, error) {
+	entries, err := auto.Entries(vault, "", time.Time{})
+	if err != nil {
+		return 0, err
+	}
+	through := 0
+	for _, e := range entries {
+		if e.Switch != auto.Import || e.Started || e.Failed != "" {
+			continue
+		}
+		for _, c := range e.Counts {
+			if c.Name == "through" {
+				through = c.N
+			}
+		}
+	}
+	return through, nil
 }
 
 func importAuto() (importCounts, error) {
@@ -204,24 +233,31 @@ func importAuto() (importCounts, error) {
 	if err := memory.Init(ix.DB); err != nil {
 		return c, err
 	}
-	found, err := readClaudeMem(claudemem.DBPath(), "")
+	after, err := importedThrough(ix.Vault)
 	if err != nil {
 		return c, err
 	}
+	found, through, err := readClaudeMem(claudemem.DBPath(), "", after)
+	if err != nil {
+		return c, err
+	}
+	c.through = max(after, through)
 	seen, err := memory.SeenTexts(ix.DB)
 	if err != nil {
 		return c, err
 	}
 	var fresh []*memory.Memory
 	for _, m := range found {
-		if seen[m.Text] {
+		// Compared as Store will write it: the timeline holds the masked
+		// text, and a forgotten import with a key in it is still forgotten.
+		if masked, _ := secret.Mask("memory", m.Text); seen[masked] {
 			c.present++
 			continue
 		}
 		fresh = append(fresh, m)
 	}
 	got, err := storeImported(ix.DB, fresh)
-	got.present += c.present
+	got.present, got.through = got.present+c.present, c.through
 	return got, err
 }
 
@@ -232,9 +268,12 @@ func importAuto() (importCounts, error) {
 // are asked for rather than assumed, because claude-mem adds them by migration
 // and an install that has not run the newest one is still an install someone
 // wants to leave.
-func readClaudeMem(path, only string) ([]*memory.Memory, error) {
+//
+// Only rows after the rowid after are read, and the last rowid read is
+// returned with them.
+func readClaudeMem(path, only string, after int) ([]*memory.Memory, int, error) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("no claude-mem store at %s (set CLAUDE_MEM_DATA_DIR or pass --db): %w", path, err)
+		return nil, 0, fmt.Errorf("no claude-mem store at %s (set CLAUDE_MEM_DATA_DIR or pass --db): %w", path, err)
 	}
 	// Escaped because in a URI `?` starts the query, `#` the fragment and `%`
 	// an escape: a store in a directory named with one passed the Stat above
@@ -243,26 +282,26 @@ func readClaudeMem(path, only string) ([]*memory.Memory, error) {
 	uriPath := strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
 	db, err := sql.Open("sqlite", "file:"+uriPath+"?mode=ro")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer db.Close()
 
 	cols := map[string]bool{}
 	rows, err := db.Query("SELECT name FROM pragma_table_info('observations')")
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+		return nil, 0, fmt.Errorf("reading %s: %w", path, err)
 	}
 	for rows.Next() {
 		var c string
 		if err := rows.Scan(&c); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, 0, err
 		}
 		cols[c] = true
 	}
 	rows.Close()
 	if !cols["project"] {
-		return nil, fmt.Errorf("%s has no observations table this importer can read — is it a claude-mem store?", path)
+		return nil, 0, fmt.Errorf("%s has no observations table this importer can read — is it a claude-mem store?", path)
 	}
 	col := func(name string) string {
 		if cols[name] {
@@ -274,20 +313,32 @@ func readClaudeMem(path, only string) ([]*memory.Memory, error) {
 	if cols["created_at_epoch"] {
 		order = "created_at_epoch, rowid"
 	}
-	q := fmt.Sprintf("SELECT project, %s, %s, %s, %s, %s FROM observations ORDER BY %s",
+	q := fmt.Sprintf("SELECT rowid, project, %s, %s, %s, %s, %s FROM observations WHERE rowid > ? ORDER BY %s",
 		col("merged_into_project"), col("title"), col("subtitle"), col("text"), col("narrative"), order)
-	rows, err = db.Query(q)
+	// A store whose rows end before the mark is a new store — claude-mem
+	// reinstalled, its ids starting over — and all of it is unread.
+	var last int
+	if err := db.QueryRow("SELECT COALESCE(MAX(rowid), 0) FROM observations").Scan(&last); err != nil {
+		return nil, 0, fmt.Errorf("reading observations from %s: %w", path, err)
+	}
+	if last < after {
+		after = 0
+	}
+	rows, err = db.Query(q, after)
 	if err != nil {
-		return nil, fmt.Errorf("reading observations from %s: %w", path, err)
+		return nil, 0, fmt.Errorf("reading observations from %s: %w", path, err)
 	}
 	defer rows.Close()
 
 	var out []*memory.Memory
+	through := 0
 	for rows.Next() {
+		var id int
 		var project, merged, title, subtitle, text, narrative string
-		if err := rows.Scan(&project, &merged, &title, &subtitle, &text, &narrative); err != nil {
-			return nil, err
+		if err := rows.Scan(&id, &project, &merged, &title, &subtitle, &text, &narrative); err != nil {
+			return nil, 0, err
 		}
+		through = max(through, id)
 		// claude-mem's own answer to "which project is this now" when two
 		// were merged; the original name would scatter one project into two.
 		if merged != "" {
@@ -308,7 +359,7 @@ func readClaudeMem(path, only string) ([]*memory.Memory, error) {
 			Source:     claudeMemSource,
 		})
 	}
-	return out, rows.Err()
+	return out, through, rows.Err()
 }
 
 // observationText is the one line a memory should be. The title is
