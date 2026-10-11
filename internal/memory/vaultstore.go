@@ -467,7 +467,7 @@ func Export(db *sql.DB, dir string) error {
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted
+		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -479,7 +479,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var m Memory
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted); err != nil {
+			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit); err != nil {
 			return err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
@@ -535,6 +535,7 @@ func renderKind(kind Kind, mems []Memory) string {
 		if m.AutoAccepted > 0 {
 			fmt.Fprintf(&b, " accepted=auto@%s", time.Unix(m.AutoAccepted, 0).UTC().Format(time.RFC3339))
 		}
+		b.WriteString(commitField(m.Commit))
 		b.WriteString(" -->\n")
 	}
 	return b.String()
@@ -763,10 +764,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	if m.ID > 0 {
 		res, err := db.Exec(
 			`UPDATE memories SET text=?, kind=?, salience=?, confidence=?, project=?,
-			 source=?, agent=?, created=?, last_used=?, uses=?, fingerprint=?, vec=COALESCE(?, vec), pin=?, auto_accepted=?
+			 source=?, agent=?, created=?, last_used=?, uses=?, fingerprint=?, vec=COALESCE(?, vec), pin=?, auto_accepted=?, commit_sha=?
 			 WHERE id = ?`,
 			m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, fingerprint(m.Text), vec, m.Pin, m.AutoAccepted, m.ID)
+			m.Agent, m.Created, m.LastUsed, m.Uses, fingerprint(m.Text), vec, m.Pin, m.AutoAccepted, m.Commit, m.ID)
 		if err != nil {
 			return 0, err
 		}
@@ -775,10 +776,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted)
+			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit)
 		// No event. Restoring a row the rebuild deleted is not a creation, and
 		// logging one stamped with time.Now() is how `logos memory log` came to
 		// report every fact you had ever learned as learned today. The real
@@ -801,10 +802,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	for range idAttempts {
 		id := nextID(db)
 		_, err := db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted)
+			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit)
 		if err == nil {
 			logEvent(db, id, EvCreated, m.Text, 0)
 			return id, nil
@@ -940,6 +941,12 @@ func applyMeta(m *Memory, meta string) {
 					m.AutoAccepted = t.Unix()
 				}
 			}
+		case "commit":
+			// Vault text, which anyone sharing the vault wrote, and later
+			// handed to git. Hex only; anything else is as if absent.
+			if isSha(value) {
+				m.Commit = value
+			}
 		case "pin":
 			// Tolerant of a hand-typed value out of range: a person editing the
 			// file might type anything, and refusing to import over it would
@@ -959,4 +966,27 @@ func applyMeta(m *Memory, meta string) {
 			}
 		}
 	}
+}
+
+// commitField is the vault line's commit= field, or nothing: a memory with no
+// recorded commit is written exactly as it was before the field existed.
+func commitField(commit string) string {
+	if !isSha(commit) {
+		return ""
+	}
+	return " commit=" + commit
+}
+
+// isSha is gitstate's rule for a recorded commit, applied where the vault is
+// read: the field is hand-editable and ends up as an argument to git.
+func isSha(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

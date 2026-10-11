@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -88,5 +89,35 @@ func TestARuledOutApproachWhoseFileChangedSinceIsFlaggedAtResume(t *testing.T) {
 	out = p.Render()
 	if !strings.Contains(out, "out of memory at 2GB — ⚠ recorded at "+anchor) {
 		t.Errorf("an earlier ruling about a rewritten file lost its flag:\n%s", out)
+	}
+}
+
+// A memory is handed over at resume too, and a decision about a file rewritten
+// since is the same trap as a ruling about one: kept, and said to have moved.
+// Pinned, so it is in the pack whatever the ranking makes of the task.
+func TestADecisionWhoseNamedFileChangedSinceIsFlaggedAtResume(t *testing.T) {
+	repo := gitRepo(t)
+	commitFile(t, repo, "internal/parse/reader.go", "load all\n")
+	_, anchor := gitstate.Head(repo)
+	ix := seedVault(t)
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	m := memory.Memory{Text: "Decided internal/parse/reader.go loads the whole file, exports are small", Kind: memory.Fact,
+		Source: "manual", Project: "api", Commit: anchor}
+	if _, err := memory.Store(ix.DB, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Pin(ix.DB, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, repo, "internal/parse/reader.go", "read in chunks\n")
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: repo, Now: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := p.Render(); !strings.Contains(out, "exports are small — ⚠ recorded at "+anchor+"; internal/parse/reader.go changed in 1 commit since") {
+		t.Errorf("a decision about a rewritten file is handed over as settled:\n%s", out)
 	}
 }

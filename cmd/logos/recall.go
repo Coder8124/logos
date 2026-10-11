@@ -46,6 +46,7 @@ func recallCmd(args []string) error {
 	r, err := ops.Recall(ix.DB, ops.RecallQuery{
 		Query: query, Limit: flagInt(args, "--limit", 5), Project: project,
 		Embed: embed, Model: model, Shell: "logos",
+		Dir: repoHere(project),
 	})
 	if err != nil {
 		return err

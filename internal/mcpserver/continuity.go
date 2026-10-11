@@ -93,6 +93,7 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 	if err != nil {
 		return "", err
 	}
+	procedure.MarkDrift(procHits, dir)
 
 	var b strings.Builder
 	b.WriteString(untrusted.Boundary)

@@ -188,6 +188,16 @@ func (s *Session) repoDir(project string) string {
 	return dir
 }
 
+// repoHere is repoDir, with no project meaning the one this session stands in:
+// a global memory written from a checkout is anchored to it too, since its
+// commit is only ever measured in the repository it came from.
+func (s *Session) repoHere(project string) string {
+	if project == "" {
+		project = s.resolveProject("")
+	}
+	return s.repoDir(project)
+}
+
 // scopeDir is the directory the scope is read from: the first root the client
 // advertised, and otherwise the working directory. The same order
 // sessionProject uses, so the project and the worktree can never be read from

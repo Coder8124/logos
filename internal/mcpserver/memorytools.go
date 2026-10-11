@@ -47,6 +47,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 			Turn:              s.citeTurn(),
 		},
 		Embed: s.embed, Model: s.embedModel,
+		Dir: s.repoHere(project),
 	})
 	if err != nil {
 		return "", false, err
@@ -131,6 +132,7 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 	r, err := ops.Recall(s.DB, ops.RecallQuery{
 		Query: query, Limit: k, Project: project,
 		Embed: s.embed, Model: s.embedModel, Shell: s.shell(),
+		Dir: s.repoHere(project),
 	})
 	if err != nil {
 		return "", err
@@ -234,6 +236,7 @@ func (s *Session) correct(idStr, text string) (string, bool, error) {
 		ID:     id,
 		Memory: memory.Memory{Text: text, Salience: 0.7, Source: "mcp", Agent: s.clientAgent, Turn: s.citeTurn()},
 		Embed:  s.embed, Model: s.embedModel,
+		DirFor: s.repoHere,
 	})
 	if err != nil {
 		return "", false, err

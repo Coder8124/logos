@@ -52,6 +52,9 @@ func Render(hits []Hit) string {
 		if h.Stale {
 			b.WriteString("  ⚠ possibly superseded — version-bound and old enough that the dependency it names may have moved since\n")
 		}
+		if h.Drift != nil {
+			fmt.Fprintf(&b, "  ⚠ %s\n", h.Drift.Note())
+		}
 	}
 
 	if anyElsewhere(hits) {

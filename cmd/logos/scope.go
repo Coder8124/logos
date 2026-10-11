@@ -79,6 +79,16 @@ func dirFor(project string) string {
 	return dir
 }
 
+// repoHere is dirFor, with no project meaning the one the user stands in: a
+// global memory written from a checkout is anchored to it too, since its
+// commit is only ever measured in the repository it came from.
+func repoHere(project string) string {
+	if project == "" {
+		return dirFor(projectHere())
+	}
+	return dirFor(project)
+}
+
 // projectArg reads the optional leading <project> positional shared by the
 // continuity verbs, falling back to the directory the user is standing in. A
 // leading flag is never the project: `logos checkpoint --task ...` used to file
