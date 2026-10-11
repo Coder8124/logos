@@ -100,9 +100,9 @@ CONTINUITY
     logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
                                       record one now, without waiting for a checkpoint
     logos insights [project]          patterns already in the vault: a recurring blocker, a dormant memory
-    logos usage [project] [--usd RATE]
-                                      what the budget left out of context packs, and
-                                      dead ends handed back before a retry
+    logos usage [project] [--week] [--usd RATE]
+                                      what the budget left out of context packs, dead
+                                      ends handed back, handoffs; --week: last 7 days
     logos usage off | on              stop or resume counting (LOGOS_USAGE=off for one process)
     logos why <file> [--limit N]      what was being decided when this file was touched
     logos projects | project <name>   auto-detected projects and their dossiers

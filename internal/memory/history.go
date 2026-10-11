@@ -289,3 +289,31 @@ func SeenTexts(db *sql.DB) (map[string]bool, error) {
 	}
 	return seen, rows.Err()
 }
+
+// AcceptedSince counts the review queue's accepts at or after since, a Unix
+// time, by a person and by the review switch apart: an accept nobody watched
+// is not the same evidence as one somebody read. project "" counts every scope.
+// Read from the log, which ImportLog rebuilds from memories/log.md, so the
+// count survives deleting the index.
+func AcceptedSince(db *sql.DB, since int64, project string) (byHand, auto int, err error) {
+	rows, err := db.Query(`SELECT event, COUNT(*) FROM memory_log
+		 WHERE ts >= ? AND event IN (?, ?) AND (? = '' OR project = ?) GROUP BY event`,
+		since, EvAccepted, EvAutoAccepted, project, project)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ev string
+		var n int
+		if err := rows.Scan(&ev, &n); err != nil {
+			return 0, 0, err
+		}
+		if ev == EvAutoAccepted {
+			auto = n
+		} else {
+			byHand = n
+		}
+	}
+	return byHand, auto, rows.Err()
+}

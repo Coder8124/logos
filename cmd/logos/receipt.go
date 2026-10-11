@@ -1,0 +1,218 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/Coder8124/logos/internal/activity"
+	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/gitstate"
+	usagepkg "github.com/Coder8124/logos/internal/usage"
+)
+
+// checkWindow is how far a dead-end check's ledger line may sit from the
+// activity row of the tool call that made it. The ledger is written while the
+// tool runs and the row after it returns, so seconds apart; a minute allows a
+// slow check without reaching the next one.
+const checkWindow = 60
+
+// avoidedReceipt is the session-end "may have avoided" receipt: the rulings
+// this session was handed — by its resume, or by a before_you_try or `logos
+// tried` it ran — that name a file, where the session then touched none of
+// the files they name. Each is recorded in the ledger once and returned for
+// the hook to say.
+//
+// It is mechanical on purpose. Logos cannot see whether an agent changed its
+// mind, only what it was shown and what it then edited, so the claim is
+// "may have avoided", and a ruling that names no file is never claimed:
+// staying away from nothing proves nothing.
+//
+// What the session was shown is found two ways, because the two paths know
+// different things. The SessionStart hook's resume is given the session id
+// (LOGOS_SESSION) and records it. An MCP server serves the whole session and
+// is never told its id, so its checks are matched to this session's own
+// activity rows for the same tool call, by time.
+func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event) ([]deadend.Ruling, error) {
+	if sessionID == "" || !usagepkg.Recording(vault) {
+		return nil, nil
+	}
+	ledger, _, err := usagepkg.Read(vault)
+	if err != nil {
+		return nil, err
+	}
+	shown := map[string]bool{}
+	already := map[string]bool{}
+	used := map[int]bool{}
+	for i, e := range ledger {
+		switch {
+		case e.Session != sessionID:
+		case e.Kind == usagepkg.KindAvoided:
+			// The session was resumed and ended again: what it was already
+			// credited with is not counted twice.
+			for _, r := range e.Refs {
+				already[r] = true
+			}
+		case e.Kind == usagepkg.KindPack:
+			used[i] = true
+			for _, r := range e.Refs {
+				shown[r] = true
+			}
+		}
+	}
+	touched := map[string]bool{}
+	for _, a := range events {
+		if a.Kind != activity.KindTool {
+			continue
+		}
+		if f := strings.TrimPrefix(a.Summary, a.Tool+" "); f != a.Summary && isWork(a.Tool) && a.Tool != "Bash" {
+			touched[filepath.ToSlash(f)] = true
+		}
+		via := checkVia(a)
+		if via == "" {
+			continue
+		}
+		best := -1
+		for i, e := range ledger {
+			if used[i] || e.Kind != usagepkg.KindDeadEnd || e.Via != via || e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
+				continue
+			}
+			if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
+				best = i
+			}
+		}
+		if best >= 0 {
+			used[best] = true
+			for _, r := range ledger[best].Refs {
+				shown[r] = true
+			}
+		}
+	}
+	if len(shown) == 0 {
+		return nil, nil
+	}
+
+	rulings, err := deadend.Collect(vault, db, "")
+	if err != nil {
+		return nil, err
+	}
+	var out []deadend.Ruling
+	var refs []string
+	seen := map[string]bool{}
+	for _, r := range rulings {
+		ref := usagepkg.Ref(r.Record.Raw)
+		if !shown[ref] || already[ref] || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		named := gitstate.NamedFiles(r.Record.Raw)
+		if len(named) == 0 || touchedAny(touched, named) {
+			continue
+		}
+		out = append(out, r)
+		refs = append(refs, ref)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	err = usagepkg.Record(vault, usagepkg.Event{
+		Kind: usagepkg.KindAvoided, Via: "hook:session-end", Project: project, Session: sessionID,
+		Rulings: len(out), Refs: refs,
+	})
+	return out, err
+}
+
+// checkVia is the ledger Via a tool call's dead-end check was recorded under,
+// or "" when the call was not one the receipt counts. `why` is left out: it
+// answers what was decided about a file someone came to look at, not whether
+// an approach they proposed was tried.
+func checkVia(a activity.Event) string {
+	switch {
+	case strings.HasSuffix(a.Tool, "__before_you_try"):
+		return "mcp:before_you_try"
+	case a.Tool == "Bash" && strings.Contains(a.Summary, "logos tried ") && !strings.Contains(a.Summary, "--ruled-out"):
+		return "cli:tried"
+	}
+	return ""
+}
+
+// touchedAny reports whether the session edited a file the ruling names. A
+// named path is repository-relative and an edit's is usually absolute, so a
+// path matches on its tail; a bare name on the file's own name.
+func touchedAny(touched map[string]bool, named []string) bool {
+	for f := range touched {
+		for _, n := range named {
+			if f == n || strings.HasSuffix(f, "/"+n) || (!strings.Contains(n, "/") && filepath.Base(f) == n) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// renderAvoided is the receipt as the SessionEnd hook relays it, one line a
+// ruling. The route is vault content, shown to the person, never obeyed.
+func renderAvoided(rs []deadend.Ruling) string {
+	var b strings.Builder
+	for _, r := range rs {
+		who := r.Agent
+		if who == "" {
+			who = "an earlier session"
+		}
+		fmt.Fprintf(&b, "may have avoided: %s (ruled out by %s, %s)\n",
+			terminalSafe(r.Text, 120), terminalSafe(who, 40), time.Unix(r.When, 0).Format("2 Jan 2006"))
+	}
+	return b.String()
+}
+
+// terminalSafe is s cut to n runes with control characters gone: the hook
+// prints it straight to the user's terminal, and an escape sequence in
+// someone's ruling would be obeyed by it.
+func terminalSafe(s string, n int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return ' '
+		}
+		return r
+	}, s)
+	if rs := []rune(s); len(rs) > n {
+		return string(rs[:n]) + "…"
+	}
+	return s
+}
+
+func abs64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// sessionReceipt is the receipt for the session whose SessionEnd payload is
+// raw, as the lines the hook relays. A receipt that could not be worked out
+// says so in a line of its own rather than vanishing: the checkpoint beside it
+// is the hook's real job and goes ahead either way.
+func sessionReceipt(vault, project string, raw []byte) string {
+	end, err := activity.FromHook("SessionEnd", raw, project)
+	if err != nil || end.Session == "" {
+		return ""
+	}
+	events, err := sessionEvents(vault, project, end.Session)
+	if err != nil {
+		return fmt.Sprintf("receipt not worked out: %v\n", err)
+	}
+	// The index only for rulings still in working notes; without it the
+	// checkpointed ones are found all the same.
+	var db *sql.DB
+	if ix, err := openIndexQuiet(); err == nil {
+		defer ix.Close()
+		db = ix.DB
+	}
+	rs, err := avoidedReceipt(vault, db, project, end.Session, events)
+	if err != nil {
+		return fmt.Sprintf("receipt not worked out: %v\n", err)
+	}
+	return renderAvoided(rs)
+}

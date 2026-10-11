@@ -64,11 +64,19 @@ func runNote(args []string) error {
 	//
 	// The checkpoint switch off leaves the plain note below, which is what this
 	// hook did before it wrote checkpoints.
-	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() && auto.On(vaultPath(), auto.Checkpoint) {
-		raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
-		if err != nil {
+	//
+	// The "may have avoided" receipt comes from the same payload and is said
+	// whatever the switch, after the line the hook sorts its outcome by.
+	var raw []byte
+	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() {
+		var err error
+		if raw, err = io.ReadAll(io.LimitReader(os.Stdin, 4<<20)); err != nil {
 			return err
 		}
+		receipt := sessionReceipt(vaultPath(), project, raw)
+		defer fmt.Print(receipt)
+	}
+	if raw != nil && auto.On(vaultPath(), auto.Checkpoint) {
 		c, err := autoCheckpoint(vaultPath(), project, raw)
 		// Logged as well as printed: this prints into a terminal that is
 		// closing, and the next resume is the first place anyone will read it.

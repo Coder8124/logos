@@ -69,7 +69,7 @@ func runTried(args []string) error {
 		if here == "" {
 			here = projectHere()
 		}
-		ledger(ix.Vault, usagepkg.Event{Kind: usagepkg.KindDeadEnd, Via: "cli:tried", Project: here, Rulings: len(hits)})
+		ledger(ix.Vault, usagepkg.Event{Kind: usagepkg.KindDeadEnd, Via: "cli:tried", Project: here, Rulings: len(hits), Refs: usagepkg.RulingRefs(hits)})
 	}
 	return nil
 }
