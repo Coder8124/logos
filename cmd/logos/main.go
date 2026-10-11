@@ -110,6 +110,10 @@ func main() {
 			err = doctorIntegration()
 			break
 		}
+		if hasFlag(args, "--egress") {
+			err = doctorEgress()
+			break
+		}
 		err = doctor(hasFlag(args, "--probe"), hasFlag(args, "--verbose"))
 	case cmd == "key":
 		err = keyCmd(args)

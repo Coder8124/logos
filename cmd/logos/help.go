@@ -51,9 +51,10 @@ GETTING THERE
                                       connect logos to the AI agents on this machine
     logos mcp serve | mcp install     serve the memory to MCP hosts; wire the ones found
     logos mcp uninstall [--host NAME] take logos back out of the hosts; the vault is left alone
-    logos doctor [--verbose] [--probe] [--integration] [--report]
+    logos doctor [--verbose] [--probe] [--integration] [--report] [--egress]
                                       health of vault, index, hosts; --integration proves reach
                                       --report prints a paste-able bundle for a bug report
+                                      --egress lists every address logos can contact
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
 
     LOGOS_VAULT points at the vault (default ~/logos)
@@ -172,8 +173,9 @@ SETUP AND DIAGNOSTICS
     logos mcp uninstall [--host NAME] remove logos from the MCP hosts found; never touches the vault
     logos migrate [--dry-run] [--yes] move a 0.4 vault from ~/brain to ~/logos, leaving a link behind,
                                       and re-pin the hosts that named the old path
-    logos doctor [--verbose] [--probe] [--integration] [--report]
-                                      health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it
+    logos doctor [--verbose] [--probe] [--integration] [--report] [--egress]
+                                      health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it;
+                                      --egress lists every address logos can contact
     logos key set|rm <ref>            manage API keys in the macOS keychain
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary
     logos version                     which build this is
