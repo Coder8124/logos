@@ -247,6 +247,21 @@ func checkpointsUnder(dir string) int {
 	return n
 }
 
+// checkpointsInVault counts every checkpoint under a vault's sessions
+// directory: loose files at its top, and each project's with its worktrees.
+// checkpointsUnder on the sessions directory itself stops a level short, at
+// sessions/<project>/*.md, and missed a vault whose only work was on a branch.
+func checkpointsInVault(sessions string) int {
+	n := worktreeCheckpoints(sessions)
+	entries, _ := os.ReadDir(sessions)
+	for _, e := range entries {
+		if e.IsDir() {
+			n += checkpointsUnder(filepath.Join(sessions, e.Name()))
+		}
+	}
+	return n
+}
+
 // worktreeCheckpoints counts the checkpoint files directly inside one
 // worktree's directory, and does not descend again.
 func worktreeCheckpoints(dir string) int {
