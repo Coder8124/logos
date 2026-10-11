@@ -179,3 +179,49 @@ func TestACorrectionThatMatchesAnotherMemoryOnlyFoldsIntoOneInTheSameProject(t *
 		}
 	}
 }
+
+// Excluding a memory was a judgement about that wording; the correction is new
+// wording, said by someone who wants it believed. Carrying the exclusion would
+// hide the correction from every recall while the CLI reports it stored.
+func TestACorrectionOfAnExcludedMemoryIsRecalled(t *testing.T) {
+	db, _ := vaultDB(t)
+	old := Memory{Text: "Staging runs on port 8080", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Exclude(db, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 9090", Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	mems, err := Recall(db, nil, "", "staging port", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recalled(mems, "Staging runs on port 9090") {
+		t.Error("the correction of an excluded memory is not recalled")
+	}
+
+	// The same when the corrected text is a memory the user had excluded.
+	hidden := Memory{Text: "Staging runs on port 7070", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &hidden); err != nil {
+		t.Fatal(err)
+	}
+	if err := Exclude(db, hidden.ID); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := All(db)
+	var current int64
+	for _, m := range all {
+		if m.Text == "Staging runs on port 9090" {
+			current = m.ID
+		}
+	}
+	if res, err := Correct(db, nil, "", current, &Memory{Text: "Staging runs on port 7070", Source: "manual"}); err != nil || !res.Existing {
+		t.Fatalf("correcting to an excluded memory's text returned %+v, %v", res, err)
+	}
+	if mems, _ = Recall(db, nil, "", "staging port", 5); !recalled(mems, "Staging runs on port 7070") {
+		t.Error("a correction folded into an excluded memory is not recalled")
+	}
+}

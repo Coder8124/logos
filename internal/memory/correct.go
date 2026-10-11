@@ -168,11 +168,22 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 // carryLocked is the half of Correct after the replacement exists: the pin,
 // then the old memory retired in its favour.
 func carryLocked(db *sql.DB, old, replacement int64, oldText string, pin, replacementPin int) error {
-	// The pin was the user's judgement about the fact, not the wording; dropping
-	// it would quietly take a standing instruction out of every context pack
-	// the moment it was fixed. A pin the replacement already has is its own.
-	if pin != PinNone && replacementPin == PinNone {
-		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, replacement); err != nil {
+	// An always-pin was the user's judgement about the fact, not the wording;
+	// dropping it would quietly take a standing instruction out of every
+	// context pack the moment it was fixed. An exclusion is the opposite: a
+	// judgement about the wording being replaced, and carried over it would
+	// hide the correction from recall while the caller reports it stored. A
+	// correction folded into an excluded memory says that text is true now, so
+	// it lifts the exclusion for the same reason.
+	want := replacementPin
+	switch {
+	case pin == PinAlways:
+		want = PinAlways
+	case replacementPin == PinNever:
+		want = PinNone
+	}
+	if want != replacementPin {
+		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", want, replacement); err != nil {
 			return err
 		}
 	}
