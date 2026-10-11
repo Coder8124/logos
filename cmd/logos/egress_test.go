@@ -60,6 +60,24 @@ func TestDoctorEgressNamesTheHostCLIsItRunsAndThatTheyMakeTheirOwnRequests(t *te
 	}
 }
 
+// doctor and setup are not the only commands that start a host's CLI: mcp
+// install and uninstall register and remove logos through it, and migrate
+// replaces the old entry. Each one starts Claude Code, which reaches its
+// vendor, so a list naming only doctor and setup still said "no others" falsely.
+func TestDoctorEgressNamesEveryCommandThatStartsAHostCLI(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	out := captureStdout(t, func() {
+		if err := doctorEgress(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, w := range []string{"logos doctor", "logos setup", "logos mcp install", "logos mcp uninstall", "logos migrate"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("doctor --egress does not name %q among the commands that start a host CLI:\n%s", w, out)
+		}
+	}
+}
+
 // A runtime on another machine is the one configured address that does leave
 // it, and the list says so rather than filing it with the localhost probes.
 func TestDoctorEgressFlagsAConfiguredRuntimeOnAnotherHost(t *testing.T) {

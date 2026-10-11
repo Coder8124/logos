@@ -33,8 +33,8 @@ out of the vault's git, and a month's entries are deleted 30 days after that
 month ends. Logos itself contacts your local model runtime and, only
 when you type `logos update`, GitHub for a new release. Two things it runs reach further
 on their own: once a day the session-start hook has Claude Code update the Logos plugin
-(`logos plugin autoupdate off` stops it), and `logos doctor` and `logos setup` run your
-agent hosts' CLIs, which make their own requests to their vendors. None of them carries
+(`logos plugin autoupdate off` stops it), and `logos doctor`, `logos setup` and the commands
+that register logos with a host run your agent hosts' CLIs, which make their own requests to their vendors. None of them carries
 anything from your vault. `logos doctor --egress` lists every address, and
 [SETUP](SETUP.md#checking-that-nothing-leaves) shows how to watch for yourself. A host wired
 to run Logos through `npx` is one more: npm itself asks the registry for the package on every start — the

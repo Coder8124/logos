@@ -735,7 +735,8 @@ near-perfect with a JSON schema enforced at the sampler.
 the model runtime (the localhost ports it probes, or `LOGOS_RUNTIME`, flagged
 when it names another machine), GitHub for `logos update`, the runtime's model
 download during `logos setup`, the daily plugin update Claude Code runs for
-it, and the agent hosts' own CLIs that `doctor` and `setup` start. It ends by
+it, and the agent hosts' own CLIs that `doctor`, `setup`, `mcp install`,
+`mcp uninstall` and `migrate` start. It ends by
 saying there are no others. The T3 cloud tier is listed with its state; no
 command in this version calls it.
 
