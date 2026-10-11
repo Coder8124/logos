@@ -69,11 +69,30 @@ func firstResume(vaultDir string, wired []string, opts wireOpts) {
 
 	fmt.Printf("\n  project    %s (%s)\n", project, root)
 	held := checkpointsUnder(filepath.Join(vaultDir, session.CheckpointDir, filepath.FromSlash(session.SafeScope(project))))
-	if held == 0 {
+	notes, err := session.Uncommitted(ix.DB, project)
+	if err != nil {
+		// Without the notes setup cannot tell whether an agent left work here,
+		// and a checkpoint saying none was recorded may be false.
+		fmt.Printf("  resume     could not read the working notes for %s: %v\n", project, err)
+		return
+	}
+	switch {
+	case held > 0:
+		// A setup line on top of real work would bury the handoff it is
+		// meant to demonstrate.
+		fmt.Printf("  checkpoint %d already here for %s — none written by setup\n", held, project)
+	case len(notes) > 0:
+		// An agent recorded notes here and never checkpointed. Setup's
+		// checkpoint would fold them in under a State saying no work has been
+		// recorded, so they are left for the next real checkpoint to claim;
+		// resume shows them meanwhile.
+		fmt.Printf("  notes      %d working %s already here for %s, not yet checkpointed — none written by setup\n",
+			len(notes), plural(len(notes), "note"), project)
+	default:
 		// Only into a vault with nothing in it: memories derived from history
 		// are recalled as if someone had asserted them, so they are offered
 		// where there is nothing else yet, and never on top of real work.
-		if n, err := memory.Count(ix.DB); err == nil && n == 0 && checkpointsUnder(filepath.Join(vaultDir, session.CheckpointDir)) == 0 {
+		if n, err := memory.Count(ix.DB); err == nil && n == 0 && checkpointsInVault(filepath.Join(vaultDir, session.CheckpointDir)) == 0 {
 			offerBootstrap(root, project, opts.yes)
 		}
 		if err := writeSetupCheckpoint(ix, project, wired); err != nil {
@@ -83,10 +102,6 @@ func firstResume(vaultDir string, wired []string, opts wireOpts) {
 			return
 		}
 		fmt.Println("  checkpoint written by setup — it says where Logos started recording this project")
-	} else {
-		// A setup line on top of real work would bury the handoff it is
-		// meant to demonstrate.
-		fmt.Printf("  checkpoint %d already here for %s — none written by setup\n", held, project)
 	}
 
 	pack, err := contextpack.Build(ix, nil, "", contextpack.Request{
@@ -117,11 +132,13 @@ func firstResume(vaultDir string, wired []string, opts wireOpts) {
 // to resumeExcerptLines. The pack opens with a title and notes on framing and
 // filtering; an excerpt taken from the top spent its lines on those and was
 // cut off before it said what the last agent was doing — the one part setup
-// is there to show. Without the heading, it is the top of the pack.
+// is there to show. Notes no checkpoint has claimed are that part when there
+// is no checkpoint, so their heading starts the excerpt too. Without either,
+// it is the top of the pack.
 func handoffExcerpt(lines []string) []string {
 	start := 0
 	for i, l := range lines {
-		if strings.HasPrefix(l, "## Where we left off") {
+		if strings.HasPrefix(l, "## Where we left off") || strings.HasPrefix(l, "## Recorded since, not yet checkpointed") {
 			start = i
 			break
 		}
