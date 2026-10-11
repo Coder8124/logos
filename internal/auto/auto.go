@@ -42,6 +42,7 @@ const (
 	Dream         Switch = "dream"
 	Index         Switch = "index"
 	Review        Switch = "review"
+	Import        Switch = "import"
 )
 
 type spec struct {
@@ -67,6 +68,9 @@ var specs = []spec{
 	// when on, by design: a contested proposal is never accepted for the user,
 	// and under the default an agent's proposal queues only when it is
 	// contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
+	// Off until asked: an import writes another tool's summaries into memory,
+	// and the first `logos import` asked before writing any.
+	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", false},
 	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", false},
 }
 

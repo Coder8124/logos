@@ -1,19 +1,20 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/claudemem"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // claudeMemSource labels every imported memory, so `logos memory forget
@@ -34,11 +35,14 @@ const claudeMemConfidence = 0.6
 func runImport(args []string) error {
 	from := strings.TrimSpace(flagStr(args, "--from", ""))
 	if from != claudeMemSource {
-		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]")
+		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)")
+	}
+	if hasFlag(args, "--auto") {
+		return runImportAuto()
 	}
 	path := flagStr(args, "--db", "")
 	if path == "" {
-		path = claudeMemDBPath()
+		path = claudemem.DBPath()
 	}
 	only := strings.TrimSpace(flagStr(args, "--project", ""))
 
@@ -91,6 +95,34 @@ func runImport(args []string) error {
 	if err := memory.Init(ix.DB); err != nil {
 		return err
 	}
+	// Each write rewrites the kind's file, so a large store takes a while;
+	// said up front so a quiet minute does not read as a hang.
+	fmt.Printf("Writing %d memories…\n", len(found))
+	c, err := storeImported(ix.DB, found)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\nImported %d, skipped %d (already present), refused %d (nothing but a secret).\n", c.imported, c.present, c.refused)
+	if c.masked > 0 {
+		fmt.Printf("%d had a secret-shaped token masked before it was written.\n", c.masked)
+	}
+	if !c.embedded {
+		fmt.Println("No embedding model, so these were matched by exact text; a later import with one will merge near-duplicates.")
+	}
+	fmt.Printf("To undo all of it: logos memory forget --source %s\n", claudeMemSource)
+	return nil
+}
+
+type importCounts struct {
+	imported, present, refused, masked int
+	embedded                           bool
+}
+
+// storeImported writes memories read from another tool, with the counts both
+// the hand-run import and the import switch report.
+func storeImported(db *sql.DB, found []*memory.Memory) (importCounts, error) {
+	var c importCounts
 	// An embedding lets a re-worded fact merge with what is already known;
 	// without a runtime, or under LOGOS_EMBED=off as `logos memory add` honours
 	// it, the import still runs and dedups by exact text.
@@ -103,69 +135,94 @@ func runImport(args []string) error {
 			}
 		}
 	}
-
-	// Each write rewrites the kind's file, so a large store takes a while;
-	// said up front so a quiet minute does not read as a hang.
-	fmt.Printf("Writing %d memories…\n", len(found))
-	var imported, present, refused, masked int
+	c.embedded = embed != nil
 	for _, m := range found {
-		r, err := memory.Store(ix.DB, embed, model, m)
+		r, err := memory.Store(db, embed, model, m)
 		if errors.Is(err, memory.ErrOnlySecret) {
-			refused++
+			c.refused++
 			continue
 		}
 		if err != nil {
 			// Stopping here, not skipping: whatever failed will fail the next
 			// write the same way, and the counts so far are what the user needs
 			// to know how much landed.
-			return fmt.Errorf("imported %d, then storing %q failed: %w", imported, truncate(m.Text, 60), err)
+			return c, fmt.Errorf("imported %d, then storing %q failed: %w", c.imported, truncate(m.Text, 60), err)
 		}
 		if len(r.Redactions) > 0 {
-			masked++
+			c.masked++
 		}
 		if r.Created() || r.Queued() {
-			imported++
+			c.imported++
 		} else {
-			present++
+			c.present++
 		}
 	}
+	return c, nil
+}
 
-	fmt.Printf("\nImported %d, skipped %d (already present), refused %d (nothing but a secret).\n", imported, present, refused)
-	if masked > 0 {
-		fmt.Printf("%d had a secret-shaped token masked before it was written.\n", masked)
+// runImportAuto is the import the import switch launches at session start, in
+// a process of its own with nobody to answer a yes: turning the switch on was
+// the yes. What it did goes to auto-log.md, which the next resume reads out.
+//
+// Only what Logos has never recorded is offered to Store. Store's own dedup
+// would skip what is still in memory, but not what the user forgot: a forgotten
+// import coming back every time claude-mem writes would overrule them.
+func runImportAuto() error {
+	n, err := importAuto()
+	if err != nil {
+		logAuto(auto.Entry{Switch: auto.Import, Failed: untrusted.Inline(err.Error())})
+		return err
 	}
-	if embed == nil {
-		fmt.Println("No embedding model, so these were matched by exact text; a later import with one will merge near-duplicates.")
-	}
-	fmt.Printf("To undo all of it: logos memory forget --source %s\n", claudeMemSource)
+	logAuto(auto.Entry{Switch: auto.Import, N: n.imported, Counts: []auto.Count{{Name: "present", N: n.present}, {Name: "refused", N: n.refused}}})
 	return nil
 }
 
-// claudeMemDBPath is where claude-mem keeps its store, resolved the way
-// claude-mem resolves it (src/shared/paths.ts): CLAUDE_MEM_DATA_DIR, then the
-// same key in ~/.claude-mem/settings.json (flat, or under "env"), then
-// ~/.claude-mem. Missing a relocated store would report an install as empty.
-func claudeMemDBPath() string {
-	home, _ := os.UserHomeDir()
-	dir := os.Getenv("CLAUDE_MEM_DATA_DIR")
-	if dir == "" {
-		dir = filepath.Join(home, ".claude-mem")
-		var doc map[string]any
-		if raw, err := os.ReadFile(filepath.Join(dir, "settings.json")); err == nil && json.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &doc) == nil {
-			if env, ok := doc["env"].(map[string]any); ok {
-				doc = env
-			}
-			if d, ok := doc["CLAUDE_MEM_DATA_DIR"].(string); ok && d != "" {
-				dir = d
-			}
+func importAuto() (importCounts, error) {
+	var c importCounts
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return c, err
+	}
+	defer ix.Close()
+	if !auto.On(ix.Vault, auto.Import) {
+		return c, nil
+	}
+	// What Logos has already seen, and so what a forgotten import is, is read
+	// from the index. An index that was deleted would let every memory the user
+	// had forgotten back in, so it is rebuilt from the vault first — this is a
+	// background process, with no command waiting on it.
+	synced, err := ix.Synced()
+	if err != nil {
+		return c, err
+	}
+	if !synced {
+		if err := indexPass(ix, io.Discard, nil, ""); err != nil {
+			return c, fmt.Errorf("the index had to be rebuilt to tell what was already imported, and the rebuild failed, so nothing was imported: %w", err)
 		}
+		logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, N: 1})
 	}
-	if dir == "~" {
-		dir = home
-	} else if strings.HasPrefix(dir, "~/") {
-		dir = filepath.Join(home, dir[2:])
+	if err := memory.Init(ix.DB); err != nil {
+		return c, err
 	}
-	return filepath.Join(dir, "claude-mem.db")
+	found, err := readClaudeMem(claudemem.DBPath(), "")
+	if err != nil {
+		return c, err
+	}
+	seen, err := memory.SeenTexts(ix.DB)
+	if err != nil {
+		return c, err
+	}
+	var fresh []*memory.Memory
+	for _, m := range found {
+		if seen[m.Text] {
+			c.present++
+			continue
+		}
+		fresh = append(fresh, m)
+	}
+	got, err := storeImported(ix.DB, fresh)
+	got.present += c.present
+	return got, err
 }
 
 // readClaudeMem turns claude-mem observations into memories, unstored.

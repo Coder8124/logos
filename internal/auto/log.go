@@ -240,6 +240,10 @@ func Summary(entries []Entry) string {
 	for _, s := range order {
 		if s == Dream {
 			parts = append(parts, dreamDid(counts[s], skipped[s]))
+		} else if s == Import {
+			if w := importDid(count[s], counts[s]); w != "" {
+				parts = append(parts, w)
+			}
 		} else if count[s] > 0 {
 			parts = append(parts, did(s, count[s]))
 		}
@@ -281,6 +285,30 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// importDid words the import switch's runs: what it brought in, and what it
+// refused, which is the number a user would otherwise never see. A run that
+// found only what Logos already had says nothing — claude-mem changes every
+// session it runs, and "imported 0" every resume is noise.
+func importDid(n int, cs []Count) string {
+	var refused int
+	for _, c := range cs {
+		if c.Name == "refused" {
+			refused += c.N
+		}
+	}
+	out := ""
+	if n > 0 {
+		out = fmt.Sprintf("imported %d memor%s from claude-mem", n, map[bool]string{true: "y", false: "ies"}[n == 1])
+	}
+	if refused > 0 {
+		if out == "" {
+			out = "import"
+		}
+		out += fmt.Sprintf(" (refused %d: nothing but a secret)", refused)
+	}
+	return out
 }
 
 // dreamWords is how each of dream's counts reads in a sentence.

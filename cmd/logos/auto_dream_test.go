@@ -17,7 +17,7 @@ func fakeNight(t *testing.T, res dream.Result) *int {
 	t.Helper()
 	launched := 0
 	oldLaunch, oldRun := auto.Launch, dreamRun
-	auto.Launch = func(string) error { launched++; return nil }
+	auto.Launch = func(string, ...string) error { launched++; return nil }
 	dreamRun = func(*sql.DB, string, *router.Router, time.Time, string, bool) (dream.Result, error) {
 		return res, nil
 	}

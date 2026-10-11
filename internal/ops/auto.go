@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/claudemem"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -33,7 +34,7 @@ func AutoReport(vault, project string) Outcome {
 	if err != nil {
 		o.fail(fmt.Sprintf("could not read %s: %v", auto.LogFile, err))
 	} else {
-		o.say(auto.Summary(lastDreamAnd(entries, since)))
+		o.say(auto.Summary(latestRunsAnd(entries, since)))
 	}
 	c, err := auto.Load(vault)
 	if err != nil {
@@ -84,22 +85,25 @@ func earlier(a, b time.Time) time.Time {
 	return b
 }
 
-// lastDreamAnd keeps the entries since the checkpoint, and of dream's only the
-// latest run, whenever it was. A dream finishes minutes after the resume that
-// launched it and before the agent's own checkpoint, so "since the checkpoint"
-// would never show one; and only the latest, so resume reports last night and
-// not the week.
-func lastDreamAnd(entries []auto.Entry, since time.Time) []auto.Entry {
-	from := -1
+// background is the switches whose run outlives the resume that launched it.
+var background = map[auto.Switch]bool{auto.Dream: true, auto.Import: true}
+
+// latestRunsAnd keeps the entries since the checkpoint, and of each background
+// switch's only its latest run, whenever it was. A dream or an import finishes
+// after the resume that launched it and before the agent's own checkpoint, so
+// "since the checkpoint" would never show one; and only the latest, so resume
+// reports the last run and not the week.
+func latestRunsAnd(entries []auto.Entry, since time.Time) []auto.Entry {
+	from := map[auto.Switch]int{}
 	for i, e := range entries {
-		if e.Switch == auto.Dream && (e.Started || from < 0) {
-			from = i
+		if _, ok := from[e.Switch]; background[e.Switch] && (e.Started || !ok) {
+			from[e.Switch] = i
 		}
 	}
 	var out []auto.Entry
 	for i, e := range entries {
-		if e.Switch == auto.Dream {
-			if i >= from {
+		if background[e.Switch] {
+			if i >= from[e.Switch] {
 				out = append(out, e)
 			}
 		} else if !e.At.Before(since) {
@@ -120,6 +124,16 @@ func AutoLead(vault, project string) string {
 		o.fail(fmt.Sprintf("auto: the day's dream was not started: %v", err))
 	case started:
 		o.say("auto: dream started in the background; the next resume says what it did")
+	}
+	// Asked only when the switch is on, so a user who never turned it on never
+	// has claude-mem's directory looked at.
+	if auto.On(vault, auto.Import) {
+		switch started, err := auto.StartImport(vault, claudemem.Changed(claudemem.DBPath()), time.Now()); {
+		case err != nil:
+			o.fail(fmt.Sprintf("auto: claude-mem was not re-imported: %v", err))
+		case started:
+			o.say("auto: claude-mem changed; importing what is new in the background, and the next resume says what came in")
+		}
 	}
 	text := strings.TrimLeft(o.Text(), "\n")
 	if text == "" {
