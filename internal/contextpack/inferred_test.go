@@ -113,3 +113,23 @@ func TestTheDistilSwitchOffDropsTheOfferToReadTheTranscript(t *testing.T) {
 		t.Errorf("the auto record itself went with the offer:\n%s", out)
 	}
 }
+
+// An auto record's task is the person's first request, quoted, where an
+// agent's checkpoint states its own task. Under the same "They were doing" it
+// read as the agent's summary of the session, which nobody wrote.
+func TestAnAutoRecordsTaskIsShownAsTheRequestItQuotes(t *testing.T) {
+	ix := seedVault(t)
+	autoRecordFor(t, ix.Vault)
+
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if !strings.Contains(out, "**They asked for** (their first request, quoted): keep going on the bom") {
+		t.Errorf("the auto record's task is not labelled as the quoted request:\n%s", out)
+	}
+	if strings.Contains(out, "**They were doing:**") {
+		t.Errorf("the auto record's task reads as an agent's own:\n%s", out)
+	}
+}

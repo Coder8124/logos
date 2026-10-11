@@ -191,7 +191,13 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// valuable section in the pack, and the whole reason checkpoints exist. So
 	// the irreplaceable tiers are charged first and State spends what is left.
 	var head, tail strings.Builder
-	if c.Task != "" {
+	switch {
+	case c.Task == "":
+	case c.Auto:
+		// An auto record's task is the person's first request, quoted, not an
+		// agent's account of the session; under "They were doing" it read as one.
+		fmt.Fprintf(&head, "**They asked for** (their first request, quoted): %s\n\n", inline(c.Task))
+	default:
 		fmt.Fprintf(&head, "**They were doing:** %s\n\n", inline(c.Task))
 	}
 	if why, from := p.Intent, p.IntentFrom; why != "" {
