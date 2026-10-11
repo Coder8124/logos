@@ -59,7 +59,8 @@ var specs = []spec{
 	// installed Logos before this switch agreed to that.
 	{Dream, "run logos dream in the background once a day, at session start", false},
 	// Off until asked: before the switch a missing index was said, not
-	// rebuilt, and a rebuild on a large vault can outlast a hook's timeout.
+	// rebuilt. A hook never rebuilds (LOGOS_HOOK), since a large vault can
+	// outlast its timeout, so `auto on` turning this on costs no hook its work.
 	{Index, "rebuild a missing index from the vault, text only, before the command that found it", false},
 }
 
