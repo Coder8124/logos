@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,14 +32,14 @@ func runAuto(args []string) error {
 	switch {
 	case verb == "on":
 		if len(args) > 1 {
-			return fmt.Errorf(autoUsage)
+			return errors.New(autoUsage)
 		}
 		if err := auto.SetMaster(vault, true); err != nil {
 			return err
 		}
 	case verb == "off":
 		if len(args) > 1 {
-			return fmt.Errorf(autoUsage)
+			return errors.New(autoUsage)
 		}
 		if err := auto.SetMaster(vault, false); err != nil {
 			return err
@@ -58,13 +59,13 @@ func runAuto(args []string) error {
 	case verb == "config" && len(args) == 3:
 		on, ok := map[string]bool{"on": true, "off": false}[strings.ToLower(args[2])]
 		if !ok {
-			return fmt.Errorf(autoUsage)
+			return errors.New(autoUsage)
 		}
 		if err := auto.Set(vault, args[1], on); err != nil {
 			return err
 		}
 	default:
-		return fmt.Errorf(autoUsage)
+		return errors.New(autoUsage)
 	}
 	// Every form ends with the state it left, including a change: a command
 	// whose job is to change what runs unattended has to say what now does.
