@@ -321,7 +321,9 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	msg := s.receipt("noted in logos — uncommitted until you checkpoint")
+	// The project, not the product: "noted in logos" read as a misfiling on any
+	// project not called logos.
+	msg := s.receipt("noted under " + project + " — uncommitted until you checkpoint")
 	if said := secret.Summary(n.Redactions); said != "" {
 		msg += " " + said + "."
 	}
