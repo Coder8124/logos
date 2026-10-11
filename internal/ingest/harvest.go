@@ -31,6 +31,7 @@ func Harvest(s *transcript.Session) Candidate {
 		Ended:     s.Ended,
 		TurnCount: len(s.Turns),
 		Skipped:   s.Skipped,
+		Private:   s.Private,
 	}
 
 	seenCmd := map[string]bool{}

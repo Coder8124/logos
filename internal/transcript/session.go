@@ -23,6 +23,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/Coder8124/logos/internal/secret"
 )
 
 // Session is one agent session, normalised across harnesses.
@@ -44,6 +46,12 @@ type Session struct {
 	// than failing the whole session on. Surfaced, never swallowed (invariant
 	// 3): a session with Skipped > 0 is reported as partially read.
 	Skipped int
+
+	// Private counts the <private> spans kept out of the turns. Each one is
+	// replaced by secret.PrivateMarker when the file is read, so nothing
+	// downstream — the auto record, harvest, the evidence served to a
+	// distilling agent — ever holds the text.
+	Private int
 }
 
 // Turn is one exchange in a session, in wall-clock order.
@@ -153,7 +161,24 @@ func ReadFile(harness, path string) (*Session, error) {
 	if !ok {
 		return nil, &SkipReason{Harness: harness, Why: "unknown harness"}
 	}
-	return r.read(path)
+	s, err := r.read(path)
+	if err != nil {
+		return nil, err
+	}
+	keepPrivateOut(s)
+	return s, nil
+}
+
+// keepPrivateOut replaces every <private> span in a session's turns. It runs
+// on the way out of every reader rather than in each one, so a reader added
+// later cannot forget it.
+func keepPrivateOut(s *Session) {
+	for i := range s.Turns {
+		var a, b []secret.Redaction
+		s.Turns[i].Text, a = secret.StripPrivate("", s.Turns[i].Text)
+		s.Turns[i].Input, b = secret.StripPrivate("", s.Turns[i].Input)
+		s.Private += len(a) + len(b)
+	}
 }
 
 // SkipReason is the "named and skipped, not silently dropped" error (invariant

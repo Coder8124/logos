@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/text"
 )
 
@@ -79,7 +80,13 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	// command still reaches the summary, so it is masked the way ingest masks a
 	// transcript: an `export API_KEY=…` typed in a session must not land in the
 	// vault in the clear.
-	e.Summary = ingest.Redact(summarize(kind, e.Tool, p))
+	summary, kept := summarize(kind, e.Tool, p)
+	e.Summary = ingest.Redact(summary)
+	// The person marked the span and only this line can tell them it was
+	// honoured: a "[private]" alone reads as something Logos lost.
+	if kept > 0 {
+		e.Summary += " — " + secret.Summary(secret.KeptPrivate("", kept))
+	}
 	return e, nil
 }
 
@@ -88,29 +95,36 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 // It is per-tool because the useful half of a tool call is in a different field
 // each time — a path for an edit, a command for a shell, a pattern for a search
 // — and "Edit {...}" tells a reader nothing they could not have guessed.
-func summarize(kind, tool string, p map[string]any) string {
+//
+// <private> spans go before the line is cut, and are counted: one closed past
+// the cut would otherwise leave no trace of having been there.
+func summarize(kind, tool string, p map[string]any) (string, int) {
+	cut := func(s string) (string, int) {
+		s, kept := secret.StripPrivate("", s)
+		return oneLine(s, 160), len(kept)
+	}
 	switch kind {
 	case KindPrompt:
-		return oneLine(str(p, "prompt"), 160)
+		return cut(str(p, "prompt"))
 	case KindNotice:
-		return oneLine(str(p, "message"), 160)
+		return cut(str(p, "message"))
 	case KindStart:
 		if s := str(p, "source"); s != "" {
-			return "session started (" + s + ")"
+			return "session started (" + s + ")", 0
 		}
-		return "session started"
+		return "session started", 0
 	case KindEnd:
 		if r := str(p, "reason"); r != "" {
-			return "session ended (" + r + ")"
+			return "session ended (" + r + ")", 0
 		}
-		return "session ended"
+		return "session ended", 0
 	case KindTurnEnd:
-		return "turn ended"
+		return "turn ended", 0
 	case KindTool:
 		in, _ := p["tool_input"].(map[string]any)
-		return oneLine(toolDetail(tool, in), 160)
+		return cut(toolDetail(tool, in))
 	}
-	return ""
+	return "", 0
 }
 
 func toolDetail(tool string, in map[string]any) string {

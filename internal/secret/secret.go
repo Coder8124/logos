@@ -55,14 +55,27 @@ func Summary(found []Redaction) string {
 		return ""
 	}
 	var where []string
+	private, secrets := 0, 0
 	seen := map[Redaction]bool{}
 	for _, r := range found {
+		if r.Reason == privateReason {
+			private++
+			continue
+		}
+		secrets++
 		if !seen[r] {
 			seen[r] = true
 			where = append(where, r.Field+": "+r.Reason)
 		}
 	}
-	return fmt.Sprintf("%d secret-shaped token(s) redacted before writing (%s)", len(found), strings.Join(where, "; "))
+	var said []string
+	if private > 0 {
+		said = append(said, fmt.Sprintf("Kept out %d <private> span(s)", private))
+	}
+	if secrets > 0 {
+		said = append(said, fmt.Sprintf("%d secret-shaped token(s) redacted before writing (%s)", secrets, strings.Join(where, "; ")))
+	}
+	return strings.Join(said, "; ")
 }
 
 // authHeaderLine matches a whole "Authorization: ..." line in a transcript — the header value
@@ -166,7 +179,7 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 	if s == "" {
 		return s, nil
 	}
-	var found []Redaction
+	s, found := StripPrivate(field, s)
 	s = replaceCounting(privateKeyBlock, s, Marker, field, "private key", &found, nil)
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
