@@ -141,7 +141,13 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				if t.Role == "tool" && t.Status == "ok" && isShellTool(t.Tool) {
 					sawSuccess = true
 				}
-				sawPerson = sawPerson || t.Role == "user"
+				// A user-role turn can still be the host's: AGENTS.md, a system
+				// reminder, a continuation summary. Request is the rule that
+				// already tells those from what the person asked.
+				if t.Role == "user" {
+					_, asked := Request(t.Text)
+					sawPerson = sawPerson || asked
+				}
 			}
 			if !ok {
 				drops = append(drops, Drop{field, claim, strings.Join(bad, "; ")})
