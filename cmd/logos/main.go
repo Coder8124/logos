@@ -328,7 +328,28 @@ func missingVaultError(v string) error {
 		"or point LOGOS_VAULT at an existing vault", v)
 }
 
+// openIndex opens the vault's index for a command that reads it. An index no
+// Sync has finished on is said on stderr (stdout may be JSON): a deleted index
+// otherwise answers "nothing matches" and "no memories" with full confidence,
+// which reads as a vault that lost everything rather than a cache to rebuild.
 func openIndex() (*index.Index, error) {
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return nil, err
+	}
+	switch synced, err := ix.Synced(); {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "logos: could not tell whether the index was ever built: %v\n", err)
+	case !synced:
+		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
+			"answers from an empty one — `logos index` builds it from the vault")
+	}
+	return ix, nil
+}
+
+// openIndexQuiet is openIndex for the command that builds the index, which
+// would otherwise open by telling the user to run itself.
+func openIndexQuiet() (*index.Index, error) {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return nil, missingVaultError(v)

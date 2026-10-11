@@ -12,7 +12,7 @@ import (
 )
 
 func runIndex(watch bool) error {
-	ix, err := openIndex()
+	ix, err := openIndexQuiet()
 	if err != nil {
 		return err
 	}

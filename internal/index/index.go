@@ -317,6 +317,17 @@ func dropDeadAmbientTables(db *sql.DB) {
 		total, strings.Join(existing, ", "))
 }
 
+// Synced is whether a Sync has ever finished on this index. Not whether the
+// file exists: Open creates it, so a deleted index reads as present from the
+// first command after the deletion on, empty and answering as if the vault were.
+func (ix *Index) Synced() (bool, error) {
+	var n int
+	if err := ix.DB.QueryRow("SELECT COUNT(*) FROM meta WHERE key = 'last_sync'").Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (ix *Index) Close() error {
 	// Drop the vault binding with the handle, so a long-lived process that opens
 	// and closes many vaults does not accumulate them.
