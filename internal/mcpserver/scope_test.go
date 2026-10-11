@@ -167,7 +167,7 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
 	t.Setenv("LOGOS_PROJECT", "alpha")
-	if _, err := s.remember("the alpha frame is aluminium", "fact", "", false); err != nil {
+	if _, _, err := s.remember("the alpha frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,7 +198,7 @@ func TestGlobalMemoriesReachEveryProject(t *testing.T) {
 	srv := &Server{DB: db, vault: t.TempDir()}
 	s := &Session{Server: srv}
 	t.Setenv("LOGOS_PROJECT", "alpha")
-	if _, err := s.remember("the user prefers short replies", "preference", "", true); err != nil {
+	if _, _, err := s.remember("the user prefers short replies", "preference", "", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -356,7 +356,7 @@ func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
 	a := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-a")}}
 	b := &Session{Server: &Server{DB: db, vault: vault}, roots: []string{linkedTree(t, repo, "feature-b")}}
 
-	if _, err := a.remember("the frame is aluminium", "fact", "", false); err != nil {
+	if _, _, err := a.remember("the frame is aluminium", "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.checkpoint(map[string]any{

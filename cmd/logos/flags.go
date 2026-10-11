@@ -89,6 +89,7 @@ var commandFlags = map[string]flagSpec{
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
+	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects"}},
 	"usage":    {valued: []string{"--usd"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",

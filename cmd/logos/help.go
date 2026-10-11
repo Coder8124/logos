@@ -138,6 +138,8 @@ MEMORY
 RETRIEVAL
     logos search <query…>             retrieve only, no generation
     logos ask <question…>             retrieve and answer from the vault
+    logos recall <query…> [--project NAME] [--all-projects] [--limit N]
+                                      the memories an agent's recall gets, and the review queue
     logos index [--watch]             sync vault into the cache and embed
     logos replay [--peek]             catch up on what changed since you were last here
     logos reflect                     descriptive stats over your memory (composition, growth, what it leans on)
