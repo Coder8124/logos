@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/untrusted"
 	vaultpkg "github.com/Coder8124/logos/internal/vault"
 )
 
@@ -139,20 +140,29 @@ func parseEntry(line string) (Entry, bool) {
 	if err != nil || sw == "" {
 		return e, false
 	}
+	// The log is vault text, and what it says opens resume above the frame that
+	// marks the rest as data (invariant 6). A switch Logos does not have is a
+	// line Logos never wrote, and the free text is made one line again here,
+	// not only by Record: bufio splits on \n alone, so a \r or U+2028 edited
+	// into a line would otherwise reach resume as a line break of its own.
+	if _, ok := known(Switch(sw)); !ok {
+		return e, false
+	}
 	e.At, e.Switch = t, Switch(sw)
 	if p, ok := strings.CutPrefix(rest, "project="); ok {
 		e.Project, rest, _ = strings.Cut(p, " ")
+		e.Project = oneWord(e.Project)
 	}
 	if rest == "started" {
 		e.Started = true
 		return e, true
 	}
 	if msg, ok := strings.CutPrefix(rest, "failed: "); ok {
-		e.Failed = msg
+		e.Failed = untrusted.Inline(msg)
 		return e, true
 	}
 	if i := strings.Index(" "+rest, " skipped: "); i >= 0 {
-		e.Skipped = (" " + rest)[i+len(" skipped: "):]
+		e.Skipped = untrusted.Inline((" " + rest)[i+len(" skipped: "):])
 		rest = strings.TrimSpace(rest[:max(i-1, 0)])
 	}
 	if rest == "" {
