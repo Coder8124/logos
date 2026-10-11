@@ -21,16 +21,13 @@ const autoLookback = 7 * 24 * time.Hour
 func AutoReport(vault, project string) Outcome {
 	var o Outcome
 	since := time.Now().Add(-autoLookback)
-	history, err := session.History(vault, project, 0)
+	last, err := lastAgentCheckpoint(vault, project)
 	if err != nil {
 		o.fail(fmt.Sprintf("could not read %s's checkpoints to say what auto did: %v", project, err))
 		return o
 	}
-	for _, c := range history {
-		if !c.Auto {
-			since = time.Unix(c.TS, 0)
-			break
-		}
+	if last > 0 {
+		since = time.Unix(last, 0)
 	}
 	entries, err := auto.Entries(vault, project, earlier(since, time.Now().Add(-2*auto.DreamEvery)))
 	if err != nil {
@@ -46,6 +43,38 @@ func AutoReport(vault, project string) Outcome {
 		o.say(fmt.Sprintf("%s: %s", auto.File, p))
 	}
 	return o
+}
+
+// lastAgentCheckpoint is when an agent last checkpointed the project, in its
+// own folder or a worktree's under it, or 0. The worktrees too: an agent in a
+// linked worktree checkpoints to sessions/<project>/<worktree>/, and reading
+// the project's folder alone ran the report from an older checkpoint and
+// repeated what that agent's session had already been told.
+func lastAgentCheckpoint(vault, project string) (int64, error) {
+	scopes := []string{project}
+	all, err := session.Scopes(vault)
+	if err != nil {
+		return 0, err
+	}
+	for _, s := range all {
+		if strings.HasPrefix(s, session.SafeScope(project)+"/") {
+			scopes = append(scopes, s)
+		}
+	}
+	var last int64
+	for _, scope := range scopes {
+		history, err := session.History(vault, scope, 0)
+		if err != nil {
+			return 0, err
+		}
+		for _, c := range history {
+			if !c.Auto {
+				last = max(last, c.TS)
+				break
+			}
+		}
+	}
+	return last, nil
 }
 
 func earlier(a, b time.Time) time.Time {
