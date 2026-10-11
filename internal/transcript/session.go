@@ -48,7 +48,7 @@ type Session struct {
 
 // Turn is one exchange in a session, in wall-clock order.
 type Turn struct {
-	Role   string // "user" | "assistant" | "tool"
+	Role   string // "user" | "assistant" | "tool" | "host" (text the host wrote into the user's turn, where it says so)
 	Text   string
 	Tool   string // tool name, when Role == "tool"
 	Status string // "ok" | "error", when known
