@@ -110,8 +110,10 @@ func printAutoFixed(w io.Writer) {
 // logAuto records what auto did out of sight. A log that cannot be written is
 // said on stderr: the action itself happened and was reported where it ran,
 // but the next resume will not repeat it, and that is worth knowing.
-func logAuto(e auto.Entry) {
-	if err := auto.Record(vaultPath(), e); err != nil {
+func logAuto(e auto.Entry) { logAutoIn(vaultPath(), e) }
+
+func logAutoIn(vault string, e auto.Entry) {
+	if err := auto.Record(vault, e); err != nil {
 		fmt.Fprintf(os.Stderr, "logos: could not write %s, so the next resume will not mention this: %v\n", auto.LogFile, err)
 	}
 }

@@ -40,6 +40,7 @@ const (
 	Distil        Switch = "distil"
 	RulingsAtEdit Switch = "rulings-at-edit"
 	Dream         Switch = "dream"
+	Index         Switch = "index"
 )
 
 type spec struct {
@@ -57,6 +58,9 @@ var specs = []spec{
 	// Off until asked: a dream spends a local model's time, and nobody who
 	// installed Logos before this switch agreed to that.
 	{Dream, "run logos dream in the background once a day, at session start", false},
+	// Off until asked: before the switch a missing index was said, not
+	// rebuilt, and a rebuild on a large vault can outlast a hook's timeout.
+	{Index, "rebuild a missing index from the vault, text only, before the command that found it", false},
 }
 
 // Switches lists every switch, in the order status prints them.

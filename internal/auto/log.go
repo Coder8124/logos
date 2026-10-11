@@ -188,6 +188,11 @@ func did(s Switch, n int) string {
 	switch s {
 	case Checkpoint:
 		return fmt.Sprintf("checkpointed %d session%s", n, plural(n))
+	case Index:
+		if n == 1 {
+			return "rebuilt the missing index"
+		}
+		return fmt.Sprintf("rebuilt the missing index %d times", n)
 	}
 	return fmt.Sprintf("%s ran %d time%s", s, n, plural(n))
 }
