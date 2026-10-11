@@ -24,6 +24,8 @@ func TestACommandAgainstAVaultThatIsNotThereSaysSoAndCreatesNothing(t *testing.T
 		{"think", func(string) error { return runThink("") }},
 		{"plans", func(string) error { return runPlans([]string{"someproject"}) }},
 		{"activity", func(string) error { return runActivity(nil) }},
+		{"auto", func(string) error { return runAuto(nil) }},
+		{"auto config", func(string) error { return runAuto([]string{"config", "checkpoint", "off"}) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "not-a-vault")

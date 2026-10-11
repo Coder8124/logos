@@ -166,6 +166,8 @@ func main() {
 		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
+	case cmd == "auto":
+		err = runAuto(args)
 	case cmd == "project-name":
 		err = runProjectName(args)
 	case cmd == "hook":

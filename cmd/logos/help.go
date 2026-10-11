@@ -127,6 +127,8 @@ MEMORY
     logos activity --projects         which projects are being recorded
     logos activity [off|on]           stop or resume recording it, for this vault
     logos announce [on|quiet|off]     how loudly Logos reports its own work
+    logos auto [on|off|status]        what Logos does on its own, as one switch
+    logos auto config [<switch> on|off]   choose which of it; auto.md in the vault holds the answer
     logos prompt                      the instructions agents are given (LOGOSPROMPT.md)
     logos demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     logos memory diff [subject] [--since D] [--until D] [--days N]   what changed, instant & offline

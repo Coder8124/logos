@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -381,5 +383,37 @@ func TestAnNpxInstallOnWindowsLaunchesNpxThroughCmd(t *testing.T) {
 	}
 	if bin, _, note := probeTarget("/self", srv); bin != "/self" || note == "" {
 		t.Errorf("the cmd launcher was probed as written (%q) instead of as this binary", bin)
+	}
+}
+
+// The plan's promise for `logos auto` is that what runs unattended can be seen
+// in one place, and print-config is where a user setting up a host looks. On
+// stderr, so the block on stdout still pastes.
+func TestPrintConfigShowsTheAutoSwitchesBesideTheBlock(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", cfg)
+	vaultDir := t.TempDir()
+	if err := auto.Set(vaultDir, "checkpoint", false); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	captureStdout(t, func() {
+		if err := setupCmd([]string{"--print-config", "--vault", vaultDir}); err != nil {
+			t.Error(err)
+		}
+	})
+	os.Stderr = saved
+	w.Close()
+	stderr, _ := io.ReadAll(r)
+
+	if !strings.Contains(string(stderr), "checkpoint") || !strings.Contains(string(stderr), "set by hand") {
+		t.Errorf("print-config did not show the auto switches:\n%s", stderr)
 	}
 }

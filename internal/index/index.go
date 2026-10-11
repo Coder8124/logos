@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
@@ -372,6 +373,12 @@ func (ix *Index) Sync() (SyncReport, error) {
 		// the user, not a document to search. Indexing it would make accepting
 		// an insight edit a note nobody wrote. dream.Import reconciles it.
 		if path == dream.InsightsPath(ix.Vault) {
+			return nil
+		}
+		// auto.md is the switches written down: indexed, "checkpoint: off"
+		// would come back from a search as something the user wrote about
+		// their work. internal/auto reads it straight off disk.
+		if path == auto.Path(ix.Vault) {
 			return nil
 		}
 		// Symlinks are skipped rather than followed. A link in the vault

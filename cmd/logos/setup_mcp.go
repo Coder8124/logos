@@ -169,6 +169,11 @@ func printConfigCmd(args []string) error {
 		return err
 	}
 	fmt.Print(out)
+	// The switches go to stderr: stdout is a block to paste into a host's
+	// config, and a line of anything else in it breaks the paste. Their read
+	// failure is printed with them and does not fail the block.
+	fmt.Fprintln(os.Stderr)
+	printAutoSwitches(os.Stderr, vault)
 	return nil
 }
 
