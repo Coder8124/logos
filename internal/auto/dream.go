@@ -14,18 +14,18 @@ import (
 // launched again by every session start until somebody notices.
 const DreamEvery = 24 * time.Hour
 
-// Launch starts `logos dream --auto` for a vault as a process of its own. A
-// var so tests run the dream in-process instead of spawning the test binary.
-var Launch = launchDream
+// Launch starts a logos command for a vault as a process of its own. A var so
+// tests run the work in-process instead of spawning the test binary.
+var Launch = launch
 
-func launchDream(vault string) error {
+func launch(vault string, args ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "dream", "--auto")
+	cmd := exec.Command(exe, args...)
 	// Pinned to the vault that launched it: the child inherits no cwd-derived
-	// guess, and a dream into another vault would be logged in neither.
+	// guess, and a run into another vault would be logged in neither.
 	cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault)
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
@@ -62,7 +62,7 @@ func StartDream(vault string, now time.Time) (bool, error) {
 	if err := Record(vault, Entry{At: now, Switch: Dream, Started: true}); err != nil {
 		return false, fmt.Errorf("could not record the dream in %s, so it was not started: %w", LogFile, err)
 	}
-	if err := Launch(vault); err != nil {
+	if err := Launch(vault, "dream", "--auto"); err != nil {
 		Record(vault, Entry{At: now, Switch: Dream, Failed: "could not start: " + err.Error()})
 		return false, err
 	}

@@ -264,3 +264,25 @@ func itoa(n int) string {
 	}
 	return string(b[i:])
 }
+
+// SeenTexts is every text the timeline records a memory being stored or
+// proposed with — what Logos has met before, whatever became of it since. The
+// import switch skips these, so a memory the user forgot or rejected is not
+// brought back by the next import. The timeline is restored from log.md, so
+// this survives deleting the index.
+func SeenTexts(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT DISTINCT detail FROM memory_log WHERE event IN (?, ?)`, EvCreated, EvQuarantined)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		seen[t] = true
+	}
+	return seen, rows.Err()
+}
