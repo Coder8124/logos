@@ -208,7 +208,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// Above the session log, and charged with the fixed tier: evidence that a
 	// long standup log can evict is evidence the next agent regenerates by hand.
 	safeToContinue(&head, c, p.Reader)
-	inferredFromTranscript(&head, c)
+	inferredFromTranscript(&head, c, !p.NoDistilOffer)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift)
@@ -333,7 +333,7 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 //
 // The offer is a line, not the evidence: the transcript costs tokens, and only
 // the agent in front of the task knows whether that session bears on it.
-func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
+func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint, offer bool) {
 	if !c.Auto {
 		return
 	}
@@ -350,6 +350,9 @@ func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint) {
 	}
 	// Offered only where harvest will serve it: a record that never counted
 	// its transcript's turns cannot say which are its own.
+	if !offer {
+		return
+	}
 	if _, _, ok := ingest.AutoTranscript(*c); !ok || c.Slug == "" || c.Turns == 0 {
 		return
 	}

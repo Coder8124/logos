@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
@@ -87,5 +88,27 @@ func TestResumeSweepsTheFoldersOwnProjectBeforeFallingBackToAnother(t *testing.T
 	}
 	if strings.Contains(out, "resuming kestrel") || !strings.Contains(out, "fix the checkout crash") {
 		t.Errorf("resume fell back to another project over the one it had just recorded:\n%s", out)
+	}
+}
+
+// The sweep writes checkpoints nobody asked for, so it answers to the same
+// switch as the session-end checkpoint.
+func TestTheCheckpointSwitchOffStopsTheResumeSweep(t *testing.T) {
+	sweepable(t, "shop")
+	srv := &Server{DB: testDB(t), vault: t.TempDir()}
+	if err := auto.Set(srv.vault, "checkpoint", false); err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{Server: srv}
+
+	out, err := s.resume("shop", "cursor", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Recorded 1 earlier session") {
+		t.Errorf("resume swept with the checkpoint switch off:\n%s", out)
+	}
+	if c, _ := session.Latest(srv.vault, "shop"); c != nil {
+		t.Errorf("the sweep wrote a checkpoint with the switch off: %+v", c)
 	}
 }

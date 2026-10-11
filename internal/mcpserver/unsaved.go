@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -37,7 +38,7 @@ var newestSession = func(harness string) (*transcript.Session, error) {
 // Every failure here is reported on stderr and none of them is fatal: the host
 // is already gone, and a shutdown that fails loudly is still a shutdown.
 func (s *Session) recordUnsaved() {
-	if s.vault == "" || s.unavailable != nil {
+	if s.vault == "" || s.unavailable != nil || !auto.On(s.vault, auto.Checkpoint) {
 		return
 	}
 	harness := s.clientAgent
@@ -73,9 +74,19 @@ func (s *Session) recordUnsaved() {
 		return
 	}
 	c, grew, err := ingest.AutoCheckpoint(s.vault, ts, project)
+	// Logged as well as said on stderr: the host has gone, and the next
+	// resume is the first place anybody reads either line.
+	proj, _ := s.resolveContinuity(ts.Project)
+	logged := auto.Entry{Switch: auto.Checkpoint, Project: proj}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logos: could not record this session: %v\n", err)
+		logged.Failed = err.Error()
+		s.logAuto(logged)
 		return
+	}
+	if c != nil && !grew {
+		logged.N = 1
+		s.logAuto(logged)
 	}
 	if c != nil && grew {
 		fmt.Fprintf(os.Stderr, "logos: this session went on after a resume recorded it — brought %s.md up to date from %s's transcript, unverified\n", c.Slug, harness)
@@ -106,3 +117,10 @@ func ranDuring(ts *transcript.Session, serverStart int64) bool {
 // openSessionSlack allows for a host that starts its session a moment before it
 // launches the MCP server it is configured with.
 const openSessionSlack = 300
+
+// logAuto records what auto did with nobody watching, for the next resume.
+func (s *Session) logAuto(e auto.Entry) {
+	if err := auto.Record(s.vault, e); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: could not write %s, so the next resume will not mention this: %v\n", auto.LogFile, err)
+	}
+}

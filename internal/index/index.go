@@ -377,8 +377,9 @@ func (ix *Index) Sync() (SyncReport, error) {
 		}
 		// auto.md is the switches written down: indexed, "checkpoint: off"
 		// would come back from a search as something the user wrote about
-		// their work. internal/auto reads it straight off disk.
-		if path == auto.Path(ix.Vault) {
+		// their work. internal/auto reads it straight off disk. Its log the
+		// same: a line of Logos's bookkeeping is not one of the user's notes.
+		if path == auto.Path(ix.Vault) || path == auto.LogPath(ix.Vault) {
 			return nil
 		}
 		// Symlinks are skipped rather than followed. A link in the vault

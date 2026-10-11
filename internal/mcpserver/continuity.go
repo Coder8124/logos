@@ -8,10 +8,12 @@ import (
 
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/announce"
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -218,7 +220,8 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	// was wrong below rather than handed another project's work.
 	guess := s.inferredProject()
 	swept, sweptFor := "", ""
-	if strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
+	sweep := auto.On(s.vault, auto.Checkpoint)
+	if sweep && strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
 		// The folder's own project is swept before it is judged unknown. One
 		// with no checkpoint yet is the one whose killed sessions are recorded
 		// nowhere else, and falling back first swept the other project instead:
@@ -255,7 +258,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	}
 	// Before the pack, so a session whose host was killed before the shutdown
 	// path could record it is in the handoff it is missing from (#134).
-	if project != sweptFor {
+	if sweep && project != sweptFor {
 		swept += ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
@@ -277,7 +280,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 			}
 		}
 	}
-	out := chose + swept + s.lead(pack) + pack.Render()
+	out := chose + swept + ops.AutoLead(s.vault, project) + s.lead(pack) + pack.Render()
 	out += s.ledgerPack("mcp:resume", project, pack)
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and
