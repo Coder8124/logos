@@ -66,25 +66,43 @@ func (p *failingProxy) env(t *testing.T, vault string, extra ...string) []string
 		env = append(env, kv)
 	}
 	env = append(env, "LOGOS_VAULT="+vault, "LOGOS_AGENT=chaos", "HOME="+t.TempDir(),
-		"PATH="+pathWithoutHostCLIs(), "LOGOS_TEST_NO_BUNDLED_CLIS=1",
+		"PATH="+pathWithoutHostCLIs(t), "LOGOS_TEST_NO_BUNDLED_CLIS=1",
 		"HTTP_PROXY="+p.srv.URL, "HTTPS_PROXY="+p.srv.URL)
 	return append(env, extra...)
 }
 
-// pathWithoutHostCLIs is PATH less every directory holding an agent host's
-// CLI. git stays reachable: on macOS and Linux it lives in /usr/bin.
-func pathWithoutHostCLIs() string {
+var hostCLIs = map[string]bool{"claude": true, "codex": true, "opencode": true, "gemini": true, "cursor-agent": true}
+
+// pathWithoutHostCLIs is PATH with every agent host's CLI taken off it, and
+// nothing else. Dropping a whole directory that holds one would drop what sits
+// beside it too — git and the core tools, when a CLI is installed in /usr/bin —
+// and the test would fail for reasons that have nothing to do with egress. So
+// such a directory is swapped for one of links to everything else in it.
+func pathWithoutHostCLIs(t *testing.T) string {
 	var keep []string
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			keep = append(keep, dir)
+			continue
+		}
 		host := false
-		for _, cli := range []string{"claude", "codex", "opencode", "gemini", "cursor-agent"} {
-			if _, err := os.Stat(filepath.Join(dir, cli)); err == nil {
-				host = true
-			}
+		for _, e := range entries {
+			host = host || hostCLIs[e.Name()]
 		}
 		if !host {
 			keep = append(keep, dir)
+			continue
 		}
+		links := t.TempDir()
+		for _, e := range entries {
+			if !hostCLIs[e.Name()] {
+				if err := os.Symlink(filepath.Join(dir, e.Name()), filepath.Join(links, e.Name())); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		keep = append(keep, links)
 	}
 	return strings.Join(keep, string(filepath.ListSeparator))
 }
