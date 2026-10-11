@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	vaultpkg "github.com/Coder8124/logos/internal/vault"
@@ -24,14 +25,27 @@ func launch(vault string, args ...string) error {
 		return err
 	}
 	cmd := exec.Command(exe, args...)
-	// Pinned to the vault that launched it: the child inherits no cwd-derived
-	// guess, and a run into another vault would be logged in neither.
-	cmd.Env = append(os.Environ(), "LOGOS_VAULT="+vault)
+	cmd.Env = childEnv(os.Environ(), vault)
 	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// childEnv is the launching process's environment for a run of its own.
+// Pinned to the vault that launched it: the child inherits no cwd-derived
+// guess, and a run into another vault would be logged in neither. And not a
+// hook, though a hook launched it: LOGOS_HOOK keeps a hook from rebuilding a
+// missing index inside its timeout, and the child has none.
+func childEnv(environ []string, vault string) []string {
+	var env []string
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "LOGOS_HOOK=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "LOGOS_VAULT="+vault)
 }
 
 // StartDream launches the day's dream when the switch is on and none has
