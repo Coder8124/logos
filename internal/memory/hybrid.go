@@ -38,11 +38,13 @@ func Fuse(query string, qVec []float32, cands []Candidate) []float64 {
 	// Only a candidate with a vector takes part in the vector arm. A missing
 	// vector would score cosine 0 and still collect a rank reward, so a
 	// vectorless memory — or every memory, when the query itself could not be
-	// embedded — would be ranked by the arbitrary order of equal zeros.
+	// embedded — would be ranked by the arbitrary order of equal zeros. A
+	// vector of another length came from a model the user has since switched
+	// away from, and is missing in the same way.
 	var vec []sc
 	if len(qVec) > 0 {
 		for i, c := range cands {
-			if len(c.Vec) > 0 {
+			if len(c.Vec) == len(qVec) {
 				vec = append(vec, sc{i, cosine(qVec, c.Vec)})
 			}
 		}
@@ -136,7 +138,9 @@ func Evidence(query string, qVec []float32, cands []Candidate) []bool {
 	best := math.Inf(-1)
 	for i, c := range cands {
 		cos[i] = math.Inf(-1)
-		if len(qVec) > 0 && len(c.Vec) > 0 {
+		// Another model's vector is no vector: cosine scores the mismatch 0,
+		// which would read as a vector that disagrees with the match.
+		if len(qVec) > 0 && len(c.Vec) == len(qVec) {
 			cos[i] = cosine(qVec, c.Vec)
 			best = math.Max(best, cos[i])
 		}

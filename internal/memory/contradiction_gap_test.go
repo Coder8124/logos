@@ -149,3 +149,25 @@ func TestAClaimDeniedOrSwappedIsStillReadAsAReversal(t *testing.T) {
 		}
 	}
 }
+
+// A memory embedded by the model the user switched away from has a vector of
+// another length, which cosine scores 0 — below DedupThreshold, so the guard
+// skipped the row before its lexical arm could see it, and a fact naming a
+// different port went active beside the old one (#256).
+func TestAFactContradictingAMemoryEmbeddedByAnotherModelWaitsForTheUser(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "staging runs on port 8080", Fact, 0.5, []float32{0, 1, 0, 0})
+	var first int64
+	db.QueryRow(`SELECT id FROM memories`).Scan(&first)
+
+	r, err := Store(db, embedRuntime(t, false), "m", &Memory{
+		Text: "staging runs on port 9090", Kind: Fact, Source: "mcp", ReviewIfContested: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Queued() || r.Contested != first {
+		t.Errorf("a different port must wait for review against #%d, got %q contested #%d",
+			first, r.Outcome, r.Contested)
+	}
+}

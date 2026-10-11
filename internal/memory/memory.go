@@ -609,9 +609,13 @@ func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, b
 		if rows.Scan(&id, &candidate, &vec) != nil {
 			continue
 		}
+		// Another model's vector is no vector: cosine scores the length
+		// mismatch 0, below DedupThreshold, which would skip the row before the
+		// lexical arm could see it (#256).
+		hasVec := len(query) > 0 && len(vec) == 4*len(query)
 		if textmatch.Reverses(text, candidate) {
 			sim := -1.0
-			if query != nil && len(vec) > 0 {
+			if hasVec {
 				sim = cosine(query, blobToFloats(vec))
 			}
 			if sim > revSim {
@@ -625,7 +629,7 @@ func contestedMemory(db *sql.DB, query []float32, text string) (int64, string, b
 		if !textmatch.DifferingFactValues(text, candidate) {
 			continue
 		}
-		if query != nil && len(vec) > 0 {
+		if hasVec {
 			if sim := cosine(query, blobToFloats(vec)); sim >= best {
 				best, bestID, bestText = sim, id, candidate
 			}
