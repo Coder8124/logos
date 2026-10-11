@@ -26,6 +26,10 @@ func repo(t *testing.T) string {
 	run(t, dir, "config", "user.email", "ada@example.com")
 	run(t, dir, "config", "user.name", "Ada Lovelace")
 	run(t, dir, "config", "commit.gpgsign", "false")
+	// Every commit starts a detached `git maintenance run --auto`, which can
+	// still be writing in .git when the test ends; TempDir's cleanup then fails
+	// with "directory not empty" on a test that passed.
+	run(t, dir, "config", "maintenance.auto", "false")
 	return dir
 }
 
