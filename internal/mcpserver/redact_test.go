@@ -22,7 +22,7 @@ func TestEveryWriteToolSaysWhenItMaskedACredential(t *testing.T) {
 
 	receipts := map[string]string{}
 	var err error
-	if receipts["remember"], err = s.remember("CI reads GITHUB_TOKEN="+key, "fact", "", false); err != nil {
+	if receipts["remember"], _, err = s.remember("CI reads GITHUB_TOKEN="+key, "fact", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if receipts["note_progress"], err = s.noteProgress("kestrel", "claude", "pushed with "+key); err != nil {

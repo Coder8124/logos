@@ -705,12 +705,13 @@ func (s *Session) readResourceCall(req request) *response {
 func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	switch name {
 	case "remember":
-		out, err := s.remember(argStr(args, "text"), argStr(args, "kind"),
+		out, stored, err := s.remember(argStr(args, "text"), argStr(args, "kind"),
 			argStr(args, "project"), argBool(args, "global", false))
 		// A fact written down is work happening here, and it counts towards the
-		// unsaved-work line the same way a note does. Only on success: a
-		// refused memory recorded nothing.
-		if err == nil {
+		// unsaved-work line the same way a note does. Only when a memory exists:
+		// a refused one recorded nothing, but one the vault refused after the
+		// cache took it did, and is the one a checkpoint most needs to cover.
+		if stored {
 			s.recordedWork(s.resolveScope(argStr(args, "project")))
 		}
 		return out, err
