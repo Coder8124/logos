@@ -167,6 +167,12 @@ func (ix *Index) SyncMemories(p *provider.Provider, embedModel string) (imported
 	return memory.Import(ix.DB, p, embedModel, ix.Vault)
 }
 
+// SyncMemoryEdits is SyncMemories, also saying which memories a hand edit to
+// the files made or removed — see memory.Edits.
+func (ix *Index) SyncMemoryEdits(p *provider.Provider, embedModel string) (imported, rescued int, e memory.Edits, err error) {
+	return memory.ImportEdits(ix.DB, p, embedModel, ix.Vault)
+}
+
 // SyncNotes restores working notes the vault holds and the index does not.
 //
 // The third half of the same guarantee. Checkpoints were always safe because

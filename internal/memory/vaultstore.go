@@ -395,7 +395,7 @@ func reconcileLocked(db *sql.DB, kind Kind) error {
 
 	keep := map[int64]bool{}
 	for _, m := range parseKind(kind, string(raw)) {
-		id, err := upsert(db, nil, "", m)
+		id, _, err := upsert(db, nil, "", m)
 		if err != nil {
 			return err
 		}
@@ -582,6 +582,26 @@ func oneLine(s string) string {
 // Vectors are not stored in the file; anything without one is re-embedded here,
 // which is the same work `logos index` already does for notes.
 func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported, rescued int, err error) {
+	return importInto(db, p, embedModel, dir, &Edits{})
+}
+
+// Edits is what an import changed because of a hand edit: lines with no id
+// comment that became memories, and memories whose line is gone. Said by
+// `logos index`, because the two together are what a line retyped without its
+// comment does — the old memory is forgotten with its project, confidence and
+// pin, and a bare one takes its place — and the summary line counts neither.
+type Edits struct {
+	Added, Forgotten []int64
+}
+
+// ImportEdits is Import, also saying which memories a hand edit made or
+// removed. A memory restored under its own id after a wipe is neither.
+func ImportEdits(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported, rescued int, e Edits, err error) {
+	imported, rescued, err = importInto(db, p, embedModel, dir, &e)
+	return imported, rescued, e, err
+}
+
+func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits *Edits) (imported, rescued int, err error) {
 	if err := Init(db); err != nil {
 		return 0, 0, err
 	}
@@ -635,9 +655,12 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 		}
 
 		for _, m := range parsed {
-			id, err := upsert(db, p, embedModel, m)
+			id, created, err := upsert(db, p, embedModel, m)
 			if err != nil {
 				return imported, rescued, err
+			}
+			if created {
+				edits.Added = append(edits.Added, id)
 			}
 			keep[id] = true
 			imported++
@@ -733,6 +756,7 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 		if _, err := forgetRow(db, id); err != nil {
 			return imported, rescued, err
 		}
+		edits.Forgotten = append(edits.Forgotten, id)
 	}
 
 	// The rescue itself, after the reaping, so the file this writes reflects
@@ -753,7 +777,9 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 
 // upsert writes one parsed memory back, preserving its id so that references in
 // memory_log, and anything the user has cited, keep pointing at the same fact.
-func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int64, error) {
+// created says the line had no id and became a new memory, which `logos index`
+// announces: it is also what a line retyped without its comment turns into.
+func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id int64, created bool, err error) {
 	var vec []byte
 	if p != nil {
 		if vecs, err := p.Embed(embedModel, []string{m.Text}); err == nil && len(vecs) == 1 {
@@ -769,10 +795,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 			m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
 			m.Agent, m.Created, m.LastUsed, m.Uses, fingerprint(m.Text), vec, m.Pin, m.AutoAccepted, m.Commit, m.ID)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
-			return m.ID, nil
+			return m.ID, false, nil
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
 		_, err = db.Exec(
@@ -785,7 +811,25 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		// report every fact you had ever learned as learned today. The real
 		// beginning is either already in memories/log.md or synthesised from the
 		// memory's own `created` by backfillCreations — both of them honest dates.
-		return m.ID, err
+		return m.ID, false, err
+	}
+
+	// No id in the comment, but this text is already a memory: the same bare
+	// line, read again. Import adopts a typed line without writing its comment
+	// back, so every later pass sees it like this, and inserting it a second
+	// time hit the unique fingerprint — failing every `logos index`, and every
+	// store through its reconcile, until something rewrote the file.
+	var owner int64
+	var superseded, quarantined int
+	if db.QueryRow("SELECT id, superseded, quarantined FROM memories WHERE fingerprint = ?",
+		fingerprint(m.Text)).Scan(&owner, &superseded, &quarantined) == nil {
+		switch {
+		case quarantined == 1:
+			return 0, false, fmt.Errorf("memories/%s.md has a line with no id comment whose text is memory #%d, which is awaiting review — accept it with `logos review`, or delete the line", m.Kind, owner)
+		case superseded == 1:
+			return 0, false, fmt.Errorf("memories/%s.md has a line with no id comment whose text is memory #%d, which was superseded — reword the line, or delete it", m.Kind, owner)
+		}
+		return owner, false, nil
 	}
 
 	// No id in the comment: a line somebody typed by hand. Give it one — a fresh
@@ -808,15 +852,15 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit)
 		if err == nil {
 			logEvent(db, id, EvCreated, m.Text, 0)
-			return id, nil
+			return id, true, nil
 		}
 		lastErr = err
 		// Anything but a taken id is a real failure and must not be retried.
 		if !strings.Contains(err.Error(), "UNIQUE constraint failed: memories.id") {
-			return 0, err
+			return 0, false, err
 		}
 	}
-	return 0, lastErr
+	return 0, false, lastErr
 }
 
 // parseKind reads back what renderKind wrote.

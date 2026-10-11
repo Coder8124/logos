@@ -486,3 +486,32 @@ func TestRebindingToAnotherVaultDoesNotTrustTheFirstVaultsStamps(t *testing.T) {
 		t.Errorf("the second vault's own line was deleted by a write trusting the first vault's stamp:\n%s", got)
 	}
 }
+
+// A line typed by hand has no id comment, and Import adopts it without writing
+// one back, so every later pass reads the same bare line. Each used to insert
+// it again, and the unique fingerprint refused the second — failing every
+// `logos index`, and every store through its reconcile, from then on.
+func TestALineTypedByHandSurvivesEveryLaterImportAndStore(t *testing.T) {
+	db, dir := vaultDB(t)
+	path := filepath.Join(dir, Dir, "fact.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\ntype: memory-store\nkind: fact\n---\n\n- Typed by hand in Obsidian\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range 2 {
+		if _, _, err := Import(db, nil, "", dir); err != nil {
+			t.Fatalf("import %d: %v", i+1, err)
+		}
+	}
+	m := Memory{Text: "Stored after the hand-typed line", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatalf("store after a hand-typed line: %v", err)
+	}
+	all, _ := All(db)
+	if len(all) != 2 {
+		t.Errorf("want the typed line and the stored memory, got %+v", all)
+	}
+}
