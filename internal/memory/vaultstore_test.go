@@ -2,6 +2,7 @@ package memory
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -513,5 +514,95 @@ func TestALineTypedByHandSurvivesEveryLaterImportAndStore(t *testing.T) {
 	all, _ := All(db)
 	if len(all) != 2 {
 		t.Errorf("want the typed line and the stored memory, got %+v", all)
+	}
+}
+
+// The person typed, into the active file, the text of a memory still waiting
+// for review. That line cannot become a second memory — the text is taken —
+// and it used to fail every store's reconcile until somebody edited the file,
+// so one stray line stopped every agent remembering anything.
+func TestALineRepeatingAPendingMemoryDoesNotBlockLaterStores(t *testing.T) {
+	db, dir := vaultDB(t)
+	pending := Memory{Text: "The billing service is owned by payments", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &pending); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, Dir, "fact.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\ntype: memory-store\nkind: fact\n---\n\n- "+pending.Text+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatalf("index over the line: %v", err)
+	}
+	if len(e.Held) != 1 || !strings.Contains(e.Held[0], fmt.Sprintf("#%d", pending.ID)) {
+		t.Errorf("index did not name the line it left alone and memory #%d: %q", pending.ID, e.Held)
+	}
+	later := Memory{Text: "Invoices are generated nightly", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &later); err != nil {
+		t.Fatalf("a store after the line: %v", err)
+	}
+	if !isQueued(db, pending.ID) {
+		t.Error("the line accepted the memory waiting for review; only review does that")
+	}
+}
+
+// A line moved from one kind's file to another loses its id comment when it
+// is retyped there. It is the same memory, and keeps its project: which pass
+// meets the move first — an index, or a store's reconcile of the file it left
+// — must not decide whether it survives.
+func TestALineMovedToAnotherKindsFileWithoutItsCommentKeepsItsMemory(t *testing.T) {
+	for _, viaIndex := range []bool{true, false} {
+		db, dir := vaultDB(t)
+		moved := Memory{Text: "Ana reviews every schema change", Kind: Person, Project: "shop", Source: "manual"}
+		if _, err := Store(db, nil, "", &moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(dir, Dir, "person.md")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, Dir, "fact.md"),
+			[]byte("---\ntype: memory-store\nkind: fact\n---\n\n- "+moved.Text+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// person.md removed outright is absence, not deletion; an emptied one is
+		// what a move leaves.
+		if err := os.WriteFile(filepath.Join(dir, Dir, "person.md"),
+			[]byte("---\ntype: memory-store\nkind: person\n---\n\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		if viaIndex {
+			if _, _, err := Import(db, nil, "", dir); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			for _, m := range []Memory{
+				{Text: "Bo runs the deploys", Kind: Person, Source: "manual"},
+				{Text: "Deploys happen on Tuesdays", Kind: Fact, Source: "manual"},
+			} {
+				if _, err := Store(db, nil, "", &m); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+
+		var kind, project string
+		if err := db.QueryRow("SELECT kind, project FROM memories WHERE id = ? AND superseded = 0", moved.ID).Scan(&kind, &project); err != nil {
+			t.Fatalf("index=%v: memory #%d is gone after the move: %v", viaIndex, moved.ID, err)
+		}
+		if kind != string(Fact) || project != "shop" {
+			t.Errorf("index=%v: memory #%d is kind %q project %q, want fact in shop", viaIndex, moved.ID, kind, project)
+		}
+		if err := Export(db, dir); err != nil {
+			t.Fatal(err)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, Dir, "person.md")); strings.Contains(string(raw), moved.Text) {
+			t.Errorf("index=%v: the moved line was written back into person.md:\n%s", viaIndex, raw)
+		}
 	}
 }

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/Coder8124/logos/internal/memory"
 )
 
 // The file header invites editing a line. A line retyped whole drops its
@@ -58,5 +61,15 @@ func TestALineRetypedWithoutItsCommentIsAnnouncedAsReplacingItsMemory(t *testing
 	})
 	if strings.Contains(again, "logos id=") {
 		t.Errorf("a later index repeated the replacement:\n%s", again)
+	}
+}
+
+// A line index could not make a memory is named on every run it is still
+// there, since the next write to its file drops it.
+func TestALineLeftOutOfMemoryIsNamedByIndex(t *testing.T) {
+	var b bytes.Buffer
+	printMemoryEdits(&b, memory.Edits{Held: []string{"a line in memories/fact.md is the text of memory #7, which is awaiting review"}})
+	if !strings.Contains(b.String(), "left out of memory") || !strings.Contains(b.String(), "#7") {
+		t.Errorf("index did not name the line it left out:\n%s", b.String())
 	}
 }

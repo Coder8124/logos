@@ -322,6 +322,11 @@ func printMemoryEdits(w io.Writer, e memory.Edits) {
 	if len(e.Added) > 0 && len(e.Forgotten) > 0 {
 		fmt.Fprintln(w, "  (a line keeps its memory only while its `<!-- logos id=… -->` comment stays on it; a retyped line is a new memory, without the old one's project, confidence or pin)")
 	}
+	// Said every run while the line stays: it is not a memory, and the next
+	// write to its file drops it, so this is the one place it is visible.
+	for _, h := range e.Held {
+		fmt.Fprintf(w, "left out of memory: %s\n", terminalSafe(h, 400))
+	}
 }
 
 // memoryIDs writes "#3, #4" — the handles `logos memory history` takes — and

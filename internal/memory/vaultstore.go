@@ -3,6 +3,7 @@ package memory
 import (
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -396,6 +397,11 @@ func reconcileLocked(db *sql.DB, kind Kind) error {
 	keep := map[int64]bool{}
 	for _, m := range parseKind(kind, string(raw)) {
 		id, _, err := upsert(db, nil, "", m)
+		var held heldLine
+		if errors.As(err, &held) {
+			// Index names it; here it is no reason to fail the write.
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -408,18 +414,29 @@ func reconcileLocked(db *sql.DB, kind Kind) error {
 	// pass, and used to forget the memory just before the write that would
 	// have carried it out.
 	rows, err := db.Query(
-		`SELECT id FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 AND unflushed = 0`, string(kind))
+		`SELECT id, fingerprint FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 AND unflushed = 0`, string(kind))
 	if err != nil {
 		return err
 	}
 	var deleted []int64
+	var moved map[string]bool
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var fp string
+		if err := rows.Scan(&id, &fp); err != nil {
 			rows.Close()
 			return err
 		}
-		if !keep[id] {
+		if keep[id] {
+			continue
+		}
+		// Gone from this file but on a line in another kind's: moved, not
+		// deleted. That file's reconcile adopts it; forgetting it here first
+		// remade it there as a new memory, without its project or confidence.
+		if moved == nil {
+			moved = linesElsewhere(dir, kind)
+		}
+		if !moved[fp] {
 			deleted = append(deleted, id)
 		}
 	}
@@ -592,6 +609,10 @@ func Import(db *sql.DB, p *provider.Provider, embedModel, dir string) (imported,
 // pin, and a bare one takes its place — and the summary line counts neither.
 type Edits struct {
 	Added, Forgotten []int64
+	// Held is a line left out of memory, each with why and what to do: its
+	// text belongs to a memory awaiting review or superseded, so it can be
+	// neither that memory nor a new one.
+	Held []string
 }
 
 // ImportEdits is Import, also saying which memories a hand edit made or
@@ -656,6 +677,11 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 
 		for _, m := range parsed {
 			id, created, err := upsert(db, p, embedModel, m)
+			var held heldLine
+			if errors.As(err, &held) {
+				edits.Held = append(edits.Held, string(held))
+				continue
+			}
 			if err != nil {
 				return imported, rescued, err
 			}
@@ -779,6 +805,14 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 // memory_log, and anything the user has cited, keep pointing at the same fact.
 // created says the line had no id and became a new memory, which `logos index`
 // announces: it is also what a line retyped without its comment turns into.
+// heldLine is a hand-typed line that can be neither its text's memory nor a new
+// one. It is left out of memory rather than failing the pass: as an error it
+// stopped every store's reconcile, so one stray line kept every agent from
+// remembering anything until somebody edited the file.
+type heldLine string
+
+func (h heldLine) Error() string { return string(h) }
+
 func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id int64, created bool, err error) {
 	var vec []byte
 	if p != nil {
@@ -820,14 +854,23 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 	// time hit the unique fingerprint — failing every `logos index`, and every
 	// store through its reconcile, until something rewrote the file.
 	var owner int64
+	var kind string
 	var superseded, quarantined int
-	if db.QueryRow("SELECT id, superseded, quarantined FROM memories WHERE fingerprint = ?",
-		fingerprint(m.Text)).Scan(&owner, &superseded, &quarantined) == nil {
+	if db.QueryRow("SELECT id, kind, superseded, quarantined FROM memories WHERE fingerprint = ?",
+		fingerprint(m.Text)).Scan(&owner, &kind, &superseded, &quarantined) == nil {
 		switch {
 		case quarantined == 1:
-			return 0, false, fmt.Errorf("memories/%s.md has a line with no id comment whose text is memory #%d, which is awaiting review — accept it with `logos review`, or delete the line", m.Kind, owner)
+			return 0, false, heldLine(fmt.Sprintf("a line in memories/%s.md is the text of memory #%d, which is awaiting review — accept it with `logos review`, or delete the line", m.Kind, owner))
 		case superseded == 1:
-			return 0, false, fmt.Errorf("memories/%s.md has a line with no id comment whose text is memory #%d, which was superseded — reword the line, or delete it", m.Kind, owner)
+			return 0, false, heldLine(fmt.Sprintf("a line in memories/%s.md is the text of memory #%d, which was superseded — reword the line, or delete it", m.Kind, owner))
+		}
+		// Found in another kind's file: the line was moved there, and the move
+		// is kept, as it is for a line moved with its comment. Left as the old
+		// kind, the next export of that kind wrote the line back where it was.
+		if kind != string(m.Kind) {
+			if _, err := db.Exec("UPDATE memories SET kind = ? WHERE id = ?", string(m.Kind), owner); err != nil {
+				return 0, false, err
+			}
 		}
 		return owner, false, nil
 	}
@@ -894,6 +937,26 @@ func parseKind(kind Kind, raw string) []Memory {
 		out = append(out, m)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Created < out[j].Created })
+	return out
+}
+
+// linesElsewhere is the fingerprint of every line in the other kinds' files.
+// An unreadable file adds nothing, which can only cost a moved line its
+// memory's metadata — never keep a deleted one.
+func linesElsewhere(dir string, kind Kind) map[string]bool {
+	out := map[string]bool{}
+	for _, k := range kinds {
+		if k == kind {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, Dir, string(k)+".md"))
+		if err != nil {
+			continue
+		}
+		for _, m := range parseKind(k, string(raw)) {
+			out[fingerprint(m.Text)] = true
+		}
+	}
 	return out
 }
 
