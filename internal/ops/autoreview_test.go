@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -235,5 +236,46 @@ func TestATurnCitationSurvivesDeletingTheIndex(t *testing.T) {
 	}
 	if n, err := AutoReview(wiped, vault, time.Now()); err != nil || n != 1 {
 		t.Fatalf("after a rebuild the sweep accepted %d (%v), want the cited decision", n, err)
+	}
+}
+
+// A line the user deleted from the queue is logged as rejected when a sweep
+// notices it, which is after the sweep read the clock. Accepts stamped with
+// that earlier time fell before "your last review", and vanished from every
+// list that counts what the switch did since.
+func TestASweepThatNoticesAHandRejectionStillCountsItsAcceptsAsUnreviewed(t *testing.T) {
+	db, vault := reviewVault(t, true)
+	propose(t, db, "Decided: the billing service owns refunds", memory.Fact, liveTurn)
+	propose(t, db, "The staging cluster runs in eu-west-1", memory.Fact, liveTurn)
+	path := filepath.Join(vault, memory.Dir, memory.PendingFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(l, "eu-west-1") {
+			kept = append(kept, l)
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read a few seconds before the reconcile, as a sweep that reads
+	// transcripts first can.
+	if n, err := AutoReview(db, vault, time.Now().Add(-3*time.Second)); err != nil || n != 1 {
+		t.Fatalf("accepted %d (%v), want the decision", n, err)
+	}
+	last, err := memory.LastReview(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, err := memory.AutoAccepted(db, last)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms) != 1 {
+		t.Fatalf("the accept is not counted since the last review (at %d): %+v", last, ms)
 	}
 }
