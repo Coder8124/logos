@@ -1,6 +1,7 @@
 package auto
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -57,5 +58,54 @@ func TestEachFailureIsSaidWithItsReasonNotCounted(t *testing.T) {
 	}
 	if Summary(nil) != "" {
 		t.Error("an empty log is not silent")
+	}
+}
+
+func TestEveryKindOfEntryReadsBackAsWritten(t *testing.T) {
+	vault := t.TempDir()
+	at := time.Date(2026, 10, 9, 3, 0, 0, 0, time.UTC)
+	want := []Entry{
+		{At: at, Switch: Dream, Started: true},
+		{At: at, Switch: Dream, Counts: []Count{{"merged", 2}, {"faded", 4}}, Skipped: "no reasoning model  for\nnew connections"},
+		{At: at, Switch: Dream, Skipped: "no local model configured"},
+		{At: at, Switch: Checkpoint, Project: "shop", N: 1},
+		{At: at, Switch: Dream, Failed: "index locked"},
+	}
+	for _, e := range want {
+		if err := Record(vault, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := Entries(vault, "", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want[1].Skipped = "no reasoning model for new connections"
+	if len(got) != len(want) {
+		t.Fatalf("wrote %d entries, read back %d: %+v", len(want), len(got), got)
+	}
+	for i := range want {
+		if fmt.Sprint(got[i]) != fmt.Sprint(want[i]) {
+			t.Errorf("entry %d read back as %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// A dream that started and wrote nothing after died where nobody was watching;
+// the log's silence is not allowed to read as a quiet night.
+func TestADreamThatNeverReportedBackIsSaid(t *testing.T) {
+	got := Summary([]Entry{{At: time.Now().Add(-3 * time.Hour), Switch: Dream, Started: true}})
+	if !strings.Contains(got, "never reported back") {
+		t.Errorf("a lost dream was not reported: %q", got)
+	}
+	if got := Summary([]Entry{{At: time.Now(), Switch: Dream, Started: true}}); got != "" {
+		t.Errorf("a dream still running was reported as something: %q", got)
+	}
+}
+
+func TestAQuietNightSaysNothingChangedRatherThanListingZeros(t *testing.T) {
+	got := Summary([]Entry{{At: time.Now(), Switch: Dream, Counts: []Count{{"merged", 0}, {"faded", 0}}}})
+	if !strings.Contains(got, "dream ran and found nothing to change") || strings.Contains(got, " 0") {
+		t.Errorf("a quiet night reads %q", got)
 	}
 }

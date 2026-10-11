@@ -148,6 +148,7 @@ RETRIEVAL
     logos review [--all]              accept or reject quarantined memories
     logos dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
                                       nightly consolidation: replay, fade, recombine
+    logos dream --auto                the same, logged to auto-log.md; what the dream switch runs
     logos dream review | accept|reject <id>
                                       review the connections REM proposed overnight
     logos think [off|low|medium|high]  how much the model reasons before answering

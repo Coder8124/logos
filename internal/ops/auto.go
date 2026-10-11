@@ -32,11 +32,11 @@ func AutoReport(vault, project string) Outcome {
 			break
 		}
 	}
-	entries, err := auto.Entries(vault, project, since)
+	entries, err := auto.Entries(vault, project, earlier(since, time.Now().Add(-2*auto.DreamEvery)))
 	if err != nil {
 		o.fail(fmt.Sprintf("could not read %s: %v", auto.LogFile, err))
 	} else {
-		o.say(auto.Summary(entries))
+		o.say(auto.Summary(lastDreamAnd(entries, since)))
 	}
 	c, err := auto.Load(vault)
 	if err != nil {
@@ -48,10 +48,51 @@ func AutoReport(vault, project string) Outcome {
 	return o
 }
 
-// AutoLead is AutoReport as the lines that open a resume, the same on the CLI
-// and over MCP, or "" when there is nothing to say.
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// lastDreamAnd keeps the entries since the checkpoint, and of dream's only the
+// latest run, whenever it was. A dream finishes minutes after the resume that
+// launched it and before the agent's own checkpoint, so "since the checkpoint"
+// would never show one; and only the latest, so resume reports last night and
+// not the week.
+func lastDreamAnd(entries []auto.Entry, since time.Time) []auto.Entry {
+	from := -1
+	for i, e := range entries {
+		if e.Switch == auto.Dream && (e.Started || from < 0) {
+			from = i
+		}
+	}
+	var out []auto.Entry
+	for i, e := range entries {
+		if e.Switch == auto.Dream {
+			if i >= from {
+				out = append(out, e)
+			}
+		} else if !e.At.Before(since) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// AutoLead is what resume does about auto, as the lines that open it, the same
+// on the CLI and over MCP, or "" when there is nothing to say: AutoReport, then
+// the day's dream if it is due. The report comes first so it covers the last
+// dream, not the one just launched.
 func AutoLead(vault, project string) string {
-	text := strings.TrimLeft(AutoReport(vault, project).Text(), "\n")
+	o := AutoReport(vault, project)
+	switch started, err := auto.StartDream(vault, time.Now()); {
+	case err != nil:
+		o.fail(fmt.Sprintf("auto: the day's dream was not started: %v", err))
+	case started:
+		o.say("auto: dream started in the background; the next resume says what it did")
+	}
+	text := strings.TrimLeft(o.Text(), "\n")
 	if text == "" {
 		return ""
 	}
