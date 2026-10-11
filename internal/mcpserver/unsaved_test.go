@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -197,5 +198,39 @@ func TestASecondClientConnectingDoesNotMoveTheFirstOnesStart(t *testing.T) {
 	}
 	if c == nil {
 		t.Error("the first client's unsaved work was not recorded once a second client had connected")
+	}
+}
+
+// The shutdown checkpoint is written after the host has gone, so its stderr
+// line reaches a server log at best. The next resume says it happened.
+func TestTheNextResumeSaysTheShutdownCheckpointWasWritten(t *testing.T) {
+	srv, _ := testServer(t)
+	srv.DB = testDB(t)
+	sess := &Session{Server: srv, clientAgent: "cursor"}
+	fakeTranscripts(t, workedIn("cursor", "shop"))
+
+	sess.recordUnsaved()
+
+	out, err := (&Session{Server: srv}).resume("shop", "cursor", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "auto: checkpointed 1 session") {
+		t.Errorf("resume did not say the shutdown checkpoint was written:\n%s", out)
+	}
+}
+
+func TestTheCheckpointSwitchOffStopsTheShutdownCheckpoint(t *testing.T) {
+	srv, vault := testServer(t)
+	if err := auto.Set(vault, "checkpoint", false); err != nil {
+		t.Fatal(err)
+	}
+	sess := &Session{Server: srv, clientAgent: "cursor"}
+	fakeTranscripts(t, workedIn("cursor", "shop"))
+
+	sess.recordUnsaved()
+
+	if c, _ := session.Latest(vault, sess.resolveScope("shop")); c != nil {
+		t.Errorf("the shutdown path wrote a checkpoint with the switch off: %+v", c)
 	}
 }

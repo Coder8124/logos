@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/graph"
 	"github.com/Coder8124/logos/internal/index"
@@ -123,6 +124,9 @@ type Pack struct {
 	RulingDrift map[string]*gitstate.Drift `json:"ruling_drift,omitempty"`
 	// Reader is who asked, when the caller said. See Request.Agent.
 	Reader string `json:"reader,omitempty"`
+	// NoDistilOffer is the distil switch turned off: an auto record still
+	// shows, without the line offering its transcript to read.
+	NoDistilOffer bool `json:"-"`
 
 	// Checkpoint is where the last agent stopped on this project, and Working is
 	// what has been recorded since without being committed. Together they are the
@@ -227,7 +231,7 @@ const (
 // than useless, it is untrustworthy.
 func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Request) (Pack, error) {
 	db := ix.DB
-	p := Pack{Task: req.Task, Hint: req.Hint, Worktree: req.Worktree}
+	p := Pack{Task: req.Task, Hint: req.Hint, Worktree: req.Worktree, NoDistilOffer: !auto.On(ix.Vault, auto.Distil)}
 	p.Budget.Limit = req.Budget
 	if p.Budget.Limit <= 0 {
 		p.Budget.Limit = DefaultBudget

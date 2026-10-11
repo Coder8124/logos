@@ -27,6 +27,12 @@ const (
 	EvQuarantined = "quarantined" // a machine proposed this and it is waiting for review
 	EvAccepted    = "accepted"    // a quarantined memory was reviewed and released into active memory
 	EvRejected    = "rejected"    // a quarantined memory was reviewed and discarded
+	// EvAutoAccepted is the review switch accepting a memory with nobody
+	// watching, kept apart from EvAccepted so "since your last review" means
+	// since a person last looked, not since the switch last ran.
+	EvAutoAccepted = "auto-accepted"
+	// EvUnaccepted is `logos review --undo-auto` putting one back in the queue.
+	EvUnaccepted = "returned-to-review"
 )
 
 // LogEntry is one line of the timeline.
@@ -257,4 +263,29 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// SeenTexts is every text the timeline records a memory being stored, proposed
+// or folded into another with — what Logos has met before, whatever became of
+// it since. A fold too: a re-worded import is logged under its own words only
+// as the reinforcement of the memory it restated, and forgetting that memory
+// overrules it as much as forgetting one it created. The
+// import switch skips these, so a memory the user forgot or rejected is not
+// brought back by the next import. The timeline is restored from log.md, so
+// this survives deleting the index.
+func SeenTexts(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT DISTINCT detail FROM memory_log WHERE event IN (?, ?, ?)`, EvCreated, EvQuarantined, EvReinforced)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		seen[t] = true
+	}
+	return seen, rows.Err()
 }

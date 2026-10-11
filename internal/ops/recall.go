@@ -46,6 +46,12 @@ func Recall(db *sql.DB, q RecallQuery) (RecallResult, error) {
 	if strings.TrimSpace(q.Query) == "" {
 		return RecallResult{}, fmt.Errorf("recall needs a query")
 	}
+	// A deleted index opens empty, with no memory tables, and recall is often
+	// the first thing run after it; without this the user was shown SQLite's
+	// "no such table" instead of an empty answer.
+	if err := memory.Init(db); err != nil {
+		return RecallResult{}, err
+	}
 	var (
 		mems []memory.Memory
 		err  error

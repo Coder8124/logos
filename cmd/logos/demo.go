@@ -234,5 +234,7 @@ func openEventsAt(vault string) (*index.Index, error) {
 	old := os.Getenv("LOGOS_VAULT")
 	os.Setenv("LOGOS_VAULT", vault)
 	defer os.Setenv("LOGOS_VAULT", old)
-	return openEvents()
+	// Quiet: this vault was made a moment ago and nothing has indexed it, so
+	// the missing-index notice would be a false alarm read out to the room.
+	return openIndexQuiet()
 }

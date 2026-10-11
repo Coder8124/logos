@@ -7,13 +7,16 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/untrusted"
 )
 
 // dreamCmd is the nightly consolidation pass and its review queue.
 //
 //	logos dream [--date YYYY-MM-DD] [--phase nrem|rem] [--dry-run]
+//	logos dream --auto
 //	logos dream review
 //	logos dream accept|reject <id>
 func dreamCmd(args []string) error {
@@ -26,6 +29,9 @@ func dreamCmd(args []string) error {
 		case "reject":
 			return dreamDecide(args[1:], false)
 		}
+	}
+	if hasFlag(args, "--auto") {
+		return runDreamAuto()
 	}
 	return runDream(flagStr(args, "--date", ""), flagStr(args, "--phase", "all"), hasFlag(args, "--dry-run"))
 }
@@ -72,11 +78,65 @@ func runDream(dateArg, phase string, dryRun bool) error {
 		fmt.Printf("· dreaming on %s\n", date.Format("2006-01-02"))
 	}
 
-	res, err := dream.Run(ix.DB, ix.Vault, rt, date, phase, dryRun)
+	res, err := dreamRun(ix.DB, ix.Vault, rt, date, phase, dryRun)
 	if err != nil {
 		return err
 	}
 	printDream(res, phase)
+	return nil
+}
+
+// dreamRun is dream.Run, a var so a test can say what a night found without a
+// local model.
+var dreamRun = dream.Run
+
+// runDreamAuto is the dream the dream switch launches at session start, in a
+// process of its own with nobody watching its output. What it did, skipped or
+// failed goes to auto-log.md instead, which the next resume reads out.
+func runDreamAuto() error {
+	err := dreamAuto()
+	if err != nil {
+		logAuto(auto.Entry{Switch: auto.Dream, Failed: untrusted.Inline(err.Error())})
+	}
+	return err
+}
+
+func dreamAuto() error {
+	ix, err := openEvents()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	cfg, err := router.Load(ix.Vault)
+	if err != nil {
+		return err
+	}
+	rt, err := router.New(cfg, ix.Vault)
+	if err != nil && !errors.Is(err, router.ErrNoRuntime) {
+		return err
+	}
+	res, err := dreamRun(ix.DB, ix.Vault, rt, time.Now(), "all", false)
+	if err != nil {
+		return err
+	}
+	printDream(res, "all")
+	e := auto.Entry{Switch: auto.Dream}
+	if !res.ReplaySkipped {
+		e.Counts = append(e.Counts, auto.Count{Name: "merged", N: res.Merged}, auto.Count{Name: "superseded", N: res.Superseded})
+	}
+	e.Counts = append(e.Counts, auto.Count{Name: "faded", N: res.Faded})
+	if !res.REMSkipped {
+		e.Counts = append(e.Counts, auto.Count{Name: "insights", N: res.Insights})
+	}
+	switch {
+	case res.ReplaySkipped && res.REMSkipped:
+		e.Skipped = "no local model configured"
+	case res.ReplaySkipped:
+		e.Skipped = "replay had no model to judge duplicates"
+	case res.REMSkipped:
+		e.Skipped = "no reasoning model for new connections"
+	}
+	logAuto(e)
 	return nil
 }
 

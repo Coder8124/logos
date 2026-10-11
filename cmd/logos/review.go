@@ -2,12 +2,16 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/ops"
 )
 
 // The trust loop. Everything a model infers about you passes through here
@@ -24,10 +28,15 @@ import (
 // runReview accepts or rejects memories waiting in quarantine.
 const reviewUsage = `usage:
     logos review [--all]
+    logos review --auto
+    logos review --undo-auto [--since 24h|7d|YYYY-MM-DD]
 
 Accept or reject memories agents saved, which wait in quarantine until you do.
 
-    --all   go through every pending memory instead of the first 20
+    --all         go through every pending memory instead of the first 20
+    --auto        list what the review switch accepted for you
+    --undo-auto   return what the review switch accepted to the queue: since
+                  your last review, or since --since
 `
 
 func runReview(args []string) error {
@@ -36,6 +45,15 @@ func runReview(args []string) error {
 	if hasFlag(args, "--help") || hasFlag(args, "-h") {
 		fmt.Print(reviewUsage)
 		return nil
+	}
+	if err := checkFlags("logos review", args, flagSpec{
+		valued: []string{"--since"},
+		bare:   []string{"--all", "--auto", "--undo-auto"},
+	}); err != nil {
+		return err
+	}
+	if hasFlag(args, "--since") && !hasFlag(args, "--undo-auto") {
+		return fmt.Errorf("--since goes with --undo-auto; nothing was done")
 	}
 	all := hasFlag(args, "--all")
 	ix, err := openEvents()
@@ -46,6 +64,18 @@ func runReview(args []string) error {
 
 	if err := memory.Init(ix.DB); err != nil {
 		return err
+	}
+	switch {
+	case hasFlag(args, "--auto"):
+		return listAutoAccepted(ix.DB)
+	case hasFlag(args, "--undo-auto"):
+		return undoAutoAccepted(ix.DB, flagStr(args, "--since", ""))
+	}
+	// The review switch first, so what it would accept is not offered to the
+	// person who turned it on to be spared exactly that. Said on the spot: this
+	// is a command they are watching, and the log is for what nobody watched.
+	if _, err := ops.AutoReview(ix.DB, ix.Vault, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: the review switch %v\n", err)
 	}
 	// Before the queue is read: a proposal whose line the user deleted is one
 	// they already rejected, and offering it again asks them twice.
@@ -58,6 +88,12 @@ func runReview(args []string) error {
 	memories, err := memory.Pending(ix.DB)
 	if err != nil {
 		return err
+	}
+	if done, err := ops.AutoAcceptedSinceReview(ix.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: could not count the memories accepted automatically: %v\n", err)
+	} else if done > 0 {
+		fmt.Printf("accepted %d automatically since your last review, %d waiting for you — logos review --auto lists them\n\n",
+			done, len(memories))
 	}
 	if len(memories) == 0 {
 		fmt.Println("review queue is empty")
@@ -143,4 +179,78 @@ func pluralS(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// listAutoAccepted is what the review switch accepted, newest first, since a
+// person last reviewed — and all of it when they have never reviewed since —
+// with the one command that hands it back.
+func listAutoAccepted(db *sql.DB) error {
+	last, err := memory.LastReview(db)
+	if err != nil {
+		return err
+	}
+	ms, err := memory.AutoAccepted(db, last+1)
+	if err != nil {
+		return err
+	}
+	if len(ms) == 0 {
+		fmt.Println("nothing was accepted automatically since your last review")
+		return nil
+	}
+	fmt.Printf("accepted automatically since your last review (%d):\n", len(ms))
+	for _, m := range ms {
+		fmt.Printf("  #%d  %s  (%s) %s\n", m.ID, time.Unix(m.AutoAccepted, 0).Local().Format("Mon 2 Jan 15:04"), m.Kind, m.Text)
+	}
+	fmt.Println("\nlogos review --undo-auto returns them to the queue")
+	return nil
+}
+
+// undoAutoAccepted hands what the switch accepted back to a person. Each one
+// is tried and a failure named: half an undo said as a whole one would leave
+// memories the user believes are back in the queue still being recalled.
+func undoAutoAccepted(db *sql.DB, sinceArg string) error {
+	since, err := undoSince(db, sinceArg, time.Now())
+	if err != nil {
+		return err
+	}
+	ms, err := memory.AutoAccepted(db, since)
+	if err != nil {
+		return err
+	}
+	var undone int
+	var failed []string
+	for _, m := range ms {
+		if err := memory.UndoAuto(db, m.ID); err != nil {
+			failed = append(failed, fmt.Sprintf("#%d: %v", m.ID, err))
+			continue
+		}
+		undone++
+	}
+	fmt.Printf("returned %d memor%s to the review queue — logos review\n", undone, pluralY(undone))
+	if len(failed) > 0 {
+		return fmt.Errorf("could not return %d: %s", len(failed), strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// undoSince reads --since as a duration back from now (24h, 7d) or a date;
+// with none, it is the user's last review, which is what the queue line
+// counted when it told them how many were accepted.
+func undoSince(db *sql.DB, arg string, now time.Time) (int64, error) {
+	if arg == "" {
+		last, err := memory.LastReview(db)
+		return last + 1, err
+	}
+	if d, ok := strings.CutSuffix(arg, "d"); ok {
+		if n, err := strconv.Atoi(d); err == nil && n > 0 {
+			return now.AddDate(0, 0, -n).Unix(), nil
+		}
+	}
+	if d, err := time.ParseDuration(arg); err == nil && d > 0 {
+		return now.Add(-d).Unix(), nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02", arg, time.Local); err == nil {
+		return t.Unix(), nil
+	}
+	return 0, fmt.Errorf("bad --since %q, want a duration like 24h or 7d, or YYYY-MM-DD; nothing was done", arg)
 }

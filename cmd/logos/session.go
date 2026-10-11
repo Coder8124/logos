@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/advice"
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/secret"
@@ -59,17 +61,24 @@ func runNote(args []string) error {
 	// session started with none of what it was. An environment variable for
 	// the same reason as LOGOS_NOTE_IF_UNCOMMITTED. Only with a payload piped
 	// in: the variable left set in a shell would otherwise hang on the terminal.
-	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() {
+	//
+	// The checkpoint switch off leaves the plain note below, which is what this
+	// hook did before it wrote checkpoints.
+	if os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1" && stdinIsPiped() && auto.On(vaultPath(), auto.Checkpoint) {
 		raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 		if err != nil {
 			return err
 		}
 		c, err := autoCheckpoint(vaultPath(), project, raw)
+		// Logged as well as printed: this prints into a terminal that is
+		// closing, and the next resume is the first place anyone will read it.
 		if err != nil {
+			logAuto(auto.Entry{Switch: auto.Checkpoint, Project: project, Failed: err.Error()})
 			return fmt.Errorf("auto checkpoint: %w", err)
 		}
 		if c != nil {
 			fmt.Printf("auto-checkpointed — %s (%s)\n", c.Slug, session.AutoLabel)
+			logAuto(auto.Entry{Switch: auto.Checkpoint, Project: project, N: 1})
 			return nil
 		}
 	}
@@ -265,7 +274,11 @@ func runResume(args []string) error {
 	// Before the pack, so a session that ended without a checkpoint is in the
 	// handoff it is missing from. The SessionStart hook runs this command, so
 	// every Claude Code session start sweeps too.
-	fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
+	if auto.On(ix.Vault, auto.Checkpoint) {
+		fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
+	}
+	fmt.Print(ops.RunAutoReview(ix.DB, ix.Vault, project))
+	fmt.Print(ops.AutoLead(ix.Vault, project))
 
 	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Agent: agentName(), Budget: budget, Since: contextpack.Since(since),
@@ -301,13 +314,16 @@ func runResume(args []string) error {
 // queue was mentioned by doctor alone, which nobody runs to start work.
 func printAwaitingReview(db *sql.DB) {
 	n, err := memory.PendingCount(db)
-	switch {
-	case err != nil:
+	if err != nil {
 		fmt.Printf("\n(could not count the memories waiting for review: %v)\n", err)
-	case n == 1:
-		fmt.Println("\n1 memory is waiting for your review — logos review")
-	case n > 1:
-		fmt.Printf("\n%d memories are waiting for your review — logos review\n", n)
+		return
+	}
+	done, err := ops.AutoAcceptedSinceReview(db)
+	if err != nil {
+		fmt.Printf("\n(could not count the memories accepted automatically: %v)\n", err)
+	}
+	if line := ops.QueueLine(n, done, "logos", ops.Plain); line != "" {
+		fmt.Println("\n" + line)
 	}
 }
 

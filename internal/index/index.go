@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
@@ -316,6 +317,17 @@ func dropDeadAmbientTables(db *sql.DB) {
 		total, strings.Join(existing, ", "))
 }
 
+// Synced is whether a Sync has ever finished on this index. Not whether the
+// file exists: Open creates it, so a deleted index reads as present from the
+// first command after the deletion on, empty and answering as if the vault were.
+func (ix *Index) Synced() (bool, error) {
+	var n int
+	if err := ix.DB.QueryRow("SELECT COUNT(*) FROM meta WHERE key = 'last_sync'").Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (ix *Index) Close() error {
 	// Drop the vault binding with the handle, so a long-lived process that opens
 	// and closes many vaults does not accumulate them.
@@ -372,6 +384,13 @@ func (ix *Index) Sync() (SyncReport, error) {
 		// the user, not a document to search. Indexing it would make accepting
 		// an insight edit a note nobody wrote. dream.Import reconciles it.
 		if path == dream.InsightsPath(ix.Vault) {
+			return nil
+		}
+		// auto.md is the switches written down: indexed, "checkpoint: off"
+		// would come back from a search as something the user wrote about
+		// their work. internal/auto reads it straight off disk. Its log the
+		// same: a line of Logos's bookkeeping is not one of the user's notes.
+		if path == auto.Path(ix.Vault) || path == auto.LogPath(ix.Vault) {
 			return nil
 		}
 		// Symlinks are skipped rather than followed. A link in the vault

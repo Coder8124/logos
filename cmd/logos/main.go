@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
@@ -115,7 +116,11 @@ func main() {
 	case cmd == "update":
 		err = updateCmd(args)
 	case cmd == "index":
-		err = runIndex(hasFlag(args, "--watch"))
+		if hasFlag(args, "--auto") {
+			err = runIndexAuto()
+		} else {
+			err = runIndex(hasFlag(args, "--watch"))
+		}
 	case cmd == "search" && rest != "":
 		err = search(rest)
 	case cmd == "search":
@@ -166,6 +171,8 @@ func main() {
 		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
+	case cmd == "auto":
+		err = runAuto(args)
 	case cmd == "project-name":
 		err = runProjectName(args)
 	case cmd == "hook":
@@ -326,7 +333,80 @@ func missingVaultError(v string) error {
 		"or point LOGOS_VAULT at an existing vault", v)
 }
 
+// openIndex opens the vault's index for a command that reads it. An index no
+// Sync has finished on is said on stderr (stdout may be JSON): a deleted index
+// otherwise answers "nothing matches" and "no memories" with full confidence,
+// which reads as a vault that lost everything rather than a cache to rebuild.
 func openIndex() (*index.Index, error) {
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return nil, err
+	}
+	checkIndex(ix)
+	return ix, nil
+}
+
+// checkIndex says, or with the index switch on repairs, an index no Sync has
+// finished on. On stderr, which over MCP stdio is the host's log and never the
+// protocol stream.
+func checkIndex(ix *index.Index) {
+	switch synced, err := ix.Synced(); {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "logos: could not tell whether the index was ever built: %v\n", err)
+	case !synced && auto.On(ix.Vault, auto.Index) && !inHook && os.Getenv("LOGOS_HOOK") == "":
+		rebuildIndex(ix)
+	case !synced && auto.On(ix.Vault, auto.Index):
+		// A hook: its host kills it after a few seconds, and a rebuild on a
+		// large vault can take longer, which would lose the hook's own work
+		// with the rebuild half done.
+		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
+			"answers from an empty one — a hook does not rebuild it; the next logos command does")
+	case !synced:
+		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
+			"answers from an empty one — `logos index` builds it from the vault (or `logos auto config index on`)")
+	}
+}
+
+// checkIndexInBackground is checkIndex for the MCP server. Its host waits a
+// few seconds for the handshake and drops a server that misses it, and a
+// rebuild on a large vault takes longer — so the switch's rebuild runs as
+// `logos index --auto` in a process of its own, and the server answers from
+// the empty index until it lands, saying so.
+func checkIndexInBackground(ix *index.Index) {
+	synced, err := ix.Synced()
+	if err != nil || synced || !auto.On(ix.Vault, auto.Index) {
+		checkIndex(ix)
+		return
+	}
+	if err := auto.Launch(ix.Vault, "index", "--auto"); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: this vault has no index (deleted, or never built), and the rebuild could not be started, "+
+			"so this server answers from an empty one — `logos index` builds it: %v\n", err)
+		logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, Failed: err.Error()})
+		return
+	}
+	fmt.Fprintln(os.Stderr, "logos: this vault has no index (deleted, or never built) — auto is rebuilding it in the background, "+
+		"and this server answers from an empty one until it is done")
+}
+
+// rebuildIndex is the index switch: the cache rebuilt from the vault before the
+// command that found it missing answers. Text only, since a model may not be
+// up and the command is waiting; `logos index` adds the vectors. Its report goes
+// to stderr, because stdout is that command's answer and may be JSON.
+func rebuildIndex(ix *index.Index) {
+	fmt.Fprintln(os.Stderr, "logos: this vault had no index (deleted, or never built) — auto is rebuilding it from the vault, text only; `logos index` adds embeddings")
+	if err := indexPass(ix, os.Stderr, nil, ""); err != nil {
+		// Said as what it leaves: the command still runs, on whatever part of
+		// the index the pass got through.
+		fmt.Fprintf(os.Stderr, "logos: the rebuild failed, so what follows may answer from a partial index — `logos index` retries: %v\n", err)
+		logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, Failed: err.Error()})
+		return
+	}
+	logAutoIn(ix.Vault, auto.Entry{Switch: auto.Index, N: 1})
+}
+
+// openIndexQuiet is openIndex for the command that builds the index, which
+// would otherwise open by telling the user to run itself.
+func openIndexQuiet() (*index.Index, error) {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return nil, missingVaultError(v)

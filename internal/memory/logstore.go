@@ -187,8 +187,8 @@ func backfillCreations(db *sql.DB, dir string) (int, error) {
 		SELECT m.id, m.text, m.created, m.project, m.quarantined FROM memories m
 		WHERE NOT EXISTS (
 			SELECT 1 FROM memory_log l
-			WHERE l.mem_id = m.id AND l.event IN (?, ?, ?))
-		ORDER BY m.created, m.id`, EvCreated, EvQuarantined, EvAccepted)
+			WHERE l.mem_id = m.id AND l.event IN (?, ?, ?, ?))
+		ORDER BY m.created, m.id`, EvCreated, EvQuarantined, EvAccepted, EvAutoAccepted)
 	if err != nil {
 		return 0, err
 	}

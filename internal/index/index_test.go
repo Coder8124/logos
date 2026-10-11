@@ -202,3 +202,33 @@ func TestPendingIngestCandidatesAreNotIndexedIntoRetrieval(t *testing.T) {
 		t.Errorf("the ordinary note was lost along with the queue: %v", paths)
 	}
 }
+
+// auto.md is the switches written down, not a note. Indexed, "checkpoint: off"
+// would come back from a search as a document the user wrote about their work,
+// and turning a switch would re-embed a note.
+func TestTheAutoSwitchesAreNotIndexedAsANote(t *testing.T) {
+	v := t.TempDir()
+	if err := os.WriteFile(filepath.Join(v, "auto.md"), []byte("# What Logos does on its own\n\nauto: on\n- checkpoint: off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Its log too: recall answering "checkpoint" with a line of the log is
+	// Logos's bookkeeping passing for the user's notes.
+	if err := os.WriteFile(filepath.Join(v, "auto-log.md"), []byte("# What Logos did on its own\n\n- 2026-10-10T12:00:00Z checkpoint project=shop n=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := ix.DB.QueryRow(`SELECT count(*) FROM notes`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("auto.md or its log was indexed as %d note(s)", n)
+	}
+}

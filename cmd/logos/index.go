@@ -2,17 +2,19 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
 func runIndex(watch bool) error {
-	ix, err := openIndex()
+	ix, err := openIndexQuiet()
 	if err != nil {
 		return err
 	}
@@ -50,141 +52,7 @@ func runIndex(watch bool) error {
 			"· no model runtime — indexing text only; run this again with Ollama up to add embeddings")
 	}
 
-	pass := func() error {
-		rep, err := ix.Sync()
-		if err != nil {
-			return err
-		}
-		notes, _ := ix.NoteCount()
-		edges, _ := ix.EdgeCount()
-
-		// Working notes come back before anything that needs a model, because
-		// restoring them needs nothing but the file — and this is the command a
-		// user runs after deleting the index, which is precisely when they are
-		// gone. Announced when there were any: a rebuild that silently recovered
-		// in-flight work is indistinguishable from one that lost it.
-		restoredNotes, rescuedNotes, err := ix.SyncNotes()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "· could not restore working notes:", err)
-		}
-		if restoredNotes > 0 {
-			fmt.Printf("restored %d uncommitted working %s\n", restoredNotes, plural(restoredNotes, "note"))
-		}
-		// The other direction, and said out loud for the reason the rescued
-		// proposals are: these were in the cache alone because a write to the
-		// vault failed earlier, and the user was told that once, by a process
-		// that has since exited. Silence here would make this run look like an
-		// ordinary one while it repaired real data loss.
-		if rescuedNotes > 0 {
-			fmt.Printf("wrote %d working %s to the vault — %s only in the index\n",
-				rescuedNotes, plural(rescuedNotes, "note"), wasWere(rescuedNotes))
-		}
-
-		// Memories and the review queue come back with or without a model.
-		// Import needs a provider only to re-embed, and passing a nil one skips
-		// exactly that — so this used to sit behind the `p == nil` return
-		// below, which meant a rebuild on a machine with no runtime restored
-		// the notes and left every remembered fact out of the cache until some
-		// later run happened to have Ollama up. "Delete the index, lose
-		// nothing" cannot depend on a model being reachable.
-		mems, rescuedMems, err := ix.SyncMemories(p, embed)
-		if err != nil {
-			return err
-		}
-		// Same again for memories, and this is the count the bug was about: a
-		// memory stranded in the cache used to be reaped here as a line the
-		// user had deleted by hand, and reported under `-0`.
-		if rescuedMems > 0 {
-			fmt.Printf("wrote %d memor%s to the vault — %s only in the index\n",
-				rescuedMems, pluralY(rescuedMems), wasWere(rescuedMems))
-		}
-
-		// The review queue, after the memories, so an accepted proposal is
-		// already an active memory before the queue is consulted about its id.
-		if queued, rescued, err := ix.SyncPending(); err != nil {
-			fmt.Fprintln(os.Stderr, "· could not restore the review queue:", err)
-		} else {
-			if queued > 0 {
-				fmt.Printf("restored %d memor%s awaiting review — run `logos review`\n",
-					queued, pluralY(queued))
-			}
-			// Said out loud because it is a repair the user did not ask for and
-			// would otherwise never know happened — and because it means their
-			// queue was, until this run, one `rm -rf .logos` from gone.
-			if rescued > 0 {
-				fmt.Printf("wrote %d memor%s awaiting review to the vault — they were only in the index\n",
-					rescued, pluralY(rescued))
-			}
-		}
-
-		// The timeline, after both. Announced because the alternative — a silent
-		// repair — is how the old failure hid: `logos memory log` answered
-		// confidently after a rebuild, with dates invented on the spot, and
-		// nothing on stdout ever said the history had been touched.
-		if events, err := ix.SyncLog(); err != nil {
-			fmt.Fprintln(os.Stderr, "· could not restore the memory timeline:", err)
-		} else if events > 0 {
-			fmt.Printf("restored %d memory %s — run `logos memory log`\n", events, plural(events, "event"))
-		}
-
-		// Open loops, which need no model either. Announced for the reason the
-		// working notes are: an empty `logos loop` after a rebuild reads as a
-		// list the user finished, not one the rebuild threw away. The count is
-		// every loop put back, closed ones included — they are what stops a
-		// dismissed commitment being extracted and surfaced all over again.
-		if loops, rescuedLoops, err := ix.SyncLoops(); err != nil {
-			fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
-		} else {
-			if loops > 0 {
-				fmt.Printf("restored %d tracked %s — run `logos loop`\n", loops, plural(loops, "loop"))
-			}
-			// The other direction, said for the reason the rescued memories are:
-			// a write to the vault failed earlier, and the process told about it
-			// has exited.
-			if rescuedLoops > 0 {
-				fmt.Printf("wrote %d tracked %s to the vault — %s only in the index\n",
-					rescuedLoops, plural(rescuedLoops, "loop"), wasWere(rescuedLoops))
-			}
-		}
-
-		// Dreamed insights, after the memories they cite. Announced for the
-		// reason the rest are: an empty `logos dream review` after a rebuild
-		// reads as a queue the user has already been through, not one the
-		// rebuild threw away. The count is every insight put back, reviewed
-		// ones included — they are what stops a rejected connection being
-		// proposed all over again.
-		seen, rescuedInsights, err := ix.SyncInsights()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "· could not restore dreamed insights:", err)
-		} else if rescuedInsights > 0 {
-			fmt.Printf("wrote %d dreamed %s to the vault — %s only in the index\n",
-				rescuedInsights, plural(rescuedInsights, "insight"), wasWere(rescuedInsights))
-		}
-		if err == nil && seen > 0 {
-			// Rejections are restored too — they are the record of what the user
-			// already refused. Only point at the review command when there is
-			// actually something waiting behind it.
-			line := fmt.Sprintf("restored %d dreamed %s", seen, plural(seen, "insight"))
-			if n, err := dream.PendingCount(ix.DB); err == nil && n > 0 {
-				line += " — run `logos dream review`"
-			}
-			fmt.Println(line)
-		}
-
-		if p == nil {
-			fmt.Printf("+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
-				rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
-			return nil
-		}
-
-		embedded, err := ix.EmbedPending(p, embed, 32)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("+%d ~%d -%d =%d · embedded %d · %d notes, %d edges, %d memories\n",
-			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges, mems)
-		return nil
-	}
+	pass := func() error { return indexPass(ix, os.Stdout, p, embed) }
 
 	if err := pass(); err != nil || !watch {
 		return err
@@ -273,5 +141,165 @@ func ask(question string) error {
 			fmt.Printf("  %-28s %.3f\n", h.Slug, h.Score)
 		}
 	}
+	return nil
+}
+
+// indexPass is one rebuild of the cache from the vault, its report written to
+// w: stdout for `logos index`, stderr for a rebuild auto runs ahead of another
+// command whose stdout is its answer. A nil p indexes text only.
+func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string) error {
+	rep, err := ix.Sync()
+	if err != nil {
+		return err
+	}
+	notes, _ := ix.NoteCount()
+	edges, _ := ix.EdgeCount()
+
+	// Working notes come back before anything that needs a model, because
+	// restoring them needs nothing but the file — and this is the command a
+	// user runs after deleting the index, which is precisely when they are
+	// gone. Announced when there were any: a rebuild that silently recovered
+	// in-flight work is indistinguishable from one that lost it.
+	restoredNotes, rescuedNotes, err := ix.SyncNotes()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "· could not restore working notes:", err)
+	}
+	if restoredNotes > 0 {
+		fmt.Fprintf(w, "restored %d uncommitted working %s\n", restoredNotes, plural(restoredNotes, "note"))
+	}
+	// The other direction, and said out loud for the reason the rescued
+	// proposals are: these were in the cache alone because a write to the
+	// vault failed earlier, and the user was told that once, by a process
+	// that has since exited. Silence here would make this run look like an
+	// ordinary one while it repaired real data loss.
+	if rescuedNotes > 0 {
+		fmt.Fprintf(w, "wrote %d working %s to the vault — %s only in the index\n",
+			rescuedNotes, plural(rescuedNotes, "note"), wasWere(rescuedNotes))
+	}
+
+	// Memories and the review queue come back with or without a model.
+	// Import needs a provider only to re-embed, and passing a nil one skips
+	// exactly that — so this used to sit behind the `p == nil` return
+	// below, which meant a rebuild on a machine with no runtime restored
+	// the notes and left every remembered fact out of the cache until some
+	// later run happened to have Ollama up. "Delete the index, lose
+	// nothing" cannot depend on a model being reachable.
+	mems, rescuedMems, err := ix.SyncMemories(p, embed)
+	if err != nil {
+		return err
+	}
+	// Same again for memories, and this is the count the bug was about: a
+	// memory stranded in the cache used to be reaped here as a line the
+	// user had deleted by hand, and reported under `-0`.
+	if rescuedMems > 0 {
+		fmt.Fprintf(w, "wrote %d memor%s to the vault — %s only in the index\n",
+			rescuedMems, pluralY(rescuedMems), wasWere(rescuedMems))
+	}
+
+	// The review queue, after the memories, so an accepted proposal is
+	// already an active memory before the queue is consulted about its id.
+	if queued, rescued, err := ix.SyncPending(); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not restore the review queue:", err)
+	} else {
+		if queued > 0 {
+			fmt.Fprintf(w, "restored %d memor%s awaiting review — run `logos review`\n",
+				queued, pluralY(queued))
+		}
+		// Said out loud because it is a repair the user did not ask for and
+		// would otherwise never know happened — and because it means their
+		// queue was, until this run, one `rm -rf .logos` from gone.
+		if rescued > 0 {
+			fmt.Fprintf(w, "wrote %d memor%s awaiting review to the vault — they were only in the index\n",
+				rescued, pluralY(rescued))
+		}
+	}
+
+	// The timeline, after both. Announced because the alternative — a silent
+	// repair — is how the old failure hid: `logos memory log` answered
+	// confidently after a rebuild, with dates invented on the spot, and
+	// nothing on stdout ever said the history had been touched.
+	if events, err := ix.SyncLog(); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not restore the memory timeline:", err)
+	} else if events > 0 {
+		fmt.Fprintf(w, "restored %d memory %s — run `logos memory log`\n", events, plural(events, "event"))
+	}
+
+	// Open loops, which need no model either. Announced for the reason the
+	// working notes are: an empty `logos loop` after a rebuild reads as a
+	// list the user finished, not one the rebuild threw away. The count is
+	// every loop put back, closed ones included — they are what stops a
+	// dismissed commitment being extracted and surfaced all over again.
+	if loops, rescuedLoops, err := ix.SyncLoops(); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
+	} else {
+		if loops > 0 {
+			fmt.Fprintf(w, "restored %d tracked %s — run `logos loop`\n", loops, plural(loops, "loop"))
+		}
+		// The other direction, said for the reason the rescued memories are:
+		// a write to the vault failed earlier, and the process told about it
+		// has exited.
+		if rescuedLoops > 0 {
+			fmt.Fprintf(w, "wrote %d tracked %s to the vault — %s only in the index\n",
+				rescuedLoops, plural(rescuedLoops, "loop"), wasWere(rescuedLoops))
+		}
+	}
+
+	// Dreamed insights, after the memories they cite. Announced for the
+	// reason the rest are: an empty `logos dream review` after a rebuild
+	// reads as a queue the user has already been through, not one the
+	// rebuild threw away. The count is every insight put back, reviewed
+	// ones included — they are what stops a rejected connection being
+	// proposed all over again.
+	seen, rescuedInsights, err := ix.SyncInsights()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "· could not restore dreamed insights:", err)
+	} else if rescuedInsights > 0 {
+		fmt.Fprintf(w, "wrote %d dreamed %s to the vault — %s only in the index\n",
+			rescuedInsights, plural(rescuedInsights, "insight"), wasWere(rescuedInsights))
+	}
+	if err == nil && seen > 0 {
+		// Rejections are restored too — they are the record of what the user
+		// already refused. Only point at the review command when there is
+		// actually something waiting behind it.
+		line := fmt.Sprintf("restored %d dreamed %s", seen, plural(seen, "insight"))
+		if n, err := dream.PendingCount(ix.DB); err == nil && n > 0 {
+			line += " — run `logos dream review`"
+		}
+		fmt.Fprintln(w, line)
+	}
+
+	if p == nil {
+		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
+			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
+		return nil
+	}
+
+	embedded, err := ix.EmbedPending(p, embed, 32)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "+%d ~%d -%d =%d · embedded %d · %d notes, %d edges, %d memories\n",
+		rep.Added, rep.Updated, rep.Removed, rep.Unchanged, embedded, notes, edges, mems)
+	return nil
+}
+
+// runIndexAuto is `logos index --auto`, the rebuild the MCP server launches
+// rather than run before its handshake. Under a lock and checked again, since
+// every host's server starts at once and each one saw the index missing.
+func runIndexAuto() error {
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	g, err := vault.Lock(ix.Vault, "auto-index")
+	if err != nil {
+		return err
+	}
+	defer g.Unlock()
+	if synced, err := ix.Synced(); err != nil || synced {
+		return err
+	}
+	rebuildIndex(ix)
 	return nil
 }
