@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -46,18 +47,21 @@ func TestAnAgentCanDistilAnAutoRecordFromTheSlugResumeGaveIt(t *testing.T) {
 		t.Fatalf("harvest did not serve the record's transcript:\n%s", served)
 	}
 
-	receipt, err := s.ingestDistil(rec.Slug, "claude-code", "", []string{"go test ./cart passed (turn 2)"},
-		[]string{"guessed at the cause"}, nil, []string{"fixed it in checkout, because the prompt names the crash there (turn 1)"})
+	receipt, err := s.ingestDistil(rec.Slug, ingest.Distillation{Model: "claude-code",
+		Verified: []string{"go test ./cart passed (turn 2)"},
+		Failed:   []string{"guessed at the cause"},
+		Decided:  []string{"fixed it in checkout, because the prompt names the crash there (turn 1)"},
+		Wanted:   []string{"the checkout crash fixed (turn 1)"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(receipt, "1 verified, 0 didn't work, 1 decided") || !strings.Contains(receipt, "no turn cited") {
+	if !strings.Contains(receipt, "1 wanted, 1 verified, 0 didn't work, 1 decided") || !strings.Contains(receipt, "no turn cited") {
 		t.Errorf("the receipt does not count what was kept and dropped:\n%s", receipt)
 	}
 
 	raw, _ := os.ReadFile(filepath.Join(s.vault, filepath.FromSlash(rec.Slug)+".md"))
 	got := session.ParseCheckpoint(string(raw))
-	if got.Inferred == nil || len(got.Inferred.Verified) != 1 || len(got.Inferred.Decided) != 1 {
+	if got.Inferred == nil || len(got.Inferred.Verified) != 1 || len(got.Inferred.Decided) != 1 || len(got.Inferred.Wanted) != 1 {
 		t.Errorf("the record holds %+v after distilling", got.Inferred)
 	}
 }
@@ -90,8 +94,8 @@ func TestADistillationSentByTheRecordsFileNameIsCheckedAgainstTheWindowItWasServ
 	if _, err := s.ingestHarvest(rec.Slug, 2); err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := s.ingestDistil(" "+rec.Slug+".md", "claude-code", "", nil, nil, nil,
-		[]string{"settled on step 2, because the user said so (turn 3)"})
+	receipt, err := s.ingestDistil(" "+rec.Slug+".md", ingest.Distillation{Model: "claude-code",
+		Decided: []string{"settled on step 2, because the user said so (turn 3)"}})
 	if err != nil {
 		t.Fatal(err)
 	}

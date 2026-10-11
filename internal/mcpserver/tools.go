@@ -257,6 +257,7 @@ var toolDefs = []map[string]any{
 			"failed":   arrStr("what was ruled out, each citing its turn"),
 			"blockers": arrStr("optional: what stopped the session, each citing its turn"),
 			"decided":  arrStr("auto records only: what the session decided and why, each citing its turn"),
+			"wanted":   arrStr("auto records only: what the person asked for or corrected the agent toward, each citing a turn they wrote"),
 			"next":     str("the first thing the next agent should do; a proposal, so it cites nothing"),
 			"model":    str("optional: your model name"),
 		}, "session"),

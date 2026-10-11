@@ -32,7 +32,10 @@ type Distillation struct {
 	// Decided is kept only on an auto record: a candidate has nowhere to put
 	// it, and a person reviewing one writes the decisions themselves.
 	Decided []string
-	Next    string
+	// Wanted, like Decided, is kept only on an auto record, and only where it
+	// cites a turn the person wrote (see Filter).
+	Wanted []string
+	Next   string
 }
 
 // Drop is one claim the filter refused, and why. Dropped claims are returned,
@@ -101,7 +104,10 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 	out := Distillation{Model: d.Model, Next: strings.TrimSpace(d.Next)}
 	var drops []Drop
 
-	keep := func(field string, claims []string, needSuccess bool) []string {
+	// needPerson: what the person wanted has to be read from something they
+	// said. Citing only the agent's turns makes it the agent's account of its
+	// brief, which is a summary, not a reading.
+	keep := func(field string, claims []string, needSuccess, needPerson bool) []string {
 		var kept []string
 		for _, raw := range claims {
 			claim := strings.TrimSpace(raw)
@@ -113,7 +119,7 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				drops = append(drops, Drop{field, claim, "no turn cited"})
 				continue
 			}
-			ok, sawSuccess := false, false
+			ok, sawSuccess, sawPerson := false, false, false
 			var bad []string
 			for _, n := range turns {
 				if n < 1 || n > len(ev.Turns) {
@@ -135,6 +141,7 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				if t.Role == "tool" && t.Status == "ok" && isShellTool(t.Tool) {
 					sawSuccess = true
 				}
+				sawPerson = sawPerson || t.Role == "user"
 			}
 			if !ok {
 				drops = append(drops, Drop{field, claim, strings.Join(bad, "; ")})
@@ -144,15 +151,20 @@ func Filter(ev Evidence, d Distillation) (Distillation, []Drop) {
 				drops = append(drops, Drop{field, claim, "cites no turn holding a command that ran successfully — a file edit or read is not a demonstration"})
 				continue
 			}
+			if needPerson && !sawPerson {
+				drops = append(drops, Drop{field, claim, "cites no turn the person wrote — what they wanted has to come from what they said"})
+				continue
+			}
 			kept = append(kept, claim)
 		}
 		return kept
 	}
 
-	out.Verified = keep("verified", d.Verified, true)
-	out.Failed = keep("failed", d.Failed, false)
-	out.Blockers = keep("blockers", d.Blockers, false)
-	out.Decided = keep("decided", d.Decided, false)
+	out.Verified = keep("verified", d.Verified, true, false)
+	out.Failed = keep("failed", d.Failed, false, false)
+	out.Blockers = keep("blockers", d.Blockers, false, false)
+	out.Decided = keep("decided", d.Decided, false, false)
+	out.Wanted = keep("wanted", d.Wanted, false, true)
 	return out, drops
 }
 
@@ -299,8 +311,10 @@ func (ev Evidence) Render() string {
 	b.WriteString("--- END UNTRUSTED TRANSCRIPT ---\n\n")
 
 	if ev.Record != "" {
-		fmt.Fprintf(&b, "Distil this into verified / failed / decided and send it back with ingest_distil, session %q.\n", ev.Record)
-		b.WriteString("Every verified, failed and decided entry must name the turn it came from, as \"turn 12\".\n")
+		fmt.Fprintf(&b, "Distil this into wanted / verified / failed / decided and send it back with ingest_distil, session %q.\n", ev.Record)
+		b.WriteString("Every entry must name the turn it came from, as \"turn 12\".\n")
+		b.WriteString("A wanted entry is what the person asked for or corrected the agent toward, citing a turn they wrote —\n")
+		b.WriteString("a correction (\"no, I meant…\") is the strongest one; the agent's own turns do not count.\n")
 		b.WriteString("A verified entry needs a command that ran successfully in the turn it cites — a file edit is not one;\n")
 		b.WriteString("an assistant saying something worked is not an observation of it working.\n")
 		b.WriteString("Uncited entries are dropped before anything is written, and what is kept is shown as inferred, never as the session's own record.\n")

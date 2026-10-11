@@ -140,3 +140,21 @@ func TestAnInferenceIsRefusedWhenTheRecordGrewWhileItWasRead(t *testing.T) {
 		t.Errorf("the refused reading changed the record:\n%s", after)
 	}
 }
+
+// What the person wanted, read out of the transcript, rebuilds from the file
+// like the rest of an inference; in SQLite alone it would go with the index.
+func TestWhatThePersonWantedComesBackFromTheVault(t *testing.T) {
+	vault := t.TempDir()
+	c := autoRecord(t, vault)
+	want := []string{"an empty cart to return early, not a nil check (turn 1)"}
+	if _, err := InferAuto(vault, c.Slug, Inference{By: "claude-code", Wanted: want}); err != nil {
+		t.Fatal(err)
+	}
+	got := reread(t, vault, c.Slug)
+	if got.Inferred == nil || !reflect.DeepEqual(got.Inferred.Wanted, want) {
+		t.Errorf("inferred = %+v, want Wanted %v", got.Inferred, want)
+	}
+	if got.Inferred.Empty() {
+		t.Error("an inference holding only what the person wanted reads as one that kept nothing")
+	}
+}

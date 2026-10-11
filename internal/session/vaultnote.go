@@ -129,6 +129,7 @@ func (c Checkpoint) Markdown(follows string) string {
 	bullets(&b, secFiles, c.Files)
 	section(&b, secNext, c.Next)
 	if in := c.Inferred; in != nil {
+		bullets(&b, secInferredWanted, in.Wanted)
 		bullets(&b, secInferredVerified, in.Verified)
 		bullets(&b, secInferredFailed, in.Failed)
 		bullets(&b, secInferredDecided, in.Decided)
@@ -157,6 +158,7 @@ const (
 	secInferredVerified = "Inferred from the transcript: verified"
 	secInferredFailed   = "Inferred from the transcript: didn't work"
 	secInferredDecided  = "Inferred from the transcript: decided"
+	secInferredWanted   = "Inferred from the transcript: what they wanted"
 )
 
 func (c Checkpoint) title() string {
@@ -332,6 +334,8 @@ func ParseCheckpoint(raw string) Checkpoint {
 			inferred(&c, fm).Failed = parseBullets(text)
 		case secInferredDecided:
 			inferred(&c, fm).Decided = parseBullets(text)
+		case secInferredWanted:
+			inferred(&c, fm).Wanted = parseBullets(text)
 		}
 	}
 	// A distillation that kept nothing is still one that happened: without

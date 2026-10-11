@@ -168,3 +168,32 @@ func TestARecordThatNeverCountedItsTranscriptIsNotServed(t *testing.T) {
 		t.Error("a record that cannot say which turns are its own was served")
 	}
 }
+
+// What the person wanted is the one reading that has to come from the person.
+// An entry citing only the agent's own turns is the agent's account of what it
+// was asked, which is the summary this field exists not to be.
+func TestWhatThePersonWantedIsKeptOnlyWhereItCitesSomethingTheySaid(t *testing.T) {
+	vault, rec := recordFrom(t, worked())
+
+	c, drops, _, err := AcceptAuto(vault, rec.Slug, 0, Distillation{
+		Wanted: []string{
+			"an empty cart to return early instead of panicking (turn 1)",
+			"the checkout tests to pass (turn 3)",
+			"a faster checkout",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred == nil || len(c.Inferred.Wanted) != 1 || !strings.Contains(c.Inferred.Wanted[0], "return early") {
+		t.Fatalf("kept %+v, want only the entry citing the person's turn", c.Inferred)
+	}
+	if len(drops) != 2 {
+		t.Errorf("dropped %+v, want the entry citing a tool turn and the uncited one", drops)
+	}
+	for _, d := range drops {
+		if strings.Contains(d.Claim, "turn 3") && !strings.Contains(d.Reason, "the person") {
+			t.Errorf("the drop does not say a want must cite the person: %+v", d)
+		}
+	}
+}

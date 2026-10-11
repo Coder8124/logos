@@ -102,6 +102,11 @@ type Inference struct {
 	Verified []string
 	Failed   []string
 	Decided  []string
+	// Wanted is what the person asked for or corrected the agent toward, each
+	// citing a turn of theirs: the session's intent, read rather than
+	// summarised, since an agent's account of what it was asked is the guess
+	// the auto record's quoted task line exists to avoid.
+	Wanted []string
 	// Turns is the record's Turns when it was read. A record that has grown
 	// past it holds work nobody read, and is offered for reading again.
 	Turns int
@@ -109,7 +114,7 @@ type Inference struct {
 
 // Empty reports whether the distillation kept nothing.
 func (in *Inference) Empty() bool {
-	return in == nil || len(in.Verified)+len(in.Failed)+len(in.Decided) == 0
+	return in == nil || len(in.Verified)+len(in.Failed)+len(in.Decided)+len(in.Wanted) == 0
 }
 
 // CheckpointDir is where checkpoints live inside the vault. A visible folder,

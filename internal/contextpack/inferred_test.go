@@ -133,3 +133,23 @@ func TestAnAutoRecordsTaskIsShownAsTheRequestItQuotes(t *testing.T) {
 		t.Errorf("the auto record's task reads as an agent's own:\n%s", out)
 	}
 }
+
+// What the person wanted is an agent's reading, so it is shown as one: by
+// whom, unverified, and not to be taken as a ruling.
+func TestWhatThePersonWantedIsShownAsAnInference(t *testing.T) {
+	ix := seedVault(t)
+	rec := autoRecordFor(t, ix.Vault)
+	if _, err := session.InferAuto(ix.Vault, rec.Slug, session.Inference{By: "cursor", Turns: 6,
+		Wanted: []string{"the BOM export to keep the supplier column (turn 4)"}}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "kestrel-one", Now: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if !strings.Contains(out, "What they wanted, inferred from the transcript by cursor, unverified — not a ruling") ||
+		!strings.Contains(out, "keep the supplier column (turn 4)") {
+		t.Errorf("what the person wanted is not shown as an inference:\n%s", out)
+	}
+}

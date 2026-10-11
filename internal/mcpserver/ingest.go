@@ -73,19 +73,19 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 // ingestDistil takes the distillation back, filters it, and rewrites the
 // candidate. Dropped claims are named: a distillation that lost half its
 // entries must read as one that lost half its entries (invariant 4).
-func (s *Session) ingestDistil(ref, model, next string, verified, failed, blockers, decided []string) (string, error) {
+func (s *Session) ingestDistil(ref string, d ingest.Distillation) (string, error) {
 	if strings.TrimSpace(ref) == "" {
 		return "", fmt.Errorf("ingest_distil needs the session it is distilling — call ingest_harvest first")
 	}
 	if ingest.IsRecordRef(ref) {
-		return s.distilRecord(ref, model, verified, failed, decided, len(blockers) > 0 || strings.TrimSpace(next) != "")
+		return s.distilRecord(ref, d)
 	}
 	c, drops, redactions, err := ingest.AcceptWithin(s.vault, ref, s.servedWindow(ref), ingest.Distillation{
-		Model:    model,
-		Verified: verified,
-		Failed:   failed,
-		Blockers: blockers,
-		Next:     next,
+		Model:    d.Model,
+		Verified: d.Verified,
+		Failed:   d.Failed,
+		Blockers: d.Blockers,
+		Next:     d.Next,
 	})
 	if err != nil {
 		return "", err
@@ -109,8 +109,11 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 		}
 		b.WriteString("\n")
 	}
-	if n := len(decided); n > 0 {
+	if n := len(d.Decided); n > 0 {
 		fmt.Fprintf(&b, "%d decided entr%s not kept: a candidate has no place for them — a person promoting it records the decisions.\n\n", n, pluralY(n))
+	}
+	if n := len(d.Wanted); n > 0 {
+		fmt.Fprintf(&b, "%d wanted entr%s not kept: a candidate has no place for them — a person promoting it writes the task.\n\n", n, pluralY(n))
 	}
 	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  logos ingest review --promote %s\n", shortSession(c.SessionID))
 	return b.String(), nil
@@ -120,23 +123,24 @@ func (s *Session) ingestDistil(ref, model, next string, verified, failed, blocke
 // The receipt counts what was kept and names what was dropped, and says what
 // was ignored: blockers and next have no inferred form, and a distillation
 // that quietly lost them would read as one that kept them.
-func (s *Session) distilRecord(ref, model string, verified, failed, decided []string, ignored bool) (string, error) {
+func (s *Session) distilRecord(ref string, d ingest.Distillation) (string, error) {
 	// Looked up exactly, by the slug harvest stored it under: a prefix match
 	// here would hand one record the window another was served in.
 	slug := ingest.RecordSlug(ref)
 	c, drops, redactions, err := ingest.AcceptAuto(s.vault, slug, s.served[slug], ingest.Distillation{
-		Model:    model,
-		Verified: verified,
-		Failed:   failed,
-		Decided:  decided,
+		Model:    d.Model,
+		Verified: d.Verified,
+		Failed:   d.Failed,
+		Decided:  d.Decided,
+		Wanted:   d.Wanted,
 	})
 	if err != nil {
 		return "", err
 	}
 	in := c.Inferred
 	var b strings.Builder
-	b.WriteString(s.receipt(fmt.Sprintf("inferred into %s — %d verified, %d didn't work, %d decided, marked as read from the transcript by %s, unverified",
-		c.Slug, len(in.Verified), len(in.Failed), len(in.Decided), in.By)))
+	b.WriteString(s.receipt(fmt.Sprintf("inferred into %s — %d wanted, %d verified, %d didn't work, %d decided, marked as read from the transcript by %s, unverified",
+		c.Slug, len(in.Wanted), len(in.Verified), len(in.Failed), len(in.Decided), in.By)))
 	b.WriteString("\n\n")
 	if len(redactions) > 0 {
 		fmt.Fprintf(&b, "%d secret-shaped token(s) redacted before writing:\n", len(redactions))
@@ -152,8 +156,8 @@ func (s *Session) distilRecord(ref, model string, verified, failed, decided []st
 		}
 		b.WriteString("\n")
 	}
-	if ignored {
-		b.WriteString("blockers and next were not kept: an auto record carries only verified, failed and decided as inferred.\n\n")
+	if len(d.Blockers) > 0 || strings.TrimSpace(d.Next) != "" {
+		b.WriteString("blockers and next were not kept: an auto record carries only wanted, verified, failed and decided as inferred.\n\n")
 	}
 	b.WriteString("Resume shows these apart from what an agent stated, and before_you_try does not treat them as rulings.\n")
 	return b.String(), nil

@@ -190,6 +190,7 @@ func AcceptAuto(vaultDir, slug string, maxTurns int, d Distillation) (session.Ch
 		Verified: mask("Verified", kept.Verified),
 		Failed:   mask("Didn't work", kept.Failed),
 		Decided:  mask("Decided", kept.Decided),
+		Wanted:   mask("Wanted", kept.Wanted),
 	})
 	return c, drops, found, err
 }

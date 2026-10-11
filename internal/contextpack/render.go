@@ -350,6 +350,7 @@ func inferredFromTranscript(b *strings.Builder, c *session.Checkpoint, offer boo
 			by = "an agent"
 		}
 		note := fmt.Sprintf("inferred from the transcript by %s, unverified — not a ruling", inline(by))
+		list(b, "What they wanted, "+note, in.Wanted)
 		list(b, "Worked, "+note, in.Verified)
 		list(b, "Didn't work, "+note, in.Failed)
 		list(b, "Decided, "+note, in.Decided)
