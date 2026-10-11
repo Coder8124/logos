@@ -128,3 +128,21 @@ func TestTheIndexSwitchRebuildsADeletedIndexBeforeTheCommandAnswers(t *testing.T
 		t.Errorf("the next resume will not say the index was rebuilt once: %q", got)
 	}
 }
+
+// The demo builds its own scratch vault, which has never been indexed; telling
+// the room that vault has no index, right after saying their real one is
+// untouched, is a false alarm in the one place it is read aloud.
+func TestTheDemoDoesNotWarnThatItsScratchVaultHasNoIndex(t *testing.T) {
+	standIn(t, "shop")
+	t.Setenv("LOGOS_EMBED", "off")
+	errOut := captureStderr(t, func() {
+		captureStdout(t, func() {
+			if err := runDemo([]string{"--fast", "--vault", t.TempDir()}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	if strings.Contains(errOut, "no index") {
+		t.Errorf("the demo warned about its own scratch index:\n%s", errOut)
+	}
+}
