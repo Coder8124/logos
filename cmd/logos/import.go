@@ -179,7 +179,12 @@ func readClaudeMem(path, only string) ([]*memory.Memory, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("no claude-mem store at %s (set CLAUDE_MEM_DATA_DIR or pass --db): %w", path, err)
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	// Escaped because in a URI `?` starts the query, `#` the fragment and `%`
+	// an escape: a store in a directory named with one passed the Stat above
+	// and then failed to open. Only those three, so a Windows path is
+	// otherwise the string it was.
+	uriPath := strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(path)
+	db, err := sql.Open("sqlite", "file:"+uriPath+"?mode=ro")
 	if err != nil {
 		return nil, err
 	}
