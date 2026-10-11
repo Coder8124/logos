@@ -189,3 +189,10 @@ func scopeName(project string) string {
 	}
 	return project
 }
+
+// KindOf is the kind memory id was stored as, which a correction of it keeps.
+func KindOf(db *sql.DB, id int64) (Kind, error) {
+	var kind string
+	err := db.QueryRow("SELECT kind FROM memories WHERE id = ?", id).Scan(&kind)
+	return Kind(kind), err
+}
