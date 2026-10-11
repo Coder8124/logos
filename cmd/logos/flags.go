@@ -91,6 +91,7 @@ var commandFlags = map[string]flagSpec{
 	"why":      {numeric: []string{"--limit", "-n"}},
 	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects"}},
 	"usage":    {valued: []string{"--usd"}, bare: []string{"--week"}},
+	"show":     {bare: []string{"--all"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
 		"--action", "--instead"}},

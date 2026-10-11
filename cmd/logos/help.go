@@ -79,6 +79,8 @@ CONTINUITY
                                       --ran, --question and --file to add more than one
     logos resume [project]            pick up where the last agent left off
                                       the project defaults to the directory you are in
+    logos show [project] [--all]      one project on one screen, for you rather than an agent:
+                                      checkpoint, ruled-out approaches, memories, review queue
     logos ingest [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
                                       --path is a file, or for a txcript harness a session id

@@ -151,6 +151,8 @@ func main() {
 		err = runInsights(args)
 	case cmd == "usage":
 		err = runUsage(args)
+	case cmd == "show":
+		err = runShow(args)
 	case cmd == "why":
 		err = runWhy(args)
 	case cmd == "tried":
