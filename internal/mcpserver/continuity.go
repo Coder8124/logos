@@ -280,7 +280,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 			}
 		}
 	}
-	out := chose + swept + ops.AutoLead(s.vault, project) + s.lead(pack) + pack.Render()
+	out := chose + swept + ops.RunAutoReview(s.DB, s.vault, project) + ops.AutoLead(s.vault, project) + s.lead(pack) + pack.Render()
 	out += s.ledgerPack("mcp:resume", project, pack)
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and

@@ -467,7 +467,7 @@ func Export(db *sql.DB, dir string) error {
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin
+		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -479,7 +479,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var m Memory
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin); err != nil {
+			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted); err != nil {
 			return err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
@@ -529,6 +529,11 @@ func renderKind(kind Kind, mems []Memory) string {
 		// hand, not just round-trip.
 		if m.Pin != PinNone {
 			fmt.Fprintf(&b, " pin=%d", m.Pin)
+		}
+		// Only the review switch's accepts carry it: a memory a person
+		// accepted reads as it always has.
+		if m.AutoAccepted > 0 {
+			fmt.Fprintf(&b, " accepted=auto@%s", time.Unix(m.AutoAccepted, 0).UTC().Format(time.RFC3339))
 		}
 		b.WriteString(" -->\n")
 	}
@@ -758,10 +763,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	if m.ID > 0 {
 		res, err := db.Exec(
 			`UPDATE memories SET text=?, kind=?, salience=?, confidence=?, project=?,
-			 source=?, agent=?, created=?, last_used=?, uses=?, fingerprint=?, vec=COALESCE(?, vec), pin=?
+			 source=?, agent=?, created=?, last_used=?, uses=?, fingerprint=?, vec=COALESCE(?, vec), pin=?, auto_accepted=?
 			 WHERE id = ?`,
 			m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, fingerprint(m.Text), vec, m.Pin, m.ID)
+			m.Agent, m.Created, m.LastUsed, m.Uses, fingerprint(m.Text), vec, m.Pin, m.AutoAccepted, m.ID)
 		if err != nil {
 			return 0, err
 		}
@@ -770,10 +775,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin)
+			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted)
 		// No event. Restoring a row the rebuild deleted is not a creation, and
 		// logging one stamped with time.Now() is how `logos memory log` came to
 		// report every fact you had ever learned as learned today. The real
@@ -796,10 +801,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (int6
 	for range idAttempts {
 		id := nextID(db)
 		_, err := db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin)
+			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted)
 		if err == nil {
 			logEvent(db, id, EvCreated, m.Text, 0)
 			return id, nil
@@ -923,6 +928,18 @@ func applyMeta(m *Memory, meta string) {
 			m.Project = unLogField(value)
 		case "agent":
 			m.Agent = value
+		case "turn":
+			m.Turn = unLogField(value)
+		case "contests":
+			m.Contests, _ = strconv.ParseInt(value, 10, 64)
+		case "accepted":
+			// Only auto@<time> means anything. A hand edit to anything else,
+			// or deleting the field, is the user saying a person accepted it.
+			if at, ok := strings.CutPrefix(value, "auto@"); ok {
+				if t, err := time.Parse(time.RFC3339, at); err == nil {
+					m.AutoAccepted = t.Unix()
+				}
+			}
 		case "pin":
 			// Tolerant of a hand-typed value out of range: a person editing the
 			// file might type anything, and refusing to import over it would

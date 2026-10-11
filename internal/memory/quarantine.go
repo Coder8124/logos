@@ -3,6 +3,7 @@ package memory
 import (
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // Quarantine is consent before learning applied to the memory a machine writes
@@ -36,7 +37,7 @@ import (
 // which agent proposed it is part of the answer.
 func Pending(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, turn, contests
 		   FROM memories WHERE quarantined = 1 AND superseded = 0 ORDER BY created ASC`)
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func Pending(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.Turn, &m.Contests); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -77,7 +78,14 @@ func isQueued(db *sql.DB, id int64) bool {
 // recallable and gets written to the vault, same as anything Store creates
 // directly. Rejects an id that is not actually pending, rather than silently
 // no-op-ing on a typo or a double-accept.
-func Accept(db *sql.DB, id int64) error {
+func Accept(db *sql.DB, id int64) error { return accept(db, id, 0) }
+
+// AcceptAuto is Accept done by the review switch at the given time. The memory
+// is marked as auto-accepted in its vault line, which is what lets a person
+// list and undo what the switch did — after a rebuild as well as before one.
+func AcceptAuto(db *sql.DB, id int64, at time.Time) error { return accept(db, id, at.Unix()) }
+
+func accept(db *sql.DB, id int64, autoAt int64) error {
 	var text, kind string
 	var quarantined int
 	if err := db.QueryRow("SELECT text, kind, quarantined FROM memories WHERE id = ?", id).Scan(&text, &kind, &quarantined); err != nil {
@@ -110,7 +118,7 @@ func Accept(db *sql.DB, id int64) error {
 			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
 				return err
 			}
-			res, err := db.Exec("UPDATE memories SET quarantined = 0 WHERE id = ? AND quarantined = 1", id)
+			res, err := db.Exec("UPDATE memories SET quarantined = 0, auto_accepted = ? WHERE id = ? AND quarantined = 1", autoAt, id)
 			if err != nil {
 				return err
 			}
@@ -121,7 +129,11 @@ func Accept(db *sql.DB, id int64) error {
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("memory #%d is not in %s — deleting its line there rejected it", id, PendingFile)
 			}
-			logEvent(db, id, EvAccepted, text, 0)
+			if autoAt > 0 {
+				logEvent(db, id, EvAutoAccepted, text, 0)
+			} else {
+				logEvent(db, id, EvAccepted, text, 0)
+			}
 			// Now that it is active, it belongs in the vault the same as anything
 			// else — this is the moment it moves out of the review queue and into
 			// memory. Both files change, and the memory file is written first: a
@@ -190,4 +202,86 @@ func rejectRow(db *sql.DB, id int64, text string) error {
 	}
 	logEvent(db, id, EvRejected, text, 0)
 	return nil
+}
+
+// AutoAccepted lists the memories the review switch accepted at or after
+// since, newest first, that still carry the mark: one a person has since
+// forgotten, or whose mark they deleted by hand, is no longer the switch's.
+func AutoAccepted(db *sql.DB, since int64) ([]Memory, error) {
+	rows, err := db.Query(
+		`SELECT id, text, kind, project, agent, created, auto_accepted FROM memories
+		  WHERE auto_accepted > 0 AND auto_accepted >= ? AND quarantined = 0 AND superseded = 0
+		  ORDER BY auto_accepted DESC, id DESC`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Memory
+	for rows.Next() {
+		var m Memory
+		var kind string
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Project, &m.Agent, &m.Created, &m.AutoAccepted); err != nil {
+			return nil, err
+		}
+		m.Kind = Kind(kind)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// LastReview is when a person last accepted or rejected a proposal, or 0. It
+// reads the memory timeline, which log.md restores after a rebuild, so "since
+// your last review" survives deleting the index like the marks it counts.
+func LastReview(db *sql.DB) (int64, error) {
+	var ts sql.NullInt64
+	err := db.QueryRow(`SELECT MAX(ts) FROM memory_log WHERE event IN (?, ?)`, EvAccepted, EvRejected).Scan(&ts)
+	return ts.Int64, err
+}
+
+// UndoAuto puts a memory the review switch accepted back in the review queue.
+// Back in the queue rather than rejected: the switch's mistake is to have
+// decided without the user, and the undo returns the decision to them instead
+// of making a second one on their behalf.
+func UndoAuto(db *sql.DB, id int64) error {
+	var text, kind string
+	var autoAt int64
+	if err := db.QueryRow("SELECT text, kind, auto_accepted FROM memories WHERE id = ? AND quarantined = 0", id).Scan(&text, &kind, &autoAt); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("no active memory #%d", id)
+		}
+		return err
+	}
+	if autoAt == 0 {
+		return fmt.Errorf("memory #%d was not accepted automatically", id)
+	}
+	// The lock order Accept documents, kind outside pending. Both files are
+	// rewritten, the queue first: a crash between them leaves the memory in
+	// both, active and queued, which the next undo or accept resolves. The
+	// other order leaves it in neither, and the rebuild would lose it.
+	return withKind(db, Kind(kind), func() error {
+		if err := reconcileLocked(db, Kind(kind)); err != nil {
+			return err
+		}
+		return withPending(db, func(dir string) error {
+			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
+				return err
+			}
+			// The turn goes with it: the citation is what made it eligible, and
+			// a memory the user handed back must not be accepted again by the
+			// very next resume. Its absence is written to the queue file, so a
+			// rebuild cannot restore the eligibility either.
+			res, err := db.Exec("UPDATE memories SET quarantined = 1, auto_accepted = 0, turn = '' WHERE id = ? AND quarantined = 0 AND auto_accepted > 0", id)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return fmt.Errorf("memory #%d changed in %s/%s.md before it could be returned to review", id, Dir, kind)
+			}
+			logEvent(db, id, EvUnaccepted, text, 0)
+			if err := flushPendingLocked(db, dir); err != nil {
+				return err
+			}
+			return flushLocked(db, Kind(kind))
+		})
+	})
 }

@@ -277,6 +277,7 @@ func runResume(args []string) error {
 	if auto.On(ix.Vault, auto.Checkpoint) {
 		fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
 	}
+	fmt.Print(ops.RunAutoReview(ix.DB, ix.Vault, project))
 	fmt.Print(ops.AutoLead(ix.Vault, project))
 
 	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
@@ -313,13 +314,16 @@ func runResume(args []string) error {
 // queue was mentioned by doctor alone, which nobody runs to start work.
 func printAwaitingReview(db *sql.DB) {
 	n, err := memory.PendingCount(db)
-	switch {
-	case err != nil:
+	if err != nil {
 		fmt.Printf("\n(could not count the memories waiting for review: %v)\n", err)
-	case n == 1:
-		fmt.Println("\n1 memory is waiting for your review — logos review")
-	case n > 1:
-		fmt.Printf("\n%d memories are waiting for your review — logos review\n", n)
+		return
+	}
+	done, err := ops.AutoAcceptedSinceReview(db)
+	if err != nil {
+		fmt.Printf("\n(could not count the memories accepted automatically: %v)\n", err)
+	}
+	if line := ops.QueueLine(n, done, "logos", ops.Plain); line != "" {
+		fmt.Println("\n" + line)
 	}
 }
 

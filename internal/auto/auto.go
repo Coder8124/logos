@@ -41,6 +41,7 @@ const (
 	RulingsAtEdit Switch = "rulings-at-edit"
 	Dream         Switch = "dream"
 	Index         Switch = "index"
+	Review        Switch = "review"
 )
 
 type spec struct {
@@ -62,6 +63,11 @@ var specs = []spec{
 	// rebuilt. A hook never rebuilds (LOGOS_HOOK), since a large vault can
 	// outlast its timeout, so `auto on` turning this on costs no hook its work.
 	{Index, "rebuild a missing index from the vault, text only, before the command that found it", false},
+	// Off until asked: it accepts memories nobody looked at. And rarely fires
+	// when on, by design: a contested proposal is never accepted for the user,
+	// and under the default an agent's proposal queues only when it is
+	// contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
+	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", false},
 }
 
 // Switches lists every switch, in the order status prints them.

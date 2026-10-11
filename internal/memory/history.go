@@ -27,6 +27,12 @@ const (
 	EvQuarantined = "quarantined" // a machine proposed this and it is waiting for review
 	EvAccepted    = "accepted"    // a quarantined memory was reviewed and released into active memory
 	EvRejected    = "rejected"    // a quarantined memory was reviewed and discarded
+	// EvAutoAccepted is the review switch accepting a memory with nobody
+	// watching, kept apart from EvAccepted so "since your last review" means
+	// since a person last looked, not since the switch last ran.
+	EvAutoAccepted = "auto-accepted"
+	// EvUnaccepted is `logos review --undo-auto` putting one back in the queue.
+	EvUnaccepted = "returned-to-review"
 )
 
 // LogEntry is one line of the timeline.

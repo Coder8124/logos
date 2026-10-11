@@ -28,14 +28,15 @@ func ReviewQueue(db *sql.DB, shell string) Outcome {
 		o.say(QueueAdoption(restored, rejected))
 	}
 	n, err := memory.PendingCount(db)
-	switch {
-	case err != nil:
+	if err != nil {
 		o.fail(fmt.Sprintf("could not count the memories waiting for review: %v", err))
-	case n == 1:
-		o.say(fmt.Sprintf("1 memory is waiting for your review — `%s review`", shell))
-	case n > 1:
-		o.say(fmt.Sprintf("%d memories are waiting for your review — `%s review`", n, shell))
+		return o
 	}
+	done, err := AutoAcceptedSinceReview(db)
+	if err != nil {
+		o.fail(fmt.Sprintf("could not count the memories accepted automatically: %v", err))
+	}
+	o.say(QueueLine(n, done, shell, Backticked))
 	return o
 }
 
@@ -62,3 +63,25 @@ func proposals(n int) string {
 	}
 	return "proposals"
 }
+
+// QueueLine is the review queue in one line: what waits for the user, and what
+// the review switch accepted for them since they last looked. Empty when there
+// is neither. cmd wraps a command as the reader shows it: backticks for an
+// agent's markdown, nothing for a terminal.
+func QueueLine(waiting, autoAccepted int, shell string, cmd func(string) string) string {
+	review := cmd(shell + " review")
+	switch {
+	case autoAccepted > 0:
+		return fmt.Sprintf("accepted %d automatically since your last review, %d waiting for you — %s, or %s to see what was accepted",
+			autoAccepted, waiting, review, cmd(shell+" review --auto"))
+	case waiting == 1:
+		return "1 memory is waiting for your review — " + review
+	case waiting > 1:
+		return fmt.Sprintf("%d memories are waiting for your review — %s", waiting, review)
+	}
+	return ""
+}
+
+// Backticked is how an agent's markdown shows a command; Plain is a terminal.
+func Backticked(c string) string { return "`" + c + "`" }
+func Plain(c string) string      { return c }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/untrusted"
@@ -43,6 +44,7 @@ func (s *Session) remember(text, kindStr, projectArg string, global bool) (strin
 			Text: text, Kind: kind, Salience: 0.7, Source: "mcp", Project: project, Agent: s.clientAgent,
 			Quarantined:       reviewEverythingMCP(),
 			ReviewIfContested: !trustMCP(),
+			Turn:              s.citeTurn(),
 		},
 		Embed: s.embed, Model: s.embedModel,
 	})
@@ -313,4 +315,21 @@ func (s *Server) shell() string {
 // ops.ReviewQueue.
 func (s *Server) awaitingReview() string {
 	return ops.ReviewQueue(s.DB, s.shell()).Text()
+}
+
+// citeTurn is the transcript turn a proposal is being made in, for the review
+// switch: a queued memory it cannot trace back to what was said is one it
+// leaves for a person. Read only with the switch on, since reading the host's
+// transcript on every remember is a cost nobody else asked for. "" when there
+// is no transcript of this session to cite — an unknown host, or a newest
+// transcript that ended before this server started and so is someone else's.
+func (s *Session) citeTurn() string {
+	if s.vault == "" || s.clientAgent == "" || !auto.On(s.vault, auto.Review) {
+		return ""
+	}
+	ts, err := newestSession(s.clientAgent)
+	if err != nil || ts == nil || len(ts.Turns) == 0 || !ranDuring(ts, s.startedAt.Unix()) {
+		return ""
+	}
+	return ops.TurnRef(s.clientAgent, ts.Path, len(ts.Turns))
 }
