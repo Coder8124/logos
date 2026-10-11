@@ -39,9 +39,15 @@ func checkCommit(t *testing.T, msg string) (bool, string) {
 // about go generate failed the commits job — and with it `ci ok`, the one
 // check main's protection requires.
 func TestABodyThatSaysGeneratedWithInPassingIsNotAttribution(t *testing.T) {
-	ok, out := checkCommit(t, "The table is regenerated\n\nThe table is generated with go generate from the schema.")
-	if !ok {
-		t.Errorf("an ordinary body was rejected as attribution:\n%s", out)
+	for _, body := range []string{
+		"The table is generated with go generate from the schema.",
+		// Wrapped, the same sentence puts the phrase at the start of a line.
+		"The docs table is regenerated from the schema, which is itself\ngenerated with go generate from the migrations.",
+	} {
+		ok, out := checkCommit(t, "The table is regenerated\n\n"+body)
+		if !ok {
+			t.Errorf("an ordinary body was rejected as attribution:\n%s", out)
+		}
 	}
 }
 

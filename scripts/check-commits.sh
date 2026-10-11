@@ -31,10 +31,11 @@ for sha in $(git rev-list --no-merges "${base}..${head}"); do
   esac
   [[ "$subject" == *. ]] && fail "$short" "subject ends with a period: $subject"
   # Attribution of any kind — a trailer or a generated-by line — stays out of
-  # the history, whoever or whatever wrote the change. Anchored to the line
-  # start, past a leading emoji: unanchored, "generated with go generate" in an
-  # ordinary body failed the check.
-  if grep -qiE '^((co-authored-by|signed-off-by|generated-by):|[^[:alnum:]]*generated with)' <<<"$body"; then
+  # the history, whoever or whatever wrote the change. A generated-with line
+  # is one that names its tool or links it, past a leading emoji: "generated
+  # with go generate" in an ordinary body failed the check, and anchoring to
+  # the line start alone still failed it wherever the body wrapped before it.
+  if grep -qiE '^((co-authored-by|signed-off-by|generated-by):|[^[:alnum:]]*generated with (\[|claude|copilot|chatgpt|codex|cursor|gemini|aider|devin|windsurf))' <<<"$body"; then
     fail "$short" "attribution line in the message: $subject"
   fi
 done
