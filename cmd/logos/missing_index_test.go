@@ -146,3 +146,29 @@ func TestTheDemoDoesNotWarnThatItsScratchVaultHasNoIndex(t *testing.T) {
 		t.Errorf("the demo warned about its own scratch index:\n%s", errOut)
 	}
 }
+
+// A hook has seconds before its host kills it, and a rebuild on a large vault
+// can take longer, so a hook says the index is missing and leaves the rebuild
+// to the next command somebody is waiting on.
+func TestAHookNeverRebuildsTheIndex(t *testing.T) {
+	standIn(t, "shop")
+	if err := os.WriteFile(filepath.Join(vaultPath(), "cache.md"), []byte("# Cache\n\nThe cart cache expires.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LOGOS_EMBED", "off")
+	t.Setenv("LOGOS_HOOK", "1")
+	if err := auto.Set(vaultPath(), "index", true); err != nil {
+		t.Fatal(err)
+	}
+	deleteIndex(t)
+	errOut := captureStderr(t, func() {
+		captureStdout(t, func() {
+			if err := search("cart"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	if strings.Contains(errOut, "rebuilding") || !strings.Contains(errOut, "no index") {
+		t.Errorf("a hook rebuilt the index, or did not say it was missing:\n%s", errOut)
+	}
+}

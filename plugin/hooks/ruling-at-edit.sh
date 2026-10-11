@@ -15,6 +15,9 @@ set -uo pipefail
 
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
+# Tells logos it has a hook's few seconds: the index switch waits for a command
+# nobody is about to kill.
+export LOGOS_HOOK=1
 
 # stdin is the host's payload, passed through untouched.
 "${LOGOS[@]}" hook claude-code pre-edit 2>/dev/null || true

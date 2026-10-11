@@ -19,11 +19,19 @@ import (
 // every session in the host: never fail (always exit 0), never stall
 // (everything bounded), and say nothing at all when there is nothing to say —
 // a host that gets malformed output from a hook may disable it.
+// inHook is set while hookCmd runs; see checkIndex.
+var inHook bool
+
 func hookCmd(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: logos hook <cursor|codex> session-start, or logos hook claude-code pre-edit")
 	}
 	host, event := args[0], args[1]
+	// A host that runs this directly has no hook script to export LOGOS_HOOK;
+	// the index switch reads either to leave the rebuild to a command nobody
+	// will kill.
+	inHook = true
+	defer func() { inHook = false }()
 	if host == "claude-code" {
 		// Claude Code's session start is the plugin's bash hook; the edit hook
 		// is the one it calls the binary for. See hook_edit.go.

@@ -349,8 +349,14 @@ func checkIndex(ix *index.Index) {
 	switch synced, err := ix.Synced(); {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "logos: could not tell whether the index was ever built: %v\n", err)
-	case !synced && auto.On(ix.Vault, auto.Index):
+	case !synced && auto.On(ix.Vault, auto.Index) && !inHook && os.Getenv("LOGOS_HOOK") == "":
 		rebuildIndex(ix)
+	case !synced && auto.On(ix.Vault, auto.Index):
+		// A hook: its host kills it after a few seconds, and a rebuild on a
+		// large vault can take longer, which would lose the hook's own work
+		// with the rebuild half done.
+		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
+			"answers from an empty one — a hook does not rebuild it; the next logos command does")
 	case !synced:
 		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
 			"answers from an empty one — `logos index` builds it from the vault (or `logos auto config index on`)")

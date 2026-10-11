@@ -28,6 +28,9 @@ set -uo pipefail
 # its own is not enough.
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
 logos_resolve || exit 0
+# Tells logos it has a hook's few seconds: the index switch waits for a command
+# nobody is about to kill.
+export LOGOS_HOOK=1
 
 # Keep the plugin level with the binary, without anyone having to ask.
 #
