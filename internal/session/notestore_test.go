@@ -52,7 +52,7 @@ func TestWorkingNotesSurviveDeletingTheIndex(t *testing.T) {
 
 	// Simulate `rm -rf .logos && logos index`: a wholly new database, same vault.
 	rebuilt := boundDB(t, v)
-	n, _, err := ImportNotes(rebuilt, v)
+	n, _, _, err := ImportNotes(rebuilt, v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRestoringNotesTwiceDoesNotDoubleThem(t *testing.T) {
 
 	rebuilt := boundDB(t, v)
 	for i := range 3 {
-		n, _, err := ImportNotes(rebuilt, v)
+		n, _, _, err := ImportNotes(rebuilt, v)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +125,7 @@ func TestCheckpointClearsTheWorkingNotesFile(t *testing.T) {
 	}
 
 	rebuilt := boundDB(t, v)
-	if n, _, err := ImportNotes(rebuilt, v); err != nil || n != 0 {
+	if n, _, _, err := ImportNotes(rebuilt, v); err != nil || n != 0 {
 		t.Errorf("a rebuild resurrected %d checkpointed notes (%v)", n, err)
 	}
 }
@@ -143,7 +143,7 @@ func TestWorktreeNotesFileBesideTheirOwnCheckpoints(t *testing.T) {
 	}
 
 	rebuilt := boundDB(t, v)
-	if _, _, err := ImportNotes(rebuilt, v); err != nil {
+	if _, _, _, err := ImportNotes(rebuilt, v); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := Uncommitted(rebuilt, "kestrel/feature-x"); len(got) != 1 {
@@ -163,7 +163,7 @@ func TestAMultilineNoteStillComesBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	rebuilt := boundDB(t, v)
-	if _, _, err := ImportNotes(rebuilt, v); err != nil {
+	if _, _, _, err := ImportNotes(rebuilt, v); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := Uncommitted(rebuilt, "kestrel")
@@ -358,8 +358,12 @@ func TestAMarkerOnlyNoteInTheVaultDoesNotStopTheRebuildRestoringTheRest(t *testi
 	}
 
 	rebuilt := boundDB(t, v)
-	if _, _, err := ImportNotes(rebuilt, v); err != nil {
+	_, _, empty, err := ImportNotes(rebuilt, v)
+	if err != nil {
 		t.Fatalf("the rebuild stopped at the old marker-only note: %v", err)
+	}
+	if empty != 1 {
+		t.Errorf("the rebuild reported %d notes left out as saying nothing, want 1", empty)
 	}
 	got, err := Uncommitted(rebuilt, "kestrel")
 	if err != nil {
@@ -368,6 +372,11 @@ func TestAMarkerOnlyNoteInTheVaultDoesNotStopTheRebuildRestoringTheRest(t *testi
 	var found bool
 	for _, n := range got {
 		found = found || strings.Contains(n.Text, "tests pass")
+		// Restored, it would be folded into the next checkpoint and shown by
+		// resume as a working note — what refusing it on write prevents.
+		if n.Text == "[private]" {
+			t.Errorf("the marker-only note was restored as a working note: %+v", n)
+		}
 	}
 	if !found {
 		t.Fatalf("the note after the marker was not restored: %+v", got)

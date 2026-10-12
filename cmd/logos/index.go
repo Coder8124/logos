@@ -161,12 +161,18 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 	// user runs after deleting the index, which is precisely when they are
 	// gone. Announced when there were any: a rebuild that silently recovered
 	// in-flight work is indistinguishable from one that lost it.
-	restoredNotes, rescuedNotes, err := ix.SyncNotes()
+	restoredNotes, rescuedNotes, emptyNotes, err := ix.SyncNotes()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "· could not restore working notes:", err)
 	}
 	if restoredNotes > 0 {
 		fmt.Fprintf(w, "restored %d uncommitted working %s\n", restoredNotes, plural(restoredNotes, "note"))
+	}
+	// Said, because the vault still has the line and the index now does not:
+	// a reader comparing the two deserves to know it was on purpose.
+	if emptyNotes > 0 {
+		fmt.Fprintf(w, "left out %d working %s — only a kept-out <private> span or credential\n",
+			emptyNotes, plural(emptyNotes, "note"))
 	}
 	// The other direction, and said out loud for the reason the rescued
 	// proposals are: these were in the cache alone because a write to the
