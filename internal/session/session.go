@@ -238,6 +238,14 @@ func AddNote(db *sql.DB, project, agent, text string) (Note, error) {
 // benchmark that needs "thirteen days ago" to actually be thirteen days ago.
 // Anything that reasons about how old a note is depends on this being real.
 func AddNoteAt(db *sql.DB, project, agent, text string, ts int64) (Note, error) {
+	// A note that was only a span the person marked private, or a pasted key,
+	// was kept as "[private]" and folded into the next checkpoint as if it said
+	// something. Refused here, on the write path, and not in addNoteNoFlush:
+	// the rebuild goes through that too, and a marker note already in the vault
+	// from before this check stopped it restoring every note after it.
+	if masked, _ := noteText(text); secret.NothingLeft(masked) {
+		return Note{}, fmt.Errorf("nothing to note once the credential or <private> span in it was kept out")
+	}
 	n, err := addNoteNoFlush(db, project, agent, text, ts)
 	if err != nil {
 		return Note{}, err
@@ -267,12 +275,6 @@ func addNoteNoFlush(db *sql.DB, project, agent, text string, ts int64) (Note, er
 	// back by resume and folded into State, and uncommitted.md is in the vault
 	// the moment this returns (#209).
 	masked, redactions := noteText(text)
-	// The check above runs on the text as given; a note that was only a span
-	// the person marked private, or a pasted key, was kept as "[private]" and
-	// folded into the next checkpoint as if it said something.
-	if secret.NothingLeft(masked) {
-		return Note{}, fmt.Errorf("nothing to note once the credential or <private> span in it was kept out")
-	}
 	n := Note{Session: s.ID, Agent: s.Agent, Text: masked, TS: ts, Redactions: redactions}
 	res, err := db.Exec(
 		`INSERT INTO session_notes (session, text, ts) VALUES (?,?,?)`, n.Session, n.Text, n.TS)
