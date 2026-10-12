@@ -165,7 +165,7 @@ func memoryCmd(args []string) error {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("forgot %d memories learned from %s.\n", n, src)
+			fmt.Printf("forgot %d memor%s learned from %s.\n", n, pluralY(n), src)
 			return nil
 		}
 		id := parseID(args)

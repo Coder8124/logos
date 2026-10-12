@@ -259,3 +259,17 @@ func TestARejectedImportedRuleIsNotQueuedAgain(t *testing.T) {
 		t.Errorf("after one rejection and a re-import %d proposals wait, want 2", n)
 	}
 }
+
+// The undo the import report prints, run on an import of one rule.
+func TestForgettingOneImportedRuleBySourceSaysOneMemory(t *testing.T) {
+	standInRules(t, map[string]string{".cursorrules": "Prefer table-driven tests for parsers.\n"})
+	importRules(t, "cursor-rules")
+	out := captureStdout(t, func() {
+		if err := memoryCmd([]string{"forget", "--source", cursorRulesSource}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "forgot 1 memory learned from cursor-rules.") {
+		t.Errorf("forgetting one memory said %q", out)
+	}
+}
