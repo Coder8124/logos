@@ -27,6 +27,11 @@ func hookCmd(args []string) error {
 		return fmt.Errorf("usage: logos hook <cursor|codex> session-start, or logos hook claude-code pre-edit")
 	}
 	host, event := args[0], args[1]
+	// A repository that ran `logos deny` gets nothing injected and no ruling
+	// at an edit, and no word about why on every one.
+	if deniedHere() {
+		return nil
+	}
 	// A host that runs this directly has no hook script to export LOGOS_HOOK;
 	// the index switch reads either to leave the rebuild to a command nobody
 	// will kill.

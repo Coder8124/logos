@@ -29,23 +29,10 @@ func runActivity(args []string) error {
 	if len(args) > 0 && (args[0] == "off" || args[0] == "on") {
 		return setActivityRecording(args[0] == "on")
 	}
-	// Asked for by the session-start hook, which injects whatever comes back.
-	// Failure prints nothing rather than erroring: a vault that cannot be
-	// resolved yet has no log to disclose, and a hook is not a place to report.
+	// Asked for by the session-start hook, which injects whatever comes back;
+	// see activityNotice.
 	if len(args) > 0 && args[0] == "notice" {
-		vault, err := requireVault()
-		if err != nil {
-			return nil
-		}
-		notice, err := activity.Disclose(vault)
-		if err != nil || notice == "" {
-			return nil
-		}
-		fmt.Println(notice)
-		// Marked only now it has been said, so a crash on the way out offers it
-		// again next session rather than swallowing it for good.
-		_ = activity.MarkDisclosed(vault)
-		return nil
+		return activityNotice(args[1:])
 	}
 	vault, err := requireVault()
 	if err != nil {
@@ -225,6 +212,16 @@ func recordActivity(args []string) error {
 	e, err := activity.FromHook(event, raw, strings.TrimSpace(flagStr(args, "--project", "")))
 	if err != nil {
 		return err
+	}
+	// Before anything is read into a write: a repository that ran `logos deny`
+	// gets no line, not a line filtered out later. The payload's cwd is the
+	// directory FromHook names the project after when the hook passes none.
+	var where struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(raw, &where)
+	if deniedHere(where.Cwd) {
+		return nil
 	}
 	vault := vaultPath()
 	if _, err := os.Stat(vault); err != nil {

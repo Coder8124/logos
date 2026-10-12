@@ -80,6 +80,7 @@ type flagSpec struct {
 // (checkpoint, setup, update, mcp install) are not listed.
 var commandFlags = map[string]flagSpec{
 	"version":  {},
+	"deny":     {bare: []string{"--undo"}},
 	"note":     {},
 	"reflect":  {},
 	"watch":    {},

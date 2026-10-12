@@ -131,6 +131,8 @@ MEMORY
     logos watch                       captures, rulings handed back and memory changes as they happen
     logos activity --projects         which projects are being recorded
     logos activity [off|on]           stop or resume recording it, for this vault
+    logos deny [--undo]               keep Logos out of this repository (every repo is tracked
+                                      unless it says so); --undo lets it back in
     logos announce [on|quiet|off]     how loudly Logos reports its own work
     logos auto [on|off|status]        what Logos does on its own, as one switch
     logos auto config [<switch> on|off]   choose which of it; auto.md in the vault holds the answer

@@ -119,6 +119,10 @@ const onMarker = "recording-on"
 // doing it. If it does not, nobody has anything invested and the answer is no
 // until someone says otherwise. New installs are opt-in; existing ones are
 // undisturbed; neither is decided silently against the user.
+//
+// Since 1g the plugin's first session in a repository answers for a vault
+// nobody asked, turning the log on and saying so in the same notice; see
+// activityNotice in cmd/logos. An answer already given is never overridden.
 func Recording(vault string) bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("LOGOS_ACTIVITY")), "off") {
 		return false

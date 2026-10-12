@@ -177,6 +177,8 @@ func main() {
 		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
+	case cmd == "deny":
+		err = runDeny(args)
 	case cmd == "watch":
 		err = runWatch(args)
 	case cmd == "auto":

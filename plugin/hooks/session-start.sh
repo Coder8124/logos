@@ -50,7 +50,10 @@ updated=$("${LOGOS[@]}" plugin autoupdate --notice 2>/dev/null) || updated=""
 # never agreed to and is never told about is surveillance however careful the
 # redaction, so logos says it once — the notice is empty every session after,
 # and empty always once recording is off.
-recording=$("${LOGOS[@]}" activity notice 2>/dev/null) || recording=""
+#
+# It is also the first contact: a repository Logos has not seen is announced
+# once, with the way out (`logos deny`), and a denied one gets nothing.
+recording=$("${LOGOS[@]}" activity notice "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null) || recording=""
 
 # A plugin that updated itself in silence is indistinguishable from one that
 # did nothing, so the notice is said even in the sessions that have no handoff

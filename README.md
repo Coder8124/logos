@@ -24,13 +24,17 @@ the markdown. If this project dies, you keep a vault.
 **Nothing is observed.** Logos does not watch your screen, your browser
 history, your files or your calendar. The only things in your vault are things
 an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
-remember and you approved. The one exception is off unless you ask for it: the
-Claude Code plugin's activity log, in `activity/`, which records the first 160
-characters of each prompt and of each tool call's path or shell command, with
-anything secret-shaped masked. Setup asks once, `logos activity on` and `logos
-activity off` are the switch, `logos activity` shows it, `logos index` keeps it
-out of the vault's git, and a month's entries are deleted 30 days after that
-month ends. Logos itself contacts your local model runtime and, only
+remember and you approved. The one exception is the Claude Code plugin's
+activity log, in `activity/`, which records the first 160 characters of each
+prompt and of each tool call's path or shell command, with anything
+secret-shaped masked — it is what a session that never checkpointed is
+checkpointed from when it ends. Every repository the plugin opens is tracked
+unless it says otherwise, and the first session in one tells you so: `logos
+deny`, run in a repository, keeps Logos out of it entirely (`logos deny --undo`
+lets it back in). Setup asks once about the log, `logos activity on` and `logos
+activity off` are the switch for the whole vault, an answer you gave is never
+overridden, `logos activity` shows it, `logos index` keeps it out of the vault's
+git, and a month's entries are deleted 30 days after that month ends. Logos itself contacts your local model runtime and, only
 when you type `logos update`, GitHub for a new release. Two things it runs reach further
 on their own: once a day the session-start hook has Claude Code update the Logos plugin
 (`logos plugin autoupdate off` stops it), and `logos doctor`, `logos setup` and the commands
