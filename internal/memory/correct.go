@@ -44,7 +44,7 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 	}
 	// Masked first, for the reason Store gives (#209).
 	m.Text, res.Redactions = secret.Mask("memory", m.Text)
-	if strings.Trim(strings.ReplaceAll(m.Text, secret.Marker, ""), " \t\n.,;:'\"`") == "" {
+	if secret.NothingLeft(m.Text) {
 		return res, ErrOnlySecret
 	}
 	var kind string

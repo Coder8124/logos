@@ -82,6 +82,15 @@ func opening(s string) []int {
 	return nil
 }
 
+// NothingLeft says whether text once masked says nothing at all: only markers
+// and punctuation. A memory or a note that was a pasted key or a span the
+// person marked private is refused, not kept as "[REDACTED]" or "[private]" —
+// a record that says nothing, ranked and recalled like one that does.
+func NothingLeft(s string) bool {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, Marker, ""), PrivateMarker, "")
+	return strings.Trim(s, " \t\n.,;:'\"`") == ""
+}
+
 // KeptPrivate is n spans' Redactions, for a caller that stripped them where the
 // text was read and reports them where it is written: a transcript loses its
 // spans as it is parsed, long before the record built from it has a receipt.
