@@ -36,6 +36,11 @@ const (
 	defaultRepo    = "Coder8124/logos"
 )
 
+// ReleasesFrom is where `logos update` asks for the latest release, for
+// `logos doctor --egress`. Its assets download from github.com and
+// *.githubusercontent.com, and checkRedirect refuses any other host.
+const ReleasesFrom = defaultAPIBase + "/repos/" + defaultRepo + "/releases"
+
 // Asset is one file attached to a GitHub release.
 type Asset struct {
 	Name string

@@ -30,11 +30,14 @@ characters of each prompt and of each tool call's path or shell command, with
 anything secret-shaped masked. Setup asks once, `logos activity on` and `logos
 activity off` are the switch, `logos activity` shows it, `logos index` keeps it
 out of the vault's git, and a month's entries are deleted 30 days after that
-month ends. The one network call Logos ever makes
-on its own is `logos update` checking for a new release, and only when you type it; nothing
-else leaves the machine unless you turn on the T3 cloud tier, which is off by default and
-sends a request to Anthropic with a key you supply. A host wired to run Logos through `npx` is the one
-exception: npm itself asks the registry for the package on every start — the
+month ends. Logos itself contacts your local model runtime and, only
+when you type `logos update`, GitHub for a new release. Two things it runs reach further
+on their own: once a day the session-start hook has Claude Code update the Logos plugin
+(`logos plugin autoupdate off` stops it), and `logos doctor`, `logos setup` and the commands
+that register logos with a host run your agent hosts' CLIs, which make their own requests to their vendors. None of them carries
+anything from your vault. `logos doctor --egress` lists every address, and
+[SETUP](SETUP.md#checking-that-nothing-leaves) shows how to watch for yourself. A host wired
+to run Logos through `npx` is one more: npm itself asks the registry for the package on every start — the
 package name, none of your data — and without a connection it waits and then
 fails. An installed binary, which is what `brew install` and `npm i -g` both
 give you, makes no such call.
