@@ -214,8 +214,13 @@ func recordActivity(args []string) error {
 		return err
 	}
 	// Before anything is read into a write: a repository that ran `logos deny`
-	// gets no line, not a line filtered out later.
-	if deniedHere() {
+	// gets no line, not a line filtered out later. The payload's cwd is the
+	// directory FromHook names the project after when the hook passes none.
+	var where struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(raw, &where)
+	if deniedHere(where.Cwd) {
 		return nil
 	}
 	vault := vaultPath()

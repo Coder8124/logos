@@ -229,3 +229,23 @@ func TestUndenyRemovesEveryMarkerOnTheWayUp(t *testing.T) {
 		t.Error("undeny left the empty .logos/ it was the only reason for")
 	}
 }
+
+// A folder that is not a repository is its own deny root, so its subfolders
+// are covered only if the walk goes past it. A session opened in notes/drafts
+// after `logos deny` in notes was tracked.
+func TestDenyInAPlainDirectoryCoversItsSubfolders(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "drafts")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Deny(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !Denied(sub) {
+		t.Error("a subfolder of a denied plain directory is tracked")
+	}
+	if removed, err := Undeny(sub); err != nil || len(removed) != 1 || Denied(sub) {
+		t.Errorf("undo from the subfolder: removed %v, err %v, still denied %v", removed, err, Denied(sub))
+	}
+}

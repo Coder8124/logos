@@ -28,22 +28,23 @@ func DenyRoot(dir string) string {
 	return filepath.Clean(strings.TrimSpace(dir))
 }
 
-// Denied reports whether dir is inside a repository that asked Logos to stay
-// out. Every directory from dir up to its DenyRoot is asked, so a marker
-// written at a subfolder that was not a repository at the time still holds.
+// Denied reports whether dir is inside a directory that asked Logos to stay
+// out. Every directory from dir upwards is asked, not only those up to its
+// DenyRoot: a plain folder is its own root, so stopping there left every
+// subfolder of a denied one tracked, and a marker written at a subfolder that
+// was not a repository at the time still has to hold.
 func Denied(dir string) bool {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return false
 	}
 	dir = filepath.Clean(dir)
-	root := DenyRoot(dir)
 	for i := 0; i < maxWalk; i++ {
 		if _, err := os.Stat(filepath.Join(dir, DenyMarker)); err == nil {
 			return true
 		}
 		parent := filepath.Dir(dir)
-		if dir == root || parent == dir {
+		if parent == dir {
 			break
 		}
 		dir = parent
@@ -63,12 +64,11 @@ func Deny(dir string) (string, error) {
 }
 
 // Undeny removes every marker that makes dir denied, and returns the paths it
-// removed — none when it was not denied. All of them, not just the root's: a
-// --undo that left one standing in a subfolder would report success on a repo
+// removed — none when it was not denied. All of them, on the same walk Denied
+// makes: an --undo that left one standing would report success on a directory
 // that is still off.
 func Undeny(dir string) ([]string, error) {
 	dir = filepath.Clean(strings.TrimSpace(dir))
-	root := DenyRoot(dir)
 	var removed []string
 	for i := 0; i < maxWalk; i++ {
 		path := filepath.Join(dir, DenyMarker)
@@ -81,7 +81,7 @@ func Undeny(dir string) ([]string, error) {
 			return removed, err
 		}
 		parent := filepath.Dir(dir)
-		if dir == root || parent == dir {
+		if parent == dir {
 			break
 		}
 		dir = parent

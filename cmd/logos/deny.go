@@ -70,12 +70,23 @@ func runDeny(args []string) error {
 	return nil
 }
 
-// deniedHere is the check every hook entry point makes before it writes. The
-// working directory, because that is what a host runs its hooks in and what
-// the MCP server is started in.
-func deniedHere() bool {
-	dir, err := os.Getwd()
-	return err == nil && scope.Denied(dir)
+// deniedHere is the check every hook entry point makes before it writes. It
+// asks every directory that names the repository — the working directory a
+// host starts the MCP server in, the project dir it gives its hooks, and any
+// the caller read from the payload — because the hooks name the project by the
+// latter two, and an agent that cd'd out of a denied repo was logged under the
+// directory it went to.
+func deniedHere(also ...string) bool {
+	dirs := append([]string{os.Getenv("CLAUDE_PROJECT_DIR")}, also...)
+	if wd, err := os.Getwd(); err == nil {
+		dirs = append(dirs, wd)
+	}
+	for _, d := range dirs {
+		if scope.Denied(d) {
+			return true
+		}
+	}
+	return false
 }
 
 // activityNotice is what the session-start hook injects: the first-contact

@@ -236,3 +236,31 @@ func TestDenyUndoWithTheDirectoryAfterTheFlagUndoesThatDirectory(t *testing.T) {
 		t.Error("`logos deny --undo <dir>` left <dir> denied")
 	}
 }
+
+// The hooks name the repository by the host's project dir and the payload's
+// cwd, not by the directory the process happens to be in. A recorder that
+// asked only the process's directory logged a denied repo's tool calls once
+// the agent had cd'd out of it.
+func TestADeniedRepoGetsNoActivityLineWhenTheHookRunsFromAnotherDirectory(t *testing.T) {
+	work := standIn(t, "shop")
+	repo := mustGetwd(t)
+	if err := runDeny(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := activity.SetRecording(work, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"session_id": "s-away", "cwd": repo, "tool_name": "Edit"})
+
+	t.Setenv("CLAUDE_PROJECT_DIR", repo)
+	recordUnasked(t, "PostToolUse", string(payload))
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	recordUnasked(t, "PostToolUse", string(payload))
+
+	if got, _ := activity.Read(work, activity.Query{Limit: 10}); len(got) != 0 {
+		t.Errorf("a denied repo's tool calls reached the activity log from another directory: %+v", got)
+	}
+}
