@@ -58,6 +58,10 @@ if out=$(LOGOS_AGENT=claude-code LOGOS_NOTE_IF_UNCOMMITTED=1 LOGOS_AUTO_CHECKPOI
     skipped*) echo "Logos: session on \"$project\" ended — nothing new to flag for the next session." >&2 ;;
     *)        echo "Logos: session on \"$project\" ended without a checkpoint — the next session will see work was left open, not what it was." >&2 ;;
   esac
+  # The receipt: rulings this session was shown and then stayed away from the
+  # files of. logos prints them after the outcome line, already cut to one
+  # line each and stripped of anything a terminal would act on.
+  printf '%s\n' "$out" | grep -E '^(may have avoided|receipt not worked out): ' | sed 's/^/Logos: /' >&2
 else
   # Named, not swallowed. A vault that cannot be written to is a continuity
   # layer that has stopped working, and the user finding that out tomorrow —

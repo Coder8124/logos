@@ -105,7 +105,7 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 		b.WriteString(section)
 	}
 	if len(hits) > 0 {
-		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:before_you_try", Project: here, Rulings: len(hits)}))
+		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:before_you_try", Project: here, Rulings: len(hits), Refs: usage.RulingRefs(hits)}))
 	}
 	return b.String(), nil
 }

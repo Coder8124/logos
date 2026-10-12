@@ -8,7 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/scope"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
 
@@ -21,8 +25,12 @@ func ledger(vault string, e usagepkg.Event) {
 	}
 }
 
+// ledgerPack records a pack. LOGOS_SESSION is the host's session id, which
+// the SessionStart hook passes so the receipt at session end can find the
+// rulings this resume handed over; shortened as the activity log shortens it,
+// since that is what the receipt matches against.
 func ledgerPack(vault, via, project string, pack contextpack.Pack) {
-	if err := usagepkg.RecordPack(vault, via, project, pack.Budget); err != nil {
+	if err := usagepkg.RecordPack(vault, via, project, pack, activity.ShortID(os.Getenv("LOGOS_SESSION"))); err != nil {
 		fmt.Fprintf(os.Stderr, "· could not add this to the usage ledger, so `logos usage` will not count it: %v\n", err)
 	}
 }
@@ -34,7 +42,7 @@ func ledgerPack(vault, via, project string, pack contextpack.Pack) {
 // Logos can see, and a reader who takes it for their API bill has been misled
 // by a number that was true.
 //
-//	logos usage [project] [--usd RATE]
+//	logos usage [project] [--week] [--usd RATE]
 func runUsage(args []string) error {
 	if len(args) == 1 && (args[0] == "off" || args[0] == "on") {
 		return setUsageRecording(args[0] == "on")
@@ -47,6 +55,7 @@ func runUsage(args []string) error {
 				i++
 				rate = args[i]
 			}
+		case "--week":
 		default:
 			if project == "" {
 				project = args[i]
@@ -70,6 +79,12 @@ func runUsage(args []string) error {
 	if err != nil {
 		return err
 	}
+	week := hasFlag(args, "--week")
+	var from int64
+	if week {
+		from = time.Now().Add(-usagepkg.Week).Unix()
+		events = usagepkg.Within(events, from)
+	}
 	t := usagepkg.Sum(events, project)
 	if !usagepkg.Recording(v) {
 		// Totals that stopped growing read as Logos doing nothing; say why.
@@ -81,13 +96,22 @@ func runUsage(args []string) error {
 	if project != "" {
 		who = project
 	}
-	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 {
+	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Avoided == 0 {
+		if week {
+			fmt.Printf("· nothing recorded for %s in the last 7 days — `logos usage` without --week shows the whole ledger\n", who)
+			printUnreadable(bad, v)
+			return nil
+		}
 		fmt.Printf("· nothing recorded for %s yet — %s fills as context packs are sent\n", who, filepath.Join(v, usagepkg.Dir))
 		fmt.Println("  (resume, context) and recorded dead ends are handed back (before_you_try, tried, why)")
 		printUnreadable(bad, v)
 		return nil
 	}
-	fmt.Printf("logos usage — %s, since %s\n\n", who, time.Unix(t.Since, 0).Format("2 Jan 2006"))
+	if week {
+		fmt.Printf("logos usage — %s, the last 7 days (since %s)\n\n", who, time.Unix(from, 0).Format("2 Jan 2006"))
+	} else {
+		fmt.Printf("logos usage — %s, since %s\n\n", who, time.Unix(t.Since, 0).Format("2 Jan 2006"))
+	}
 
 	they := "they"
 	if t.Packs == 1 {
@@ -108,10 +132,45 @@ func runUsage(args []string) error {
 			t.AtEdit, pluralS(t.AtEdit))
 	}
 
-	fmt.Println("· handoffs: not counted — the alternative is a summary written or pasted by hand, and Logos")
-	fmt.Println("  never sees how long that would have been; a guess is not shown as a number")
+	if t.Avoided > 0 {
+		names := "they name"
+		if t.Avoided == 1 {
+			names = "it names"
+		}
+		fmt.Printf("· %d ruling%s may have been avoided — shown to a session that then never touched a file %s\n",
+			t.Avoided, pluralS(t.Avoided), names)
+		fmt.Println("  (said at session end; a session that stayed away may have had other reasons)")
+	}
+
+	fmt.Printf("· %d restore%s, %d of them a handoff — a checkpoint one agent wrote, resumed by another\n",
+		t.Restores, pluralS(t.Restores), t.Handoffs)
+	fmt.Println("  (a resume whose reader is not named — a shell with no LOGOS_AGENT — is never counted as one)")
+	printAccepted(v, from, project)
 	printUnreadable(bad, v)
 	return nil
+}
+
+// printAccepted counts the review queue's accepts in the same window. They are
+// in the memory log, not the ledger, so this reads the index, which ImportLog
+// rebuilds from memories/log.md. No index is said, not shown as zero.
+func printAccepted(v string, from int64, project string) {
+	if _, err := os.Stat(filepath.Join(v, ".logos", "index.db")); err != nil {
+		fmt.Println("· memories accepted: not counted — there is no index yet; `logos index` builds it")
+		return
+	}
+	ix, err := index.Open(v)
+	if err != nil {
+		fmt.Printf("· memories accepted: not counted — opening the index: %v\n", err)
+		return
+	}
+	defer ix.Close()
+	hand, auto, err := memory.AcceptedSince(ix.DB, from, scope.NormalizeArg(project))
+	if err != nil {
+		fmt.Printf("· memories accepted: not counted — reading the memory log: %v\n", err)
+		return
+	}
+	fmt.Printf("· %d memor%s accepted from review — %d by hand, %d by the review switch\n",
+		hand+auto, pluralY(hand+auto), hand, auto)
 }
 
 func printUnreadable(bad int, v string) {

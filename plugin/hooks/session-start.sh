@@ -82,7 +82,17 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 # runtime slow to answer — loading the embedding model behind a large one —
 # took this past the 10 s hook timeout, and Claude Code killed the hook with no
 # restore and no reason.
-handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_EMBED=off "${LOGOS[@]}" resume "$project" 2>/dev/null) || announce_update
+#
+# LOGOS_AGENT and LOGOS_SESSION are for the usage ledger, and change nothing in
+# the pack but who it is addressed to. The agent, so a checkpoint another agent
+# wrote is counted as a handoff; the session, so the SessionEnd receipt can say
+# which of the rulings handed over here this session then stayed away from. The
+# id is in the hook's payload on stdin, read with a bound: a host that left
+# stdin open would otherwise stall the start of every session.
+payload=""
+[ -t 0 ] || IFS= read -r -d '' -t 2 payload || true
+session=$(printf '%s' "$payload" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+handoff=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && LOGOS_AGENT=claude-code LOGOS_SESSION="$session" LOGOS_EMBED=off "${LOGOS[@]}" resume "$project" 2>/dev/null) || announce_update
 [ -z "$handoff" ] && announce_update
 
 # resume on a project with no checkpoint still returns context — standing

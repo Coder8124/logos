@@ -15,7 +15,7 @@ import (
 func TestTheLedgerIsReadBackFromTheVaultAlone(t *testing.T) {
 	vault := t.TempDir()
 	b := contextpack.Budget{Spent: 300, Overhead: 50, Candidates: 1200}
-	if err := RecordPack(vault, "mcp:resume", "kestrel", b); err != nil {
+	if err := RecordPack(vault, "mcp:resume", "kestrel", contextpack.Pack{Budget: b}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := Record(vault, Event{Kind: KindDeadEnd, Via: "cli:tried", Project: "kestrel", Rulings: 2}); err != nil {
@@ -99,5 +99,55 @@ func TestOneProjectIsCountedUnderOneNameHoweverItWasSpelled(t *testing.T) {
 	}
 	if got := Sum(events, "~/code/kestrel").DeadEndChecks; got != 4 {
 		t.Errorf("asking by path counted %d of kestrel's 4 checks", got)
+	}
+}
+
+// `logos usage --week` is the last seven days, and an event from the eighth day
+// back counted in it would make every week look busier than it was.
+func TestAWeekOfUsageCountsOnlyTheLastSevenDays(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	for _, e := range []Event{
+		{TS: now.Add(-8 * 24 * time.Hour).Unix(), Kind: KindPack, Via: "mcp:resume", Project: "kestrel", Sent: 100, Full: 400},
+		{TS: now.Add(-8 * 24 * time.Hour).Unix(), Kind: KindDeadEnd, Via: "cli:tried", Project: "kestrel", Rulings: 3},
+		{TS: now.Add(-6 * 24 * time.Hour).Unix(), Kind: KindPack, Via: "cli:resume", Project: "kestrel", Sent: 200, Full: 500},
+		{TS: now.Add(-time.Hour).Unix(), Kind: KindDeadEnd, Via: "mcp:before_you_try", Project: "kestrel", Rulings: 1},
+		{TS: now.Add(-time.Hour).Unix(), Kind: KindAvoided, Project: "kestrel", Rulings: 2},
+	} {
+		if err := Record(vault, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, _, err := Read(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	week := Sum(Within(events, now.Add(-Week).Unix()), "")
+	if week.Packs != 1 || week.Restores != 1 || week.Sent != 200 || week.Full != 500 {
+		t.Errorf("week's packs = %+v, want only the one from six days ago", week)
+	}
+	if week.DeadEndChecks != 1 || week.Rulings != 1 || week.Avoided != 2 {
+		t.Errorf("week's rulings = %+v, want 1 check returning 1, and 2 may-have-avoided", week)
+	}
+	if all := Sum(events, ""); all.Packs != 2 || all.Rulings != 4 {
+		t.Errorf("the whole ledger = %+v, want both packs and all four rulings", all)
+	}
+}
+
+// A handoff is a resume of a checkpoint another agent wrote. One agent reading
+// its own last checkpoint is continuity, not a handoff; a reader nobody named
+// ("cli", or no one) cannot be said to differ from anyone — and neither can a
+// checkpoint a shell wrote as "cli", which is usually the same person's.
+func TestAResumeOfAnotherAgentsCheckpointIsCountedAsAHandoff(t *testing.T) {
+	events := []Event{
+		{TS: 1, Kind: KindPack, Via: "mcp:resume", Reader: "codex", From: "claude-code"},
+		{TS: 2, Kind: KindPack, Via: "cli:resume", Reader: "claude-code", From: "claude-code"},
+		{TS: 3, Kind: KindPack, Via: "cli:resume", Reader: "cli", From: "claude-code"},
+		{TS: 4, Kind: KindPack, Via: "cli:resume", Reader: "cursor", From: ""},
+		{TS: 5, Kind: KindPack, Via: "mcp:context", Reader: "codex", From: "claude-code"},
+		{TS: 6, Kind: KindPack, Via: "mcp:resume", Reader: "claude-code", From: "cli"},
+	}
+	if got := Sum(events, ""); got.Handoffs != 1 || got.Restores != 5 {
+		t.Errorf("Sum = %+v, want 1 handoff (codex reading claude-code's) out of 5 restores", got)
 	}
 }

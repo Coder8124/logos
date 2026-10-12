@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQuarantinedMemoryIsInvisibleToNormalReads(t *testing.T) {
@@ -195,5 +196,55 @@ func TestImportDoesNotReapQuarantinedMemories(t *testing.T) {
 	}
 	if pn != 1 {
 		t.Errorf("PendingCount after reindex = %d, want 1", pn)
+	}
+}
+
+// The week's accepts are told apart by who accepted: a person, or the review
+// switch with nobody watching.
+func TestAcceptsAreCountedByHandAndByTheSwitchApart(t *testing.T) {
+	db, _ := store(t)
+	var ids []int64
+	for _, text := range []string{"the drop test is 1.2m", "staging runs on port 9090", "the build needs cgo"} {
+		r, err := Store(db, nil, "", &Memory{Text: text, Kind: Fact, Source: "mcp", Project: "kestrel", Quarantined: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, r.ID)
+	}
+	if err := Accept(db, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids[1:] {
+		if err := AcceptAuto(db, id, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hand, auto, err := AcceptedSince(db, time.Now().Add(-time.Hour).Unix(), "kestrel"); err != nil || hand != 1 || auto != 2 {
+		t.Errorf("AcceptedSince = %d by hand, %d auto, %v; want 1 and 2", hand, auto, err)
+	}
+	if hand, auto, _ := AcceptedSince(db, time.Now().Add(time.Hour).Unix(), ""); hand+auto != 0 {
+		t.Errorf("accepts before the window were counted: %d by hand, %d auto", hand, auto)
+	}
+	if hand, auto, _ := AcceptedSince(db, 0, "other"); hand+auto != 0 {
+		t.Errorf("another project's accepts were counted: %d by hand, %d auto", hand, auto)
+	}
+}
+
+// A memory written in a worktree is filed under the worktree's scope, and
+// `logos usage` totals per project; counting only the bare name left a
+// worktree's accepts out of its project's week.
+func TestAWorktreesAcceptsAreCountedWithItsProject(t *testing.T) {
+	db, _ := store(t)
+	for _, p := range []string{"kestrel/feature", "kestrelx"} {
+		r, err := Store(db, nil, "", &Memory{Text: "staging runs on port 9090 in " + p, Kind: Fact, Source: "mcp", Project: p, Quarantined: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Accept(db, r.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hand, auto, err := AcceptedSince(db, 0, "kestrel"); err != nil || hand != 1 || auto != 0 {
+		t.Errorf("AcceptedSince(kestrel) = %d by hand, %d auto, %v; want the worktree's 1 and not kestrelx's", hand, auto, err)
 	}
 }

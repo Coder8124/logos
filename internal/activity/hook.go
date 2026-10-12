@@ -64,7 +64,7 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	e := Event{
 		Kind:    kind,
 		Agent:   "claude-code",
-		Session: shortID(str(p, "session_id")),
+		Session: ShortID(str(p, "session_id")),
 		Project: project,
 	}
 	if e.Project == "" {
@@ -155,9 +155,9 @@ func oneLine(s string, max int) string {
 	return s
 }
 
-// shortID trims a session UUID to something a person can compare at a glance.
+// ShortID trims a session UUID to something a person can compare at a glance.
 // Atlas prints "session 8c4f" for the same reason: the full UUID is noise in
 // every row and identifying in none of them.
-func shortID(s string) string {
+func ShortID(s string) string {
 	return text.Truncate(strings.TrimSpace(s), 8)
 }
