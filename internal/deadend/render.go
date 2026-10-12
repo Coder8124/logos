@@ -1,6 +1,7 @@
 package deadend
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -57,6 +58,9 @@ func Render(proposed string, hits []Ruling) string {
 		}
 		if h.Slug != "" {
 			fmt.Fprintf(&b, " · `%s`", untrusted.Inline(h.Slug))
+		}
+		if h.Method != "" {
+			fmt.Fprintf(&b, " · matched %s", methodWords(h.Method))
 		}
 		b.WriteString("\n")
 		if tags := recordTags(h.Record); tags != "" {
@@ -156,6 +160,21 @@ func SemanticSkipped(err error) string {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, ErrNoLocalModel) {
+		return "\n_Compared by wording only: no local embedding model is in use (none is configured, or LOGOS_EMBED is off), so the same idea in other words would not be caught here._\n"
+	}
 	return fmt.Sprintf("\n_The semantic check skipped some or all rulings (%s), so only ones worded like the proposal were compared._\n",
 		untrusted.Inline(err.Error()))
+}
+
+func methodWords(m string) string {
+	switch m {
+	case MatchedLexically:
+		return "lexically"
+	case MatchedSemantically:
+		return "semantically"
+	case MatchedBoth:
+		return "lexically and semantically"
+	}
+	return m
 }

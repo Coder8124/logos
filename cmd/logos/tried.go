@@ -53,6 +53,16 @@ func runTried(args []string) error {
 		if m, err := rt.Model(router.T0); err == nil {
 			embed, model = rt.Local(), m
 		}
+		// LOGOS_EMBED is asked as `mcp serve` asks it: off means no
+		// embedding call at all, and a named model is the one the index's
+		// ruling vectors were made with, so the query has to match it.
+		if _, set := os.LookupEnv("LOGOS_EMBED"); set {
+			if m, on := embedModel(); on {
+				embed, model = rt.Local(), m
+			} else {
+				embed, model = nil, ""
+			}
+		}
 	}
 
 	hits, semanticErr, err := deadend.CheckNoting(ix.Vault, ix.DB, embed, model, proposed, flagStr(args, "--project", ""), 6)

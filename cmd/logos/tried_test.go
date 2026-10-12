@@ -73,3 +73,38 @@ func TestTriedRefusesToRuleSomethingOutWithoutSayingWhy(t *testing.T) {
 		t.Fatal("a ruling with no observation should be refused")
 	}
 }
+
+// `logos tried` chose its embedder from the router alone. LOGOS_EMBED=off
+// still sent the proposal and every ruling to a runtime that was up, and a
+// model LOGOS_EMBED named was ignored for the router's default — query
+// vectors of another model than the one `logos index` and `mcp serve` use.
+func TestTriedEmbedsWithTheModelLOGOS_EMBEDNamesAndNotAtAllWhenOff(t *testing.T) {
+	rt := newRecordingRuntime(t, "custom-embed", "nomic-embed-text")
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	t.Setenv("LOGOS_RUNTIME", rt.URL)
+	t.Setenv("LOGOS_EMBED", "off")
+
+	if err := runTried([]string{"cache the embeddings in the index", "--ruled-out", "a reindex drops them",
+		"--project", "kestrel"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runTried([]string{"cache the embeddings in the index", "--project", "kestrel"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.embedded(); len(got) != 0 {
+		t.Fatalf("LOGOS_EMBED=off still embedded with %v", got)
+	}
+
+	t.Setenv("LOGOS_EMBED", "custom-embed")
+	if err := runTried([]string{"cache the embeddings in the index", "--project", "kestrel"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range rt.embedded() {
+		if m != "custom-embed" {
+			t.Errorf("tried embedded with %q, not the custom-embed LOGOS_EMBED names", m)
+		}
+	}
+	if len(rt.embedded()) == 0 {
+		t.Error("tried did not embed at all with a model named")
+	}
+}
