@@ -422,11 +422,12 @@ nothing installed. Retrieval falls back to BM25, which for code (identifiers,
 error strings, paths) is the right tool rather than a consolation. A 274 MB
 embedding model adds paraphrase-tolerant search if you want it.
 
-Fifteen tools in two families, plus `ingest_harvest` and `ingest_distil`:
+Sixteen tools in two families, plus `ingest_harvest` and `ingest_distil`:
 
 **Memory** — *what do you know about X.* `remember` (returns a receipt saying
 whether it created a fact or corroborated one it already had), `recall`,
-`list_memories`, `forget`, `pin_memory`, `exclude_memory`, `memory_diff`,
+`list_memories`, `correct` (replaces a wrong memory and keeps the old one in its
+history), `forget`, `pin_memory`, `exclude_memory`, `memory_diff`,
 `list_projects`.
 
 **Continuity** — *where were we.* `context`, `resume`, `note_progress`,
@@ -644,7 +645,7 @@ logos mcp serve | mcp install                   serve the memory; wire up the ho
 logos ask <q> | search <q>                      query what it knows
 logos replay [--peek]                           what changed since you were last here
 logos reflect                                   descriptive stats over your memory
-logos memory [add|forget|log|history|graph|diff] persistent memory and its timeline
+logos memory [add|correct|forget|log|history|graph|diff]  persistent memory and its timeline
 logos review [--all]                            accept or reject quarantined memories
 logos projects | project <name>                 auto-detected projects and dossiers
 logos loop [add|done|drop]                      open commitments

@@ -40,7 +40,7 @@ func TestTheShortDescriptionsKeepTheRulesThatWereLearnedTheHardWay(t *testing.T)
 		name, _ := def["name"].(string)
 		desc[name], _ = def["description"].(string)
 	}
-	for _, name := range []string{"remember", "forget", "pin_memory", "exclude_memory", "context", "resume", "note_progress", "checkpoint", "handoff", "ingest_harvest", "ingest_distil"} {
+	for _, name := range []string{"remember", "forget", "correct", "pin_memory", "exclude_memory", "context", "resume", "note_progress", "checkpoint", "handoff", "ingest_harvest", "ingest_distil"} {
 		if !strings.HasSuffix(desc[name], relay) {
 			t.Errorf("%s returns a receipt but no longer asks the model to relay it", name)
 		}
