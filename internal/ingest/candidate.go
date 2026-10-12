@@ -68,6 +68,7 @@ type Candidate struct {
 
 	TurnCount int // turn count of the source, for a sense of session size
 	Skipped   int // malformed lines the reader stepped over (invariant 3)
+	Private   int // <private> spans kept out as the transcript was read
 
 	// FrontmatterUnreadable is set when the note's YAML frontmatter would not
 	// parse. The candidate is kept anyway (its session id is recovered from the
@@ -140,6 +141,7 @@ type candidateFM struct {
 	Harvested string `yaml:"harvested"`
 	Turns     int    `yaml:"turns"`
 	Skipped   int    `yaml:"skipped"`
+	Private   int    `yaml:"private"`
 }
 
 // Markdown renders the candidate as a vault note. It is the inverse of Parse and
@@ -174,6 +176,9 @@ func (c Candidate) Markdown() string {
 	if c.Skipped > 0 {
 		fmt.Fprintf(&b, "skipped: %d\n", c.Skipped)
 	}
+	if c.Private > 0 {
+		fmt.Fprintf(&b, "private: %d\n", c.Private)
+	}
 	// The distillate is data, retrieved from a transcript written by another
 	// agent. It is rendered for a human to read, never obeyed (invariant 6).
 	b.WriteString("relations:\n")
@@ -183,6 +188,9 @@ func (c Candidate) Markdown() string {
 	summary := fmt.Sprintf("%s session %s, %d turns", c.Harness, c.SessionID, c.TurnCount)
 	if c.Skipped > 0 {
 		summary += fmt.Sprintf(" (%d unparsed line(s) skipped)", c.Skipped)
+	}
+	if c.Private > 0 {
+		summary += fmt.Sprintf(" (%d <private> span(s) kept out)", c.Private)
 	}
 	if c.Tier == TierHarvest || c.Tier == "" {
 		summary += ". Harvest only — verified and failed are left empty because deriving them needs a model that was not available."
@@ -225,6 +233,7 @@ func Parse(raw, filename string) Candidate {
 		Status:    orDefault(fm.Status, StatusPending),
 		TurnCount: fm.Turns,
 		Skipped:   fm.Skipped,
+		Private:   fm.Private,
 	}
 	if c.SessionID == "" {
 		c.SessionID = sessionIDFromStem(filename, c.Harness)

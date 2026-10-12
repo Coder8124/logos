@@ -325,7 +325,7 @@ func (s *Server) noteProgress(project, agent, text string) (string, error) {
 	// project not called logos.
 	msg := s.receipt("noted under " + project + " — uncommitted until you checkpoint")
 	if said := secret.Summary(n.Redactions); said != "" {
-		msg += " " + said + "."
+		msg += ". " + said + "."
 	}
 	return msg, nil
 }
@@ -420,7 +420,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	s.checkpointed(c.Project)
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if said := secret.Summary(c.Redactions); said != "" {
-		msg += " " + said + "."
+		msg += ". " + said + "."
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said

@@ -90,6 +90,9 @@ func ingestState(c Candidate) string {
 	if c.Skipped > 0 {
 		fmt.Fprintf(&b, " (%d unparsed line(s) skipped)", c.Skipped)
 	}
+	if c.Private > 0 {
+		fmt.Fprintf(&b, " (%d <private> span(s) kept out)", c.Private)
+	}
 	b.WriteString(".")
 	if c.Tier == TierHarvest || c.Tier == "" {
 		b.WriteString(" Harvest only — verified and failed were not distilled by a model.")

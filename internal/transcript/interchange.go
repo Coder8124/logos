@@ -106,6 +106,7 @@ func ReadInterchange(r io.Reader) (*Session, error) {
 			s.Turns = append(s.Turns, Turn{Role: "user", Text: strings.TrimSpace(text)})
 		}
 	}
+	keepPrivateOut(s)
 	return s, nil
 }
 

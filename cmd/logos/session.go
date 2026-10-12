@@ -92,6 +92,9 @@ func runNote(args []string) (err error) {
 		}
 		if c != nil {
 			fmt.Printf("auto-checkpointed — %s (%s)\n", c.Slug, session.AutoLabel)
+			if said := secret.Summary(c.Redactions); said != "" {
+				fmt.Println(said + ".")
+			}
 			logAuto(auto.Entry{Switch: auto.Checkpoint, Project: project, N: 1})
 			return nil
 		}

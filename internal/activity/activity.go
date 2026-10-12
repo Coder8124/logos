@@ -78,6 +78,11 @@ type Event struct {
 	// the whole point of the row; a log whose rows need decoding is a log
 	// nobody scans.
 	Summary string `json:"summary,omitempty"`
+	// Private counts the <private> spans kept out of Summary. A count of its
+	// own, not words on the end of the line: the auto checkpoint is built
+	// from summaries, and a receipt in one became part of its task, a
+	// command and a file name.
+	Private int `json:"private,omitempty"`
 	// Extra carries whatever the host sent that we did not model. Kept so the
 	// record stays lossless even where our schema is not.
 	Extra map[string]any `json:"extra,omitempty"`

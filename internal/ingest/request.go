@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/text"
 )
 
@@ -35,8 +36,21 @@ func Request(prompt string) (string, bool) {
 // once the host's text is taken out. Unlike Request it keeps a bare "no": as
 // an answer to the agent's question it is the person's whole reply, and often
 // the correction itself.
+//
+// A bare slash command is a button, not a reply, and a line that was only a
+// kept-out <private> span is something the person hid: a want cited to either
+// would be the distiller's guess passed off as their words.
 func PersonWrote(prompt string) bool {
-	return len(personsLines(prompt)) > 0
+	for _, line := range personsLines(prompt) {
+		if strings.HasPrefix(line, "/") && !strings.ContainsAny(line, " \t") {
+			continue
+		}
+		if onlyKeptOut(line) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // personsLines is what is left of a prompt once the host's text is taken out,
@@ -103,10 +117,20 @@ var (
 	}()
 )
 
+// onlyKeptOut is a line that was nothing but <private> spans the person hid.
+func onlyKeptOut(line string) bool {
+	return strings.TrimSpace(strings.ReplaceAll(line, secret.PrivateMarker, "")) == ""
+}
+
 // asksNothing is a line that opens or acknowledges rather than asks: a
-// greeting, a yes, a thanks, or a bare slash command with nothing after it.
+// greeting, a yes, a thanks, a bare slash command with nothing after it, or a
+// span the person kept out — which as a task would tell the next agent they
+// asked for "[private]".
 func asksNothing(line string) bool {
 	if strings.HasPrefix(line, "/") && !strings.ContainsAny(line, " \t") {
+		return true
+	}
+	if onlyKeptOut(line) {
 		return true
 	}
 	l := strings.ToLower(strings.TrimRight(line, ".!? "))

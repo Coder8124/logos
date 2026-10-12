@@ -59,7 +59,7 @@ func TestReindexingWritesOutAWorkingNoteTheVaultNeverGot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, rescued, err := ImportNotes(db, v)
+	_, rescued, _, err := ImportNotes(db, v)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestOnlyTheNoteTheVaultLacksIsCountedAsStranded(t *testing.T) {
 	if err := os.Chmod(scopeDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, rescued, err := ImportNotes(db, v); err != nil || rescued != 1 {
+	if _, rescued, _, err := ImportNotes(db, v); err != nil || rescued != 1 {
 		t.Errorf("reindex reported %d notes written out (err %v), want 1", rescued, err)
 	}
 }

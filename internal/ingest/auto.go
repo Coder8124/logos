@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -104,6 +105,9 @@ func autoRecord(s *transcript.Session, project string, at int64) (session.Checkp
 		masked[i], r = redactText("Commands run", cmd)
 		found = append(found, r...)
 	}
+	// The spans went as the transcript was read; this record is the first
+	// thing built from it with a receipt to say so.
+	found = append(found, secret.KeptPrivate("transcript", s.Private)...)
 	return session.Checkpoint{
 		Project:    project,
 		Agent:      s.Harness,

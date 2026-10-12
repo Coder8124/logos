@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -213,13 +214,14 @@ var notePattern = regexp.MustCompile(`^-\s+(.*?)\s*<!--\s*ts=(\d+)\s+agent=(\S*)
 // the last flush looks like, and the safe reading of an ambiguity here is the
 // one that keeps the work.
 //
-// Returns how many notes it restored.
-func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued int, err error) {
+// Returns how many notes it restored, how many it rescued out of the cache, and
+// how many it left out because they say nothing once masked.
+func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued, empty int, err error) {
 	// A rebuild is exactly the case where the tables do not exist yet — the user
 	// deleted the database — so create them rather than reporting their absence
 	// as a failure to restore.
 	if err := Init(db); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	root := filepath.Join(vaultDir, CheckpointDir)
 
@@ -243,7 +245,8 @@ func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued int, err error)
 		if err != nil {
 			return nil
 		}
-		n, err := importScopeNotes(db, scope, string(raw))
+		n, e, err := importScopeNotes(db, scope, string(raw))
+		empty += e
 		if err != nil {
 			return err
 		}
@@ -251,7 +254,7 @@ func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued int, err error)
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
-		return restored, 0, err
+		return restored, 0, empty, err
 	}
 
 	// Then the other direction: notes the vault never got, because the write
@@ -261,7 +264,7 @@ func ImportNotes(db *sql.DB, vaultDir string) (restored, rescued int, err error)
 	// the vault and the cache agree writes them out, rather than leaving them
 	// in the one place the documentation invites people to delete.
 	rescued, err = rescueNotes(db, vaultDir)
-	return restored, rescued, err
+	return restored, rescued, empty, err
 }
 
 // rescueNotes writes out the working notes that are in the cache and not in the
@@ -298,17 +301,16 @@ func rescueNotes(db *sql.DB, vaultDir string) (int, error) {
 	return rescued, nil
 }
 
-func importScopeNotes(db *sql.DB, scope, raw string) (int, error) {
+func importScopeNotes(db *sql.DB, scope, raw string) (restored, empty int, err error) {
 	existing, err := Uncommitted(db, scope)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	have := map[string]bool{}
 	for _, n := range existing {
 		have[n.Text+"\x00"+strconv.FormatInt(n.TS, 10)] = true
 	}
 
-	var restored int
 	for _, line := range strings.Split(raw, "\n") {
 		m := notePattern.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
@@ -319,15 +321,23 @@ func importScopeNotes(db *sql.DB, scope, raw string) (int, error) {
 		if text == "" || have[text+"\x00"+m[2]] {
 			continue
 		}
+		// Written before AddNoteAt refused them: a note that is only
+		// "[private]" would be folded into the next checkpoint as if it said
+		// something. Left out and counted, not an error — an error here
+		// stopped the rebuild and lost every note after it.
+		if masked, _ := noteText(text); secret.NothingLeft(masked) {
+			empty++
+			continue
+		}
 		agent := m[3]
 		if agent == "" {
 			agent = "agent"
 		}
 		if _, err := addNoteNoFlush(db, scope, agent, text, ts); err != nil {
-			return restored, err
+			return restored, empty, err
 		}
 		have[text+"\x00"+m[2]] = true
 		restored++
 	}
-	return restored, nil
+	return restored, empty, nil
 }

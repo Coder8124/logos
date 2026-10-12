@@ -641,3 +641,16 @@ func TestAStateThatClaimsDoneWithNothingVerifiedIsFlagged(t *testing.T) {
 		t.Error("a done state with its proof under verified was flagged")
 	}
 }
+
+// A note that was nothing but a <private> span cleared the empty check, which
+// runs before masking, and was kept as the note "[private]" — folded into the
+// next checkpoint as if it said something.
+func TestANoteThatIsOnlyAPrivateSpanIsRefused(t *testing.T) {
+	db := testDB(t)
+	if _, err := AddNote(db, "shop", "claude", "  <private>the staging password is hunter2</private> "); err == nil {
+		t.Fatal("a note that was only a private span was kept")
+	}
+	if _, err := AddNote(db, "shop", "claude", "<private>hunter2</private> login works now"); err != nil {
+		t.Errorf("a note with words besides the span was refused: %v", err)
+	}
+}

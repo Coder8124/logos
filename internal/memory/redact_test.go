@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,5 +51,33 @@ func TestAMemoryThatIsOnlyACredentialIsRefusedNotStoredAsTheMarker(t *testing.T)
 	db.QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&n)
 	if n != 0 {
 		t.Errorf("stored %d memory(ies) from a bare key", n)
+	}
+}
+
+// The emptiness check after masking looked only for the credential marker, so
+// a memory that was nothing but a <private> span — or a span and a key — was
+// stored as the fact "[private]", embedded, ranked and recalled, with a receipt
+// that read as a success.
+func TestAMemoryThatIsOnlyAPrivateSpanIsRefusedNotStoredAsTheMarker(t *testing.T) {
+	db, _ := store(t)
+	for _, text := range []string{
+		"<private>my bank pin is 4417</private>",
+		"<private>pin 4417</private> ghp_0123456789abcdefghijklmnopqrstuvwxyzAB.",
+	} {
+		if _, err := Store(db, nil, "", &Memory{Text: text, Kind: Fact, Source: "mcp"}); !errors.Is(err, ErrOnlySecret) {
+			t.Errorf("Store(%q) = %v, want it refused", text, err)
+		}
+	}
+	m := Memory{Text: "the checkout retries twice", Kind: Fact, Source: "mcp"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Correct(db, nil, "", m.ID, &Memory{Text: "<private>it is 4417</private>", Source: "mcp"}); !errors.Is(err, ErrOnlySecret) {
+		t.Errorf("Correct to a bare private span = %v, want it refused", err)
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM memories WHERE text LIKE '%[private]%'`).Scan(&n)
+	if n != 0 {
+		t.Errorf("stored %d memory(ies) that say only [private]", n)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/ingest"
+	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -101,7 +102,13 @@ func runActivity(args []string) error {
 		if e.Session != "" {
 			sess = " · " + e.Session
 		}
-		fmt.Printf("  %s  %-13s %s%s%s\n", when, e.Kind, e.Summary, where, sess)
+		// The person marked the span and only this line can tell them it was
+		// honoured: a "[private]" alone reads as something Logos lost.
+		kept := ""
+		if e.Private > 0 {
+			kept = " — " + secret.Summary(secret.KeptPrivate("", e.Private))
+		}
+		fmt.Printf("  %s  %-13s %s%s%s%s\n", when, e.Kind, e.Summary, kept, where, sess)
 	}
 	fmt.Printf("\nRaw: %s\n", filepath.Join(vault, activity.Dir))
 	return nil
@@ -437,9 +444,10 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	// people to read, and this is for the sweep to match against the name of
 	// the transcript, which is the whole id.
 	c := session.Checkpoint{Project: project, Agent: end.Agent, State: session.ActivityLogStateFor(hookSessionID(raw))}
-	work := false
+	work, private := false, 0
 	seen := map[string]bool{}
 	for _, e := range events {
+		private += e.Private
 		switch {
 		case e.Kind == activity.KindPrompt:
 			if r, ok := ingest.Request(e.Summary); ok && c.Task == "" {
@@ -483,6 +491,10 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	if err != nil {
 		return nil, err
 	}
+	// Counted over the whole session, not since the last reset: a span kept
+	// out of an earlier stretch was still kept out, and this line is the
+	// session's receipt.
+	written.Redactions = append(written.Redactions, secret.KeptPrivate("", private)...)
 	// The checkpoint is written; a marker that fails to land costs only a
 	// duplicate if this session ends again, so it is reported, not fatal.
 	if err := activity.Append(vault, activity.Event{

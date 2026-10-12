@@ -285,10 +285,11 @@ func (r Receipt) Created() bool { return r.Outcome == EvCreated }
 // instead of "remembered".
 func (r Receipt) Queued() bool { return r.Outcome == EvQuarantined }
 
-// ErrOnlySecret is Store refusing a memory that was nothing but a credential.
+// ErrOnlySecret is Store refusing a memory that was nothing but a credential,
+// or a span the person marked <private>.
 // Its own value so a bulk caller can count these as refusals rather than
 // stopping on the first one, or reporting them as failures to write.
-var ErrOnlySecret = errors.New("nothing to remember once the credential in it was masked — a secret is not stored as a memory")
+var ErrOnlySecret = errors.New("nothing to remember once the credential or <private> span in it was kept out — neither is stored as a memory")
 
 // Store embeds a memory and saves it, deduplicated on its normalised text so
 // the same fact learned twice does not accumulate. The receipt distinguishes a
@@ -303,10 +304,11 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	// by a person who pasted the same key.
 	var redactions []secret.Redaction
 	m.Text, redactions = secret.Mask("memory", m.Text)
-	// Asked after masking too: a memory that was only a pasted key cleared the
-	// check above and was stored as the fact "[REDACTED]". Refused, not a
-	// noop, so the agent learns why nothing was kept.
-	if strings.Trim(strings.ReplaceAll(m.Text, secret.Marker, ""), " \t\n.,;:'\"`") == "" {
+	// Asked after masking too: a memory that was only a pasted key, or only a
+	// <private> span, cleared the check above and was stored as the fact
+	// "[REDACTED]" or "[private]". Refused, not a noop, so the agent learns
+	// why nothing was kept.
+	if secret.NothingLeft(m.Text) {
 		return Receipt{Outcome: OutcomeNoop, Redactions: redactions}, ErrOnlySecret
 	}
 	if m.Created == 0 {
