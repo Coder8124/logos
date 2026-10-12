@@ -201,7 +201,7 @@ func TestADryRunRuleImportCountsAndWritesNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(out, "CLAUDE.md") || !strings.Contains(out, "3 proposals would be queued. Nothing was.") {
+	if !strings.Contains(out, "CLAUDE.md") || !strings.Contains(out, "3 proposals would be queued, 0 already in the queue or in memory. Nothing was written.") {
 		t.Errorf("the dry run did not name the file and count:\n%s", out)
 	}
 	if n := len(pendingFrom(t, claudeMDSource)); n != 0 {
@@ -271,5 +271,135 @@ func TestForgettingOneImportedRuleBySourceSaysOneMemory(t *testing.T) {
 	})
 	if !strings.Contains(out, "forgot 1 memory learned from cursor-rules.") {
 		t.Errorf("forgetting one memory said %q", out)
+	}
+}
+
+// Run from home, the repository's .claude/CLAUDE.md and the global one are the
+// same file. Kept as the repository's, the rules a person wrote for every
+// project were recalled in one project named after their home directory.
+func TestHomeClaudeMDStaysGlobalWhenTheImportRunsFromHome(t *testing.T) {
+	standInRules(t, map[string]string{"~/.claude/CLAUDE.md": "- Never push to main without asking first.\n"})
+	if err := os.Chdir(os.Getenv("HOME")); err != nil {
+		t.Fatal(err)
+	}
+	importRules(t, "claude-md")
+	got := pendingFrom(t, claudeMDSource)
+	if len(got) != 1 || got[0].Project != "" {
+		t.Errorf("the home rule was queued as %+v, want once and global", got)
+	}
+}
+
+// A rule the dedup folded into a memory worded a little differently is in the
+// timeline under its own words and in no row. That is not a rejection, and the
+// report used to tell the user they had rejected it.
+func TestARuleFoldedIntoAnExistingMemoryIsNotReportedAsRejected(t *testing.T) {
+	standInRules(t, map[string]string{"CLAUDE.md": "- commit messages are one sentence, present tense.\n"})
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{Text: "Commit messages are one sentence, present tense.", Kind: memory.Preference, Project: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+	importRules(t, "claude-md")
+	if again := importRules(t, "claude-md"); strings.Contains(again, "rejected or forgot") {
+		t.Errorf("a rule nobody rejected was reported as rejected:\n%s", again)
+	}
+}
+
+// The dry run and the prompt are the user's preview; counting rules the real
+// run will leave out made the preview a promise the import did not keep.
+func TestADryRunDoesNotCountARuleTheUserRejected(t *testing.T) {
+	standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	importRules(t, "claude-md")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Reject(ix.DB, pendingFrom(t, claudeMDSource)[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+	out := captureStdout(t, func() {
+		if err := runImport([]string{"--from", "claude-md", "--dry-run"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "0 proposals would be queued") || !strings.Contains(out, "1 you rejected or forgot before") {
+		t.Errorf("the dry run counted a rejected rule:\n%s", out)
+	}
+}
+
+// A note hidden from the rendered file is hidden for a reason; its middle lines
+// were queued as a rule.
+func TestAMultiLineHTMLCommentIsNotARule(t *testing.T) {
+	got := ruleItems("- Keep the tests fast.\n<!--\nTODO: rewrite this section\n-->\n- Run vet.\n")
+	want := []string{"Keep the tests fast.", "Run vet."}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// AGENTS.md is often a symlink to CLAUDE.md. Read under both names, every rule
+// was found twice and half came back "already present" on a first import.
+func TestAnAgentsMDThatLinksToClaudeMDIsReadOnce(t *testing.T) {
+	standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	if err := os.Symlink("CLAUDE.md", "AGENTS.md"); err != nil {
+		t.Fatal(err)
+	}
+	if out := importRules(t, "claude-md"); !strings.Contains(out, "Imported 3, skipped 0") {
+		t.Errorf("a linked AGENTS.md was read as a second file:\n%s", out)
+	}
+}
+
+func TestNothingToImportFromCursorDoesNotNameClaudesFolder(t *testing.T) {
+	standInRules(t, nil)
+	out := importRules(t, "cursor-rules")
+	if !strings.Contains(out, "Nothing to import") || strings.Contains(out, ".claude") {
+		t.Errorf("the empty cursor import named a place it did not look:\n%s", out)
+	}
+}
+
+// What was rejected is read from the index, and the index is a cache. With it
+// deleted and not yet rebuilt, the import read an empty timeline and queued
+// every rejected rule again.
+func TestARejectedRuleStaysOutWhenTheIndexWasDeletedAndNotRebuilt(t *testing.T) {
+	vaultDir := standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	importRules(t, "claude-md")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Reject(ix.DB, pendingFrom(t, claudeMDSource)[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+	if err := os.RemoveAll(filepath.Join(vaultDir, ".logos")); err != nil {
+		t.Fatal(err)
+	}
+	if out := importRules(t, "claude-md"); !strings.Contains(out, "Imported 0, skipped 3") {
+		t.Errorf("an import on a deleted index did not find what was rejected and queued:\n%s", out)
+	}
+	if n := len(pendingFrom(t, claudeMDSource)); n != 2 {
+		t.Errorf("%d proposals wait, want 2", n)
+	}
+}
+
+// The dry run counted every rule it did not drop as rejected, so a second look
+// at a file already imported promised proposals the import then skipped.
+func TestADryRunAfterAnImportPromisesNothingNew(t *testing.T) {
+	standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	importRules(t, "claude-md")
+	out := captureStdout(t, func() {
+		if err := runImport([]string{"--from", "claude-md", "--dry-run"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "0 proposals would be queued, 3 already in the queue or in memory") {
+		t.Errorf("the dry run promised what the import would skip:\n%s", out)
 	}
 }

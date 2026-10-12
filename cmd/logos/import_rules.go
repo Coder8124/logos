@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -61,8 +62,42 @@ func runImportRules(from string, args []string) error {
 		}
 	}
 	if len(found) == 0 {
-		fmt.Printf("Nothing to import: no %s rules in %s or ~/.claude.\n", from, scope.DenyRoot(dir))
+		where := scope.DenyRoot(dir)
+		if from == claudeMDSource {
+			where += " or ~/.claude"
+		}
+		fmt.Printf("Nothing to import: no %s rules in %s.\n", from, where)
 		return nil
+	}
+
+	// Opened before the preview, not after the yes: the dry run and the prompt
+	// count what the import will offer, and a rule the user already rejected
+	// is not offered. Quiet, because a missing index is rebuilt below rather
+	// than warned about.
+	ix, err := openIndexQuiet()
+	if err != nil {
+		return err
+	}
+	defer ix.Close()
+	if err := memory.Init(ix.DB); err != nil {
+		return err
+	}
+	// What was rejected is read from the index, and a deleted one reads as
+	// nothing rejected: every rule the user threw out was queued again. So it
+	// is rebuilt from the vault first, as the import switch does.
+	synced, err := ix.Synced()
+	if err != nil {
+		return err
+	}
+	if !synced {
+		if err := indexPass(ix, io.Discard, nil, ""); err != nil {
+			return fmt.Errorf("the index had to be rebuilt to tell which rules you rejected, and the rebuild failed, so nothing was imported: %w", err)
+		}
+		fmt.Println("The index was missing, so it was rebuilt from the vault first: what you rejected before is read from it.")
+	}
+	offered, dismissed, present, err := notDismissed(ix.DB, found)
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("Found:")
@@ -78,35 +113,27 @@ func runImportRules(from string, args []string) error {
 		fmt.Printf("  - %s\n", truncate(m.Text, 100))
 	}
 	fmt.Printf("\nEach becomes a proposal in the review queue, labelled source %s, confidence %.2f. Most of a rules file is convention, so none of it is recalled until you accept it.\n", from, ruleConfidence)
+	if dismissed > 0 {
+		fmt.Printf("%d you rejected or forgot before; a rules file read again does not overrule that, so they are left out.\n", dismissed)
+	}
 
 	if hasFlag(args, "--dry-run") {
-		fmt.Printf("%d proposals would be queued. Nothing was.\n", len(found))
+		fresh := len(offered) - present
+		fmt.Printf("%d %s would be queued, %d already in the queue or in memory. Nothing was written.\n", fresh, plural(fresh, "proposal"), present)
 		return nil
 	}
-	if !hasFlag(args, "--yes") && !confirmNo(fmt.Sprintf("Queue these %d?", len(found))) {
+	if fresh := len(offered) - present; fresh > 0 && !hasFlag(args, "--yes") && !confirmNo(fmt.Sprintf("Queue %d %s?", fresh, plural(fresh, "proposal"))) {
 		fmt.Println("Nothing written.")
 		return nil
 	}
 
-	ix, err := openEvents()
-	if err != nil {
-		return err
-	}
-	defer ix.Close()
-	if err := memory.Init(ix.DB); err != nil {
-		return err
-	}
-	offered, dismissed, err := notDismissed(ix.DB, found)
-	if err != nil {
-		return err
-	}
 	c, err := storeImported(ix.DB, offered)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\nImported %d, skipped %d (already present), refused %d (nothing but a secret).\n", c.imported, c.present+dismissed, c.refused)
 	if dismissed > 0 {
-		fmt.Printf("Of those skipped, %d you rejected or forgot before; a rules file read again does not overrule that.\n", dismissed)
+		fmt.Printf("Of those skipped, %d you rejected or forgot before.\n", dismissed)
 	}
 	if c.masked > 0 {
 		fmt.Printf("%d had a secret-shaped token masked before it was written.\n", c.masked)
@@ -119,41 +146,49 @@ func runImportRules(from string, args []string) error {
 // notDismissed drops the rules the user already threw out. A rules file is read
 // whole on every import, and Reject and Forget delete the row Store would have
 // deduplicated against, so a rejected rule was queued again by the next import.
-// What the timeline has met and no row still holds is what was dismissed; the
-// timeline is restored from log.md, so this survives deleting the index. The
-// text is masked first because the timeline holds it as Store wrote it.
-func notDismissed(db *sql.DB, found []*memory.Memory) ([]*memory.Memory, int, error) {
-	seen, err := memory.SeenTexts(db)
+// A text the timeline records as rejected or forgotten, that no row holds
+// again since, was dismissed; the timeline is restored from log.md, so this
+// survives deleting the index. The text is masked first because the timeline
+// holds it as Store wrote it.
+//
+// present counts what is offered but Store will skip, by the fingerprint Store
+// deduplicates on, so the preview promises only what the import writes.
+func notDismissed(db *sql.DB, found []*memory.Memory) (offered []*memory.Memory, dismissed, present int, err error) {
+	seen, err := memory.DismissedTexts(db)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	rows, err := db.Query("SELECT text FROM memories")
+	rows, err := db.Query("SELECT fingerprint FROM memories")
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	defer rows.Close()
 	held := map[string]bool{}
 	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			return nil, 0, err
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return nil, 0, 0, err
 		}
-		held[t] = true
+		held[fp] = true
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	var out []*memory.Memory
-	dismissed := 0
 	for _, m := range found {
 		t, _ := secret.Mask("memory", m.Text)
-		if seen[t] && !held[t] {
+		fp := memory.Fingerprint(t)
+		if seen[t] && !held[fp] {
 			dismissed++
 			continue
 		}
-		out = append(out, m)
+		if held[fp] {
+			present++
+		}
+		// The same rule in two files is stored once; the second is skipped.
+		held[fp] = true
+		offered = append(offered, m)
 	}
-	return out, dismissed, nil
+	return offered, dismissed, present, nil
 }
 
 // readRuleFiles reads every rules file the source names, in the repository at
@@ -193,14 +228,25 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 	}
 
 	var out []ruleFile
-	seen := map[string]bool{}
+	// By the file a name resolves to: AGENTS.md is often a link to CLAUDE.md,
+	// and read under both names every rule was offered twice. The value is
+	// the file's place in out, or -1 for one with no rules.
+	seen := map[string]int{}
 	for _, c := range cands {
-		// Run from home, the repository's .claude/CLAUDE.md is the global
-		// one; read twice, it would be offered twice.
-		if seen[c.path] {
+		key := c.path
+		if real, err := filepath.EvalSymlinks(c.path); err == nil {
+			key = real
+		}
+		if i, ok := seen[key]; ok {
+			// Run from home, the repository's .claude/CLAUDE.md is the
+			// global one. It applies to every project, whichever name
+			// reached it first.
+			if i >= 0 && c.project == "" {
+				out[i].project = ""
+			}
 			continue
 		}
-		seen[c.path] = true
+		seen[key] = -1
 		raw, err := os.ReadFile(c.path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -218,6 +264,7 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 		} else if home != "" && strings.HasPrefix(c.path, home+string(filepath.Separator)) {
 			shown = "~" + c.path[len(home):]
 		}
+		seen[key] = len(out)
 		out = append(out, ruleFile{shown: shown, project: c.project, items: items})
 	}
 	return out, nil
@@ -251,8 +298,13 @@ func ruleItems(text string) []string {
 		}
 	}
 	fence := ""
+	comment := false
 	for _, line := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(line)
+		if comment {
+			comment = !strings.Contains(t, "-->")
+			continue
+		}
 		if fence != "" {
 			if strings.HasPrefix(t, fence) {
 				fence = ""
@@ -263,7 +315,12 @@ func ruleItems(text string) []string {
 		case strings.HasPrefix(t, "```"), strings.HasPrefix(t, "~~~"):
 			flush()
 			fence = t[:3]
-		case t == "", t == "---", ruleHeading.MatchString(t), strings.HasPrefix(t, "|"), strings.HasPrefix(t, "<!--"):
+		case strings.HasPrefix(t, "<!--"):
+			// A note hidden from the rendered file is hidden for a reason,
+			// all of its lines and not only the first.
+			flush()
+			comment = !strings.Contains(t[len("<!--"):], "-->")
+		case t == "", t == "---", ruleHeading.MatchString(t), strings.HasPrefix(t, "|"):
 			flush()
 		default:
 			if m := ruleListItem.FindStringSubmatch(t); m != nil {
