@@ -124,7 +124,7 @@ func reviewEverythingMCP() bool { return os.Getenv("LOGOS_REVIEW_ALL") != "" }
 // widens it to everything, which is the "unless explicitly asked" half — an
 // agent that genuinely wants another project's history can have it, but has to
 // say so rather than getting it by accident.
-func (s *Session) recall(query string, k int, projectArg string, allProjects bool) (string, error) {
+func (s *Session) recall(query string, k int, projectArg string, allProjects, compact bool) (string, error) {
 	project := ""
 	if !allProjects {
 		project = s.resolveProject(projectArg)
@@ -132,7 +132,7 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 	r, err := ops.Recall(s.DB, ops.RecallQuery{
 		Query: query, Limit: k, Project: project,
 		Embed: s.embed, Model: s.embedModel, Shell: s.shell(),
-		Dir: s.repoHere(project),
+		Dir: s.repoHere(project), Compact: compact,
 	})
 	if err != nil {
 		return "", err
@@ -150,6 +150,14 @@ func (s *Session) recall(query string, k int, projectArg string, allProjects boo
 		}
 	}
 	return r.Text(ifEmpty), nil
+}
+
+// recallIDs serves the memories a compact recall listed. projectArg only says
+// whose memories are this project's own, for the "from" label; an id is
+// global, so it is served whichever project it belongs to.
+func (s *Session) recallIDs(ids, projectArg string) (string, error) {
+	here := s.resolveProject(projectArg)
+	return ops.RecallIDs(s.DB, strings.Split(ids, ","), here, s.repoHere(here))
 }
 
 // fromProject names the project a memory belongs to when it is not the one the

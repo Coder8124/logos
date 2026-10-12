@@ -174,7 +174,7 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	// A second session, in a different folder.
 	other := &Session{Server: srv}
 	t.Setenv("LOGOS_PROJECT", "beta")
-	out, err := other.recall("frame material", 10, "", false)
+	out, err := other.recall("frame material", 10, "", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestTwoProjectsDoNotSeeEachOther(t *testing.T) {
 	}
 
 	// …unless it asks, which is the escape hatch the tool description names.
-	out, err = other.recall("frame material", 10, "", true)
+	out, err = other.recall("frame material", 10, "", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestGlobalMemoriesReachEveryProject(t *testing.T) {
 
 	other := &Session{Server: srv}
 	t.Setenv("LOGOS_PROJECT", "beta")
-	out, err := other.recall("how should I reply", 10, "", false)
+	out, err := other.recall("how should I reply", 10, "", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
 	}
 	// The repository's memory is shared, because a worktree is the same
 	// repository — losing that would make it a different project instead.
-	mem, err := b.recall("frame material", 10, "", false)
+	mem, err := b.recall("frame material", 10, "", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

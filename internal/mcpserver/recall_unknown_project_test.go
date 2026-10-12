@@ -22,7 +22,7 @@ func TestRecallSaysSoWhenTheProjectItWasGivenDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := sess.recall("billing", 5, "kestral", false)
+	out, err := sess.recall("billing", 5, "kestral", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestRecallStillReportsAnEmptyResultForAProjectThatExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := sess.recall("zzqx-nothing-matches-this", 5, "kestrel", false)
+	out, err := sess.recall("zzqx-nothing-matches-this", 5, "kestrel", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
