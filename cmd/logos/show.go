@@ -247,7 +247,8 @@ func showRulingList(shown []deadend.Ruling, total int) {
 
 // projectMemories is the project's own memories, newest first. The global ones
 // are every project's, and listing them here would be the same block on every
-// page; pinned ones are shown on their own.
+// page; pinned ones are shown on their own — except a procedure, which Pinned
+// leaves out because it never enters a pack, so it is listed here.
 func projectMemories(db *sql.DB, project string) ([]memory.Memory, error) {
 	all, err := memory.AllInProject(db, project)
 	if err != nil {
@@ -255,7 +256,7 @@ func projectMemories(db *sql.DB, project string) ([]memory.Memory, error) {
 	}
 	var out []memory.Memory
 	for _, m := range all {
-		if m.Project == project && m.Pin == memory.PinNone {
+		if m.Project == project && (m.Pin == memory.PinNone || m.Kind == memory.Procedure) {
 			out = append(out, m)
 		}
 	}

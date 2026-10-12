@@ -9,6 +9,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -184,10 +185,11 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 	// the notes and left every remembered fact out of the cache until some
 	// later run happened to have Ollama up. "Delete the index, lose
 	// nothing" cannot depend on a model being reachable.
-	mems, rescuedMems, err := ix.SyncMemories(p, embed)
+	mems, rescuedMems, edits, err := ix.SyncMemoryEdits(p, embed)
 	if err != nil {
 		return err
 	}
+	printMemoryEdits(w, edits)
 	// Same again for memories, and this is the count the bug was about: a
 	// memory stranded in the cache used to be reaped here as a line the
 	// user had deleted by hand, and reported under `-0`.
@@ -302,4 +304,41 @@ func runIndexAuto() error {
 	}
 	rebuildIndex(ix)
 	return nil
+}
+
+// printMemoryEdits says what a hand edit to memories/ did, which the summary
+// line does not count. Both halves together are the case worth a hint: a line
+// retyped without its `<!-- logos id=… -->` comment forgets the memory it was,
+// project and confidence included, and comes back as a bare new one.
+func printMemoryEdits(w io.Writer, e memory.Edits) {
+	if n := len(e.Added); n > 0 {
+		fmt.Fprintf(w, "added %d memor%s from a line with no id comment in memories/ — %s\n",
+			n, pluralY(n), memoryIDs(e.Added))
+	}
+	if n := len(e.Forgotten); n > 0 {
+		fmt.Fprintf(w, "forgot %d memor%s whose line is gone from memories/ — %s\n",
+			n, pluralY(n), memoryIDs(e.Forgotten))
+	}
+	if len(e.Added) > 0 && len(e.Forgotten) > 0 {
+		fmt.Fprintln(w, "  (a line keeps its memory only while its `<!-- logos id=… -->` comment stays on it; a retyped line is a new memory, without the old one's project, confidence or pin)")
+	}
+	// Said every run while the line stays: it is not a memory, and the next
+	// write to its file drops it, so this is the one place it is visible.
+	for _, h := range e.Held {
+		fmt.Fprintf(w, "left out of memory: %s\n", terminalSafe(h, 400))
+	}
+}
+
+// memoryIDs writes "#3, #4" — the handles `logos memory history` takes — and
+// stops at five, since a whole file retyped is said well enough by its count.
+func memoryIDs(ids []int64) string {
+	var parts []string
+	for i, id := range ids {
+		if i == 5 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(ids)-5))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("#%d", id))
+	}
+	return strings.Join(parts, ", ")
 }
