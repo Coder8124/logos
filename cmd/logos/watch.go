@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -76,14 +77,46 @@ type tail struct {
 	glob    string
 	line    func(string) string
 	offsets map[string]int64
+	// The bytes just before each offset. A rewrite that leaves the file
+	// longer — a rename to a longer project name rewrites every line of the
+	// timeline — passes a size check, and reading on from the old offset
+	// lands mid-line in the rewritten history. Those bytes no longer being
+	// where they were is what says so.
+	marks map[string][]byte
+}
+
+const markLen = 64
+
+// mark records the bytes ending at f's offset, or nil when it cannot.
+func (t *tail) mark(f string) {
+	at := t.offsets[f]
+	n := int64(markLen)
+	if at < n {
+		n = at
+	}
+	t.marks[f] = readAt(f, at-n, n)
+}
+
+func readAt(f string, off, n int64) []byte {
+	fh, err := os.Open(f)
+	if err != nil {
+		return nil
+	}
+	defer fh.Close()
+	buf := make([]byte, n)
+	if got, _ := fh.ReadAt(buf, off); int64(got) != n {
+		return nil
+	}
+	return buf
 }
 
 func (t *tail) skipToEnd() {
-	t.offsets = map[string]int64{}
+	t.offsets, t.marks = map[string]int64{}, map[string][]byte{}
 	files, _ := filepath.Glob(t.glob)
 	for _, f := range files {
 		if st, err := os.Stat(f); err == nil {
 			t.offsets[f] = st.Size()
+			t.mark(f)
 		}
 	}
 }
@@ -99,10 +132,14 @@ func (t *tail) poll() []string {
 			continue
 		}
 		at := t.offsets[f]
-		if st.Size() < at {
+		if st.Size() == at && at == 0 {
+			continue
+		}
+		if m, ok := t.marks[f]; st.Size() < at || ok && !bytes.Equal(m, readAt(f, at-int64(len(m)), int64(len(m)))) {
 			// Rewritten, not appended to — a project rename rewrites the
 			// timeline. Replaying it would print the whole history as news.
 			t.offsets[f] = st.Size()
+			t.mark(f)
 			out = append(out, fmt.Sprintf("· %s was rewritten; watching from its new end", filepath.Base(f)))
 			continue
 		}
@@ -127,6 +164,7 @@ func (t *tail) poll() []string {
 			continue
 		}
 		t.offsets[f] = at + int64(end) + 1
+		t.mark(f)
 		for _, l := range strings.Split(string(buf[:end]), "\n") {
 			if msg := t.line(l); msg != "" {
 				out = append(out, msg)

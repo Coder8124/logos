@@ -110,3 +110,40 @@ func TestWatchSaysWhenCapturesAreNotBeingRecorded(t *testing.T) {
 		t.Errorf("watch did not say captures are off:\n%s", out.String())
 	}
 }
+
+// A rename rewrites memories/log.md with the new project name in every line.
+// To a longer name the file grows, so only checking for a shrink read on from
+// the old offset into the middle of the rewritten history, printing old memory
+// events as if they had just happened.
+func TestWatchDoesNotReplayAFileRewrittenLonger(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "log.jsonl")
+	old := "#1 created [billing]\n#2 created [billing]\n"
+	if err := os.WriteFile(f, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tl := &tail{glob: f, line: func(l string) string { return "line " + l }}
+	tl.skipToEnd()
+
+	renamed := "#1 created [billing-api]\n#2 created [billing-api]\n"
+	if err := os.WriteFile(f, []byte(renamed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(tl.poll(), "\n")
+	if strings.Contains(got, "line ") {
+		t.Errorf("the rewritten history was printed as new:\n%s", got)
+	}
+	if !strings.Contains(got, "was rewritten") {
+		t.Errorf("the rewrite was not said:\n%s", got)
+	}
+
+	// And the watch carries on from the new end.
+	fh, err := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fh.WriteString("#3 created [billing-api]\n")
+	fh.Close()
+	if got := tl.poll(); len(got) != 1 || got[0] != "line #3 created [billing-api]" {
+		t.Errorf("after the rewrite, polled %q, want the one new line", got)
+	}
+}
