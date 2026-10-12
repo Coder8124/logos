@@ -211,3 +211,19 @@ func TestABareSlashCommandOrAKeptOutSpanIsNotThePersonsWords(t *testing.T) {
 		}
 	}
 }
+
+// A first prompt that was only a kept-out span became the auto checkpoint's
+// task as "[private]", and the next agent was told the person asked for that.
+func TestAFirstPromptThatWasOnlyAKeptOutSpanIsNotTheRequest(t *testing.T) {
+	for _, p := range []string{"[private]", "[private] [private]", "  [private]\n"} {
+		if got, ok := Request(p); ok {
+			t.Errorf("Request(%q) = %q, want no request", p, got)
+		}
+	}
+	if got, ok := Request("[private]\nfix the cart total"); !ok || got != "fix the cart total" {
+		t.Errorf("Request = %q, %v, want the line after the kept-out span", got, ok)
+	}
+	if got, _ := Request("[private] keep v1 pricing"); got != "[private] keep v1 pricing" {
+		t.Errorf("a line with words beside the marker is still a request, got %q", got)
+	}
+}
