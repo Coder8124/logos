@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,12 +89,14 @@ func runImportRules(from string, args []string) error {
 		return err
 	}
 	if !synced {
-		if err := indexPass(ix, io.Discard, nil, ""); err != nil {
+		// To stderr, as rebuildIndex does: the pass reports what it restored
+		// and wrote back, and a repair nobody hears about reads as none.
+		if err := indexPass(ix, os.Stderr, nil, ""); err != nil {
 			return fmt.Errorf("the index had to be rebuilt to tell which rules you rejected, and the rebuild failed, so nothing was imported: %w", err)
 		}
 		fmt.Println("The index was missing, so it was rebuilt from the vault first: what you rejected before is read from it.")
 	}
-	offered, dismissed, present, err := notDismissed(ix.DB, found)
+	fresh, dismissed, present, err := notDismissed(ix.DB, found)
 	if err != nil {
 		return err
 	}
@@ -108,9 +109,11 @@ func runImportRules(from string, args []string) error {
 		}
 		fmt.Printf("  %-36s %3d %s, for %s\n", f.shown, len(f.items), plural(len(f.items), "rule"), where)
 	}
-	fmt.Println("\nA sample of what would be queued:")
-	for _, m := range found[:min(5, len(found))] {
-		fmt.Printf("  - %s\n", truncate(m.Text, 100))
+	if len(fresh) > 0 {
+		fmt.Println("\nA sample of what would be queued:")
+		for _, m := range fresh[:min(5, len(fresh))] {
+			fmt.Printf("  - %s\n", truncate(m.Text, 100))
+		}
 	}
 	fmt.Printf("\nEach becomes a proposal in the review queue, labelled source %s, confidence %.2f. Most of a rules file is convention, so none of it is recalled until you accept it.\n", from, ruleConfidence)
 	if dismissed > 0 {
@@ -118,20 +121,24 @@ func runImportRules(from string, args []string) error {
 	}
 
 	if hasFlag(args, "--dry-run") {
-		fresh := len(offered) - present
-		fmt.Printf("%d %s would be queued, %d already in the queue or in memory. Nothing was written.\n", fresh, plural(fresh, "proposal"), present)
+		fmt.Printf("%d %s would be queued, %d already in the queue or in memory. Nothing was written.\n", len(fresh), plural(len(fresh), "proposal"), present)
 		return nil
 	}
-	if fresh := len(offered) - present; fresh > 0 && !hasFlag(args, "--yes") && !confirmNo(fmt.Sprintf("Queue %d %s?", fresh, plural(fresh, "proposal"))) {
+	if len(fresh) > 0 && !hasFlag(args, "--yes") && !confirmNo(fmt.Sprintf("Queue %d %s?", len(fresh), plural(len(fresh), "proposal"))) {
 		fmt.Println("Nothing written.")
 		return nil
 	}
 
-	c, err := storeImported(ix.DB, offered)
-	if err != nil {
-		return err
+	// Only what is new goes to Store: a rule it already holds would be stored
+	// again as a reinforcement, a line in the vault's log for every rule on
+	// every re-import, and reading a file twice is not new evidence.
+	var c importCounts
+	if len(fresh) > 0 {
+		if c, err = storeImported(ix.DB, fresh); err != nil {
+			return err
+		}
 	}
-	fmt.Printf("\nImported %d, skipped %d (already present), refused %d (nothing but a secret).\n", c.imported, c.present+dismissed, c.refused)
+	fmt.Printf("\nImported %d, skipped %d (already present), refused %d (nothing but a secret).\n", c.imported, present+c.present+dismissed, c.refused)
 	if dismissed > 0 {
 		fmt.Printf("Of those skipped, %d you rejected or forgot before.\n", dismissed)
 	}
@@ -151,9 +158,11 @@ func runImportRules(from string, args []string) error {
 // survives deleting the index. The text is masked first because the timeline
 // holds it as Store wrote it.
 //
-// present counts what is offered but Store will skip, by the fingerprint Store
-// deduplicates on, so the preview promises only what the import writes.
-func notDismissed(db *sql.DB, found []*memory.Memory) (offered []*memory.Memory, dismissed, present int, err error) {
+// fresh is what is left once the rules a row already holds, by the fingerprint
+// Store deduplicates on, are counted in present instead. With an embedding
+// model, Store also folds a reworded near-duplicate into a held row, so fresh
+// is what the import offers at most, and its summary counts what it wrote.
+func notDismissed(db *sql.DB, found []*memory.Memory) (fresh []*memory.Memory, dismissed, present int, err error) {
 	seen, err := memory.DismissedTexts(db)
 	if err != nil {
 		return nil, 0, 0, err
@@ -183,12 +192,13 @@ func notDismissed(db *sql.DB, found []*memory.Memory) (offered []*memory.Memory,
 		}
 		if held[fp] {
 			present++
+			continue
 		}
 		// The same rule in two files is stored once; the second is skipped.
 		held[fp] = true
-		offered = append(offered, m)
+		fresh = append(fresh, m)
 	}
-	return offered, dismissed, present, nil
+	return fresh, dismissed, present, nil
 }
 
 // readRuleFiles reads every rules file the source names, in the repository at
@@ -301,25 +311,21 @@ func ruleItems(text string) []string {
 	comment := false
 	for _, line := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(line)
-		if comment {
-			comment = !strings.Contains(t, "-->")
-			continue
-		}
 		if fence != "" {
 			if strings.HasPrefix(t, fence) {
 				fence = ""
 			}
 			continue
 		}
+		// A note hidden from the rendered file is hidden for a reason, all of
+		// it, wherever on the line it opens and closes. A line that was only
+		// a comment ends the paragraph, as it did before it was hidden.
+		line, comment = uncommented(line, comment)
+		t = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(t, "```"), strings.HasPrefix(t, "~~~"):
 			flush()
 			fence = t[:3]
-		case strings.HasPrefix(t, "<!--"):
-			// A note hidden from the rendered file is hidden for a reason,
-			// all of its lines and not only the first.
-			flush()
-			comment = !strings.Contains(t[len("<!--"):], "-->")
 		case t == "", t == "---", ruleHeading.MatchString(t), strings.HasPrefix(t, "|"):
 			flush()
 		default:
@@ -332,4 +338,26 @@ func ruleItems(text string) []string {
 	}
 	flush()
 	return items
+}
+
+// uncommented returns line with its HTML comments cut out, given whether one
+// was already open when it began, and whether one is still open at its end.
+func uncommented(line string, open bool) (string, bool) {
+	var b strings.Builder
+	for {
+		if open {
+			end := strings.Index(line, "-->")
+			if end < 0 {
+				return b.String(), true
+			}
+			line, open = line[end+len("-->"):], false
+		}
+		start := strings.Index(line, "<!--")
+		if start < 0 {
+			b.WriteString(line)
+			return b.String(), false
+		}
+		b.WriteString(line[:start])
+		line, open = line[start+len("<!--"):], true
+	}
 }

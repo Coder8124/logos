@@ -403,3 +403,67 @@ func TestADryRunAfterAnImportPromisesNothingNew(t *testing.T) {
 		t.Errorf("the dry run promised what the import would skip:\n%s", out)
 	}
 }
+
+// The rebuild restores working notes from the vault; its report went nowhere,
+// so an import repaired the index and never said what it brought back.
+func TestAnImportThatRebuildsTheIndexSaysWhatTheRebuildRestored(t *testing.T) {
+	vaultDir := standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	if err := runNote([]string{"shop", "priced the extruded option"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(vaultDir, ".logos")); err != nil {
+		t.Fatal(err)
+	}
+	errOut := captureStderr(t, func() { importRules(t, "claude-md") })
+	if !strings.Contains(errOut, "restored 1 uncommitted working note") {
+		t.Errorf("the rebuild's repairs were not reported:\n%s", errOut)
+	}
+}
+
+// With nothing new to queue, every held rule was stored again: a reinforced
+// line per rule in the vault's log, from a re-import the user meant as a look.
+func TestReImportingRulesWritesNothingToTheVault(t *testing.T) {
+	vaultDir := standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	importRules(t, "claude-md")
+	logPath := filepath.Join(vaultDir, "memories", "log.md")
+	before, _ := os.ReadFile(logPath)
+	if out := importRules(t, "claude-md"); !strings.Contains(out, "Imported 0, skipped 3") {
+		t.Errorf("the re-import did not count what it skipped:\n%s", out)
+	}
+	if after, _ := os.ReadFile(logPath); string(after) != string(before) {
+		t.Errorf("a re-import of the same file wrote to the vault's log:\n%s", after[len(before):])
+	}
+}
+
+func TestThePreviewSampleLeavesOutARejectedRule(t *testing.T) {
+	standInRules(t, map[string]string{"CLAUDE.md": shopClaudeMD})
+	importRules(t, "claude-md")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := pendingFrom(t, claudeMDSource)[0]
+	if err := memory.Reject(ix.DB, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+	if err := os.WriteFile("AGENTS.md", []byte("- Deploys go through the release branch.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := runImport([]string{"--from", "claude-md", "--dry-run"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if strings.Contains(out, "  - "+first.Text) || !strings.Contains(out, "  - Deploys go through the release branch.") {
+		t.Errorf("the sample showed a rule the import leaves out, or not the one it queues:\n%s", out)
+	}
+}
+
+func TestACommentInsideALineIsNotPartOfTheRule(t *testing.T) {
+	got := ruleItems("- Always run make <!-- drop once\nCI is fixed -->\n<!-- note --> Use tabs.\n- Run vet. <!-- why --> Always.\n")
+	want := []string{"Always run make", "Use tabs.", "Run vet. Always."}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
