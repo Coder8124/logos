@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,30 @@ func TestANotesReceiptSaysWhatWasMaskedInASentenceOfItsOwn(t *testing.T) {
 		t.Fatalf("note_progress reported error: %s", out)
 	}
 	if !strings.Contains(out, "until you checkpoint. 1 secret-shaped token(s) redacted") {
+		t.Errorf("receipt = %q, want the masking said in a sentence of its own", out)
+	}
+}
+
+// The checkpoint receipt had the same bare-space join as the note's: "…saved to
+// logos — <slug>.md 1 secret-shaped token(s) redacted".
+func TestACheckpointsReceiptSaysWhatWasMaskedInASentenceOfItsOwn(t *testing.T) {
+	c, _, _ := startServer(t)
+	c.req("initialize", map[string]any{
+		"protocolVersion": protocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "cursor", "version": "1"},
+	})
+	c.notify("notifications/initialized", nil)
+
+	out, isErr := c.callText(t, "checkpoint", map[string]any{
+		"project": "brain", "task": "ship the upload",
+		"verified": []string{"upload works with GITHUB_TOKEN=ghp_R2d2C3poBb8Ee9Ff0Gg1Hh2Ii3Jj4Kk5Ll6M"},
+		"next":     "tag it",
+	})
+	if isErr {
+		t.Fatalf("checkpoint reported error: %s", out)
+	}
+	if !regexp.MustCompile(`\.md\. 1 secret-shaped token\(s\) redacted`).MatchString(out) {
 		t.Errorf("receipt = %q, want the masking said in a sentence of its own", out)
 	}
 }

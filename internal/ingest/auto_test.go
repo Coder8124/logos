@@ -194,3 +194,20 @@ func TestAGreetingOnItsOwnLineDoesNotHideTheRequestAfterIt(t *testing.T) {
 		t.Error("a turn of only acknowledgements asks for nothing")
 	}
 }
+
+// PersonWrote kept every line left once host text was out, so a bare /compact
+// typed on a host that sends it as plain text, or a turn that was only a kept-
+// out <private> span, counted as the person's words — and a distiller's guess
+// about what was hidden behind "[private]" passed as something they said.
+func TestABareSlashCommandOrAKeptOutSpanIsNotThePersonsWords(t *testing.T) {
+	for _, p := range []string{"/compact", "  /model  ", "[private]", "[private] [private]"} {
+		if PersonWrote(p) {
+			t.Errorf("PersonWrote(%q) = true", p)
+		}
+	}
+	for _, p := range []string{"no", "[private] keep v1", "/compact then fix the cart"} {
+		if !PersonWrote(p) {
+			t.Errorf("PersonWrote(%q) = false", p)
+		}
+	}
+}
