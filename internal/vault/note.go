@@ -65,7 +65,7 @@ type Note struct {
 type frontmatter struct {
 	Type      string        `yaml:"type"`
 	Title     string        `yaml:"title"`
-	Aliases   []string      `yaml:"aliases"`
+	Aliases   stringList    `yaml:"aliases"`
 	Relations []rawRelation `yaml:"relations"`
 	// Any of these date fields seeds first_seen — the rollup writes first_seen,
 	// daily notes carry date, recordings carry captured.
@@ -79,6 +79,27 @@ type rawRelation struct {
 	Obj  string   `yaml:"obj"`
 	Conf *float64 `yaml:"conf"`
 	Src  string   `yaml:"src"`
+}
+
+// stringList is a frontmatter list that may be written as one plain value.
+// Obsidian accepts `aliases: Pay` as well as `aliases: [Pay]`, and older vaults
+// are full of the first; decoded straight into []string it failed and the
+// alias was dropped without a word.
+type stringList []string
+
+func (l *stringList) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		if n.Value != "" {
+			*l = stringList{n.Value}
+		}
+		return nil
+	}
+	var s []string
+	if err := n.Decode(&s); err != nil {
+		return err
+	}
+	*l = s
+	return nil
 }
 
 // [[target]] or [[target|display]] or [[target#heading]]
@@ -105,7 +126,8 @@ func NormalizeLink(target string) string {
 	if i := strings.LastIndex(t, "/"); i >= 0 {
 		t = t[i+1:]
 	}
-	return t
+	// Obsidian resolves [[checkout.md]] to the same note as [[checkout]].
+	return strings.TrimSuffix(t, ".md")
 }
 
 func hash(s string) string {
@@ -115,7 +137,12 @@ func hash(s string) string {
 }
 
 // splitFrontmatter splits "---\nyaml\n---\nbody" into its two halves.
+// A file saved with Windows line endings is read as one with Unix ones: its
+// "---\r\n" was not taken for frontmatter, and the YAML was indexed as body.
 func splitFrontmatter(raw string) (string, string) {
+	if strings.HasPrefix(raw, "---\r\n") {
+		raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	}
 	if !strings.HasPrefix(raw, "---\n") {
 		return "", raw
 	}

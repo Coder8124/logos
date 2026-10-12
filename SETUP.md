@@ -729,6 +729,34 @@ cloud, BYOK, opt-in, off by default. Extraction uses constrained decoding rather
 than tool-calling — small local models are unreliable at tool schemas and
 near-perfect with a JSON schema enforced at the sampler.
 
+### Opening the vault in Obsidian
+
+The vault is a folder of markdown, so Obsidian opens it as it is: *Open folder
+as vault* and pick `~/logos`. Nothing needs converting, and either side can
+edit while the other is open. Run `logos index` after editing by hand, or turn
+on `logos auto config index on`.
+
+- **What you will and won't see.** Obsidian hides folders whose names start
+  with a dot, so `.logos/` (the index) never shows. Logos skips them too, so
+  Obsidian's own `.obsidian/` and `.trash/` are never indexed. `activity/` and
+  `usage/` hold `.jsonl` files, which Obsidian lists only with *Detect all file
+  extensions* on.
+- **Links.** Logos reads `[[note]]`, `[[note|shown text]]`, `[[note#heading]]`,
+  `![[embed]]` and `[[note.md]]` as Obsidian resolves them: by note name,
+  whatever folder the note is in. It does not read markdown links,
+  `[text](note.md)`. If *Use [[Wikilinks]]* is off in Obsidian, the links it
+  writes reach Logos as text, not as graph edges.
+- **Frontmatter.** `aliases` may be a list or a single value, and files with
+  Windows line endings are read the same as any other. A checkpoint's
+  `relations` is a list of fields, which Obsidian's *Properties* panel cannot
+  edit; use source mode to change it. Its `[[project]]` link names the project,
+  not a note, so Obsidian shows it as unresolved. Creating that note is
+  harmless.
+- **Memories.** Each line in `memories/<kind>.md` ends in an
+  `<!-- logos id=… -->` comment, which reading view hides. Edit the text before
+  it and leave the comment alone: it is how the line keeps its id, confidence
+  and history.
+
 ---
 
 ## Repository
