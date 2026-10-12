@@ -216,3 +216,23 @@ func TestADeniedRepoGetsAnMCPServerWithNoToolsThatWritesNothing(t *testing.T) {
 		t.Errorf("the MCP server touched the vault of a denied repo: %v", entries)
 	}
 }
+
+// Flag order is not something a user remembers. `logos deny --undo ~/work/api`
+// run from home used to undo home, say it was never denied, and leave the repo
+// off while the user believed it was back on.
+func TestDenyUndoWithTheDirectoryAfterTheFlagUndoesThatDirectory(t *testing.T) {
+	standIn(t, "shop")
+	repo := mustGetwd(t)
+	if err := runDeny(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDeny([]string{"--undo", repo}); err != nil {
+		t.Fatal(err)
+	}
+	if scope.Denied(repo) {
+		t.Error("`logos deny --undo <dir>` left <dir> denied")
+	}
+}

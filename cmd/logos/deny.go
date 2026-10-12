@@ -18,9 +18,14 @@ import (
 // this is the one switch a user needs, and it lives in the repository rather
 // than in a config they would have to find. See scope.DenyMarker.
 func runDeny(args []string) error {
+	// Anywhere in the line, not only before the first flag: `--undo <dir>`
+	// otherwise undid the working directory and left <dir> off.
 	dir := ""
-	if rest := firstNonFlags(args); len(rest) > 0 {
-		dir = rest[0]
+	for _, a := range args {
+		if !isFlagToken(a) {
+			dir = a
+			break
+		}
 	}
 	if dir == "" {
 		d, err := os.Getwd()
