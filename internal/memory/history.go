@@ -290,6 +290,28 @@ func SeenTexts(db *sql.DB) (map[string]bool, error) {
 	return seen, rows.Err()
 }
 
+// DismissedTexts is every text the timeline records a person rejecting from the
+// review queue or forgetting. Narrower than SeenTexts on purpose: a text met
+// only as the reinforcement of a memory worded differently was not thrown out,
+// and a caller that reports these as the user's rejections would say so
+// falsely. Restored from log.md, like the rest of the timeline.
+func DismissedTexts(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT DISTINCT detail FROM memory_log WHERE event IN (?, ?)`, EvRejected, EvForgotten)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out[t] = true
+	}
+	return out, rows.Err()
+}
+
 // AcceptedSince counts the review queue's accepts at or after since, a Unix
 // time, by a person and by the review switch apart: an accept nobody watched
 // is not the same evidence as one somebody read. project "" counts every scope;

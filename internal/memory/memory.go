@@ -236,6 +236,11 @@ func fingerprint(text string) string {
 	return strings.ToLower(strings.Join(strings.Fields(text), " "))
 }
 
+// Fingerprint is the key Store deduplicates on, for a caller that has to say
+// beforehand what a Store will skip: a preview that counted by exact text
+// promised writes the Store then folded into an existing row.
+func Fingerprint(text string) string { return fingerprint(text) }
+
 // A Receipt says what actually happened to a memory that was stored.
 //
 // "Saved" is not one outcome. The same call can create a memory, corroborate

@@ -96,6 +96,8 @@ CONTINUITY
                                       seed a cold vault from this repo's git history
     logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]
                                       bring claude-mem's observations over as memories
+    logos import --from claude-md|cursor-rules [--dir DIR] [--dry-run] [--yes]
+                                      queue CLAUDE.md / AGENTS.md or Cursor rules for review
     logos context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     logos tried <approach> [--project X]
