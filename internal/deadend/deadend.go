@@ -31,6 +31,7 @@ package deadend
 
 import (
 	"database/sql"
+	"errors"
 	"math"
 	"sort"
 	"strings"
@@ -82,7 +83,24 @@ type Ruling struct {
 	// Drift is set when the files this ruling names have changed since
 	// Commit — see MarkDrift. Like Stale, a reason to say so, never to drop it.
 	Drift *gitstate.Drift `json:"drift,omitempty"`
+	// Method is which arm of Matches caught this: the same words, the same
+	// idea, or both. A match is a claim, and how it was made is part of how
+	// far to trust it.
+	Method string `json:"method,omitempty"`
 }
+
+// The values of Ruling.Method.
+const (
+	MatchedLexically    = "lexical"
+	MatchedSemantically = "semantic"
+	MatchedBoth         = "lexical and semantic"
+)
+
+// ErrNoLocalModel is CheckNoting's semanticErr when no embedder is
+// configured. Only a local runtime is ever asked (nothing leaves the
+// machine), so with none the check is lexical — and a paraphrase of a ruled-
+// out approach passes it unseen, which the caller has to be able to say.
+var ErrNoLocalModel = errors.New("no local embedding model is in use")
 
 // MarkDrift notes, on each ruling, whether the files it names have changed in
 // the repository at dir since it was recorded. Only the rulings about to be
@@ -237,9 +255,22 @@ const (
 // second opinion to give, and lexical alone is what the check was before
 // embeddings; it stays that.
 func Matches(lexical, semantic float64, embedded bool) bool {
+	return matchedBy(lexical, semantic, embedded) != ""
+}
+
+// matchedBy is Matches, naming the arm that passed, or "" for no match.
+func matchedBy(lexical, semantic float64, embedded bool) string {
 	byWords := lexical >= textmatch.Related && (!embedded || semantic >= lexicalBacking)
 	byMeaning := semantic >= cosineAlone || (semantic >= cosineFloor && lexical >= semanticBacking)
-	return byWords || byMeaning
+	switch {
+	case byWords && byMeaning:
+		return MatchedBoth
+	case byWords:
+		return MatchedLexically
+	case byMeaning:
+		return MatchedSemantically
+	}
+	return ""
 }
 
 // Check returns the recorded dead ends bearing on a proposed approach, best
@@ -288,7 +319,9 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 
 	semantic := make([]float64, len(corpus))
 	embedded := make([]bool, len(corpus))
-	if p != nil {
+	if p == nil {
+		semanticErr = ErrNoLocalModel
+	} else {
 		// Only the proposal is new on a typical call; the rulings come from the
 		// cache and are embedded once, when they first appear.
 		if query, err := p.Embed(embedModel, []string{proposed}); err != nil {
@@ -307,7 +340,8 @@ func CheckNoting(vaultDir string, db *sql.DB, p *provider.Provider, embedModel, 
 	}
 
 	for i, r := range corpus {
-		if !Matches(lexical[i], semantic[i], embedded[i]) {
+		r.Method = matchedBy(lexical[i], semantic[i], embedded[i])
+		if r.Method == "" {
 			continue
 		}
 		r.Score = math.Max(lexical[i], semantic[i])
