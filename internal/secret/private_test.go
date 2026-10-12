@@ -39,3 +39,30 @@ func TestMaskKeepsOutPrivateSpansAndTheReceiptSaysSo(t *testing.T) {
 		t.Errorf("re-masking found %+v in %q", again, got)
 	}
 }
+
+// The lazy match stopped at the first closing tag, so a span inside a span
+// closed the outer one early and what the person put after it was kept.
+func TestANestedPrivateSpanKeepsOutTheWholeOuterSpan(t *testing.T) {
+	out, found := StripPrivate("", "a <private>x <PRIVATE>y</private> leak</private> b")
+	if strings.Contains(out, "leak") || strings.Contains(out, "</private>") || out != "a [private] b" || len(found) != 1 {
+		t.Errorf("got %q with %d span(s), want %q with 1", out, len(found), "a [private] b")
+	}
+}
+
+// `\b` matched before a hyphen and a slash, so <private-notes> and <private/>
+// opened a span that nothing closed, and the rest of the turn went with it —
+// counted and announced as a span the person marked when they had marked none.
+func TestATagThatOnlyLooksLikePrivateOpensNoSpan(t *testing.T) {
+	for _, s := range []string{
+		"use <private/> tags then deploy",
+		"<private-notes>z</private-notes> keep",
+		"see privateSpan in private.go",
+	} {
+		if out, found := StripPrivate("", s); out != s || len(found) != 0 {
+			t.Errorf("StripPrivate(%q) = %q with %d span(s), want it untouched", s, out, len(found))
+		}
+	}
+	if out, _ := StripPrivate("", `<private reason="pin">4417</private> ok`); out != "[private] ok" {
+		t.Errorf("a span with an attribute was not kept out: %q", out)
+	}
+}
