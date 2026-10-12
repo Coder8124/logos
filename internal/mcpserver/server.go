@@ -42,6 +42,7 @@ import (
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
@@ -789,8 +790,9 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 	case "ingest_harvest":
 		return s.ingestHarvest(argStr(args, "session"), argInt(args, "max_turns", 0))
 	case "ingest_distil":
-		return s.ingestDistil(argStr(args, "session"), argStr(args, "model"), argStr(args, "next"),
-			argList(args, "verified"), argList(args, "failed"), argList(args, "blockers"), argList(args, "decided"))
+		return s.ingestDistil(argStr(args, "session"), ingest.Distillation{Model: argStr(args, "model"), Next: argStr(args, "next"),
+			Verified: argList(args, "verified"), Failed: argList(args, "failed"), Blockers: argList(args, "blockers"),
+			Decided: argList(args, "decided"), Wanted: argList(args, "wanted")})
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

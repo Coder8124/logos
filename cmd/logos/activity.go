@@ -442,8 +442,8 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	for _, e := range events {
 		switch {
 		case e.Kind == activity.KindPrompt:
-			if c.Task == "" {
-				c.Task = e.Summary
+			if r, ok := ingest.Request(e.Summary); ok && c.Task == "" {
+				c.Task = r
 			}
 		case e.Kind == kindAutoCheckpoint:
 			work, c.Files, c.Commands, seen = false, nil, nil, map[string]bool{}

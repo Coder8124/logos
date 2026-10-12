@@ -83,6 +83,11 @@ type claudeLine struct {
 	Slug      string          `json:"slug"`
 	Timestamp string          `json:"timestamp"`
 	Message   json.RawMessage `json:"message"`
+	// Claude Code writes its own messages as user lines and flags them: hook
+	// feedback, another session's message, a usage-limit notice (isMeta), the
+	// summary opening a continued session (isCompactSummary).
+	IsMeta           bool `json:"isMeta"`
+	IsCompactSummary bool `json:"isCompactSummary"`
 }
 
 type claudeMessage struct {
@@ -179,6 +184,13 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		}
 		turns, malformed := claudeTurns(ln.Type, msg, toolName, toolInput)
 		s.Skipped += malformed
+		if ln.IsMeta || ln.IsCompactSummary {
+			for i := range turns {
+				if turns[i].Role == "user" {
+					turns[i].Role = "host"
+				}
+			}
+		}
 		s.Turns = append(s.Turns, turns...)
 	}
 	if err := sc.Err(); err != nil {

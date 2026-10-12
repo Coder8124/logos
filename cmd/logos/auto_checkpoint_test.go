@@ -184,3 +184,22 @@ func TestTheHookRecordCountsTheTranscriptItCovers(t *testing.T) {
 		t.Errorf("the hook record covers %d transcript turns, want the 2 the transcript holds", c.Turns)
 	}
 }
+
+// The hook sees the same wrappers the transcript keeps, so the hook-fed record
+// takes its task by the same rule.
+func TestTheHookFedAutoRecordsTaskSkipsAPromptThatAsksForNothing(t *testing.T) {
+	standIn(t, "elsewhere")
+	hookEvent(t, "UserPromptSubmit", `{"session_id":"s-wrap","prompt":"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"}`)
+	hookEvent(t, "UserPromptSubmit", `{"session_id":"s-wrap","prompt":"hi"}`)
+	hookEvent(t, "UserPromptSubmit", `{"session_id":"s-wrap","prompt":"fix the checkout crash when cart is empty"}`)
+	hookEvent(t, "PostToolUse", `{"session_id":"s-wrap","tool_name":"Edit","tool_input":{"file_path":"cart.go"}}`)
+
+	endSession(t, "s-wrap")
+	c, err := session.Latest(vaultPath(), "shop")
+	if err != nil || c == nil {
+		t.Fatalf("no checkpoint: %v", err)
+	}
+	if c.Task != "fix the checkout crash when cart is empty" {
+		t.Errorf("task = %q, want the first prompt that asks for something", c.Task)
+	}
+}

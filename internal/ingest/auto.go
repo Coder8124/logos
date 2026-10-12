@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/Coder8124/logos/internal/session"
-	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/transcript"
 )
 
@@ -212,17 +211,14 @@ func recorded(vaultDir, project, state string) (bool, error) {
 	return prev.Auto && prev.State == state, nil
 }
 
-// firstPrompt is what the person asked for, as the task. The first user turn is
-// the only one that is reliably theirs: later ones may be answers to the
-// agent's own questions.
+// firstPrompt is what the person asked for, as the task: the first user turn
+// that asks for something (see Request).
 func firstPrompt(s *transcript.Session) string {
+	var prompts []string
 	for _, t := range s.Turns {
-		if t.Role != "user" {
-			continue
-		}
-		if line := strings.TrimSpace(strings.SplitN(strings.TrimSpace(t.Text), "\n", 2)[0]); line != "" {
-			return text.Ellipsize(line, 120)
+		if t.Role == "user" {
+			prompts = append(prompts, t.Text)
 		}
 	}
-	return ""
+	return FirstRequest(prompts)
 }

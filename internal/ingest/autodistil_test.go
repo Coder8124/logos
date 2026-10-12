@@ -168,3 +168,80 @@ func TestARecordThatNeverCountedItsTranscriptIsNotServed(t *testing.T) {
 		t.Error("a record that cannot say which turns are its own was served")
 	}
 }
+
+// What the person wanted is the one reading that has to come from the person.
+// An entry citing only the agent's own turns is the agent's account of what it
+// was asked, which is the summary this field exists not to be.
+func TestWhatThePersonWantedIsKeptOnlyWhereItCitesSomethingTheySaid(t *testing.T) {
+	vault, rec := recordFrom(t, worked())
+
+	c, drops, _, err := AcceptAuto(vault, rec.Slug, 0, Distillation{
+		Wanted: []string{
+			"an empty cart to return early instead of panicking (turn 1)",
+			"the checkout tests to pass (turn 3)",
+			"a faster checkout",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred == nil || len(c.Inferred.Wanted) != 1 || !strings.Contains(c.Inferred.Wanted[0], "return early") {
+		t.Fatalf("kept %+v, want only the entry citing the person's turn", c.Inferred)
+	}
+	if len(drops) != 2 {
+		t.Errorf("dropped %+v, want the entry citing a tool turn and the uncited one", drops)
+	}
+	for _, d := range drops {
+		if strings.Contains(d.Claim, "turn 3") && !strings.Contains(d.Reason, "the person") {
+			t.Errorf("the drop does not say a want must cite the person: %+v", d)
+		}
+	}
+}
+
+// A user-role turn is not always the person's: hosts write AGENTS.md, system
+// reminders and continuation summaries there. A want citing one of those is
+// the agent's account again, which is what citing the person was meant to
+// rule out.
+func TestAWantCitingHostTextInTheUsersTurnIsDropped(t *testing.T) {
+	s := worked()
+	s.Turns = append([]transcript.Turn{
+		{Role: "user", Text: "<user_instructions>\nAlways ship it fast.\n</user_instructions>"},
+		{Role: "user", Text: "This session is being continued from a previous conversation. They wanted speed."},
+	}, s.Turns...)
+	vault, rec := recordFrom(t, s)
+
+	c, drops, _, err := AcceptAuto(vault, rec.Slug, 0, Distillation{
+		Wanted: []string{"checkout shipped fast (turn 1)", "speed (turn 2)", "an empty cart to return early (turn 3)"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred == nil || len(c.Inferred.Wanted) != 1 || !strings.Contains(c.Inferred.Wanted[0], "turn 3") {
+		t.Errorf("kept %+v, want only the want citing the person's own request", c.Inferred)
+	}
+	if len(drops) != 2 {
+		t.Errorf("dropped %+v, want the two citing host text", drops)
+	}
+}
+
+// "no" answering the agent's question is the person's whole reply, and often
+// the correction itself. The task line skips a bare yes or no because it is
+// not the opening request; a want citing one is citing the person.
+func TestAWantCitingThePersonsBareAnswerIsKept(t *testing.T) {
+	s := worked()
+	s.Turns = append(s.Turns,
+		transcript.Turn{Role: "assistant", Text: "Should I drop the v1 endpoint, or keep it for old clients?"},
+		transcript.Turn{Role: "user", Text: "no"},
+	)
+	n := len(s.Turns)
+	vault, rec := recordFrom(t, s)
+
+	want := fmt.Sprintf("the v1 endpoint kept for old clients (turn %d, turn %d)", n-1, n)
+	c, drops, _, err := AcceptAuto(vault, rec.Slug, 0, Distillation{Wanted: []string{want}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred == nil || len(c.Inferred.Wanted) != 1 {
+		t.Errorf("kept %+v, dropped %+v, want the answer kept", c.Inferred, drops)
+	}
+}

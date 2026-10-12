@@ -381,3 +381,25 @@ func TestAHyphenatedProjectKeepsItsWholeNameNotTheTailAfterTheLastDash(t *testin
 		t.Errorf("Project = %q, want eco-game (the cwd's basename, not the slug tail)", s.Project)
 	}
 }
+
+// Claude Code files its own messages as user lines: hook feedback, another
+// session's message, "your usage limit has reset", the summary that opens a
+// continued session. Read as the person's, one became an auto record's quoted
+// request and could be cited as what the person wanted.
+func TestALineClaudeCodeWroteIntoTheUsersTurnIsTheHostsNotThePersons(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	lines := `{"type":"user","isMeta":true,"sessionId":"s","message":{"role":"user","content":"Your claude.ai usage limit has reset. Continue the task you were working on."}}
+{"type":"user","isCompactSummary":true,"sessionId":"s","message":{"role":"user","content":"This session is being continued from a previous conversation."}}
+{"type":"user","sessionId":"s","message":{"role":"user","content":"fix the checkout crash"}}
+`
+	if err := os.WriteFile(p, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := transcript.ReadFile("claude-code", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(roles(s), ","); got != "host,host,user" {
+		t.Errorf("roles = %s, want host,host,user", got)
+	}
+}
