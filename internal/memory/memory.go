@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/textmatch"
@@ -98,8 +99,19 @@ type Memory struct {
 	// Pin overrides ranking entirely: PinAlways forces inclusion in a context
 	// pack regardless of relevance score, PinNever removes a memory from
 	// recall while leaving it on record. See PinAlways and PinNever.
-	Pin int    `json:"pin,omitempty"`
-	vec []byte // embedding, loaded only for consolidation; not serialised
+	Pin int `json:"pin,omitempty"`
+	// Commit is the repository's HEAD where the memory was written, when it
+	// was written inside the repository its project is. A procedure's trap and
+	// a decision's reason are about the code as it was then; recall measures
+	// the files the text names against this, the way a checkpoint's rulings
+	// are measured against the checkpoint's commit. Empty for every memory
+	// written before it existed and for one written outside a repository —
+	// neither is ever flagged.
+	Commit string `json:"commit,omitempty"`
+	// Drift is set on the way out, by MarkDrift, when files the memory names
+	// have changed since Commit. A reason to say so, never to drop it.
+	Drift *gitstate.Drift `json:"drift,omitempty"`
+	vec   []byte          // embedding, loaded only for consolidation; not serialised
 }
 
 // Pin states. PinNone is the default: ranked normally, neither forced in nor
@@ -203,6 +215,9 @@ func Init(db *sql.DB) error {
 	db.Exec("ALTER TABLE memories ADD COLUMN turn TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memories ADD COLUMN contests INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE memories ADD COLUMN auto_accepted INTEGER NOT NULL DEFAULT 0")
+	// Empty is what every existing row honestly is: nobody recorded where it
+	// was written, so nothing can say whether its files moved since.
+	db.Exec("ALTER TABLE memories ADD COLUMN commit_sha TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
@@ -481,10 +496,10 @@ func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 		// memory's number is never handed to an unrelated one. See nextID.
 		id := nextID(db)
 		res, err := db.Exec(
-			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests)
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit)
 		if err != nil {
 			return 0, err
 		}
@@ -769,7 +784,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 	// than after ranking: it is what "never include" is for, and a memory that
 	// never reaches the candidate list cannot leak in via a generous k or a
 	// scoring quirk.
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
 	args := []any{PinNever}
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
@@ -795,7 +810,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin, &m.Commit); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -917,7 +932,7 @@ func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -926,7 +941,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -958,7 +973,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 		return All(db)
 	}
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
 		   FROM memories
 		  WHERE superseded = 0 AND quarantined = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
@@ -970,7 +985,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -1025,7 +1040,7 @@ func filterKind(mems []Memory, kind Kind, keep bool) []Memory {
 // front of a model with no boundary line in sight — the opposite of
 // "procedures never enter the pack."
 func Pinned(db *sql.DB, project string) ([]Memory, error) {
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
 	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ? AND kind != ?`
 	args := []any{PinAlways, string(Procedure)}
 	if strings.TrimSpace(project) != "" {
@@ -1042,7 +1057,7 @@ func Pinned(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -1267,4 +1282,28 @@ func boolToInt(b bool) int {
 func ContestedNow(db *sql.DB, id int64, text string) (int64, bool) {
 	other, _, ok := contestedMemory(db, nil, text)
 	return other, ok && other != id
+}
+
+// MarkDrift sets Drift on each memory recorded at a commit of the repository
+// at dir whose named files have changed since. The same measurement, and the
+// same "may", as a ruling's (deadend.MarkDrift): a memory written in another
+// repository, or before commits were recorded, is left alone.
+func MarkDrift(mems []Memory, dir string) {
+	a := gitstate.NewAnchors(dir)
+	if a == nil {
+		return
+	}
+	for i := range mems {
+		if d, ok := a.Since(mems[i].Commit, mems[i].Text); ok {
+			mems[i].Drift = &d
+		}
+	}
+}
+
+// DriftNote is the clause a surface appends to a drifted memory's line, or "".
+func (m Memory) DriftNote() string {
+	if m.Drift == nil {
+		return ""
+	}
+	return " — ⚠ " + m.Drift.Note()
 }

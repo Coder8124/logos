@@ -204,6 +204,13 @@ func carryLocked(db *sql.DB, old, replacement int64, oldText string, pin, replac
 	return nil
 }
 
+// ProjectOf is the project memory id is filed under, "" for a global one.
+func ProjectOf(db *sql.DB, id int64) (string, error) {
+	var project string
+	err := db.QueryRow("SELECT project FROM memories WHERE id = ?", id).Scan(&project)
+	return project, err
+}
+
 func scopeName(project string) string {
 	if project == "" {
 		return "global"

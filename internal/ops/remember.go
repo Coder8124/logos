@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/provider"
@@ -14,6 +15,10 @@ type RememberRequest struct {
 	Memory memory.Memory
 	Embed  *provider.Provider // nil dedups by exact text
 	Model  string
+	// Dir is the repository the memory's project lives in, or "". Its HEAD is
+	// recorded with the memory so recall can later say when a file the memory
+	// names has changed since. "" records nothing, which is never flagged.
+	Dir string
 }
 
 type RememberResult struct {
@@ -37,6 +42,7 @@ func Remember(db *sql.DB, req RememberRequest) (RememberResult, error) {
 			return RememberResult{}, err
 		}
 	}
+	Anchor(&m, req.Dir)
 	r, err := memory.Store(db, req.Embed, req.Model, &m)
 	if err != nil && r.ID == 0 && r.Ref == 0 {
 		return RememberResult{}, err
@@ -59,4 +65,13 @@ func stored(r memory.Receipt) int64 {
 		return r.Ref
 	}
 	return r.ID
+}
+
+// Anchor records where the repository at dir stood when m was written, unless
+// m already carries a commit (an import, or a caller that knows better).
+func Anchor(m *memory.Memory, dir string) {
+	if m.Commit != "" || dir == "" {
+		return
+	}
+	_, m.Commit = gitstate.Head(dir)
 }

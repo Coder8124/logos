@@ -105,6 +105,7 @@ func memoryCmd(args []string) error {
 				Project: project, Created: time.Now().Unix(),
 			},
 			Embed: local, Model: embed,
+			Dir: repoHere(project),
 		})
 		if err != nil {
 			return err
@@ -197,6 +198,7 @@ func memoryCmd(args []string) error {
 			ID:     id,
 			Memory: memory.Memory{Text: text, Salience: 0.7, Source: "manual"},
 			Embed:  local, Model: embed,
+			DirFor: repoHere,
 		})
 		if err != nil {
 			return err

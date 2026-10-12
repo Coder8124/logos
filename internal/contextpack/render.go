@@ -817,7 +817,7 @@ func (p *Pack) wantMemories() []string {
 		if seen[m.ID] {
 			continue
 		}
-		want = append(want, fmt.Sprintf("- preference: %s  _(%s)_", oneLine(m.Text), inline(m.Source)))
+		want = append(want, fmt.Sprintf("- preference: %s%s  _(%s)_", oneLine(m.Text), m.DriftNote(), inline(m.Source)))
 		seen[m.ID] = true
 	}
 	for _, m := range p.Related {
@@ -828,8 +828,8 @@ func (p *Pack) wantMemories() []string {
 		if d := shortDate(m.Created); d != "" {
 			meta += ", " + d
 		}
-		want = append(want, fmt.Sprintf("- %s: %s  _(%s, confidence %.2f)_",
-			m.Kind, oneLine(m.Text), meta, m.Confidence))
+		want = append(want, fmt.Sprintf("- %s: %s%s  _(%s, confidence %.2f)_",
+			m.Kind, oneLine(m.Text), m.DriftNote(), meta, m.Confidence))
 	}
 	return want
 }
@@ -840,7 +840,7 @@ func (p *Pack) wantMemories() []string {
 func (p *Pack) wantPinned() []string {
 	want := make([]string, 0, len(p.Pinned))
 	for _, m := range p.Pinned {
-		want = append(want, fmt.Sprintf("- %s (pinned): %s  _(%s)_", m.Kind, oneLine(m.Text), inline(m.Source)))
+		want = append(want, fmt.Sprintf("- %s (pinned): %s%s  _(%s)_", m.Kind, oneLine(m.Text), m.DriftNote(), inline(m.Source)))
 	}
 	return want
 }

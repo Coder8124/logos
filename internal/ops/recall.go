@@ -20,6 +20,10 @@ type RecallQuery struct {
 	Embed   *provider.Provider // nil ranks by keyword alone
 	Model   string
 	Shell   string
+	// Dir is the repository the asker stands in, or "". A memory recorded at
+	// one of its commits is measured against it, and marked when a file it
+	// names has changed since.
+	Dir string
 }
 
 // Recalled is a memory as recall returns it, with where it is kept.
@@ -64,6 +68,7 @@ func Recall(db *sql.DB, q RecallQuery) (RecallResult, error) {
 	if err != nil {
 		return RecallResult{}, err
 	}
+	memory.MarkDrift(mems, q.Dir)
 	r := RecallResult{Project: q.Project}
 	if len(mems) > 0 {
 		stranded := memory.UnflushedIDs(db)
@@ -92,9 +97,9 @@ func (r RecallResult) Text(ifEmpty string) string {
 		// step" the reading agent had no way to tell from the real one.
 		switch {
 		case m.Project == "" || m.Project == r.Project:
-			fmt.Fprintf(&b, "- (%s%s) %s\n", m.Kind, NotDurable(m.NotDurable), untrusted.Inline(m.Text))
+			fmt.Fprintf(&b, "- (%s%s) %s%s\n", m.Kind, NotDurable(m.NotDurable), untrusted.Inline(m.Text), m.DriftNote())
 		default:
-			fmt.Fprintf(&b, "- (%s, from %s%s) %s\n", m.Kind, m.Project, NotDurable(m.NotDurable), untrusted.Inline(m.Text))
+			fmt.Fprintf(&b, "- (%s, from %s%s) %s%s\n", m.Kind, m.Project, NotDurable(m.NotDurable), untrusted.Inline(m.Text), m.DriftNote())
 		}
 	}
 	return strings.TrimRight(b.String(), "\n") + r.Outcome.Text()

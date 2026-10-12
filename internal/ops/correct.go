@@ -15,6 +15,10 @@ type CorrectRequest struct {
 	Memory memory.Memory // the text that is true now; kind and project come from ID
 	Embed  *provider.Provider
 	Model  string
+	// DirFor names the repository a project lives in, or "". The correction
+	// is anchored where the project of the memory it replaces stands — not
+	// where the caller does, which may be a different project's checkout.
+	DirFor func(project string) string
 }
 
 type CorrectResult struct {
@@ -34,6 +38,11 @@ func Correct(db *sql.DB, req CorrectRequest) (CorrectResult, error) {
 	if kind, err := memory.KindOf(db, req.ID); err == nil && kind == memory.Procedure {
 		if err := procedure.Validate(procedure.ParseRecord(m.Text)); err != nil {
 			return CorrectResult{}, err
+		}
+	}
+	if req.DirFor != nil {
+		if project, err := memory.ProjectOf(db, req.ID); err == nil {
+			Anchor(&m, req.DirFor(project))
 		}
 	}
 	c, err := memory.Correct(db, req.Embed, req.Model, req.ID, &m)

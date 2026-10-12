@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/textmatch"
@@ -28,6 +29,26 @@ type Hit struct {
 	// that the dependency it names may have moved. Surfaced as a caveat,
 	// never dropped — a stale procedure is still the best lead available.
 	Stale bool
+	// Commit is where the repository stood when the procedure was recorded;
+	// Drift is set by MarkDrift when a file its text names has changed since.
+	// A trap is about the code as it was, so the reader is told the ground
+	// moved — and, as with Stale, the procedure is still shown.
+	Commit string
+	Drift  *gitstate.Drift
+}
+
+// MarkDrift is deadend.MarkDrift for procedures: each hit recorded at a commit
+// of the repository at dir is measured against it.
+func MarkDrift(hits []Hit, dir string) {
+	a := gitstate.NewAnchors(dir)
+	if a == nil {
+		return
+	}
+	for i := range hits {
+		if d, ok := a.Since(hits[i].Commit, hits[i].Record.Raw); ok {
+			hits[i].Drift = &d
+		}
+	}
 }
 
 // Check returns the recorded procedures bearing on a proposed approach, best
@@ -82,6 +103,7 @@ func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, p
 			Elsewhere: project != "" && c.Project != "" && c.Project != project,
 			Record:    records[i],
 			Stale:     deadend.PossiblySuperseded(records[i].Scope, c.Created, time.Now()),
+			Commit:    c.Commit,
 		})
 	}
 

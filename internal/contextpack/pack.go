@@ -357,6 +357,12 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	if pinned, err := memory.Pinned(db, p.scope()); err == nil {
 		p.Pinned = pinned
 	}
+	// The memories are measured the way the rulings were above, against the
+	// same directory: a decision whose named file has moved is still handed
+	// over, with the same "may".
+	memory.MarkDrift(p.Preferences, req.Dir)
+	memory.MarkDrift(p.Related, req.Dir)
+	memory.MarkDrift(p.Pinned, req.Dir)
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
 	// After the window, not the other way: a path the tree view pinned is
