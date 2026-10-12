@@ -243,6 +243,11 @@ func insertLogEntry(db *sql.DB, e LogEntry) (bool, error) {
 	return err == nil, err
 }
 
+// ParseLog is parseLog for a reader outside this package: `logos watch` reads
+// the timeline's lines as they are appended, from the vault, so it shows what
+// happened even to a memory stored by another process's index.
+func ParseLog(raw string) []LogEntry { return parseLog(raw) }
+
 // parseLog reads the file back. A line it cannot understand is skipped rather
 // than failing the import: the timeline is a record of things that already
 // happened, and refusing to restore the ninety lines that are intact because

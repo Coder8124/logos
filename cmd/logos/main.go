@@ -177,6 +177,8 @@ func main() {
 		err = runAnnounce(args)
 	case cmd == "activity":
 		err = runActivity(args)
+	case cmd == "watch":
+		err = runWatch(args)
 	case cmd == "auto":
 		err = runAuto(args)
 	case cmd == "project-name":
