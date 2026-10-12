@@ -27,8 +27,8 @@ func TestAPrivateSpanIsNeverCapturedHarvestedOrImported(t *testing.T) {
 	if strings.Contains(e.Summary, "4417") {
 		t.Errorf("the capture line kept the private span: %q", e.Summary)
 	}
-	if !strings.Contains(e.Summary, "fix the checkout crash") || !strings.Contains(e.Summary, "Kept out 1 <private> span") {
-		t.Errorf("the capture line should keep the request and say a span was kept out: %q", e.Summary)
+	if !strings.Contains(e.Summary, "fix the checkout crash") || e.Private != 1 {
+		t.Errorf("the capture line should keep the request and count the span kept out: %q (%d counted)", e.Summary, e.Private)
 	}
 
 	dir := filepath.Join(t.TempDir(), "-work-shop")

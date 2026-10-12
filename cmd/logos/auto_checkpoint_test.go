@@ -203,3 +203,38 @@ func TestTheHookFedAutoRecordsTaskSkipsAPromptThatAsksForNothing(t *testing.T) {
 		t.Errorf("task = %q, want the first prompt that asks for something", c.Task)
 	}
 }
+
+// The hook's line announced a kept-out span inside the summary itself, and the
+// auto checkpoint is built from those summaries: the task read "… — Kept out 1
+// <private> span(s)", a command carried it as if it were shell, and an edited
+// file was recorded under a name with the receipt on the end. The count is
+// said at the session's end instead, where the person reads it.
+func TestAKeptOutSpanIsCountedNotWrittenIntoTheAutoCheckpoint(t *testing.T) {
+	standIn(t, "elsewhere")
+	hookEvent(t, "UserPromptSubmit", `{"session_id":"s-priv","prompt":"<private>pin 4417</private> fix the checkout crash"}`)
+	hookEvent(t, "PostToolUse", `{"session_id":"s-priv","tool_name":"Edit","tool_input":{"file_path":"cart<private>-secret</private>.go"}}`)
+	hookEvent(t, "PostToolUse", `{"session_id":"s-priv","tool_name":"Bash","tool_input":{"command":"login <private>hunter2</private> && go test ./cart"}}`)
+
+	out := endSession(t, "s-priv")
+	if !strings.Contains(out, "Kept out 3 <private> span(s)") {
+		t.Errorf("the session end does not say what was kept out, got %q", out)
+	}
+	c, err := session.Latest(vaultPath(), "shop")
+	if err != nil || c == nil {
+		t.Fatalf("no checkpoint: %v", err)
+	}
+	for _, field := range append(append([]string{c.Task}, c.Files...), c.Commands...) {
+		if strings.Contains(field, "Kept out") || strings.Contains(field, "4417") || strings.Contains(field, "hunter2") {
+			t.Errorf("an auto checkpoint field carries the receipt or the span: %q", field)
+		}
+	}
+
+	listed := captureStdout(t, func() {
+		if err := runActivity([]string{"--project", "shop"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(listed, "Kept out 1 <private> span(s)") {
+		t.Errorf("the activity listing does not say a span was kept out:\n%s", listed)
+	}
+}

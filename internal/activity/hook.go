@@ -81,12 +81,7 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	// transcript: an `export API_KEY=…` typed in a session must not land in the
 	// vault in the clear.
 	summary, kept := summarize(kind, e.Tool, p)
-	e.Summary = ingest.Redact(summary)
-	// The person marked the span and only this line can tell them it was
-	// honoured: a "[private]" alone reads as something Logos lost.
-	if kept > 0 {
-		e.Summary += " — " + secret.Summary(secret.KeptPrivate("", kept))
-	}
+	e.Summary, e.Private = ingest.Redact(summary), kept
 	return e, nil
 }
 
