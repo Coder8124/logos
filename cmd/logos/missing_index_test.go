@@ -232,3 +232,34 @@ func TestTheMCPServerRebuildsAMissingIndexInAProcessOfItsOwn(t *testing.T) {
 		t.Errorf("the next resume will not say the index was rebuilt: %q", got)
 	}
 }
+
+// "Answers from an empty one" is true of a deleted index and false of one a
+// command has written into since: the same run that said it listed the memory
+// it had just stored. The warning has to stay — the rest of the vault is still
+// missing — but it may not call the index empty while it answers from it.
+func TestAnUnbuiltIndexThatHoldsAMemoryIsNotCalledEmpty(t *testing.T) {
+	standIn(t, "shop")
+	t.Setenv("LOGOS_EMBED", "off")
+	deleteIndex(t)
+	captureStderr(t, func() {
+		captureStdout(t, func() {
+			if err := memoryCmd([]string{"add", "Staging runs on port 8080"}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	var out string
+	errOut := captureStderr(t, func() {
+		out = captureStdout(t, func() {
+			if err := memoryCmd(nil); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	if !strings.Contains(out, "8080") {
+		t.Fatalf("the memory just stored is not listed:\n%s", out)
+	}
+	if strings.Contains(errOut, "empty") || !strings.Contains(errOut, "logos index") {
+		t.Errorf("listing an unbuilt index that holds a memory warned:\n%s", errOut)
+	}
+}

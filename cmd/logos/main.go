@@ -359,12 +359,25 @@ func checkIndex(ix *index.Index) {
 		// A hook: its host kills it after a few seconds, and a rebuild on a
 		// large vault can take longer, which would lose the hook's own work
 		// with the rebuild half done.
-		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
-			"answers from an empty one — a hook does not rebuild it; the next logos command does")
+		fmt.Fprintln(os.Stderr, noIndex(ix)+" — a hook does not rebuild it; the next logos command does")
 	case !synced:
-		fmt.Fprintln(os.Stderr, "logos: this vault has no index yet (deleted, or never built), so what follows "+
-			"answers from an empty one — `logos index` builds it from the vault (or `logos auto config index on`)")
+		fmt.Fprintln(os.Stderr, noIndex(ix)+" — `logos index` builds it from the vault (or `logos auto config index on`)")
 	}
+}
+
+// noIndex is the first half of checkIndex's warning. "Answers from an empty
+// one" is only true until a command writes into the unbuilt index: after
+// `logos memory add` the same run that said it listed the memory just stored.
+// The warning still stands then — everything else in the vault is missing —
+// so it says what the answer is drawn from instead.
+func noIndex(ix *index.Index) string {
+	var held int
+	ix.DB.QueryRow("SELECT (SELECT COUNT(*) FROM notes) + (SELECT COUNT(*) FROM memories)").Scan(&held)
+	if held > 0 {
+		return "logos: this vault's index was never built from it (deleted, or never built), so what follows " +
+			"answers only from what was written since"
+	}
+	return "logos: this vault has no index yet (deleted, or never built), so what follows answers from an empty one"
 }
 
 // checkIndexInBackground is checkIndex for the MCP server. Its host waits a
