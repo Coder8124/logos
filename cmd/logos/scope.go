@@ -36,6 +36,11 @@ func runProjectName(args []string) error {
 			dir = d
 		}
 	}
+	// Empty for a denied repository, which every hook script already reads as
+	// "nothing to do here" and goes quiet on.
+	if scope.Denied(dir) {
+		return nil
+	}
 	name := projectFor(dir)
 	if name != "" {
 		fmt.Println(name)

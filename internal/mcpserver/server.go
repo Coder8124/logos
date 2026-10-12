@@ -99,6 +99,9 @@ type Server struct {
 	embedModel string
 	// unavailable is why this server cannot serve the vault; see Unavailable.
 	unavailable error
+	// denied is a server started in a repository that ran `logos deny`; see
+	// Denied.
+	denied bool
 	// runtime is the local runtime whether or not it has an embedding model,
 	// so SetEmbedModel can turn embedding on after New found none.
 	runtime *provider.Provider
@@ -231,6 +234,18 @@ func New(db *sql.DB, rt *router.Router, vault string) *Server {
 func Unavailable(err error) *Server {
 	return &Server{unavailable: err}
 }
+
+// Denied is a server for a repository whose owner ran `logos deny`. It lists no
+// tools, so the agent is never offered a memory it was told to stay out of, and
+// a call a host sends anyway answers plainly rather than as an error: the user
+// asked for exactly this, and an error on every call is the warning spam a
+// denied repo was promised it would not get. It still answers the handshake,
+// for the reason Unavailable does.
+func Denied() *Server {
+	return &Server{unavailable: errors.New("this repository ran `logos deny`"), denied: true}
+}
+
+const deniedText = "Logos is off for this repository: its owner ran `logos deny`, so nothing here is read from or written to memory. `logos deny --undo` turns it back on."
 
 // embedTimeout bounds each embedding a tool call waits on; see
 // provider.Interactive. Long enough for a warm runtime under load, short
@@ -576,8 +591,16 @@ func (s *Session) handle(req request) (resp *response) {
 	case "ping":
 		return reply(req.ID, map[string]any{})
 	case "tools/list":
+		if s.denied {
+			return reply(req.ID, map[string]any{"tools": []any{}})
+		}
 		return reply(req.ID, map[string]any{"tools": s.tools()})
 	case "tools/call":
+		if s.denied {
+			return reply(req.ID, map[string]any{
+				"content": []map[string]any{{"type": "text", "text": deniedText}},
+			})
+		}
 		if s.unavailable != nil {
 			return reply(req.ID, map[string]any{
 				"content": []map[string]any{{"type": "text", "text": s.unavailableText()}},
@@ -586,8 +609,14 @@ func (s *Session) handle(req request) (resp *response) {
 		}
 		return s.callTool(req)
 	case "resources/list":
+		if s.denied {
+			return reply(req.ID, map[string]any{"resources": []any{}})
+		}
 		return reply(req.ID, map[string]any{"resources": resourceDefs})
 	case "resources/templates/list":
+		if s.denied {
+			return reply(req.ID, map[string]any{"resourceTemplates": []any{}})
+		}
 		return reply(req.ID, map[string]any{"resourceTemplates": resourceTemplateDefs})
 	case "resources/read":
 		if s.unavailable != nil {
@@ -603,6 +632,9 @@ func (s *Session) handle(req request) (resp *response) {
 }
 
 func (s *Session) instructions() string {
+	if s.denied {
+		return deniedText
+	}
 	if s.unavailable != nil {
 		return s.unavailableText()
 	}

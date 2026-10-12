@@ -45,6 +45,12 @@ func runNote(args []string) (err error) {
 	// An environment variable rather than a flag because the hook may resolve
 	// an older logos, which would file a flag it does not know as the project.
 	ifUncommitted := os.Getenv("LOGOS_NOTE_IF_UNCOMMITTED") == "1"
+	// Both hook switches mean the session-end hook is asking, and a repository
+	// that ran `logos deny` was promised it would not: no note, no checkpoint,
+	// not a word. A note typed by hand is still taken.
+	if (ifUncommitted || os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1") && deniedHere() {
+		return nil
+	}
 	var project, text string
 	switch {
 	case len(args) >= 2:

@@ -179,3 +179,53 @@ func TestAPathArgumentIsNamedFromWhereItPointsNotFromWhereTheCallerStands(t *tes
 		}
 	}
 }
+
+// A deny typed in a subfolder has to cover the session opened at the top of
+// the repository, and one written in a subfolder has to hold below it.
+func TestDenyAtTheRootCoversEverySubdirectory(t *testing.T) {
+	root := t.TempDir()
+	deep := filepath.Join(root, "internal", "api")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if Denied(root) {
+		t.Fatal("a repository nobody denied reads as denied")
+	}
+	path, err := Deny(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(root, DenyMarker) {
+		t.Errorf("deny from a subfolder wrote %s, not at the repository root", path)
+	}
+	if !Denied(root) || !Denied(deep) {
+		t.Error("the marker at the root does not cover the root and its subfolders")
+	}
+}
+
+// --undo that left a marker standing in a subfolder would report success on a
+// repository that is still off below it.
+func TestUndenyRemovesEveryMarkerOnTheWayUp(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "web")
+	for _, d := range []string{".git", ".logos", filepath.Join("web", ".logos")} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, filepath.Join(root, DenyMarker), "x\n")
+	write(t, filepath.Join(sub, DenyMarker), "x\n")
+	removed, err := Undeny(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 2 || Denied(sub) || Denied(root) {
+		t.Errorf("undeny removed %v and left the tree denied=%v", removed, Denied(sub))
+	}
+	if _, err := os.Stat(filepath.Join(root, ".logos")); err == nil {
+		t.Error("undeny left the empty .logos/ it was the only reason for")
+	}
+}

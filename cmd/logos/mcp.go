@@ -72,6 +72,11 @@ func serveMCP(in io.Reader, out io.Writer) error {
 }
 
 func buildStdioServer() (*mcpserver.Server, func(), error) {
+	// Before the vault is opened, let alone made: a denied repository is
+	// promised that nothing here touches it. See mcpserver.Denied.
+	if deniedHere() {
+		return mcpserver.Denied(), func() {}, nil
+	}
 	vault, err := serveVault()
 	if err != nil {
 		return nil, nil, err
