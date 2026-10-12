@@ -717,8 +717,11 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		}
 		return out, err
 	case "recall":
+		if ids := argStr(args, "ids"); strings.TrimSpace(ids) != "" {
+			return s.recallIDs(ids, argStr(args, "project"))
+		}
 		return s.recall(argStr(args, "query"), argInt(args, "limit", 5),
-			argStr(args, "project"), argBool(args, "all_projects", false))
+			argStr(args, "project"), argBool(args, "all_projects", false), argBool(args, "compact", false))
 	case "list_memories":
 		return s.listMemories(s.resolveProject(""))
 	case "forget":

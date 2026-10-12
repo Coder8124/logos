@@ -996,6 +996,44 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	return out, rows.Err()
 }
 
+// Fetched is one id asked for by number, and what became of it. An id is
+// something an agent copied out of an earlier answer, so the memory may have
+// been replaced, queued or excluded since; each of those is a different thing
+// to tell the agent, and none of them is the text served as current.
+type Fetched struct {
+	ID         int64
+	Memory     Memory
+	Found      bool
+	Superseded bool
+}
+
+// ByIDs looks up memories by id, in the order asked. Unlike All it reads
+// superseded and quarantined rows too, because the caller has to be able to
+// say why an id it was given is not being served.
+func ByIDs(db *sql.DB, ids []int64) ([]Fetched, error) {
+	out := make([]Fetched, 0, len(ids))
+	for _, id := range ids {
+		f := Fetched{ID: id}
+		var m Memory
+		var kind string
+		var superseded, quarantined int
+		err := db.QueryRow(
+			`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, superseded, quarantined
+			   FROM memories WHERE id = ?`, id).Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &superseded, &quarantined)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return nil, err
+		default:
+			m.Kind = Kind(kind)
+			m.Quarantined = quarantined != 0
+			f.Memory, f.Found, f.Superseded = m, true, superseded != 0
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
 // excludeNever drops PinNever memories from a slice that was not already
 // filtered at the SQL level — the no-embedding fallback paths, which read
 // through All/AllInProject rather than recallScoped. All itself stays

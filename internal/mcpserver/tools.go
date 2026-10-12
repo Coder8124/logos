@@ -88,7 +88,9 @@ var toolDefs = []map[string]any{
 			"limit":        intSchema("default 5"),
 			"project":      str("optional: another project to search"),
 			"all_projects": boolSchema("search every project; only when the user asks"),
-		}, "query"),
+			"compact":      boolSchema("ids and one line each; fetch full text with ids"),
+			"ids":          str("comma-separated ids: full text of those memories, no query needed"),
+		}),
 	},
 	{
 		"name":        "list_memories",

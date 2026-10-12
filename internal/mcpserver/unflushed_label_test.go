@@ -18,7 +18,7 @@ func TestRecallSaysWhenAMemoryIsNotYetInTheVault(t *testing.T) {
 	}
 	sess := &Session{Server: &Server{DB: db}}
 
-	out, err := sess.recall("staging port", 5, "kestrel", false)
+	out, err := sess.recall("staging port", 5, "kestrel", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
