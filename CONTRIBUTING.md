@@ -221,7 +221,9 @@ cp internal/agentprompt/LOGOSPROMPT.md systemmd/LOGOSPROMPT.md
   without the fix. CI holds it to that: it runs the tests the commit adds or
   changes, then runs them again with the rest of the commit undone, and at
   least one has to fail. A fix to a flaky test, which changes nothing else, is
-  exempt.
+  exempt. A test that skips itself on the runner (no model runtime, another
+  OS) is reported as unproved rather than rejected; run it both ways where it
+  can run, and say so in the PR.
 - A test's name is a sentence stating the property it holds —
   `TestAForgottenIDIsNeverHandedOutAgain`, not `TestForget`. It is what a
   failure prints. CI rejects a new test named in fewer than four words.

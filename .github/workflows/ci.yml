@@ -217,7 +217,7 @@ jobs:
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       BASE: ${{ github.event.pull_request.base.sha }}
       HEAD: ${{ github.event.pull_request.head.sha }}

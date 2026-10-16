@@ -42,21 +42,43 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Words a //go:build line can name that the toolchain sets on its own: passed
+# as -tags they would build another platform's files here.
+implied=" $(go tool dist list | tr '/' '\n' | sort -u | tr '\n' ' ') unix cgo gc gccgo "
+
 # Run the named tests in one package and print one "<STATUS> <name>" line per
-# top-level test, or "BUILD" if the package did not compile.
+# top-level test; "BUILD" if the package did not compile, "DIED" if the test
+# binary failed without failing a test. That last is a hang hitting the timeout
+# or an os.Exit, and it prints no "--- FAIL" line, only the package's FAIL.
 run() {
-  local dir="$1" names="$2" tags=""
-  if grep -lqs '^//go:build.*chaos' "$wt/$dir"/*_test.go; then
-    tags="-tags chaos"
-  fi
-  local out
-  # shellcheck disable=SC2086 # tags is one flag or none
-  out=$(cd "$wt" && go test $tags -count=1 -v -run "^($(paste -sd'|' - <<<"$names"))\$" "./$dir" 2>&1) || true
+  local dir="$1" names="$2" n f w tags="" race=""
+  # The tags the tests' own files are built under. Only chaos was passed once,
+  # and a test behind any other tag never ran.
+  for n in $names; do
+    f=$(grep -l "^func $n(" "$wt/$dir"/*_test.go 2>/dev/null | head -1) || true
+    [ -n "$f" ] || continue
+    for w in $(sed -n 's|^//go:build ||p' "$f" | tr -c 'A-Za-z0-9_.!\n' ' '); do
+      case "$w" in
+        '!'* | go1.*) ;;
+        race) race=-race ;;
+        *) [[ "$implied" == *" $w "* ]] || tags+="${tags:+,}$w" ;;
+      esac
+    done
+  done
+  local out rc=0
+  # shellcheck disable=SC2086 # race is one flag or none
+  out=$(cd "$wt" && go test $race ${tags:+-tags "$tags"} -count=1 -timeout 5m -v \
+    -run "^($(paste -sd'|' - <<<"$names"))\$" "./$dir" 2>&1) || rc=$?
   if grep -qE '\[(build|setup) failed\]' <<<"$out"; then
     echo BUILD
     return
   fi
-  sed -nE 's/^--- (PASS|FAIL|SKIP): ([A-Za-z0-9_]+) .*/\1 \2/p' <<<"$out"
+  out=$(sed -nE 's/^--- (PASS|FAIL|SKIP): ([A-Za-z0-9_]+) .*/\1 \2/p' <<<"$out")
+  if [ "$rc" -ne 0 ] && ! grep -q '^FAIL ' <<<"$out"; then
+    echo DIED
+    return
+  fi
+  printf '%s\n' "$out"
 }
 
 for sha in $(git rev-list --reverse --no-merges "${base}..${head}"); do
@@ -115,19 +137,29 @@ for sha in $(git rev-list --reverse --no-merges "${base}..${head}"); do
   done
   cleanup
 
+  ran=$(sed '/^$/d' <<<"$without")
   if grep -qx BUILD <<<"$with"; then
     echo "  $short: its tests do not compile: $subject"
+    bad=1
+  elif grep -qx DIED <<<"$with"; then
+    echo "  $short: its test binary dies even with the fix (a hang, an os.Exit): $subject"
     bad=1
   elif failing=$(sed -n 's/^FAIL //p' <<<"$with") && [ -n "$failing" ]; then
     echo "  $short: fails even with the fix ($(paste -sd' ' - <<<"$failing")): $subject"
     bad=1
   elif grep -qx BUILD <<<"$without"; then
     echo "  ok $short: its tests do not compile without the fix"
+  elif grep -qx DIED <<<"$without"; then
+    echo "  ok $short: its test binary dies without the fix (a hang, an os.Exit)"
   elif failing=$(sed -n 's/^FAIL //p' <<<"$without") && [ -n "$failing" ]; then
     echo "  ok $short: $(paste -sd' ' - <<<"$failing") fails without the fix"
-  elif [ -z "$(sed '/^$/d' <<<"$without")" ]; then
+  elif [ -z "$ran" ]; then
     echo "  $short: none of its changed tests ran: $subject"
     bad=1
+  elif ! grep -qv '^SKIP ' <<<"$ran"; then
+    # Not a rejection: a fix that needs a model runtime or another OS has no
+    # way to be proved on this runner. Not a pass either — it says so.
+    echo "  unproved $short: its tests skip themselves here ($(sed -n 's/^SKIP //p' <<<"$ran" | paste -sd' ' -)), so run them both ways where they can: $subject"
   else
     echo "  $short: every test it changes passes without the fix: $subject"
     bad=1

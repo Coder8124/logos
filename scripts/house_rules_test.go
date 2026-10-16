@@ -25,11 +25,18 @@ func newScratchRepo(t *testing.T) *scratchRepo {
 	return r
 }
 
+// isolatedGit is this process's environment without the caller's git config: a
+// contributor with commit.gpgsign or a global hooks path would otherwise fail
+// these tests at the first commit, for nothing to do with the scripts.
+func isolatedGit() []string {
+	return append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+}
+
 func (r *scratchRepo) git(args ...string) {
 	r.t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.dir
-	cmd.Env = append(cmd.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	cmd.Env = append(isolatedGit(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
@@ -62,19 +69,21 @@ func (r *scratchRepo) check(script string) (bool, string) {
 	}
 	cmd := exec.Command("bash", abs, "HEAD~1", "HEAD")
 	cmd.Dir = r.dir
+	cmd.Env = isolatedGit()
 	out, err := cmd.CombinedOutput()
 	return err == nil, string(out)
 }
 
 const buggyAdd = "package scratch\n\nfunc Add(a, b int) int { return a - b }\n"
 const fixedAdd = "package scratch\n\nfunc Add(a, b int) int { return a + b }\n"
+const sumsTest = "package scratch\n\nimport \"testing\"\n\nfunc TestAddSumsItsArguments(t *testing.T) {\n\tif Add(2, 2) != 4 {\n\t\tt.Fatal(Add(2, 2))\n\t}\n}\n"
 
 func TestABugfixWhoseTestFailsOnTheOldCodeIsAccepted(t *testing.T) {
 	r := newScratchRepo(t)
 	r.write("add.go", buggyAdd)
 	r.commit("Add adds")
 	r.write("add.go", fixedAdd)
-	r.write("add_test.go", "package scratch\n\nimport \"testing\"\n\nfunc TestAddSumsItsArguments(t *testing.T) {\n\tif Add(2, 2) != 4 {\n\t\tt.Fatal(Add(2, 2))\n\t}\n}\n")
+	r.write("add_test.go", sumsTest)
 	r.commit("BUG: Add sums its arguments")
 
 	ok, out := r.check("check-bug-tests.sh")
@@ -125,6 +134,55 @@ func TestABugfixThatChangesOnlyATestIsAccepted(t *testing.T) {
 	ok, out := r.check("check-bug-tests.sh")
 	if !ok || !strings.Contains(out, "fixes only tests") {
 		t.Errorf("a fix to a test itself was rejected:\n%s", out)
+	}
+}
+
+// A deadlock or an os.Exit in the old code prints no "--- FAIL" line, only the
+// package's FAIL; a fix for one was rejected as if its test had not run.
+func TestABugfixWhoseOldCodeKillsTheTestBinaryIsAccepted(t *testing.T) {
+	r := newScratchRepo(t)
+	r.write("add.go", "package scratch\n\nimport \"os\"\n\nfunc Add(a, b int) int { os.Exit(1); return 0 }\n")
+	r.commit("Add adds")
+	r.write("add.go", fixedAdd)
+	r.write("add_test.go", sumsTest)
+	r.commit("BUG: Add returns instead of exiting")
+
+	ok, out := r.check("check-bug-tests.sh")
+	if !ok || !strings.Contains(out, "dies without the fix") {
+		t.Errorf("a fix for an exit in the old code was rejected:\n%s", out)
+	}
+}
+
+// A test that skips itself here — no model runtime, the wrong OS — proves
+// nothing either way, and saying it passes without the fix sends its author
+// looking for a mistake that is not there.
+func TestABugfixWhoseTestSkipsHereIsReportedAsUnproved(t *testing.T) {
+	r := newScratchRepo(t)
+	r.write("add.go", buggyAdd)
+	r.commit("Add adds")
+	r.write("add.go", fixedAdd)
+	r.write("add_test.go", "package scratch\n\nimport \"testing\"\n\nfunc TestAddSumsItsArguments(t *testing.T) {\n\tt.Skip(\"needs a model runtime\")\n}\n")
+	r.commit("BUG: Add sums its arguments")
+
+	ok, out := r.check("check-bug-tests.sh")
+	if !ok || !strings.Contains(out, "unproved") || strings.Contains(out, "passes without the fix") {
+		t.Errorf("a skipped test was not reported as unproved:\n%s", out)
+	}
+}
+
+// Only the chaos tag was passed, so a test behind any other — race_on_test.go
+// is behind `race` — never ran, and its fix was rejected.
+func TestABugfixWhoseTestIsBehindABuildTagIsRun(t *testing.T) {
+	r := newScratchRepo(t)
+	r.write("add.go", buggyAdd)
+	r.commit("Add adds")
+	r.write("add.go", fixedAdd)
+	r.write("add_test.go", "//go:build slow\n\n"+sumsTest)
+	r.commit("BUG: Add sums its arguments")
+
+	ok, out := r.check("check-bug-tests.sh")
+	if !ok || !strings.Contains(out, "TestAddSumsItsArguments fails without the fix") {
+		t.Errorf("a test behind a build tag was not run:\n%s", out)
 	}
 }
 
