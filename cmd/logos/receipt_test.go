@@ -122,7 +122,7 @@ project-name) echo kestrel-one ;;
 resume) printf '%s %s' "${LOGOS_SESSION-unset}" "${LOGOS_AGENT-unset}" > '`+seen+`'; echo "## Where we left off" ;;
 esac`)
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	cmd.Stdin = strings.NewReader(`{"session_id": "6f1c2a9e-3b7d", "source": "startup"}`)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("hook: %v\n%s", err, out)
@@ -145,7 +145,7 @@ func TestTheSessionStartHookDoesNotWaitOnAStdinNobodyCloses(t *testing.T) {
 	}
 	bin := fakeLogosForHook(t, "true", "", "## Where we left off\nLast checkpoint by **cli**.")
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ project-name) echo shop ;;
 note) echo "auto-checkpointed — sessions/shop/x"; echo "may have avoided: caching the cart (ruled out by codex, 1 Oct 2026)" ;;
 esac`)
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	cmd.Stdin = strings.NewReader(`{"session_id":"s-hook"}`)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

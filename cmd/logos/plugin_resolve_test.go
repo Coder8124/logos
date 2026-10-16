@@ -19,6 +19,13 @@ func fakeProgram(t *testing.T, dir, name, body string) {
 	}
 }
 
+// noFixedInstallDirs keeps resolve.sh off the machine's own Homebrew and
+// /usr/local copies. Without it a test's fake logos competes with whatever
+// release is installed there, and a newer one wins: the hook tests then ran the
+// real binary and failed on any Mac with Logos installed, passing in CI only
+// because the runners have none (#325, after #173 here).
+const noFixedInstallDirs = "LOGOS_RESOLVE_FIXED_DIRS="
+
 // runResolver sources the plugin's resolve.sh under a PATH and HOME made of
 // fakes only, and returns what it chose.
 func runResolver(t *testing.T, path string, script string) (string, error) {
@@ -28,9 +35,7 @@ func runResolver(t *testing.T, path string, script string) (string, error) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/bash", "-c", ". '"+resolver+"'; "+script)
-	// No fixed install locations: the machine's own brew or /usr/local copy
-	// would otherwise be a candidate in every test.
-	cmd.Env = []string{"PATH=" + path, "HOME=" + t.TempDir(), "GOBIN=", "GOPATH=", "LOGOS_RESOLVE_FIXED_DIRS="}
+	cmd.Env = []string{"PATH=" + path, "HOME=" + t.TempDir(), "GOBIN=", "GOPATH=", noFixedInstallDirs}
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
