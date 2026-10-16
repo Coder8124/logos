@@ -217,10 +217,22 @@ cp internal/agentprompt/LOGOSPROMPT.md systemmd/LOGOSPROMPT.md
   No trailing period and no attribution trailer; `scripts/check-commits.sh
   origin/main` checks a branch the way CI does.
 - New behaviour comes with a test that fails without it.
-- `go test ./...`, `go vet ./...` and `gofmt -l .` clean before you open it.
-  CI also runs the race detector, the chaos tier, staticcheck, govulncheck, a
-  macOS test run, and a packaging build whose npm wrapper is driven on Linux,
-  macOS and Windows. One check, `ci ok`, sums them up.
+- A bugfix's subject starts `BUG: `, and it lands with the test that fails
+  without the fix. CI holds it to that: it runs the tests the commit adds or
+  changes, then runs them again with the rest of the commit undone, and at
+  least one has to fail. A fix to a flaky test, which changes nothing else, is
+  exempt.
+- A test's name is a sentence stating the property it holds —
+  `TestAForgottenIDIsNeverHandedOutAgain`, not `TestForget`. It is what a
+  failure prints. CI rejects a new test named in fewer than four words.
+- `scripts/check.sh` runs what CI checks that a laptop can — format, build,
+  vet, the tests, the chaos tier, and the three commit checks against
+  `origin/main` — with any `LOGOS_` variable in your shell cleared, since a
+  vault or model named there reaches the tests. CI also runs the race
+  detector, staticcheck, govulncheck, actionlint, a macOS test run, and a
+  packaging build whose npm wrapper is driven on Linux, macOS and Windows. One
+  check, `ci ok`, sums them up, and a tag publishes only once the same checks
+  pass for the commit it names.
 
 ## Reporting bugs
 
