@@ -484,7 +484,7 @@ func Export(db *sql.DB, dir string) error {
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha
+		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha, uid
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -496,7 +496,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var m Memory
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit); err != nil {
+			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid); err != nil {
 			return err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
@@ -553,6 +553,7 @@ func renderKind(kind Kind, mems []Memory) string {
 			fmt.Fprintf(&b, " accepted=auto@%s", time.Unix(m.AutoAccepted, 0).UTC().Format(time.RFC3339))
 		}
 		b.WriteString(commitField(m.Commit))
+		b.WriteString(uidField(m.Uid))
 		b.WriteString(" -->\n")
 	}
 	return b.String()
@@ -835,11 +836,19 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 			return m.ID, false, nil
 		}
 		// The row is gone — the cache was wiped. Restore it under its old id.
+		// uid is whatever the vault line said (parsed by applyMeta), never
+		// recomputed here: a line written before A1 has none, and inventing one
+		// on a cache rebuild would mean the same vault produces a different uid
+		// depending on whether the index happened to survive. Backfilling the
+		// pre-A1 rows is A4's job, not this restore path's.
+		if err := checkUIDCollision(db, m.Uid, m.Text); err != nil {
+			return 0, false, err
+		}
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit)
+			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid)
 		// No event. Restoring a row the rebuild deleted is not a creation, and
 		// logging one stamped with time.Now() is how `logos memory log` came to
 		// report every fact you had ever learned as learned today. The real
@@ -885,14 +894,25 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 	// silently dropped a memory; here it is a primary key error that fails the
 	// unrelated write that triggered the reconcile. Taking the next number is
 	// the whole fix.
+	// A brand-new hand-typed line carries no project/git context — one kind
+	// file holds memories from every project, so there is no single dir to
+	// resolve a remote from. Always the no-remote marker, never a guess; see
+	// computeUID. If the hand-typed line somehow already carries a valid uid
+	// field (pasted from elsewhere), that stated value is kept instead.
+	if m.Uid == "" {
+		m.Uid = computeUID(m.Kind, m.Text, "")
+	}
+	if err := checkUIDCollision(db, m.Uid, m.Text); err != nil {
+		return 0, false, err
+	}
 	var lastErr error
 	for range idAttempts {
 		id := nextID(db)
 		_, err := db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit)
+			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid)
 		if err == nil {
 			logEvent(db, id, EvCreated, m.Text, 0)
 			return id, true, nil
@@ -1054,6 +1074,14 @@ func applyMeta(m *Memory, meta string) {
 			if isSha(value) {
 				m.Commit = value
 			}
+		case "uid":
+			// The vault is truth: a hand edit to this line must not change what
+			// the line asserts its uid is. Validated the same way commit is —
+			// anything malformed is as if absent, leaving the caller to compute
+			// a fresh one rather than trust a corrupted field.
+			if isUID(value) {
+				m.Uid = value
+			}
 		case "pin":
 			// Tolerant of a hand-typed value out of range: a person editing the
 			// file might type anything, and refusing to import over it would
@@ -1082,6 +1110,30 @@ func commitField(commit string) string {
 		return ""
 	}
 	return " commit=" + commit
+}
+
+// uidField mirrors commitField: omitted when empty, so a memory stored before
+// A1 (uid="") round-trips through the vault exactly as it always has.
+func uidField(uid string) string {
+	if !isUID(uid) {
+		return ""
+	}
+	return " uid=" + uid
+}
+
+// isUID is the shape computeUID produces: exactly uidLen lowercase hex
+// characters. The field is hand-editable like commit, so a stray or
+// truncated value is dropped rather than trusted.
+func isUID(s string) bool {
+	if len(s) != uidLen {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // isSha is gitstate's rule for a recorded commit, applied where the vault is

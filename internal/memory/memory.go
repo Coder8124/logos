@@ -10,8 +10,10 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -52,7 +54,17 @@ const (
 
 // Memory is one remembered thing.
 type Memory struct {
-	ID       int64   `json:"id"`
+	ID int64 `json:"id"`
+	// Uid is a content-derived id — sha256(kind + normalized text + the
+	// repository's normalized remote), truncated to uidLen hex characters —
+	// computed once, by computeUID, the first time this memory is stored, and
+	// never recomputed after. ID is an autoincrement counter, local to one
+	// vault's SQLite cache and reused once a row is deleted; Uid is what lets
+	// the same fact, written independently on two machines, be recognised as
+	// the same memory once 0.6.0 merges vaults across users. A hand edit to
+	// text, confidence or salience must not change it — see upsert, which
+	// never writes this column on an UPDATE.
+	Uid      string  `json:"uid,omitempty"`
 	Text     string  `json:"text"`
 	Kind     Kind    `json:"kind"`
 	Salience float64 `json:"salience"` // 0..1, how much it matters
@@ -108,6 +120,14 @@ type Memory struct {
 	// written before it existed and for one written outside a repository —
 	// neither is ever flagged.
 	Commit string `json:"commit,omitempty"`
+	// Remote is the repository's normalized origin URL (see
+	// gitstate.NormalizeRemote), set by ops.Anchor from Dir before Store is
+	// called. It exists only to seed Uid at creation — not persisted to the
+	// vault or the index, and never read back once Uid is set. A memory
+	// written outside a repository, or one whose caller never resolved a
+	// Dir, leaves this "", which computeUID treats as the explicit no-remote
+	// case rather than a repository that happens to have an empty identity.
+	Remote string `json:"-"`
 	// Drift is set on the way out, by MarkDrift, when files the memory names
 	// have changed since Commit. A reason to say so, never to drop it.
 	Drift *gitstate.Drift `json:"drift,omitempty"`
@@ -156,6 +176,9 @@ CREATE TABLE IF NOT EXISTS memories (
     unflushed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
+-- uid's own index lives below its ALTER, for the reason the comment on that
+-- migration gives: indexing it here would be indexing a column a store
+-- created before this change does not have yet.
 
 -- memory_log is the git history of memory: an append-only record of every
 -- lifecycle event (created, reinforced, superseded, merged, forgotten). The
@@ -218,6 +241,17 @@ func Init(db *sql.DB) error {
 	// Empty is what every existing row honestly is: nobody recorded where it
 	// was written, so nothing can say whether its files moved since.
 	db.Exec("ALTER TABLE memories ADD COLUMN commit_sha TEXT NOT NULL DEFAULT ''")
+	// '' is honest, not a placeholder to backfill later in this change: a row
+	// written before this column existed predates the whole notion of a
+	// content-derived id, exactly as an old row's "" commit_sha predates
+	// knowing where it was written. Giving it one now would mean computing it
+	// from whatever the row happens to hold today, which is a migration
+	// (A4), not this additive step — and NOT NULL UNIQUE here would fail this
+	// very ALTER the moment a vault has two such rows, since SQLite treats
+	// every '' as the same value. A plain index is enough for the collision
+	// check in insertMemory and upsert to use an index rather than a scan.
+	db.Exec("ALTER TABLE memories ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
+	db.Exec("CREATE INDEX IF NOT EXISTS memories_uid ON memories(uid)")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
@@ -240,6 +274,62 @@ func fingerprint(text string) string {
 // beforehand what a Store will skip: a preview that counted by exact text
 // promised writes the Store then folded into an existing row.
 func Fingerprint(text string) string { return fingerprint(text) }
+
+// noRemoteMarker stands in for "no git repository" or "a repository with no
+// origin remote" in a uid's hash input. An explicit marker, not "" folded
+// into the project name: the project is a label a person renames at will,
+// and hashing it would mean renaming a project changes the uid of every
+// memory in it, which breaks "hashed once, never recomputed" the moment
+// anyone touches the project field for an unrelated reason.
+const noRemoteMarker = "no-remote"
+
+// uidLen is how many hex characters of the sha256 digest computeUID keeps —
+// 16, i.e. 64 bits. Full collision resistance is not the goal (a vault holds
+// thousands of memories, not billions); it only has to make an accidental
+// collision between two *different* facts negligible next to the chance of
+// disk corruption, while keeping the id short enough to read in a vault
+// comment. checkUIDCollision refuses rather than silently merging if the
+// astronomically unlikely case still happens.
+const uidLen = 16
+
+// computeUID derives a memory's stable id from what it means rather than how
+// or where it is stored: the same kind, the same wording once normalized,
+// and the same originating repository, always hash to the same uid — on any
+// machine, any number of times. remote is already normalized (see
+// gitstate.NormalizeRemote); "" means Memory.Remote was never resolved
+// (no Dir, no repository, or no origin) and is hashed as noRemoteMarker
+// rather than silently treated as a real, empty identity.
+//
+// Called once, at creation — see Memory.Uid — and never again: a hand edit
+// to text would otherwise change the uid of a memory that, as far as the
+// person editing the file is concerned, is still the same fact.
+func computeUID(kind Kind, text, remote string) string {
+	if remote == "" {
+		remote = noRemoteMarker
+	}
+	sum := sha256.Sum256([]byte(string(kind) + "\x00" + fingerprint(text) + "\x00" + remote))
+	return hex.EncodeToString(sum[:])[:uidLen]
+}
+
+// checkUIDCollision refuses a write whose uid already belongs to a memory
+// with different text. The two are only ever the same canonical form if
+// their fingerprints (and so their text) match, and that case is caught
+// earlier, by the fingerprint UNIQUE column, before this is reached — so a
+// mismatch here can only mean two different facts hashed to the same
+// truncated digest, the rare case uidLen is sized against. Per invariant 3,
+// that gets reported, never a silent overwrite of one memory's id with
+// another's.
+func checkUIDCollision(db *sql.DB, uid, text string) error {
+	if uid == "" {
+		return nil
+	}
+	var existing string
+	if err := db.QueryRow("SELECT text FROM memories WHERE uid = ? AND text != ?", uid, text).Scan(&existing); err == nil {
+		return fmt.Errorf("uid %s collides between %q and %q — two different memories hashed to the same id, which should be astronomically rare; this needs a human look, not a silent overwrite",
+			uid, oneLine(existing), oneLine(text))
+	}
+	return nil
+}
 
 // A Receipt says what actually happened to a memory that was stored.
 //
@@ -324,6 +414,13 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	}
 	if m.Confidence == 0 {
 		m.Confidence = defaultConfidence(m.Source)
+	}
+	// After masking, so the uid is of the text actually kept, not the raw
+	// input with a credential still in it — the same reason fingerprint is
+	// computed post-mask. Guarded on m.Uid == "" because this is the one
+	// place a uid is ever assigned: see Memory.Uid and computeUID.
+	if m.Uid == "" {
+		m.Uid = computeUID(m.Kind, m.Text, m.Remote)
 	}
 
 	// Everything from here to the flush happens under one lock, held against
@@ -498,15 +595,20 @@ const idAttempts = 16
 // this replaces was that it looked like success.
 func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 	fp := fingerprint(m.Text)
+	// Checked before the insert, not relied on as a constraint: see the comment
+	// on checkUIDCollision for why uid has no UNIQUE index.
+	if err := checkUIDCollision(db, m.Uid, m.Text); err != nil {
+		return 0, err
+	}
 	for range idAttempts {
 		// The id is chosen rather than left to the rowid counter, so a forgotten
 		// memory's number is never handed to an unrelated one. See nextID.
 		id := nextID(db)
 		res, err := db.Exec(
-			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha, uid)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit)
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit, m.Uid)
 		if err != nil {
 			return 0, err
 		}
@@ -791,7 +893,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 	// than after ranking: it is what "never include" is for, and a memory that
 	// never reaches the candidate list cannot leak in via a generous k or a
 	// scoring quirk.
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin, commit_sha, uid FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
 	args := []any{PinNever}
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
@@ -817,7 +919,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -939,7 +1041,7 @@ func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -948,7 +1050,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -980,7 +1082,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 		return All(db)
 	}
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid
 		   FROM memories
 		  WHERE superseded = 0 AND quarantined = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
@@ -992,7 +1094,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -1023,8 +1125,8 @@ func ByIDs(db *sql.DB, ids []int64) ([]Fetched, error) {
 		var kind string
 		var superseded, quarantined int
 		err := db.QueryRow(
-			`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, superseded, quarantined
-			   FROM memories WHERE id = ?`, id).Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &superseded, &quarantined)
+			`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid, superseded, quarantined
+			   FROM memories WHERE id = ?`, id).Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid, &superseded, &quarantined)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
@@ -1085,7 +1187,7 @@ func filterKind(mems []Memory, kind Kind, keep bool) []Memory {
 // front of a model with no boundary line in sight — the opposite of
 // "procedures never enter the pack."
 func Pinned(db *sql.DB, project string) ([]Memory, error) {
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid
 	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ? AND kind != ?`
 	args := []any{PinAlways, string(Procedure)}
 	if strings.TrimSpace(project) != "" {
@@ -1102,7 +1204,7 @@ func Pinned(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
