@@ -199,6 +199,22 @@ CREATE TABLE IF NOT EXISTS memory_log (
     project TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS memory_log_ts ON memory_log(ts);
+
+-- digest_stamps is the hash of each kind's generated digest as logos last
+-- wrote it, read by flushLocked's hand-edit guard. It has to survive the
+-- process that wrote it: every "logos memory add" is its own process, so a
+-- guard that only remembered its last write in a Go map never once saw its
+-- own prior write and could never refuse anything — the hand-edit protection
+-- A2 promises would have been a no-op for the normal CLI, only ever firing
+-- inside one long-lived process such as the MCP server. Losing this table
+-- (index.db deleted) is safe the same way losing unflushed's marks is: the
+-- next write just has no stamp to compare against and goes through, which is
+-- the existing "no stamp yet" case — never a lost memory, only a missed
+-- detection of an edit that happened in the gap.
+CREATE TABLE IF NOT EXISTS digest_stamps (
+    kind TEXT PRIMARY KEY,
+    sha  TEXT NOT NULL
+);
 `
 
 func Init(db *sql.DB) error {
@@ -442,16 +458,6 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 
 // storeLocked is the body of Store, run with the kind's lock held.
 func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Receipt, error) {
-	// Adopt anything the user changed in the file by hand before this write
-	// regenerates it. Ordered before the insert, not after: once the new row is
-	// in the index, nothing can tell it apart from a line the user deleted.
-	// A failure here is not fatal to the store — see Reconcile — but it is
-	// returned, because writing over an edit the user made is exactly what this
-	// call exists to prevent and doing it anyway would be worse than refusing.
-	if err := reconcileLocked(db, m.Kind); err != nil {
-		return Receipt{Outcome: OutcomeNoop}, err
-	}
-
 	var vec []byte
 	var qvec []float32
 	if p != nil {
@@ -471,7 +477,8 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			return Receipt{Outcome: EvReinforced, ID: id, Ref: id, StillQueued: isQueued(db, id)}, flushLocked(db, m.Kind)
+			err := errors.Join(exportMemoryFile(db, m.Kind, id), flushLocked(db, m.Kind))
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id, StillQueued: isQueued(db, id)}, err
 		}
 	}
 
@@ -529,7 +536,7 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 	if err != nil || rec.Outcome != EvCreated {
 		return rec, err
 	}
-	return rec, flushLocked(db, m.Kind)
+	return rec, errors.Join(exportMemoryFile(db, m.Kind, rec.ID), flushLocked(db, m.Kind))
 }
 
 // insertLocked is the row half of storeLocked: the insert, and the event that
@@ -1233,13 +1240,12 @@ func Forget(db *sql.DB, id int64) error {
 		}
 		return err
 	}
-	// One lock across all three steps, for the reason Store gives: between the
-	// delete and the flush the file still holds the line, and a reconcile in
-	// that window would restore the memory the user just forgot.
+	// One lock across both steps, for the reason Store gives: between the
+	// delete and the flush the digest still shows the memory, and a stray
+	// reconcile in that window would have restored the row the user just
+	// forgot — back when the kind file was truth. It no longer is, but the
+	// lock still has to cover the delete and the digest refresh as one unit.
 	return withKind(db, Kind(k), func() error {
-		if err := reconcileLocked(db, Kind(k)); err != nil {
-			return err
-		}
 		kind, err := forgetRow(db, id)
 		if err != nil {
 			return err
@@ -1253,22 +1259,32 @@ func Forget(db *sql.DB, id int64) error {
 // forgetRow is Forget without the file write, for callers that are going to
 // write the file themselves once at the end.
 //
-// Reconcile is the one that needs this: it deletes every memory the user
-// removed from the file by hand, and flushing inside that loop would rewrite
-// the file once per deletion — each time from a half-reconciled index, and each
-// time over the very file still being read as the source of truth.
+// importInto's orphan-reaping loop is the one that needs this: it deletes
+// every memory whose per-memory file is gone, and flushing inside that loop
+// would rewrite the kind digest once per deletion — each time from a
+// half-reaped index, and each time over the very files still being read as
+// the source of truth.
 func forgetRow(db *sql.DB, id int64) (Kind, error) {
 	// Snapshot the text into the log first, so the timeline records what was
 	// forgotten even though the row is about to vanish.
 	// The project comes out in the same snapshot: after the DELETE below there
 	// is no row left to ask, and a forgotten memory that drops out of its own
 	// project's timeline is the one omission a person would actually notice.
-	var text, kind, proj string
-	db.QueryRow("SELECT text, kind, project FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj)
+	// uid comes out here too, for the same reason: it is the row's own filename
+	// under memories/<kind>/, and there is no row left to ask it from once the
+	// DELETE below runs.
+	var text, kind, proj, uid string
+	db.QueryRow("SELECT text, kind, project, uid FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj, &uid)
 	if _, err := db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
 		return Kind(kind), err
 	}
 	logEventIn(db, id, EvForgotten, text, 0, proj)
+	// Shared by Forget and importInto's orphan-reaping loop — removing the
+	// per-memory file here once covers both, instead of each caller
+	// remembering to do it.
+	if dir := vaultFor(db); dir != "" {
+		removeMemoryFile(dir, Kind(kind), uid)
+	}
 	return Kind(kind), nil
 }
 
@@ -1354,18 +1370,14 @@ func setPin(db *sql.DB, id int64, pin int, verb string) error {
 		}
 		return err
 	}
-	// Same reason as Store: this ends in a whole-file rewrite, so whatever the
-	// user edited by hand has to be adopted before it, not lost by it — and the
-	// adopt, the update and the rewrite are one operation, held under one lock.
+	// The update, the per-memory file and the digest rewrite are one
+	// operation, held under one lock — same reason as Store.
 	return withKind(db, Kind(kind), func() error {
-		if err := reconcileLocked(db, Kind(kind)); err != nil {
-			return err
-		}
 		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
 			return err
 		}
 		logEvent(db, id, EvUpdated, verb+": "+text, 0)
-		return flushLocked(db, Kind(kind))
+		return errors.Join(exportMemoryFile(db, Kind(kind), id), flushLocked(db, Kind(kind)))
 	})
 }
 

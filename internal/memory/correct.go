@@ -71,11 +71,8 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 	}
 
 	err := withKind(db, m.Kind, func() error {
-		if err := reconcileLocked(db, m.Kind); err != nil {
-			return err
-		}
-		// Asked again under the lock, after the reconcile: another agent may
-		// have corrected or forgotten it since, or the user deleted its line.
+		// Asked again under the lock: another agent may have corrected or
+		// forgotten it since the caller last looked.
 		var oldText, project string
 		var superseded, by int64
 		var quarantined bool
@@ -162,10 +159,12 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 			logEvent(db, m.ID, EvCreated, m.Text, 0)
 			res.ID, ownerPin = m.ID, PinNone
 		}
-		// From here the new row exists, so whatever fails, the kind file is
-		// still written: a row only the index holds is forgotten by the next
-		// reconcile, and the caller is told about a memory that then vanishes.
+		// From here the new row exists, so whatever fails, the vault still
+		// gets both halves of it: the superseded memory's own file removed,
+		// the replacement's written, and the kind digest refreshed — a row
+		// only the index holds is a memory the next `rm -rf .logos` loses.
 		err = carryLocked(db, id, res.ID, oldText, pin, ownerPin)
+		err = errors.Join(err, exportMemoryFile(db, m.Kind, id), exportMemoryFile(db, m.Kind, res.ID))
 		return errors.Join(err, flushLocked(db, m.Kind))
 	})
 	return res, err

@@ -39,6 +39,13 @@ func memoryFiles(t *testing.T, vault string) string {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
+		if e.IsDir() {
+			// Under A2, memories/<kind>/ holds one file per memory and
+			// memories/<kind>.md is the generated digest of the same
+			// content — reading both would just duplicate every line, so
+			// this helper only reads the digest and skips the directory.
+			continue
+		}
 		raw, err := os.ReadFile(filepath.Join(vault, "memories", e.Name()))
 		if err != nil {
 			t.Fatal(err)
