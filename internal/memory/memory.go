@@ -88,6 +88,17 @@ type Memory struct {
 	LastUsed     int64  `json:"last_used"`
 	Uses         int    `json:"uses"`
 	SupersededBy int64  `json:"superseded_by,omitempty"` // id of the memory that replaced this one
+	// Supersedes is the opposite direction from SupersededBy, and the one that
+	// has to survive a wipe: SupersededBy is this row's own id-based pointer,
+	// set on the OLD memory by carryLocked, and never written to the vault —
+	// it dies with the index, which is fine, because the superseded row's file
+	// is deleted too (see removeMemoryFile) and nothing recreates either on
+	// reimport. Supersedes is the NEW memory's forward link, written here as
+	// the old memory's content-derived Uid rather than its numeric id, so a
+	// reader of this memory's own per-memory file can say what it replaced
+	// without the database at all. Set once by Correct, at creation, exactly
+	// like Uid itself.
+	Supersedes string `json:"supersedes,omitempty"`
 	// Quarantined means a machine proposed this and nobody has looked at it yet.
 	// A quarantined memory is a real row — same table, same shape — it is just
 	// invisible to Recall/All until a human accepts it. See quarantine.go.
@@ -268,6 +279,13 @@ func Init(db *sql.DB) error {
 	// check in insertMemory and upsert to use an index rather than a scan.
 	db.Exec("ALTER TABLE memories ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memories_uid ON memories(uid)")
+	// '' is the same honest default uid itself uses, for the same reason: a row
+	// written before this column existed predates the whole notion of a
+	// portable supersedes link, and SupersededBy (the id-based reverse pointer,
+	// cache-only, set the same moment) is exactly as true for it as it ever
+	// was. No index — nothing recalls or ranks by this column, only a per-memory
+	// file's own render and a reindex's parse ever read it.
+	db.Exec("ALTER TABLE memories ADD COLUMN supersedes TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
@@ -612,10 +630,10 @@ func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 		// memory's number is never handed to an unrelated one. See nextID.
 		id := nextID(db)
 		res, err := db.Exec(
-			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha, uid)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha, uid, supersedes)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit, m.Uid)
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit, m.Uid, m.Supersedes)
 		if err != nil {
 			return 0, err
 		}

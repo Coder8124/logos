@@ -429,7 +429,7 @@ func Export(db *sql.DB, dir string) error {
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
 	rows, err := db.Query(
-		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha, uid
+		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha, uid, supersedes
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
 		return err
@@ -441,7 +441,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var m Memory
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
-			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid); err != nil {
+			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid, &m.Supersedes); err != nil {
 			return err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
@@ -517,9 +517,23 @@ func renderLine(m Memory) string {
 	}
 	b.WriteString(commitField(m.Commit))
 	b.WriteString(uidField(m.Uid))
+	b.WriteString(supersedesField(m.Supersedes))
+	// amp is the envelope-format version this line was written at, stamped
+	// unconditionally rather than read back from the old line: there is
+	// nothing to preserve across a rewrite, since every write re-renders the
+	// whole bullet at the current format. Its absence on an un-migrated line
+	// is itself the signal — the same absence-means-"before this existed"
+	// reading A2 gives generatedDigestBanner — so no Memory field or
+	// applyMeta case is needed to carry a prior value forward.
+	fmt.Fprintf(&b, " amp=%s", currentAmpVersion)
 	b.WriteString(" -->\n")
 	return b.String()
 }
+
+// currentAmpVersion is the envelope format version stamped on every line this
+// build writes. Bumped when a new vault-visible field is added to the
+// envelope (amp-spec.md's sense of the word) — not on every code change.
+const currentAmpVersion = "0.1"
 
 // memoryFilePath is where one memory's own file lives — memories/<kind>/<uid>.md.
 func memoryFilePath(dir string, kind Kind, uid string) string {
@@ -579,10 +593,10 @@ func exportMemoryFile(db *sql.DB, kind Kind, id int64) error {
 	var project, source, agent sql.NullString
 	var superseded, quarantined int
 	err := db.QueryRow(`SELECT text, salience, confidence, project, source, agent,
-		created, last_used, uses, pin, auto_accepted, commit_sha, uid, superseded, quarantined
+		created, last_used, uses, pin, auto_accepted, commit_sha, uid, supersedes, superseded, quarantined
 		FROM memories WHERE id = ? AND kind = ?`, id, string(kind)).Scan(
 		&m.Text, &m.Salience, &m.Confidence, &project, &source, &agent,
-		&m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid, &superseded, &quarantined)
+		&m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid, &m.Supersedes, &superseded, &quarantined)
 	if err == sql.ErrNoRows {
 		// The row is gone already — forgetRow's own removeMemoryFile call,
 		// made while the uid was still readable, is what cleans this up.
@@ -992,10 +1006,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 			return 0, false, err
 		}
 		_, err = db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid, supersedes)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			m.ID, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid)
+			m.Source, m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid, m.Supersedes)
 		// No event. Restoring a row the rebuild deleted is not a creation, and
 		// logging one stamped with time.Now() is how `logos memory log` came to
 		// report every fact you had ever learned as learned today. The real
@@ -1057,10 +1071,10 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 	for range idAttempts {
 		id := nextID(db)
 		_, err := db.Exec(
-			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, fingerprint, pin, auto_accepted, commit_sha, uid, supersedes)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid)
+			m.Agent, m.Created, m.LastUsed, m.Uses, vec, fingerprint(m.Text), m.Pin, m.AutoAccepted, m.Commit, m.Uid, m.Supersedes)
 		if err == nil {
 			logEvent(db, id, EvCreated, m.Text, 0)
 			return id, true, nil
@@ -1340,6 +1354,13 @@ func applyMeta(m *Memory, meta string) {
 			if isUID(value) {
 				m.Uid = value
 			}
+		case "supersedes":
+			// The forward link to the memory this one replaced, named by its
+			// portable uid rather than a numeric id so it survives a wipe —
+			// validated the same way uid itself is, for the same reason.
+			if isUID(value) {
+				m.Supersedes = value
+			}
 		case "pin":
 			// Tolerant of a hand-typed value out of range: a person editing the
 			// file might type anything, and refusing to import over it would
@@ -1377,6 +1398,15 @@ func uidField(uid string) string {
 		return ""
 	}
 	return " uid=" + uid
+}
+
+// supersedesField mirrors uidField: omitted when empty, so an ordinary
+// memory's line (nothing replaced) reads exactly as it always has.
+func supersedesField(uid string) string {
+	if !isUID(uid) {
+		return ""
+	}
+	return " supersedes=" + uid
 }
 
 // isUID is the shape computeUID produces: exactly uidLen lowercase hex

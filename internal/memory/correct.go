@@ -73,12 +73,12 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 	err := withKind(db, m.Kind, func() error {
 		// Asked again under the lock: another agent may have corrected or
 		// forgotten it since the caller last looked.
-		var oldText, project string
+		var oldText, project, oldUid string
 		var superseded, by int64
 		var quarantined bool
 		var pin int
-		err := db.QueryRow("SELECT text, project, superseded, superseded_by, quarantined, pin FROM memories WHERE id = ?", id).
-			Scan(&oldText, &project, &superseded, &by, &quarantined, &pin)
+		err := db.QueryRow("SELECT text, project, superseded, superseded_by, quarantined, pin, uid FROM memories WHERE id = ?", id).
+			Scan(&oldText, &project, &superseded, &by, &quarantined, &pin, &oldUid)
 		switch {
 		case err == sql.ErrNoRows:
 			return fmt.Errorf("no memory #%d", id)
@@ -131,9 +131,13 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 
 		if owner > 0 {
 			// Same kind, same project: this is the memory the user means, and
-			// the correction corroborates it rather than adding a twin.
+			// the correction corroborates it rather than adding a twin. It
+			// still gets the forward link — the fact that owner now holds
+			// what used to be true at id is as real a supersession as the
+			// insert-a-new-row case below, and a reader of owner's own file
+			// should be able to say what it replaced without the database.
 			res.ID, res.Existing = owner, true
-			db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", owner)
+			db.Exec("UPDATE memories SET uses = uses + 1, supersedes = ? WHERE id = ?", oldUid, owner)
 			logEvent(db, owner, EvReinforced, m.Text, 0)
 		} else {
 			var vec []byte
@@ -142,6 +146,18 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 					vec = floatsToBlob(vecs[0])
 				}
 			}
+			// Correct calls insertMemory directly, not Store, so the one place
+			// that ordinarily assigns Uid (see Memory.Uid and computeUID) never
+			// runs for this row — leaving it permanently uid-less: no file of
+			// its own to write (exportMemoryFile skips a uid-less row), and no
+			// forward link for whoever corrects it next. Same guard Store uses.
+			if m.Uid == "" {
+				m.Uid = computeUID(m.Kind, m.Text, m.Remote)
+			}
+			// Set before the insert, not patched on after: insertMemory's own
+			// INSERT is the one write that creates this row, and the forward
+			// link belongs in it from the start the same way Uid does.
+			m.Supersedes = oldUid
 			correctRace(db, m.Text)
 			// insertMemory, not insertLocked: on a duplicate the latter
 			// reinforces it, and a correction refused here would leave that
