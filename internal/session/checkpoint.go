@@ -24,9 +24,18 @@ import (
 // next agent a paragraph of reading and costs it an afternoon of rediscovery.
 type Checkpoint struct {
 	Session string
-	Project string
-	Agent   string
-	Task    string
+	// HostSession is the id the *host* uses for this conversation — Claude
+	// Code's hook session_id, or a transcript reader's own s.ID — never
+	// Logos's own Session stem above. Session names the checkpoint file;
+	// HostSession names the conversation that produced it, which is what
+	// lets every checkpoint from one sitting be found together regardless of
+	// how many times it was checkpointed. Empty when nothing told us: an
+	// MCP host that gives no session_id (Cursor, Claude Desktop) leaves this
+	// blank rather than guessing, which is more honest than a wrong id.
+	HostSession string
+	Project     string
+	Agent       string
+	Task        string
 	// Intent is why the task matters: the outcome it serves and the constraint
 	// that shapes it. Task says what; a resume that only says what leaves the
 	// next agent rereading the transcript to learn which trade-offs are open,
@@ -411,6 +420,48 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(name, ".md")))
 		out = append(out, c)
 	}
+	return out, nil
+}
+
+// ByHostSession returns every checkpoint anywhere in the vault that carries
+// the given host session id, oldest first — the whole follows chain one
+// conversation produced, however many times it checkpointed and whatever
+// scope it checkpointed under.
+//
+// `logos resume <session-id>` needs this because a conversation's project can
+// change mid-work (a worktree spun up partway through) and because "what did
+// this conversation do" is a question about the id, not about any one
+// project's history. Built on Scopes and History rather than a parallel
+// directory walk, so a torn file is skipped exactly as resume already skips
+// one, and a checkpoint missing from Latest/History is never found here
+// either.
+func ByHostSession(vaultDir, hostSession string) ([]Checkpoint, error) {
+	if strings.TrimSpace(hostSession) == "" {
+		return nil, nil
+	}
+	scopes, err := Scopes(vaultDir)
+	if err != nil {
+		return nil, err
+	}
+	var out []Checkpoint
+	for _, scope := range scopes {
+		all, err := History(vaultDir, scope, 0)
+		if err != nil {
+			continue // one unreadable scope must not hide the others
+		}
+		for _, c := range all {
+			if c.HostSession == hostSession {
+				out = append(out, c)
+			}
+		}
+	}
+	// History returns newest first within a scope; the chain reads naturally
+	// oldest first across scopes too. Sorted on Session, not TS: two
+	// checkpoints claimed inside the same second still get filenames that
+	// collide-and-increment in order (see claimCheckpoint), so the filename
+	// is the finer clock and TS alone would leave same-second checkpoints in
+	// whatever order the directory scan happened to find them.
+	sort.Slice(out, func(i, j int) bool { return out[i].Session < out[j].Session })
 	return out, nil
 }
 
