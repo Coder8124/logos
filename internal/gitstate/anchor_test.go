@@ -102,6 +102,61 @@ func TestOutsideARepositoryNothingDrifts(t *testing.T) {
 	}
 }
 
+func TestASingleAnchorRulingBehavesExactlyAsBeforeComposition(t *testing.T) {
+	dir := repo(t)
+	commitAt(t, dir, "internal/parse/reader.go", "load all\n", "buffered reader")
+	_, anchor := Head(dir)
+	commitAt(t, dir, "internal/parse/reader.go", "chunks\n", "read in chunks")
+	commitAt(t, dir, "internal/parse/reader.go", "chunks, tuned\n", "tune the chunk size")
+	text := "streaming fails — internal/parse/reader.go loads the whole file"
+
+	want, wantOk := NewAnchors(dir).Since(anchor, text)
+	if !wantOk {
+		t.Fatal("baseline Since found no drift — nothing to compare against")
+	}
+
+	// No anchor field at all: SinceAnchor must fall back to Since exactly,
+	// since that is every ruling ever recorded before this field existed.
+	got, ok := NewAnchors(dir).SinceAnchor(anchor, "", text)
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Fatalf("SinceAnchor(empty) = %+v, %v; want %+v, true", got, ok, want)
+	}
+
+	// One explicit atom is a one-element AND, so an anchor: field naming the
+	// same file by hand must reach the identical answer, not a parallel path
+	// that happens to agree only on today's cases.
+	got2, ok2 := NewAnchors(dir).SinceAnchor(anchor, "git:internal/parse/reader.go", "")
+	if !ok2 || !reflect.DeepEqual(got2, want) {
+		t.Fatalf("SinceAnchor(single atom) = %+v, %v; want %+v, true", got2, ok2, want)
+	}
+}
+
+func TestARulingAnchoredToFileANDDependencyIsStaleOnlyWhenBothChanged(t *testing.T) {
+	dir := repo(t)
+	commitAt(t, dir, "internal/store/engine.go", "v1\n", "engine")
+	commitAt(t, dir, "go.sum", "v1\n", "lock")
+	_, anchor := Head(dir)
+	expr := "git:internal/store/engine.go AND dep:go.sum"
+
+	if d, ok := NewAnchors(dir).SinceAnchor(anchor, expr, ""); ok {
+		t.Fatalf("neither anchor moved yet: %+v", d)
+	}
+
+	commitAt(t, dir, "internal/store/engine.go", "v2\n", "rewrite the engine")
+	if d, ok := NewAnchors(dir).SinceAnchor(anchor, expr, ""); ok {
+		t.Fatalf("only the file changed, not the dependency, so the AND must not be stale: %+v", d)
+	}
+
+	commitAt(t, dir, "go.sum", "v2\n", "bump the lock")
+	d, ok := NewAnchors(dir).SinceAnchor(anchor, expr, "")
+	if !ok {
+		t.Fatal("both anchors changed, so the AND clause should be stale")
+	}
+	if !reflect.DeepEqual(d.Paths, []string{"internal/store/engine.go", "go.sum"}) {
+		t.Fatalf("drift paths = %v, want both anchors named", d.Paths)
+	}
+}
+
 func TestNamedFilesPicksPathsAndFileNamesOutOfProse(t *testing.T) {
 	got := NamedFiles("`internal/parse/reader.go:42` loads it all (see reader.go, go.mod and https://x.io/a.go); v1.2 at 3.5GB, ../etc/passwd, /abs/b.go, internal/parse")
 	want := []string{"internal/parse/reader.go", "go.mod"}

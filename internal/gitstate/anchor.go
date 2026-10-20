@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // A ruling is only as current as the code it was about. "Streaming fails
@@ -142,6 +143,174 @@ func (a *Anchors) count(commit string, specs ...string) (int, bool) {
 	}
 	a.memo[key] = n
 	return n, true
+}
+
+// A anchorAtom is one single anchor out of the fixed vocabulary amp-spec.md
+// §3.6 allows: git:<path>, dep:<name>, doc:<name> or time:<duration>.
+type anchorAtom struct {
+	kind  string
+	value string
+}
+
+// parseAnchorExpr reads a ruling's `anchor:` field into OR-of-AND clauses —
+// sum of products, and nothing richer, so conformance can test the whole
+// grammar rather than trust an evaluator that could in principle run any
+// boolean expression. " OR " separates clauses; " AND " separates the atoms
+// inside one. ok is false for an empty or malformed expression — including
+// one atom with no recognised kind — and the caller's answer to that is to
+// fall back to the single implicit git anchor the field predates, the same
+// way an unparsable commit or uid is treated as absent rather than trusted.
+func parseAnchorExpr(expr string) ([][]anchorAtom, bool) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil, false
+	}
+	var clauses [][]anchorAtom
+	for _, rawClause := range strings.Split(expr, " OR ") {
+		var atoms []anchorAtom
+		for _, rawAtom := range strings.Split(rawClause, " AND ") {
+			kind, value, ok := strings.Cut(strings.TrimSpace(rawAtom), ":")
+			if !ok {
+				return nil, false
+			}
+			kind = strings.ToLower(strings.TrimSpace(kind))
+			value = strings.TrimSpace(value)
+			if value == "" {
+				return nil, false
+			}
+			switch kind {
+			case "git", "dep", "doc", "time":
+			default:
+				return nil, false
+			}
+			atoms = append(atoms, anchorAtom{kind: kind, value: value})
+		}
+		if len(atoms) == 0 {
+			return nil, false
+		}
+		clauses = append(clauses, atoms)
+	}
+	return clauses, true
+}
+
+// SinceAnchor is Since's sibling for a ruling carrying an explicit `anchor:`
+// field: a fixed AND/OR grammar over single anchors, so "stale only when
+// this file AND this dependency changed" can be said without a general
+// boolean evaluator. anchorExpr empty, or one that does not parse, falls
+// back to Since unchanged — today's implicit git-only anchor, mined from
+// text — so a record written before this field existed, or hand-edited into
+// nonsense, is measured exactly as it always was rather than silently
+// treated as never stale.
+//
+// A single atom is a one-element AND, which this evaluates the same way
+// Since does for one named file: both end up asking whether that one path's
+// commit count since commit is nonzero. The grammar is not a parallel code
+// path that happens to agree with the old behaviour on the easy case — it is
+// the old behaviour's generalisation.
+func (a *Anchors) SinceAnchor(commit, anchorExpr, text string) (Drift, bool) {
+	if a == nil {
+		return Drift{}, false
+	}
+	clauses, ok := parseAnchorExpr(anchorExpr)
+	if !ok {
+		return a.Since(commit, text)
+	}
+	if !shaPattern.MatchString(commit) {
+		return Drift{}, false
+	}
+
+	var d Drift
+	var staleSpecs []string
+	anyTrue := false
+	for _, clause := range clauses {
+		var clausePaths, clauseSpecs []string
+		clauseTrue := true
+		for _, atom := range clause {
+			path, spec, stale, known := a.resolveAtom(commit, atom)
+			if !known || !stale {
+				clauseTrue = false
+				break
+			}
+			clausePaths = append(clausePaths, path)
+			clauseSpecs = append(clauseSpecs, spec)
+		}
+		if clauseTrue {
+			anyTrue = true
+			d.Paths = append(d.Paths, clausePaths...)
+			staleSpecs = append(staleSpecs, clauseSpecs...)
+		}
+	}
+	if !anyTrue {
+		return Drift{}, false
+	}
+	// Counted the same way Since counts a multi-file ruling: one commit
+	// touching two anchors is one change, not two.
+	if len(staleSpecs) == 1 {
+		d.Commits, _ = a.count(commit, staleSpecs[0])
+	} else {
+		d.Commits, _ = a.count(commit, staleSpecs...)
+	}
+	d.Commit = commit
+	return d, true
+}
+
+// resolveAtom measures one anchor. known is false when it cannot be
+// measured at all — reported the same way Since's own "cannot measure"
+// cases are, so an AND containing one is never falsely called stale by
+// treating "unknown" as "unchanged".
+//
+// git:, dep: and doc: all resolve to the same question: has the named path
+// had a commit since commit. There is no registry to ask whether a
+// dependency's version moved and no resolver for whether a doc went stale —
+// the file that names either (a manifest, a lockfile, the doc itself) is
+// the one real signal this repository can give for any of them, so dep:
+// and doc: are measured through it rather than left permanently unknown or
+// given a resolver that would be fabricating an answer the codebase cannot
+// back up. time: is the one anchor that is not a path at all: a trivial
+// wall-clock comparison against when commit itself was made.
+func (a *Anchors) resolveAtom(commit string, at anchorAtom) (path, spec string, stale, known bool) {
+	switch at.kind {
+	case "git", "dep", "doc":
+		spec = pathspec(at.value)
+		n, ok := a.count(commit, spec)
+		if !ok {
+			return "", "", false, false
+		}
+		return at.value, spec, n > 0, true
+	case "time":
+		dur, err := time.ParseDuration(at.value)
+		if err != nil {
+			return "", "", false, false
+		}
+		at2, ok := a.commitTime(commit)
+		if !ok {
+			return "", "", false, false
+		}
+		return at.value, "", time.Since(at2) > dur, true
+	default:
+		return "", "", false, false
+	}
+}
+
+// commitTime is commit's own timestamp, memoized under the same scheme
+// count uses — a resume walks a project's whole history, and a time: anchor
+// on an old commit is asked about it exactly once per run this way.
+func (a *Anchors) commitTime(commit string) (time.Time, bool) {
+	key := "time\x00" + commit
+	if n, ok := a.memo[key]; ok {
+		if n < 0 {
+			return time.Time{}, false
+		}
+		return time.Unix(int64(n), 0), true
+	}
+	out, err := SafeGit(a.dir, gitTimeout, "show", "-s", "--format=%ct", commit)
+	ts, convErr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil || convErr != nil {
+		a.memo[key] = -1
+		return time.Time{}, false
+	}
+	a.memo[key] = int(ts)
+	return time.Unix(ts, 0), true
 }
 
 // pathspec matches the name literally where it has a directory, and anywhere
