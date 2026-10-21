@@ -380,10 +380,20 @@ func (s *Session) agentFor(args map[string]any) string {
 // is, in the ordinary case of one agent talking to one host, this session.
 // Two agents working proj at once can misattribute this, which is the
 // trade-off for not inventing a mechanism the MCP protocol does not give us.
+//
+// Read from Extra, not the event's own Session field: that field is cut to
+// eight characters for a human scanning the log, and a checkpoint filed under
+// the cut id would land in a different conversation folder than the full id
+// internal/ingest's transcript-driven path uses for the very same
+// conversation. An older log line with no Extra falls back to the cut id —
+// still wrong against a full-id writer, but no worse than before this fix.
 func (s *Session) hostSession(proj string) string {
 	events, err := activity.Read(s.vault, activity.Query{Project: proj, Limit: 1})
 	if err != nil || len(events) == 0 {
 		return ""
+	}
+	if full, ok := events[0].Extra["session_id"].(string); ok && full != "" {
+		return full
 	}
 	return events[0].Session
 }
