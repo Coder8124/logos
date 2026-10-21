@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -90,6 +92,117 @@ func TestACheckpointWithNoHostSessionGoesToUnattached(t *testing.T) {
 	}
 	if len(chain) != 0 {
 		t.Fatalf("an empty host session id must match nothing, got %d checkpoints", len(chain))
+	}
+
+	// Not just the field: a checkpoint nobody told a host session id to
+	// still has to physically land somewhere, and that somewhere is the
+	// shared _unattached folder, not a folder of its own and not the bare
+	// scope directory a pre-ConvosDir checkpoint would have used.
+	wantPath := filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, UnattachedFolder, got.Session+".md")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("an unattached checkpoint is not where _unattached is supposed to put it: %v", err)
+	}
+	wantSlugSuffix := filepath.ToSlash(filepath.Join(ConvosDir, UnattachedFolder, got.Session))
+	if !hasSuffix(got.Slug, wantSlugSuffix) {
+		t.Fatalf("slug %q does not name the _unattached conversation folder", got.Slug)
+	}
+}
+
+func hasSuffix(s, suffix string) bool {
+	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
+}
+
+// A sync-conflict copy, an interrupted migration, or a hand move can leave a
+// checkpoint sitting in a conversation folder other than the one its own
+// host_session names — or in the bare scope directory altogether, the
+// pre-ConvosDir layout. Refile trusts the frontmatter over the folder and
+// moves the file back, the same way `logos index` rebuilds any other derived
+// layout from the vault rather than from wherever a file happens to sit.
+func TestAMisfiledCheckpointIsReFiledFromItsFrontmatterAndAnnounced(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	c := &Checkpoint{
+		Project:     "kestrel",
+		Agent:       "claude-code",
+		Task:        "fix the checkout crash",
+		HostSession: "claude-code-abc123",
+	}
+	if err := Commit(db, dir, c); err != nil {
+		t.Fatal(err)
+	}
+
+	correctPath := filepath.Join(dir, filepath.FromSlash(c.Slug)+".md")
+	raw, err := os.ReadFile(correctPath)
+	if err != nil {
+		t.Fatalf("checkpoint not where Commit says it wrote it: %v", err)
+	}
+
+	// Simulate the file ending up directly in the scope directory — the
+	// layout every checkpoint used before ConvosDir existed — while its own
+	// frontmatter still names the conversation it came from.
+	misfiledPath := filepath.Join(dir, CheckpointDir, "kestrel", c.Session+".md")
+	if err := os.Remove(correctPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(misfiledPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := Refile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("want 1 checkpoint re-filed, got %d", n)
+	}
+	if _, err := os.Stat(misfiledPath); !os.IsNotExist(err) {
+		t.Fatalf("Refile left the misfiled copy behind: %v", err)
+	}
+	if _, err := os.Stat(correctPath); err != nil {
+		t.Fatalf("Refile did not put the checkpoint back where its own host_session says it belongs: %v", err)
+	}
+
+	// A second pass over an already-correct vault finds nothing left to move.
+	n, err = Refile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("want nothing left to re-file on a second pass, got %d", n)
+	}
+}
+
+// A citation stored before ConvosDir existed — in an old memory, an old
+// checkpoint's own text, or anything ingest_harvest handed back before this
+// migration — names "sessions/<project>/<stem>" with no conversation folder
+// in it at all. Resolving it must still find the checkpoint wherever Refile
+// or an ordinary Commit under the new layout actually put it.
+func TestAnOldPathCitationStillResolvesAfterSessionsMoveIntoFolders(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+
+	c := &Checkpoint{
+		Project:     "kestrel",
+		Agent:       "claude-code",
+		Task:        "fix the checkout crash",
+		HostSession: "claude-code-abc123",
+	}
+	if err := Commit(db, dir, c); err != nil {
+		t.Fatal(err)
+	}
+
+	oldSlug := filepath.ToSlash(filepath.Join(CheckpointDir, "kestrel", c.Session))
+	got, err := ResolvePath(dir, oldSlug)
+	if err != nil {
+		t.Fatalf("an old-style citation no longer resolves: %v", err)
+	}
+	want := filepath.Join(dir, filepath.FromSlash(c.Slug)+".md")
+	if got != want {
+		t.Fatalf("resolved to %q, want the checkpoint's current path %q", got, want)
+	}
+	if _, err := os.ReadFile(got); err != nil {
+		t.Fatalf("resolved path is not readable: %v", err)
 	}
 }
 

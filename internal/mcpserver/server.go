@@ -31,7 +31,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -46,6 +45,7 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/session"
 )
 
 // protocolVersion is what this server speaks when the host asks for something
@@ -196,8 +196,13 @@ type Session struct {
 	saved map[string]bool
 }
 
+// checkpointOnDisk asks by stem, not path: the last checkpoint this session
+// wrote may since have been re-filed (a concurrent `logos index` run saw its
+// host_session and moved it into its conversation folder), and a literal stat
+// on the slug this session remembers would then report it missing — turning
+// an ordinary retry into a second file for the same checkpoint.
 func checkpointOnDisk(vault, slug string) bool {
-	_, err := os.Stat(filepath.Join(vault, filepath.FromSlash(slug)+".md"))
+	_, err := session.ResolvePath(vault, slug)
 	return err == nil
 }
 

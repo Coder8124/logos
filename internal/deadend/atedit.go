@@ -124,6 +124,12 @@ func AtPath(db *sql.DB, vaultDir, project, rel string) ([]Ruling, error) {
 
 // scopesOf is project and the worktree scopes filed under it — the same two
 // levels session.Scopes walks, without walking every other project.
+//
+// session.ConvosDir is skipped as a worktree candidate for the same reason
+// session.Scopes skips it: a project's own conversation folders sit at the
+// exact same depth as a sibling worktree's directory, and without this check
+// every project with any checkpoint at all would report a phantom worktree
+// scope named "_convos".
 func scopesOf(vaultDir, project string) ([]string, error) {
 	project = session.SafeScope(project)
 	root := filepath.Join(vaultDir, session.CheckpointDir, filepath.FromSlash(project))
@@ -139,7 +145,7 @@ func scopesOf(vaultDir, project string) ([]string, error) {
 		return out, nil // already a worktree scope; there is no level below it
 	}
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && e.Name() != session.ConvosDir {
 			out = append(out, project+"/"+e.Name())
 		}
 	}
@@ -163,9 +169,13 @@ func refresh(db *sql.DB, vaultDir, scope string) error {
 	return apply(db, dir, scope, onDisk, known)
 }
 
-// stamps is each checkpoint file in dir with its size and mtime.
+// stamps is each checkpoint file in dir with its size and mtime, keyed by its
+// path relative to dir — session.CheckpointEntries, not a bare ReadDir, so a
+// checkpoint sitting inside a conversation folder under session.ConvosDir is
+// found exactly where History already finds it, instead of this cache going
+// blind to every checkpoint the moment it migrates one level deeper.
 func stamps(dir string) (map[string]string, error) {
-	entries, err := os.ReadDir(dir)
+	entries, err := session.CheckpointEntries(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -173,15 +183,12 @@ func stamps(dir string) (map[string]string, error) {
 		return nil, err
 	}
 	onDisk := map[string]string{}
-	for _, e := range entries {
-		if e.IsDir() || !session.IsCheckpointFile(e.Name()) {
-			continue
-		}
-		info, err := e.Info()
+	for _, en := range entries {
+		info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(en.Rel)))
 		if err != nil {
 			continue // gone between the listing and the stat; the next refresh agrees
 		}
-		onDisk[e.Name()] = fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
+		onDisk[en.Rel] = fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 	}
 	return onDisk, nil
 }
@@ -244,7 +251,7 @@ func apply(db *sql.DB, dir, scope string, onDisk, known map[string]string) error
 		if _, err := tx.Exec(`DELETE FROM ruling_files WHERE scope = ? AND file = ?`, scope, file); err != nil {
 			return err
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, file))
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(file)))
 		if err != nil {
 			continue // unreadable now; no row, so the next refresh tries again
 		}

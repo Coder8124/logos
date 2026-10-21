@@ -70,7 +70,7 @@ func TestCuttingANonLatinNameLeavesWholeCharacters(t *testing.T) {
 func TestALongAgentNameStillLeavesACheckpointAndAPlanThatCanBeWritten(t *testing.T) {
 	vault := t.TempDir()
 	agent := strings.Repeat("a", 250)
-	if _, _, err := claimCheckpoint(vault, "p", agent, idFor(agent, time.Now())); err != nil {
+	if _, _, err := claimCheckpoint(vault, "p", agent, idFor(agent, time.Now()), UnattachedFolder); err != nil {
 		t.Errorf("checkpoint: %v", err)
 	}
 	if _, err := SavePlan(vault, Plan{Project: "p", Agent: agent, Text: "do it"}); err != nil {
