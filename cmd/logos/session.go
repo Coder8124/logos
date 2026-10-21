@@ -284,9 +284,27 @@ func runResume(args []string) error {
 	// resuming "this exact conversation, wherever it worked" is a different
 	// question from "this project's latest" and the two arguments do not
 	// collide in practice — a project name is never a host's session id.
-	if chain, err := session.ByHostSession(ix.Vault, project); err == nil && len(chain) > 0 {
-		printSessionChain(project, chain)
-		return nil
+	//
+	// Only checked when project does not already name a real project: that
+	// lookup is one ReadDir, so it is cheap, and it is also the exact
+	// condition the comment above already claims must hold. Without it,
+	// `logos resume <project>` — the hook's own call on every session start,
+	// the single most frequent path in the whole binary — read and parsed
+	// every checkpoint in the vault before ever reaching the project it was
+	// actually given.
+	known, _ := session.Projects(ix.Vault)
+	isProject := false
+	for _, p := range known {
+		if p == project {
+			isProject = true
+			break
+		}
+	}
+	if !isProject {
+		if chain, err := session.ByHostSession(ix.Vault, project); err == nil && len(chain) > 0 {
+			printSessionChain(project, chain)
+			return nil
+		}
 	}
 
 	// Resume is the one command that must never need a model: the checkpoint it

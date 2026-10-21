@@ -213,8 +213,8 @@ func Integration(bin string, args []string, vault string) []Check {
 	return checks
 }
 
-// cleanUp removes the probe's checkpoint and the project directory it was
-// filed under.
+// cleanUp removes the probe's checkpoint and every directory left empty under
+// it, up to and including the project directory.
 //
 // Removing only the file is not enough, and the difference is not cosmetic. A
 // project is a directory under sessions/, so an empty logos-selftest-<pid>
@@ -229,15 +229,16 @@ func cleanUp(vault, project, checkpoint string) error {
 		return err
 	}
 	root := filepath.Join(vault, session.CheckpointDir, project)
-	// The checkpoint does not always land directly in root: worktree scoping
-	// (scopeName in internal/mcpserver/scope.go) files it one level deeper, at
-	// sessions/<project>/<worktree>/<id>.md, whenever this probe's own process
-	// — logos doctor --integration — happens to be running with its working
-	// directory inside a linked git worktree. Removing only root then found
-	// that now-empty worktree directory still sitting in it, called root "not
-	// empty", and reported a probe that fully succeeded as a cleanup failure.
-	if leaf := filepath.Dir(checkpoint); leaf != root {
-		if err := os.Remove(leaf); err != nil {
+	// The checkpoint can land several levels below root now, not just one:
+	// worktree scoping (scopeName in internal/mcpserver/scope.go) adds a
+	// worktree level, and session.ConvosDir adds a conversation folder below
+	// that — sessions/<project>/[<worktree>/]_convos/_unattached/<id>.md.
+	// Removing only the immediate parent left _convos sitting non-empty in
+	// root, which turned a probe that fully succeeded into a reported cleanup
+	// failure, so this climbs one directory at a time until it reaches root
+	// or finds something the probe did not write.
+	for dir := filepath.Dir(checkpoint); dir != root && len(dir) > len(root); dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil {
 			return err
 		}
 	}
