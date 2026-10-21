@@ -365,9 +365,24 @@ func (c *Checkpoint) maskSecrets() []secret.Redaction {
 // fresh checkpoint is never the thing re-filing later finds "misfiled" and
 // moves.
 func claimCheckpoint(vaultDir, project, agent, id, convo string) (string, string, error) {
-	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(project), ConvosDir, convo)
+	scopeDir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(project))
+	dir := filepath.Join(scopeDir, ConvosDir, convo)
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return "", "", err
+	}
+	// O_EXCL only guards against a second writer into this same convo folder:
+	// two conversations that land on the same timestamp-plus-agent id now
+	// claim it in two different folders, and the OS sees no collision at all.
+	// ResolvePath's citation-by-stem fallback matches by filename alone across
+	// every convo, so a name taken twice in one scope would resolve to
+	// whichever of the two it happened to reach first. Checked against the
+	// whole scope, not just dir, to keep every name in it unique the way a
+	// single flat directory used to guarantee for free.
+	taken := map[string]bool{}
+	if entries, err := CheckpointEntries(scopeDir); err == nil {
+		for _, en := range entries {
+			taken[en.Name] = true
+		}
 	}
 	start, err := time.Parse("20060102-150405", firstN(id, 15))
 	if err != nil {
@@ -379,6 +394,9 @@ func claimCheckpoint(vaultDir, project, agent, id, convo string) (string, string
 		candidate := id
 		if i > 0 {
 			candidate = idFor(agent, start.Add(time.Duration(i)*time.Second))
+		}
+		if taken[candidate+".md"] {
+			continue
 		}
 		path := filepath.Join(dir, candidate+".md")
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, vault.FileMode)

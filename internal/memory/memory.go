@@ -1300,8 +1300,15 @@ func forgetRow(db *sql.DB, id int64) (Kind, error) {
 	// Shared by Forget and importInto's orphan-reaping loop — removing the
 	// per-memory file here once covers both, instead of each caller
 	// remembering to do it.
+	//
+	// Reported, not swallowed: a failed removal here leaves the row gone from
+	// the index but the file still in the vault, which is the index diverging
+	// from the truth it is supposed to be a cache of — exactly what a reindex
+	// would resurrect the memory from, silently undoing the forget.
 	if dir := vaultFor(db); dir != "" {
-		removeMemoryFile(dir, Kind(kind), uid)
+		if err := removeMemoryFile(dir, Kind(kind), uid); err != nil {
+			return Kind(kind), err
+		}
 	}
 	return Kind(kind), nil
 }

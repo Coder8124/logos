@@ -243,12 +243,28 @@ func (a *Anchors) SinceAnchor(commit, anchorExpr, text string) (Drift, bool) {
 	if !anyTrue {
 		return Drift{}, false
 	}
+	// A time: atom has no path — resolveAtom gives it spec "" — and git
+	// treats "" as an invalid pathspec, not as "no restriction": it fails the
+	// whole call, including any real git:/dep:/doc: spec sharing the AND with
+	// it. Dropped here, before counting, so a clause mixing a path anchor
+	// with a time anchor still gets the path's real count instead of losing
+	// it to the time anchor's absent one.
+	pathSpecs := staleSpecs[:0:0]
+	for _, s := range staleSpecs {
+		if s != "" {
+			pathSpecs = append(pathSpecs, s)
+		}
+	}
 	// Counted the same way Since counts a multi-file ruling: one commit
-	// touching two anchors is one change, not two.
-	if len(staleSpecs) == 1 {
-		d.Commits, _ = a.count(commit, staleSpecs[0])
-	} else {
-		d.Commits, _ = a.count(commit, staleSpecs...)
+	// touching two anchors is one change, not two. Nothing left to count
+	// (every stale atom was time:) is not the same question count answers —
+	// there is no path whose commits to count — so Commits stays 0 rather
+	// than asking git to count a range against no pathspec at all, which
+	// would report every commit in the range, not zero.
+	if len(pathSpecs) == 1 {
+		d.Commits, _ = a.count(commit, pathSpecs[0])
+	} else if len(pathSpecs) > 1 {
+		d.Commits, _ = a.count(commit, pathSpecs...)
 	}
 	d.Commit = commit
 	return d, true
