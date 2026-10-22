@@ -122,7 +122,7 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 // "deploys on Tuesdays" with heron's "deploys on Fridays" and call one an
 // update of the other.
 func activeMemories(db *sql.DB) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec, pin, uid FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func activeMemories(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -254,12 +254,20 @@ pairs:
 			case "update":
 				// The newer fact wins; the older is superseded but retained, with a
 				// pointer to what replaced it so the timeline can show the change.
+				// newer also gets the reverse link — the same forward supersedes
+				// Correct writes for its own owner>0 case — so a reader of newer's
+				// own file can say what it replaced without the database, and a
+				// `logos index` rebuild recovers the link from the vault instead
+				// of only from the half of it SupersededBy left on older's side.
 				if _, werr = db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", newer.ID, older.ID); werr != nil {
+					break pairs
+				}
+				if _, werr = db.Exec("UPDATE memories SET supersedes = ? WHERE id = ?", older.Uid, newer.ID); werr != nil {
 					break pairs
 				}
 				logEvent(db, older.ID, EvSuperseded, older.Text, newer.ID)
 				gone[older.ID] = true
-				touched = append(touched, touchedID{older.ID, older.Kind})
+				touched = append(touched, touchedID{older.ID, older.Kind}, touchedID{newer.ID, newer.Kind})
 				superseded++
 			}
 		}
