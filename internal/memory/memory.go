@@ -226,6 +226,17 @@ CREATE TABLE IF NOT EXISTS digest_stamps (
     kind TEXT PRIMARY KEY,
     sha  TEXT NOT NULL
 );
+
+-- memory_file_stamps is digest_stamps' counterpart for A2's per-memory files:
+-- the hash of each uid's own file as logos last wrote it, read by
+-- exportMemoryFile's hand-edit guard before it overwrites that file on a
+-- Store/Correct/Consolidate mutation. Same survival story as digest_stamps —
+-- losing this table just means the next write has no stamp to compare
+-- against, never a lost memory.
+CREATE TABLE IF NOT EXISTS memory_file_stamps (
+    uid TEXT PRIMARY KEY,
+    sha TEXT NOT NULL
+);
 `
 
 func Init(db *sql.DB) error {
@@ -551,7 +562,18 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		return rec, err
 	}
 	rec, err := insertLocked(db, m, vec)
-	if err != nil || rec.Outcome != EvCreated {
+	if err != nil {
+		return rec, err
+	}
+	// EvQuarantined never reaches here as a memory file — a proposal is filed
+	// in the queue (see storeLocked's own comment above), and giving it one
+	// here would defeat quarantine the same way writing it to memories/<kind>.md
+	// would. EvCreated and EvReinforced (the exact-text duplicate hit in
+	// insertLocked, which bumps uses in the row but never wrote that through
+	// before this fix) both change a row this kind's vault already has — and
+	// filing it the same way keeps that bump from being an SQLite-only fact a
+	// `logos index` run would silently roll back.
+	if rec.Outcome != EvCreated && rec.Outcome != EvReinforced {
 		return rec, err
 	}
 	return rec, errors.Join(exportMemoryFile(db, m.Kind, rec.ID), flushLocked(db, m.Kind))
@@ -1306,7 +1328,7 @@ func forgetRow(db *sql.DB, id int64) (Kind, error) {
 	// from the truth it is supposed to be a cache of — exactly what a reindex
 	// would resurrect the memory from, silently undoing the forget.
 	if dir := vaultFor(db); dir != "" {
-		if err := removeMemoryFile(dir, Kind(kind), uid); err != nil {
+		if err := removeMemoryFile(db, dir, Kind(kind), uid); err != nil {
 			return Kind(kind), err
 		}
 	}

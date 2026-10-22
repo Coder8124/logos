@@ -209,11 +209,13 @@ func stampSeen(db *sql.DB, kind Kind) ([sha256.Size]byte, bool) {
 
 // dropStamps forgets every kind's claim for this vault, so a handle rebound
 // to a different directory (SetVault) never trusts a hash that described the
-// previous vault's file.
+// previous vault's file. Clears memory_file_stamps too, for the same reason:
+// a per-memory file at the same uid in the new vault is a different file.
 func dropStamps(db *sql.DB) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
 	_, _ = db.Exec(`DELETE FROM digest_stamps`)
+	_, _ = db.Exec(`DELETE FROM memory_file_stamps`)
 }
 
 // dropStamp forgets the claim for one kind, so the next reconcile does a full
@@ -222,6 +224,42 @@ func dropStamp(db *sql.DB, kind Kind) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
 	_, _ = db.Exec(`DELETE FROM digest_stamps WHERE kind = ?`, string(kind))
+}
+
+// fileStamp and fileStampSeen are digest_stamps' counterparts for one
+// per-memory file, read by exportMemoryFile's hand-edit guard — the same
+// table-backed design and the same reason: a process-local map would never
+// see its own prior write across separate "logos" invocations.
+func fileStamp(db *sql.DB, uid string, sum [sha256.Size]byte) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`INSERT INTO memory_file_stamps(uid, sha) VALUES(?, ?)
+		ON CONFLICT(uid) DO UPDATE SET sha = excluded.sha`, uid, hex.EncodeToString(sum[:]))
+}
+
+func fileStampSeen(db *sql.DB, uid string) ([sha256.Size]byte, bool) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	var hexSum string
+	err := db.QueryRow(`SELECT sha FROM memory_file_stamps WHERE uid = ?`, uid).Scan(&hexSum)
+	if err != nil {
+		return [sha256.Size]byte{}, false
+	}
+	raw, err := hex.DecodeString(hexSum)
+	if err != nil || len(raw) != sha256.Size {
+		return [sha256.Size]byte{}, false
+	}
+	var sum [sha256.Size]byte
+	copy(sum[:], raw)
+	return sum, true
+}
+
+// dropFileStamp forgets one uid's claim, used when its file is removed so a
+// later uid collision (same file path reused) never trusts a stale hash.
+func dropFileStamp(db *sql.DB, uid string) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`DELETE FROM memory_file_stamps WHERE uid = ?`, uid)
 }
 
 // kinds is the fixed set, so exporting is deterministic and a kind with no
@@ -554,11 +592,31 @@ func renderMemoryFile(kind Kind, m Memory) string {
 // reaches here already has a uid — Store, upsert and migration all compute
 // one before calling it — because a memory with no uid cannot be filed or
 // merged across vaults, which is the entire reason A2 exists.
-func writeMemoryFile(dir string, kind Kind, m Memory) error {
+//
+// Guarded by memory_file_stamps the same way flushLocked guards the kind
+// digest: a stamp that exists and no longer matches the file on disk means a
+// person edited this memory's file by hand since logos last wrote it, and
+// overwriting that silently is the one outcome a generated-but-editable-
+// looking file must never produce. `logos index`'s own migration path is the
+// override, same as ExportKind is for the digest — see readKindFiles.
+func writeMemoryFile(db *sql.DB, dir string, kind Kind, m Memory) error {
 	if m.Uid == "" {
 		return fmt.Errorf("memory #%d has no uid to file it under", m.ID)
 	}
-	return vault.WriteAtomic(memoryFilePath(dir, kind, m.Uid), []byte(renderMemoryFile(kind, m)))
+	path := memoryFilePath(dir, kind, m.Uid)
+	if last, ok := fileStampSeen(db, m.Uid); ok {
+		if onDisk, err := os.ReadFile(path); err == nil {
+			if sha256.Sum256(onDisk) != last {
+				return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
+			}
+		}
+	}
+	content := []byte(renderMemoryFile(kind, m))
+	if err := vault.WriteAtomic(path, content); err != nil {
+		return err
+	}
+	fileStamp(db, m.Uid, sha256.Sum256(content))
+	return nil
 }
 
 // removeMemoryFile deletes one memory's file — called once it is superseded,
@@ -566,13 +624,14 @@ func writeMemoryFile(dir string, kind Kind, m Memory) error {
 // current knowledge. Already gone is not an error: the file might never have
 // existed (a row restored under its old id, or one from before A2's
 // migration touched this kind), and the outcome either way is "no file here".
-func removeMemoryFile(dir string, kind Kind, uid string) error {
+func removeMemoryFile(db *sql.DB, dir string, kind Kind, uid string) error {
 	if uid == "" {
 		return nil
 	}
 	if err := os.Remove(memoryFilePath(dir, kind, uid)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	dropFileStamp(db, uid)
 	return nil
 }
 
@@ -607,7 +666,7 @@ func exportMemoryFile(db *sql.DB, kind Kind, id int64) error {
 	}
 	m.ID, m.Kind, m.Project, m.Source, m.Agent = id, kind, project.String, source.String, agent.String
 	if superseded == 1 || quarantined == 1 {
-		return removeMemoryFile(dir, kind, m.Uid)
+		return removeMemoryFile(db, dir, kind, m.Uid)
 	}
 	if m.Uid == "" {
 		// A pre-A1 row upsert hasn't backfilled yet (its own comment says that
@@ -615,7 +674,7 @@ func exportMemoryFile(db *sql.DB, kind Kind, id int64) error {
 		// one; the next `logos index` migration pass gives it one.
 		return nil
 	}
-	return writeMemoryFile(dir, kind, m)
+	return writeMemoryFile(db, dir, kind, m)
 }
 
 func blurb(kind Kind) string {
@@ -722,7 +781,7 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 	var damaged []string
 
 	for _, kind := range kinds {
-		raw, existed, n, err := readKindFiles(dir, kind)
+		raw, existed, n, err := readKindFiles(db, dir, kind)
 		var dmg kindDamaged
 		if errors.As(err, &dmg) {
 			damaged = append(damaged, string(dmg))
@@ -1143,7 +1202,7 @@ func parseKind(kind Kind, raw string) []Memory {
 // ExportKind pass overwrites the digest back to truth instead). Migrating
 // never deletes or truncates the flat file, only reads it, so a crash mid-
 // migration leaves it exactly as readable as it was before the run started.
-func readKindFiles(dir string, kind Kind) (raw string, existed bool, migrated int, err error) {
+func readKindFiles(db *sql.DB, dir string, kind Kind) (raw string, existed bool, migrated int, err error) {
 	kindDir := filepath.Join(dir, Dir, string(kind))
 	have := map[string]bool{}
 	var b strings.Builder
@@ -1215,12 +1274,22 @@ func readKindFiles(dir string, kind Kind) (raw string, existed bool, migrated in
 		if have[m.Uid] {
 			continue
 		}
-		if err := writeMemoryFile(dir, kind, m); err != nil {
-			return "", existed, migrated, err
+		// A line that already names its memory's id (m.ID > 0) is a known row
+		// being moved to its own file — upsert's by-id path never rejects it,
+		// so writing the file now is safe. A hand-typed line with no id is not
+		// yet a memory: upsert in importInto may still reject it as heldLine
+		// (its text already belongs to a quarantined or superseded memory),
+		// and writing the file before that check would leave it on disk with
+		// no row behind it. That line waits for importInto's own created-path
+		// to file it, the same as any other brand-new memory.
+		if m.ID > 0 {
+			if err := writeMemoryFile(db, dir, kind, m); err != nil {
+				return "", existed, migrated, err
+			}
+			have[m.Uid] = true
+			migrated++
 		}
-		have[m.Uid] = true
 		b.WriteString(renderLine(m))
-		migrated++
 	}
 	return b.String(), existed, migrated, nil
 }

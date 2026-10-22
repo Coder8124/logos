@@ -182,10 +182,16 @@ func NormalizeRemote(remote string) string {
 		} else {
 			host = rest
 		}
-	case strings.Contains(remote, "@") && strings.Contains(remote, ":"):
-		// git@host:owner/repo — scp-like syntax, no scheme.
-		rest := remote[strings.Index(remote, "@")+1:]
-		host, path, _ = strings.Cut(rest, ":")
+	case strings.Contains(remote, ":"):
+		// [user@]host:owner/repo — scp-like syntax, no scheme. The user@ is
+		// optional: an SSH config alias remote (`myhost:owner/repo`) carries
+		// no "@" at all, and requiring one here sent it to the default branch
+		// below, which cut on the first "/" instead and split "owner/repo"
+		// itself in half rather than the host from the path.
+		host, path, _ = strings.Cut(remote, ":")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
+		}
 	default:
 		host, path, _ = strings.Cut(remote, "/")
 	}
