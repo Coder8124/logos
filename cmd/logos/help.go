@@ -132,6 +132,7 @@ MEMORY
                                       recorded automatically, not by the model's choice
     logos watch                       captures, rulings handed back and memory changes as they happen
     logos activity --projects         which projects are being recorded
+    logos activity --compliance [--project P]   how often a checkpoint ask was followed by a checkpoint
     logos activity [off|on]           stop or resume recording it, for this vault
     logos deny [--undo]               keep Logos out of this repository (every repo is tracked
                                       unless it says so); --undo lets it back in

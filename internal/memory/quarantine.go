@@ -106,12 +106,6 @@ func accept(db *sql.DB, id int64, autoAt int64) error {
 	// everywhere the two are nested — it is what keeps two agents accepting at
 	// the same moment from deadlocking against each other.
 	return withKind(db, Kind(kind), func() error {
-		// A quarantined memory is not in the file yet, so accepting it is the
-		// moment it starts being written there — and that write is a whole-file
-		// rewrite. Adopt any hand edits first.
-		if err := reconcileLocked(db, Kind(kind)); err != nil {
-			return err
-		}
 		// The queue file is rewritten below too, so its hand edits are adopted
 		// first, under its lock, for the reason reconcilePendingLocked gives.
 		return withPending(db, func(dir string) error {
@@ -135,11 +129,15 @@ func accept(db *sql.DB, id int64, autoAt int64) error {
 				logEvent(db, id, EvAccepted, text, 0)
 			}
 			// Now that it is active, it belongs in the vault the same as anything
-			// else — this is the moment it moves out of the review queue and into
-			// memory. Both files change, and the memory file is written first: a
-			// crash between the two leaves a proposal that is already remembered
-			// still listed as pending, which a second accept resolves. The other
-			// order would drop it from the queue with nothing holding it.
+			// else — this is the moment it gets its own file under memories/<kind>/
+			// and moves out of the review queue. The memory's file (and the digest
+			// that includes it) is written before the queue file: a crash between
+			// the two leaves a proposal that is already remembered still listed as
+			// pending, which a second accept resolves. The other order would drop
+			// it from the queue with nothing holding it.
+			if err := exportMemoryFile(db, Kind(kind), id); err != nil {
+				return err
+			}
 			if err := flushLocked(db, Kind(kind)); err != nil {
 				return err
 			}
@@ -183,8 +181,9 @@ func Reject(db *sql.DB, id int64) error {
 		// The rejection has to reach the queue file too. It is the only record of
 		// what is pending that survives deleting the cache, so a proposal left
 		// there would come back on the next `logos index` — a memory the user
-		// explicitly rejected, reappearing, which is the failure mode Reconcile
-		// exists to prevent for active memories.
+		// explicitly rejected, reappearing — the same shape of loss the
+		// per-memory-file guard in flushLocked exists to prevent for active
+		// memories.
 		return flushPendingLocked(db, dir)
 	})
 }
@@ -259,9 +258,6 @@ func UndoAuto(db *sql.DB, id int64) error {
 	// both, active and queued, which the next undo or accept resolves. The
 	// other order leaves it in neither, and the rebuild would lose it.
 	return withKind(db, Kind(kind), func() error {
-		if err := reconcileLocked(db, Kind(kind)); err != nil {
-			return err
-		}
 		return withPending(db, func(dir string) error {
 			if _, _, err := reconcilePendingLocked(db, dir); err != nil {
 				return err
@@ -279,6 +275,12 @@ func UndoAuto(db *sql.DB, id int64) error {
 			}
 			logEvent(db, id, EvUnaccepted, text, 0)
 			if err := flushPendingLocked(db, dir); err != nil {
+				return err
+			}
+			// Back to quarantine, so its own file under memories/<kind>/ goes
+			// away the same way accepting it created one — exportMemoryFile
+			// removes a quarantined row's file rather than writing it.
+			if err := exportMemoryFile(db, Kind(kind), id); err != nil {
 				return err
 			}
 			return flushLocked(db, Kind(kind))

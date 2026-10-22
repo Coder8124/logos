@@ -122,7 +122,7 @@ func Surface(db *sql.DB, kinds []Kind, n int) ([]Memory, error) {
 // "deploys on Tuesdays" with heron's "deploys on Fridays" and call one an
 // update of the other.
 func activeMemories(db *sql.DB) ([]Memory, error) {
-	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec, pin FROM memories WHERE superseded = 0 AND quarantined = 0`)
+	rows, err := db.Query(`SELECT id, text, kind, salience, confidence, project, source, created, last_used, uses, vec, pin, uid FROM memories WHERE superseded = 0 AND quarantined = 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func activeMemories(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Created, &m.LastUsed, &m.Uses, &m.vec, &m.Pin, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -191,6 +191,18 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	gone := map[int64]bool{}
 	const gate = 0.80
 
+	// Every id a pair actually changes, so each gets its own file brought back
+	// in step with the row afterward — exportMemoryFile per id, not a kind-wide
+	// rewrite, for the reason it already documents: this pass can touch
+	// hundreds of pairs, and writing every survivor's file on every pair
+	// instead of once at the end would be the quadratic shape that function's
+	// comment warns against.
+	type touchedID struct {
+		id   int64
+		kind Kind
+	}
+	var touched []touchedID
+
 	// A refused write stops the pass rather than being counted: the counts were
 	// reported as "merged N" whether or not the UPDATE went through, so a
 	// database that refused every write produced a success receipt over a store
@@ -237,15 +249,25 @@ pairs:
 				logEvent(db, keep.ID, EvMerged, keep.Text, drop.ID)
 				logEvent(db, drop.ID, EvSuperseded, drop.Text, keep.ID)
 				gone[drop.ID] = true
+				touched = append(touched, touchedID{keep.ID, keep.Kind}, touchedID{drop.ID, drop.Kind})
 				merged++
 			case "update":
 				// The newer fact wins; the older is superseded but retained, with a
 				// pointer to what replaced it so the timeline can show the change.
+				// newer also gets the reverse link — the same forward supersedes
+				// Correct writes for its own owner>0 case — so a reader of newer's
+				// own file can say what it replaced without the database, and a
+				// `logos index` rebuild recovers the link from the vault instead
+				// of only from the half of it SupersededBy left on older's side.
 				if _, werr = db.Exec("UPDATE memories SET superseded = 1, superseded_by = ? WHERE id = ?", newer.ID, older.ID); werr != nil {
+					break pairs
+				}
+				if _, werr = db.Exec("UPDATE memories SET supersedes = ? WHERE id = ?", older.Uid, newer.ID); werr != nil {
 					break pairs
 				}
 				logEvent(db, older.ID, EvSuperseded, older.Text, newer.ID)
 				gone[older.ID] = true
+				touched = append(touched, touchedID{older.ID, older.Kind}, touchedID{newer.ID, newer.Kind})
 				superseded++
 			}
 		}
@@ -253,6 +275,11 @@ pairs:
 	// Consolidation retires memories wholesale, so the files have to follow or
 	// the next import would restore everything it just superseded.
 	if merged+superseded > 0 {
+		for _, t := range touched {
+			if err := exportMemoryFile(db, t.kind, t.id); err != nil {
+				return merged, superseded, errors.Join(werr, err)
+			}
+		}
 		for _, k := range kinds {
 			if err := flush(db, k); err != nil {
 				return merged, superseded, errors.Join(werr, err)

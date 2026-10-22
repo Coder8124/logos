@@ -276,6 +276,17 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintln(w, line)
 	}
 
+	// Checkpoints whose own host_session frontmatter disagrees with the
+	// conversation folder they are sitting in, last, since it needs no model
+	// and touches nothing the counts above depend on. Announced for the same
+	// reason every count above is: a rebuild that silently moved a file reads
+	// as one that might have lost it.
+	if refiled, err := ix.SyncCheckpointHomes(); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not re-file checkpoints:", err)
+	} else if refiled > 0 {
+		fmt.Fprintf(w, "re-filed %d checkpoint%s to match host_session, 0 lost\n", refiled, plural(refiled, ""))
+	}
+
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
@@ -317,6 +328,14 @@ func runIndexAuto() error {
 // retyped without its `<!-- logos id=… -->` comment forgets the memory it was,
 // project and confidence included, and comes back as a bare new one.
 func printMemoryEdits(w io.Writer, e memory.Edits) {
+	// Said once, the run it happens: a one-file-per-kind vault only ever
+	// migrates once per kind, and silence here would be exactly the silent
+	// background work invariant 3 rules out — the first `logos index` on an
+	// old vault moves every memory into its own file, and the user has no
+	// other way to know it happened or that nothing was lost doing it.
+	if e.Migrated > 0 {
+		fmt.Fprintf(w, "moved %d memor%s to one file each, 0 lost\n", e.Migrated, pluralY(e.Migrated))
+	}
 	if n := len(e.Added); n > 0 {
 		fmt.Fprintf(w, "added %d memor%s from a line with no id comment in memories/ — %s\n",
 			n, pluralY(n), memoryIDs(e.Added))

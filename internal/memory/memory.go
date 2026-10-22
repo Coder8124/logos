@@ -10,8 +10,10 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -52,7 +54,17 @@ const (
 
 // Memory is one remembered thing.
 type Memory struct {
-	ID       int64   `json:"id"`
+	ID int64 `json:"id"`
+	// Uid is a content-derived id — sha256(kind + normalized text + the
+	// repository's normalized remote), truncated to uidLen hex characters —
+	// computed once, by computeUID, the first time this memory is stored, and
+	// never recomputed after. ID is an autoincrement counter, local to one
+	// vault's SQLite cache and reused once a row is deleted; Uid is what lets
+	// the same fact, written independently on two machines, be recognised as
+	// the same memory once 0.6.0 merges vaults across users. A hand edit to
+	// text, confidence or salience must not change it — see upsert, which
+	// never writes this column on an UPDATE.
+	Uid      string  `json:"uid,omitempty"`
 	Text     string  `json:"text"`
 	Kind     Kind    `json:"kind"`
 	Salience float64 `json:"salience"` // 0..1, how much it matters
@@ -76,6 +88,17 @@ type Memory struct {
 	LastUsed     int64  `json:"last_used"`
 	Uses         int    `json:"uses"`
 	SupersededBy int64  `json:"superseded_by,omitempty"` // id of the memory that replaced this one
+	// Supersedes is the opposite direction from SupersededBy, and the one that
+	// has to survive a wipe: SupersededBy is this row's own id-based pointer,
+	// set on the OLD memory by carryLocked, and never written to the vault —
+	// it dies with the index, which is fine, because the superseded row's file
+	// is deleted too (see removeMemoryFile) and nothing recreates either on
+	// reimport. Supersedes is the NEW memory's forward link, written here as
+	// the old memory's content-derived Uid rather than its numeric id, so a
+	// reader of this memory's own per-memory file can say what it replaced
+	// without the database at all. Set once by Correct, at creation, exactly
+	// like Uid itself.
+	Supersedes string `json:"supersedes,omitempty"`
 	// Quarantined means a machine proposed this and nobody has looked at it yet.
 	// A quarantined memory is a real row — same table, same shape — it is just
 	// invisible to Recall/All until a human accepts it. See quarantine.go.
@@ -108,6 +131,14 @@ type Memory struct {
 	// written before it existed and for one written outside a repository —
 	// neither is ever flagged.
 	Commit string `json:"commit,omitempty"`
+	// Remote is the repository's normalized origin URL (see
+	// gitstate.NormalizeRemote), set by ops.Anchor from Dir before Store is
+	// called. It exists only to seed Uid at creation — not persisted to the
+	// vault or the index, and never read back once Uid is set. A memory
+	// written outside a repository, or one whose caller never resolved a
+	// Dir, leaves this "", which computeUID treats as the explicit no-remote
+	// case rather than a repository that happens to have an empty identity.
+	Remote string `json:"-"`
 	// Drift is set on the way out, by MarkDrift, when files the memory names
 	// have changed since Commit. A reason to say so, never to drop it.
 	Drift *gitstate.Drift `json:"drift,omitempty"`
@@ -156,6 +187,9 @@ CREATE TABLE IF NOT EXISTS memories (
     unflushed     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS memories_kind ON memories(kind);
+-- uid's own index lives below its ALTER, for the reason the comment on that
+-- migration gives: indexing it here would be indexing a column a store
+-- created before this change does not have yet.
 
 -- memory_log is the git history of memory: an append-only record of every
 -- lifecycle event (created, reinforced, superseded, merged, forgotten). The
@@ -176,6 +210,33 @@ CREATE TABLE IF NOT EXISTS memory_log (
     project TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS memory_log_ts ON memory_log(ts);
+
+-- digest_stamps is the hash of each kind's generated digest as logos last
+-- wrote it, read by flushLocked's hand-edit guard. It has to survive the
+-- process that wrote it: every "logos memory add" is its own process, so a
+-- guard that only remembered its last write in a Go map never once saw its
+-- own prior write and could never refuse anything — the hand-edit protection
+-- A2 promises would have been a no-op for the normal CLI, only ever firing
+-- inside one long-lived process such as the MCP server. Losing this table
+-- (index.db deleted) is safe the same way losing unflushed's marks is: the
+-- next write just has no stamp to compare against and goes through, which is
+-- the existing "no stamp yet" case — never a lost memory, only a missed
+-- detection of an edit that happened in the gap.
+CREATE TABLE IF NOT EXISTS digest_stamps (
+    kind TEXT PRIMARY KEY,
+    sha  TEXT NOT NULL
+);
+
+-- memory_file_stamps is digest_stamps' counterpart for A2's per-memory files:
+-- the hash of each uid's own file as logos last wrote it, read by
+-- exportMemoryFile's hand-edit guard before it overwrites that file on a
+-- Store/Correct/Consolidate mutation. Same survival story as digest_stamps —
+-- losing this table just means the next write has no stamp to compare
+-- against, never a lost memory.
+CREATE TABLE IF NOT EXISTS memory_file_stamps (
+    uid TEXT PRIMARY KEY,
+    sha TEXT NOT NULL
+);
 `
 
 func Init(db *sql.DB) error {
@@ -218,6 +279,24 @@ func Init(db *sql.DB) error {
 	// Empty is what every existing row honestly is: nobody recorded where it
 	// was written, so nothing can say whether its files moved since.
 	db.Exec("ALTER TABLE memories ADD COLUMN commit_sha TEXT NOT NULL DEFAULT ''")
+	// '' is honest, not a placeholder to backfill later in this change: a row
+	// written before this column existed predates the whole notion of a
+	// content-derived id, exactly as an old row's "" commit_sha predates
+	// knowing where it was written. Giving it one now would mean computing it
+	// from whatever the row happens to hold today, which is a migration
+	// (A4), not this additive step — and NOT NULL UNIQUE here would fail this
+	// very ALTER the moment a vault has two such rows, since SQLite treats
+	// every '' as the same value. A plain index is enough for the collision
+	// check in insertMemory and upsert to use an index rather than a scan.
+	db.Exec("ALTER TABLE memories ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
+	db.Exec("CREATE INDEX IF NOT EXISTS memories_uid ON memories(uid)")
+	// '' is the same honest default uid itself uses, for the same reason: a row
+	// written before this column existed predates the whole notion of a
+	// portable supersedes link, and SupersededBy (the id-based reverse pointer,
+	// cache-only, set the same moment) is exactly as true for it as it ever
+	// was. No index — nothing recalls or ranks by this column, only a per-memory
+	// file's own render and a reindex's parse ever read it.
+	db.Exec("ALTER TABLE memories ADD COLUMN supersedes TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE memory_log ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE INDEX IF NOT EXISTS memory_log_project ON memory_log(project, ts)")
 	// Backfill what is still knowable. A log line written before the column
@@ -240,6 +319,62 @@ func fingerprint(text string) string {
 // beforehand what a Store will skip: a preview that counted by exact text
 // promised writes the Store then folded into an existing row.
 func Fingerprint(text string) string { return fingerprint(text) }
+
+// noRemoteMarker stands in for "no git repository" or "a repository with no
+// origin remote" in a uid's hash input. An explicit marker, not "" folded
+// into the project name: the project is a label a person renames at will,
+// and hashing it would mean renaming a project changes the uid of every
+// memory in it, which breaks "hashed once, never recomputed" the moment
+// anyone touches the project field for an unrelated reason.
+const noRemoteMarker = "no-remote"
+
+// uidLen is how many hex characters of the sha256 digest computeUID keeps —
+// 16, i.e. 64 bits. Full collision resistance is not the goal (a vault holds
+// thousands of memories, not billions); it only has to make an accidental
+// collision between two *different* facts negligible next to the chance of
+// disk corruption, while keeping the id short enough to read in a vault
+// comment. checkUIDCollision refuses rather than silently merging if the
+// astronomically unlikely case still happens.
+const uidLen = 16
+
+// computeUID derives a memory's stable id from what it means rather than how
+// or where it is stored: the same kind, the same wording once normalized,
+// and the same originating repository, always hash to the same uid — on any
+// machine, any number of times. remote is already normalized (see
+// gitstate.NormalizeRemote); "" means Memory.Remote was never resolved
+// (no Dir, no repository, or no origin) and is hashed as noRemoteMarker
+// rather than silently treated as a real, empty identity.
+//
+// Called once, at creation — see Memory.Uid — and never again: a hand edit
+// to text would otherwise change the uid of a memory that, as far as the
+// person editing the file is concerned, is still the same fact.
+func computeUID(kind Kind, text, remote string) string {
+	if remote == "" {
+		remote = noRemoteMarker
+	}
+	sum := sha256.Sum256([]byte(string(kind) + "\x00" + fingerprint(text) + "\x00" + remote))
+	return hex.EncodeToString(sum[:])[:uidLen]
+}
+
+// checkUIDCollision refuses a write whose uid already belongs to a memory
+// with different text. The two are only ever the same canonical form if
+// their fingerprints (and so their text) match, and that case is caught
+// earlier, by the fingerprint UNIQUE column, before this is reached — so a
+// mismatch here can only mean two different facts hashed to the same
+// truncated digest, the rare case uidLen is sized against. Per invariant 3,
+// that gets reported, never a silent overwrite of one memory's id with
+// another's.
+func checkUIDCollision(db *sql.DB, uid, text string) error {
+	if uid == "" {
+		return nil
+	}
+	var existing string
+	if err := db.QueryRow("SELECT text FROM memories WHERE uid = ? AND text != ?", uid, text).Scan(&existing); err == nil {
+		return fmt.Errorf("uid %s collides between %q and %q — two different memories hashed to the same id, which should be astronomically rare; this needs a human look, not a silent overwrite",
+			uid, oneLine(existing), oneLine(text))
+	}
+	return nil
+}
 
 // A Receipt says what actually happened to a memory that was stored.
 //
@@ -325,6 +460,13 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 	if m.Confidence == 0 {
 		m.Confidence = defaultConfidence(m.Source)
 	}
+	// After masking, so the uid is of the text actually kept, not the raw
+	// input with a credential still in it — the same reason fingerprint is
+	// computed post-mask. Guarded on m.Uid == "" because this is the one
+	// place a uid is ever assigned: see Memory.Uid and computeUID.
+	if m.Uid == "" {
+		m.Uid = computeUID(m.Kind, m.Text, m.Remote)
+	}
 
 	// Everything from here to the flush happens under one lock, held against
 	// every other process on this machine. The reconcile, the insert and the
@@ -345,16 +487,6 @@ func Store(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Rece
 
 // storeLocked is the body of Store, run with the kind's lock held.
 func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory) (Receipt, error) {
-	// Adopt anything the user changed in the file by hand before this write
-	// regenerates it. Ordered before the insert, not after: once the new row is
-	// in the index, nothing can tell it apart from a line the user deleted.
-	// A failure here is not fatal to the store — see Reconcile — but it is
-	// returned, because writing over an edit the user made is exactly what this
-	// call exists to prevent and doing it anyway would be worse than refusing.
-	if err := reconcileLocked(db, m.Kind); err != nil {
-		return Receipt{Outcome: OutcomeNoop}, err
-	}
-
 	var vec []byte
 	var qvec []float32
 	if p != nil {
@@ -374,7 +506,8 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		if id, ok := nearestMemory(db, qvec, m.Text, DedupThreshold); ok {
 			db.Exec("UPDATE memories SET salience = MIN(1.0, salience + 0.05), confidence = MIN(1.0, confidence + 0.05), uses = uses + 1 WHERE id = ?", id)
 			logEvent(db, id, EvReinforced, m.Text, 0)
-			return Receipt{Outcome: EvReinforced, ID: id, Ref: id, StillQueued: isQueued(db, id)}, flushLocked(db, m.Kind)
+			err := errors.Join(exportMemoryFile(db, m.Kind, id), flushLocked(db, m.Kind))
+			return Receipt{Outcome: EvReinforced, ID: id, Ref: id, StillQueued: isQueued(db, id)}, err
 		}
 	}
 
@@ -429,10 +562,21 @@ func storeLocked(db *sql.DB, p *provider.Provider, embedModel string, m *Memory)
 		return rec, err
 	}
 	rec, err := insertLocked(db, m, vec)
-	if err != nil || rec.Outcome != EvCreated {
+	if err != nil {
 		return rec, err
 	}
-	return rec, flushLocked(db, m.Kind)
+	// EvQuarantined never reaches here as a memory file — a proposal is filed
+	// in the queue (see storeLocked's own comment above), and giving it one
+	// here would defeat quarantine the same way writing it to memories/<kind>.md
+	// would. EvCreated and EvReinforced (the exact-text duplicate hit in
+	// insertLocked, which bumps uses in the row but never wrote that through
+	// before this fix) both change a row this kind's vault already has — and
+	// filing it the same way keeps that bump from being an SQLite-only fact a
+	// `logos index` run would silently roll back.
+	if rec.Outcome != EvCreated && rec.Outcome != EvReinforced {
+		return rec, err
+	}
+	return rec, errors.Join(exportMemoryFile(db, m.Kind, rec.ID), flushLocked(db, m.Kind))
 }
 
 // insertLocked is the row half of storeLocked: the insert, and the event that
@@ -498,15 +642,20 @@ const idAttempts = 16
 // this replaces was that it looked like success.
 func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 	fp := fingerprint(m.Text)
+	// Checked before the insert, not relied on as a constraint: see the comment
+	// on checkUIDCollision for why uid has no UNIQUE index.
+	if err := checkUIDCollision(db, m.Uid, m.Text); err != nil {
+		return 0, err
+	}
 	for range idAttempts {
 		// The id is chosen rather than left to the rowid counter, so a forgotten
 		// memory's number is never handed to an unrelated one. See nextID.
 		id := nextID(db)
 		res, err := db.Exec(
-			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			`INSERT OR IGNORE INTO memories (id, text, kind, salience, confidence, project, source, agent, created, vec, fingerprint, quarantined, turn, contests, commit_sha, uid, supersedes)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project, m.Source,
-			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit)
+			m.Agent, m.Created, vec, fp, boolToInt(m.Quarantined), m.Turn, m.Contests, m.Commit, m.Uid, m.Supersedes)
 		if err != nil {
 			return 0, err
 		}
@@ -791,7 +940,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 	// than after ranking: it is what "never include" is for, and a memory that
 	// never reaches the candidate list cannot leak in via a generous k or a
 	// scoring quirk.
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, vec, pin, commit_sha, uid FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin != ?`
 	args := []any{PinNever}
 	if project != "" {
 		q += " AND (project = ? OR project = '')"
@@ -817,7 +966,7 @@ func recallScoped(db *sql.DB, query []float32, k int, queryText, project string,
 		var m Memory
 		var kind string
 		var vec []byte
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &vec, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -939,7 +1088,7 @@ func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string
 // CLI view. Superseded memories are excluded (they are history, not truth).
 func All(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid FROM memories WHERE superseded = 0 AND quarantined = 0 ORDER BY salience DESC, created DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -948,7 +1097,7 @@ func All(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -980,7 +1129,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 		return All(db)
 	}
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid
 		   FROM memories
 		  WHERE superseded = 0 AND quarantined = 0 AND (project = ? OR project = '')
 		  ORDER BY salience DESC, created DESC`, project)
@@ -992,7 +1141,7 @@ func AllInProject(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -1023,8 +1172,8 @@ func ByIDs(db *sql.DB, ids []int64) ([]Fetched, error) {
 		var kind string
 		var superseded, quarantined int
 		err := db.QueryRow(
-			`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, superseded, quarantined
-			   FROM memories WHERE id = ?`, id).Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &superseded, &quarantined)
+			`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid, superseded, quarantined
+			   FROM memories WHERE id = ?`, id).Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid, &superseded, &quarantined)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
@@ -1085,7 +1234,7 @@ func filterKind(mems []Memory, kind Kind, keep bool) []Memory {
 // front of a model with no boundary line in sight — the opposite of
 // "procedures never enter the pack."
 func Pinned(db *sql.DB, project string) ([]Memory, error) {
-	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha
+	q := `SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, pin, commit_sha, uid
 	        FROM memories WHERE superseded = 0 AND quarantined = 0 AND pin = ? AND kind != ?`
 	args := []any{PinAlways, string(Procedure)}
 	if strings.TrimSpace(project) != "" {
@@ -1102,7 +1251,7 @@ func Pinned(db *sql.DB, project string) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &m.Pin, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
@@ -1131,13 +1280,12 @@ func Forget(db *sql.DB, id int64) error {
 		}
 		return err
 	}
-	// One lock across all three steps, for the reason Store gives: between the
-	// delete and the flush the file still holds the line, and a reconcile in
-	// that window would restore the memory the user just forgot.
+	// One lock across both steps, for the reason Store gives: between the
+	// delete and the flush the digest still shows the memory, and a stray
+	// reconcile in that window would have restored the row the user just
+	// forgot — back when the kind file was truth. It no longer is, but the
+	// lock still has to cover the delete and the digest refresh as one unit.
 	return withKind(db, Kind(k), func() error {
-		if err := reconcileLocked(db, Kind(k)); err != nil {
-			return err
-		}
 		kind, err := forgetRow(db, id)
 		if err != nil {
 			return err
@@ -1151,22 +1299,39 @@ func Forget(db *sql.DB, id int64) error {
 // forgetRow is Forget without the file write, for callers that are going to
 // write the file themselves once at the end.
 //
-// Reconcile is the one that needs this: it deletes every memory the user
-// removed from the file by hand, and flushing inside that loop would rewrite
-// the file once per deletion — each time from a half-reconciled index, and each
-// time over the very file still being read as the source of truth.
+// importInto's orphan-reaping loop is the one that needs this: it deletes
+// every memory whose per-memory file is gone, and flushing inside that loop
+// would rewrite the kind digest once per deletion — each time from a
+// half-reaped index, and each time over the very files still being read as
+// the source of truth.
 func forgetRow(db *sql.DB, id int64) (Kind, error) {
 	// Snapshot the text into the log first, so the timeline records what was
 	// forgotten even though the row is about to vanish.
 	// The project comes out in the same snapshot: after the DELETE below there
 	// is no row left to ask, and a forgotten memory that drops out of its own
 	// project's timeline is the one omission a person would actually notice.
-	var text, kind, proj string
-	db.QueryRow("SELECT text, kind, project FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj)
+	// uid comes out here too, for the same reason: it is the row's own filename
+	// under memories/<kind>/, and there is no row left to ask it from once the
+	// DELETE below runs.
+	var text, kind, proj, uid string
+	db.QueryRow("SELECT text, kind, project, uid FROM memories WHERE id = ?", id).Scan(&text, &kind, &proj, &uid)
 	if _, err := db.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
 		return Kind(kind), err
 	}
 	logEventIn(db, id, EvForgotten, text, 0, proj)
+	// Shared by Forget and importInto's orphan-reaping loop — removing the
+	// per-memory file here once covers both, instead of each caller
+	// remembering to do it.
+	//
+	// Reported, not swallowed: a failed removal here leaves the row gone from
+	// the index but the file still in the vault, which is the index diverging
+	// from the truth it is supposed to be a cache of — exactly what a reindex
+	// would resurrect the memory from, silently undoing the forget.
+	if dir := vaultFor(db); dir != "" {
+		if err := removeMemoryFile(db, dir, Kind(kind), uid); err != nil {
+			return Kind(kind), err
+		}
+	}
 	return Kind(kind), nil
 }
 
@@ -1252,18 +1417,14 @@ func setPin(db *sql.DB, id int64, pin int, verb string) error {
 		}
 		return err
 	}
-	// Same reason as Store: this ends in a whole-file rewrite, so whatever the
-	// user edited by hand has to be adopted before it, not lost by it — and the
-	// adopt, the update and the rewrite are one operation, held under one lock.
+	// The update, the per-memory file and the digest rewrite are one
+	// operation, held under one lock — same reason as Store.
 	return withKind(db, Kind(kind), func() error {
-		if err := reconcileLocked(db, Kind(kind)); err != nil {
-			return err
-		}
 		if _, err := db.Exec("UPDATE memories SET pin = ? WHERE id = ?", pin, id); err != nil {
 			return err
 		}
 		logEvent(db, id, EvUpdated, verb+": "+text, 0)
-		return flushLocked(db, Kind(kind))
+		return errors.Join(exportMemoryFile(db, Kind(kind), id), flushLocked(db, Kind(kind)))
 	})
 }
 

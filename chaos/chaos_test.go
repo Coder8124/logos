@@ -114,13 +114,40 @@ func TestKillDuringCheckpoint(t *testing.T) {
 		}
 	}
 
-	// No torn markdown anywhere, and no temp litter left visible.
+	// No torn markdown anywhere, and no temp litter left visible. Every
+	// checkpoint lands one level deeper now, inside a conversation folder
+	// under "_convos" (none of these checkpoints carry a host session id, so
+	// they are all in "_convos/_unattached"), so this walks both the scope
+	// directory itself (the pre-migration layout, kept live for files nobody
+	// has re-filed) and one level into "_convos" — the same two places
+	// internal/session.CheckpointEntries looks, checked here by hand because
+	// this package deliberately never imports production code: it only
+	// trusts what the real binary left on disk.
 	dir := filepath.Join(vault, "sessions", "kestrel")
+	checkFiles(t, dir)
+	convos := filepath.Join(dir, "_convos")
+	if convoEntries, err := os.ReadDir(convos); err == nil {
+		for _, c := range convoEntries {
+			if c.IsDir() {
+				checkFiles(t, filepath.Join(convos, c.Name()))
+			}
+		}
+	}
+}
+
+// checkFiles asserts every file directly in dir is either a non-markdown
+// artifact (logged, not failed — a stray lockfile is not a torn checkpoint)
+// or markdown starting with its frontmatter fence.
+func checkFiles(t *testing.T, dir string) {
+	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
+		if e.IsDir() {
+			continue // a conversation folder one level down; not a leftover file
+		}
 		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			t.Errorf("unreadable file left behind: %s: %v", e.Name(), err)
@@ -328,11 +355,34 @@ func TestReadOnlyVault(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The seed checkpoint already created sessions/kestrel/_convos/_unattached,
+	// so chmod'ing only the top scope directory leaves that already-existing,
+	// still-writable subdirectory as a way in — the write would land there and
+	// this test would prove nothing. Chmod the whole subtree instead, which is
+	// what "a read-only vault" actually means.
 	sessions := filepath.Join(vault, "sessions", "kestrel")
-	if err := os.Chmod(sessions, 0o555); err != nil {
+	var dirs []string
+	if err := filepath.Walk(sessions, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(sessions, 0o755)
+	for _, d := range dirs {
+		if err := os.Chmod(d, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() {
+		for _, d := range dirs {
+			os.Chmod(d, 0o755)
+		}
+	}()
 
 	out, err := run(t, vault, "checkpoint", "kestrel", "--next", "this cannot be written")
 	if err == nil {

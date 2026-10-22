@@ -73,7 +73,14 @@ type Record struct {
 	Degree      Degree
 	Action      Action
 	Alternative string
-	Raw         string
+	// Anchor is amp-spec.md §3.6's AND/OR grammar over git:/dep:/doc:/time:
+	// atoms, read straight through from the `anchor:` key with no validation
+	// here — gitstate.Anchors.SinceAnchor is the one place that parses it,
+	// and a record with no key, or one a hand edit broke, falls back there to
+	// the plain single-commit drift check this schema had before the field
+	// existed, rather than failing to parse twice in two different ways.
+	Anchor string
+	Raw    string
 	// Truncated is set when the source entry ran past recordCap and was cut
 	// to fit. The cut is visible here rather than silent, per the invariant
 	// that a lossy operation says so.
@@ -125,6 +132,7 @@ func ParseRecord(raw string) Record {
 		Degree:      degreeOf(fields["degree"]),
 		Action:      actionOf(fields["action"]),
 		Alternative: fields["alternative"],
+		Anchor:      fields["anchor"],
 		Raw:         raw,
 		Truncated:   truncated,
 	}

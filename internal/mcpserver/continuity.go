@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/announce"
 	"github.com/Coder8124/logos/internal/auto"
@@ -372,6 +373,31 @@ func (s *Session) agentFor(args map[string]any) string {
 	return s.clientAgent
 }
 
+// hostSession is the host's own id for the conversation checkpointing now, or
+// "" when nothing reported one. The MCP handshake carries no session_id — that
+// only arrives through the hook path — so this reads it back from the same
+// activity log the hook already appended to: the newest event logged for proj
+// is, in the ordinary case of one agent talking to one host, this session.
+// Two agents working proj at once can misattribute this, which is the
+// trade-off for not inventing a mechanism the MCP protocol does not give us.
+//
+// Read from Extra, not the event's own Session field: that field is cut to
+// eight characters for a human scanning the log, and a checkpoint filed under
+// the cut id would land in a different conversation folder than the full id
+// internal/ingest's transcript-driven path uses for the very same
+// conversation. An older log line with no Extra falls back to the cut id —
+// still wrong against a full-id writer, but no worse than before this fix.
+func (s *Session) hostSession(proj string) string {
+	events, err := activity.Read(s.vault, activity.Query{Project: proj, Limit: 1})
+	if err != nil || len(events) == 0 {
+		return ""
+	}
+	if full, ok := events[0].Extra["session_id"].(string); ok && full != "" {
+		return full
+	}
+	return events[0].Session
+}
+
 // checkpoint commits the session to the vault. handoffTo is set when the caller
 // came in through the handoff tool — same mechanism, stated intent.
 func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, error) {
@@ -408,6 +434,14 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		Files:     argList(args, "files"),
 		Next:      argStr(args, "next"),
 		HandoffTo: handoffTo,
+		// The host's own id for this conversation, not Logos's. The MCP
+		// handshake never carries it — only the hook path does — so it is
+		// read back from the activity log this same hook already wrote:
+		// the newest event the host reported for this project is, in
+		// practice, this conversation. Best-effort and silent on a miss
+		// (no hooks configured, or nothing recorded yet) rather than
+		// invented, per invariant 6: a guessed id is worse than none.
+		HostSession: s.hostSession(proj),
 	}
 	var dropped int
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)

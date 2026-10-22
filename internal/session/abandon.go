@@ -164,12 +164,17 @@ func CloseAbandoned(db *sql.DB, vaultDir, id string) (Checkpoint, error) {
 	// sessions` and `resume` keep reading history in the order it occurred
 	// rather than filing a stale session as the most recent thing that
 	// happened just because someone got around to closing it today.
-	cpID, path, err := claimCheckpoint(vaultDir, s.Project, s.Agent, s.ID)
+	// An abandoned session never recorded a host session id — nothing here
+	// reads the activity log the way the auto-close-from-transcript path does
+	// — so this always files to UnattachedFolder, which is the honest answer:
+	// no id, no folder named after data nobody gave us.
+	convo := convoFolder(c.HostSession)
+	cpID, path, err := claimCheckpoint(vaultDir, s.Project, s.Agent, s.ID, convo)
 	if err != nil {
 		return Checkpoint{}, err
 	}
 	c.Session = cpID
-	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, s.Project, cpID))
+	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, s.Project, ConvosDir, convo, cpID))
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return Checkpoint{}, err
 	}

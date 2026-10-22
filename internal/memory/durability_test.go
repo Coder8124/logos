@@ -111,28 +111,28 @@ func TestTruncatedFileIsDetected(t *testing.T) {
 
 // Deleting a line by hand is the documented way to forget, and must keep
 // working — it is the case a naive truncation check breaks.
+// Under A2 the file that matters is the memory's own, under memories/fact/ —
+// deleting its line from fact.md only edits a generated digest, which the
+// next logos index rebuilds from the database rather than reading as a
+// deletion (see readKindFiles's generatedDigestBanner check). The gesture
+// that actually forgets a memory is removing its own file.
 func TestDeletingALineStillForgets(t *testing.T) {
 	db, dir := store(t)
-	seed(t, db, map[Kind][]string{
-		Fact: {"the BOM target is $38", "the drop test is 1.2m onto oak"},
-	})
-
-	raw, err := os.ReadFile(path(dir, Fact))
-	if err != nil {
+	kept := Memory{Text: "the BOM target is $38", Kind: Fact, Source: "test"}
+	dropped := Memory{Text: "the drop test is 1.2m onto oak", Kind: Fact, Source: "test"}
+	if _, err := Store(db, nil, "", &kept); err != nil {
 		t.Fatal(err)
 	}
-	var kept []string
-	for _, line := range strings.Split(string(raw), "\n") {
-		if !strings.Contains(line, "drop test") {
-			kept = append(kept, line)
-		}
+	if _, err := Store(db, nil, "", &dropped); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(path(dir, Fact), []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+
+	if err := os.Remove(memoryFilePath(dir, Fact, dropped.Uid)); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, _, err := Import(db, nil, "", dir); err != nil {
-		t.Fatalf("a hand-deleted line was rejected as damage: %v", err)
+		t.Fatalf("a hand-deleted file was rejected as damage: %v", err)
 	}
 	if got := kindCount(t, db, Fact); got != 1 {
 		t.Errorf("after deleting one line the store holds %d facts, want 1", got)
@@ -241,19 +241,48 @@ func TestCreatedTimeSurvivesTheRoundTrip(t *testing.T) {
 }
 
 // The user's own edits are the whole promise of a file-backed store.
+// Under A2 the file a hand edit has to land in is the memory's own file under
+// memories/<kind>/, not the generated digest — editing the digest directly
+// and reindexing is what the next test, TestAHandEditToTheKindDigestIsNever-
+// SilentlyOverwritten, proves does NOT stick (logos index always wins there,
+// by design: see the final regen pass in importInto). What this test proves
+// instead is the two things that still have to be true at 2000 memories: a
+// correction made to a memory's own file is still adopted by `logos index`,
+// and storing 2000 memories one at a time does not go quadratic getting
+// there — writeMemoryFile is one file per Store, not a scan of every memory
+// of its kind, which is the exact trap reconcileLocked used to fall into
+// before the per-kind stamp, and exportMemoryFile's doc comment warns against
+// reintroducing through the filesystem instead of SQL.
 func TestHandEditsSurviveAtScale(t *testing.T) {
 	db, dir := store(t)
 	const n = 2000
+	var seventh Memory
 	for i := 0; i < n; i++ {
-		if _, err := Store(db, nil, "", &Memory{
+		rec, err := Store(db, nil, "", &Memory{
 			Text: fmt.Sprintf("fact number %d about the project", i),
 			Kind: Fact, Source: "test",
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
+		if i == 7 {
+			all, err := All(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range all {
+				if m.ID == rec.ID {
+					seventh = m
+				}
+			}
+		}
+	}
+	if seventh.Uid == "" {
+		t.Fatal("never found memory #7 to edit")
 	}
 
-	raw, err := os.ReadFile(path(dir, Fact))
+	memPath := memoryFilePath(dir, Fact, seventh.Uid)
+	raw, err := os.ReadFile(memPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +290,7 @@ func TestHandEditsSurviveAtScale(t *testing.T) {
 	if edited == string(raw) {
 		t.Fatal("the edit did not apply; the file format changed")
 	}
-	if err := os.WriteFile(path(dir, Fact), []byte(edited), 0o644); err != nil {
+	if err := os.WriteFile(memPath, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

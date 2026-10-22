@@ -105,8 +105,9 @@ func TestReindexingWritesOutAMemoryTheVaultNeverGotRatherThanDeletingIt(t *testi
 		t.Fatal("reindexing deleted the memory it was supposed to protect")
 	}
 
-	// And it is in the file now, so the next rebuild needs no rescue at all.
-	raw, err := os.ReadFile(filepath.Join(dir, Dir, string(Fact)+".md"))
+	// And it is in its own file now, under memories/fact/ — truth under A2 —
+	// so the next rebuild needs no rescue at all.
+	raw, err := os.ReadFile(memoryFilePath(dir, Fact, stranded.Uid))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +119,12 @@ func TestReindexingWritesOutAMemoryTheVaultNeverGotRatherThanDeletingIt(t *testi
 	}
 }
 
-// A line the user genuinely deleted from the file must still be forgotten.
-// Rescuing everything the file does not mention would make the markdown
-// read-only in practice, and every memories/<kind>.md invites the opposite.
+// A memory the user genuinely deleted must still be forgotten. Under A2 the
+// line that matters is the memory's own file under memories/fact/, not the
+// generated digest — rescuing everything the digest does not mention would
+// not even be a meaningful user action, since a hand edit to the digest alone
+// is never kept (see flushLocked and Import's final regen pass). Deleting the
+// per-memory file is the real gesture, and it must still cost the memory.
 func TestALineTheUserDeletedByHandIsStillForgotten(t *testing.T) {
 	db, dir := vaultDB(t)
 
@@ -129,18 +133,7 @@ func TestALineTheUserDeletedByHandIsStillForgotten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(dir, Dir, string(Fact)+".md")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept []string
-	for _, line := range strings.Split(string(raw), "\n") {
-		if !strings.Contains(line, m.Text) {
-			kept = append(kept, line)
-		}
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+	if err := os.Remove(memoryFilePath(dir, Fact, m.Uid)); err != nil {
 		t.Fatal(err)
 	}
 

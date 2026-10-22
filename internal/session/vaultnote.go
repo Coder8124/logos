@@ -37,6 +37,9 @@ func (c Checkpoint) Markdown(follows string) string {
 	fmt.Fprintf(&b, "project: %s\n", yamlStr(c.Project))
 	fmt.Fprintf(&b, "agent: %s\n", yamlStr(c.Agent))
 	fmt.Fprintf(&b, "session: %s\n", yamlStr(c.Session))
+	if c.HostSession != "" {
+		fmt.Fprintf(&b, "host_session: %s\n", yamlStr(c.HostSession))
+	}
 	if c.HandoffTo != "" {
 		fmt.Fprintf(&b, "handoff_to: %s\n", yamlStr(c.HandoffTo))
 	}
@@ -240,6 +243,7 @@ type checkpointFM struct {
 	Project       string `yaml:"project"`
 	Agent         string `yaml:"agent"`
 	Session       string `yaml:"session"`
+	HostSession   string `yaml:"host_session"`
 	HandoffTo     string `yaml:"handoff_to"`
 	AutoClosed    bool   `yaml:"auto_closed"`
 	Auto          bool   `yaml:"auto"`
@@ -274,13 +278,14 @@ func ParseCheckpoint(raw string) Checkpoint {
 		_ = yaml.Unmarshal([]byte(fmStr), &fm)
 	}
 	c := Checkpoint{
-		Project:    fm.Project,
-		Agent:      fm.Agent,
-		Session:    fm.Session,
-		HandoffTo:  fm.HandoffTo,
-		AutoClosed: fm.AutoClosed,
-		Auto:       fm.Auto,
-		Turns:      fm.Turns,
+		Project:     fm.Project,
+		Agent:       fm.Agent,
+		Session:     fm.Session,
+		HostSession: fm.HostSession,
+		HandoffTo:   fm.HandoffTo,
+		AutoClosed:  fm.AutoClosed,
+		Auto:        fm.Auto,
+		Turns:       fm.Turns,
 		Git: gitstate.State{
 			Branch:     fm.Branch,
 			Commit:     fm.Commit,

@@ -71,17 +71,14 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 	}
 
 	err := withKind(db, m.Kind, func() error {
-		if err := reconcileLocked(db, m.Kind); err != nil {
-			return err
-		}
-		// Asked again under the lock, after the reconcile: another agent may
-		// have corrected or forgotten it since, or the user deleted its line.
-		var oldText, project string
+		// Asked again under the lock: another agent may have corrected or
+		// forgotten it since the caller last looked.
+		var oldText, project, oldUid string
 		var superseded, by int64
 		var quarantined bool
 		var pin int
-		err := db.QueryRow("SELECT text, project, superseded, superseded_by, quarantined, pin FROM memories WHERE id = ?", id).
-			Scan(&oldText, &project, &superseded, &by, &quarantined, &pin)
+		err := db.QueryRow("SELECT text, project, superseded, superseded_by, quarantined, pin, uid FROM memories WHERE id = ?", id).
+			Scan(&oldText, &project, &superseded, &by, &quarantined, &pin, &oldUid)
 		switch {
 		case err == sql.ErrNoRows:
 			return fmt.Errorf("no memory #%d", id)
@@ -134,10 +131,26 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 
 		if owner > 0 {
 			// Same kind, same project: this is the memory the user means, and
-			// the correction corroborates it rather than adding a twin.
+			// the correction corroborates it rather than adding a twin. It
+			// still gets the forward link — the fact that owner now holds
+			// what used to be true at id is as real a supersession as the
+			// insert-a-new-row case below, and a reader of owner's own file
+			// should be able to say what it replaced without the database.
 			res.ID, res.Existing = owner, true
-			db.Exec("UPDATE memories SET uses = uses + 1 WHERE id = ?", owner)
+			if _, err := db.Exec("UPDATE memories SET uses = uses + 1, supersedes = ? WHERE id = ?", oldUid, owner); err != nil {
+				return err
+			}
 			logEvent(db, owner, EvReinforced, m.Text, 0)
+			// Written now, not left to the shared exportMemoryFile call below:
+			// carryLocked still has to touch id's row (and maybe owner's pin),
+			// and every statement between this update and that later write is
+			// a chance to crash with the uses bump and the forward link sitting
+			// in the index with nothing in memories/<kind>.md to show for them.
+			// The shared call after carryLocked still runs and overwrites this —
+			// that second write is what picks up a pin change of carryLocked's.
+			if err := exportMemoryFile(db, m.Kind, owner); err != nil {
+				return err
+			}
 		} else {
 			var vec []byte
 			if p != nil {
@@ -145,6 +158,18 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 					vec = floatsToBlob(vecs[0])
 				}
 			}
+			// Correct calls insertMemory directly, not Store, so the one place
+			// that ordinarily assigns Uid (see Memory.Uid and computeUID) never
+			// runs for this row — leaving it permanently uid-less: no file of
+			// its own to write (exportMemoryFile skips a uid-less row), and no
+			// forward link for whoever corrects it next. Same guard Store uses.
+			if m.Uid == "" {
+				m.Uid = computeUID(m.Kind, m.Text, m.Remote)
+			}
+			// Set before the insert, not patched on after: insertMemory's own
+			// INSERT is the one write that creates this row, and the forward
+			// link belongs in it from the start the same way Uid does.
+			m.Supersedes = oldUid
 			correctRace(db, m.Text)
 			// insertMemory, not insertLocked: on a duplicate the latter
 			// reinforces it, and a correction refused here would leave that
@@ -162,10 +187,12 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 			logEvent(db, m.ID, EvCreated, m.Text, 0)
 			res.ID, ownerPin = m.ID, PinNone
 		}
-		// From here the new row exists, so whatever fails, the kind file is
-		// still written: a row only the index holds is forgotten by the next
-		// reconcile, and the caller is told about a memory that then vanishes.
+		// From here the new row exists, so whatever fails, the vault still
+		// gets both halves of it: the superseded memory's own file removed,
+		// the replacement's written, and the kind digest refreshed — a row
+		// only the index holds is a memory the next `rm -rf .logos` loses.
 		err = carryLocked(db, id, res.ID, oldText, pin, ownerPin)
+		err = errors.Join(err, exportMemoryFile(db, m.Kind, id), exportMemoryFile(db, m.Kind, res.ID))
 		return errors.Join(err, flushLocked(db, m.Kind))
 	})
 	return res, err

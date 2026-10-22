@@ -69,7 +69,10 @@ func TestCommitClosesTheSessionAndClearsUncommitted(t *testing.T) {
 	if len(left) != 0 {
 		t.Errorf("commit should close the session, %d notes still uncommitted", len(left))
 	}
-	if c.Slug != "sessions/kestrel-one/"+c.Session {
+	// No HostSession was given, so this checkpoint is honestly unattached —
+	// it lands in sessions/<project>/_convos/_unattached/, not a bare folder
+	// pretending to know which conversation wrote it.
+	if c.Slug != "sessions/kestrel-one/_convos/_unattached/"+c.Session {
 		t.Errorf("unexpected slug %q", c.Slug)
 	}
 	if _, err := os.Stat(filepath.Join(dir, c.Slug+".md")); err != nil {

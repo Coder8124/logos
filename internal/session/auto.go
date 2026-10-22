@@ -82,12 +82,13 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	} else if prev, _ := Latest(vaultDir, c.Project); prev != nil {
 		follows = prev.Session
 	}
-	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)))
+	convo := convoFolder(c.HostSession)
+	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
 	if err != nil {
 		return Checkpoint{}, err
 	}
 	c.Session = id
-	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, id))
+	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, ConvosDir, convo, id))
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return Checkpoint{}, err
 	}
@@ -115,7 +116,14 @@ func GrowAuto(vaultDir string, old, c Checkpoint) (Checkpoint, error) {
 		return Checkpoint{}, err
 	}
 	defer g.Unlock()
-	path := filepath.Join(vaultDir, filepath.FromSlash(old.Slug)+".md")
+	// Resolved by stem, not assumed at the literal slug: a concurrent `logos
+	// index` run can re-file this exact record between the caller reading it
+	// and this lock being acquired, and a miss here must not read as "the
+	// record is gone" when it only moved.
+	path, err := ResolvePath(vaultDir, old.Slug)
+	if err != nil {
+		return Checkpoint{}, err
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Checkpoint{}, err
@@ -166,7 +174,13 @@ func InferAuto(vaultDir, slug string, in Inference) (Checkpoint, error) {
 		return Checkpoint{}, err
 	}
 	defer g.Unlock()
-	path := filepath.Join(vaultDir, filepath.FromSlash(slug)+".md")
+	// Resolved by stem for the same reason GrowAuto's read is: slug is
+	// whatever ingest_harvest handed back, which can be a citation stored
+	// before this record was last re-filed.
+	path, err := ResolvePath(vaultDir, slug)
+	if err != nil {
+		return Checkpoint{}, err
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Checkpoint{}, err

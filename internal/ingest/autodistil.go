@@ -110,7 +110,15 @@ func AutoEvidenceFor(vaultDir, slug string, maxTurns int) (Evidence, error) {
 	if strings.Contains(slug, "..") {
 		return Evidence{}, fmt.Errorf("%q is not a checkpoint in this vault", slug)
 	}
-	raw, err := os.ReadFile(filepath.Join(vaultDir, filepath.FromSlash(slug)+".md"))
+	// The slug a caller hands in may be a citation stored before checkpoints
+	// moved into a conversation folder — resume's own evidence offer, or an
+	// agent pasting a Source line out of an old memory — so this resolves by
+	// stem rather than assuming the literal path still holds the file.
+	path, err := session.ResolvePath(vaultDir, slug)
+	if err != nil {
+		return Evidence{}, fmt.Errorf("no checkpoint %s in this vault", slug)
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("no checkpoint %s in this vault", slug)
 	}

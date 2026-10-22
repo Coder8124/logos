@@ -148,6 +148,65 @@ func Identity(dir string) (remote, root string) {
 	return remote, root
 }
 
+// NormalizeRemote reduces a remote URL — as Identity returns it — to a form
+// where the ssh and https spellings of the same repository compare equal:
+// `git@github.com:Coder8124/logos.git`, `https://github.com/Coder8124/logos.git`
+// and `https://github.com/Coder8124/logos` all become `github.com/coder8124/logos`.
+// "" in, "" out — a repository with no origin is for the caller to mark
+// explicitly, never by handing this an empty string and reading the result as
+// a real identity.
+//
+// plan0-6-0's Workstream S3 needs this exact normalization again, to decide
+// whether two vaults' memories came from the same repository before merging
+// them — reuse this function there rather than writing a second one that can
+// drift from this one.
+func NormalizeRemote(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return ""
+	}
+	remote = strings.TrimSuffix(remote, "/")
+	remote = strings.TrimSuffix(remote, ".git")
+
+	var host, path string
+	switch {
+	case strings.Contains(remote, "://"):
+		// scheme://[user@]host/path — https, ssh://, git://.
+		rest := remote[strings.Index(remote, "://")+3:]
+		if slash := strings.Index(rest, "/"); slash >= 0 {
+			authority, tail := rest[:slash], rest[slash+1:]
+			if at := strings.LastIndex(authority, "@"); at >= 0 {
+				authority = authority[at+1:]
+			}
+			host, path = authority, tail
+		} else {
+			host = rest
+		}
+	case strings.Contains(remote, ":"):
+		// [user@]host:owner/repo — scp-like syntax, no scheme. The user@ is
+		// optional: an SSH config alias remote (`myhost:owner/repo`) carries
+		// no "@" at all, and requiring one here sent it to the default branch
+		// below, which cut on the first "/" instead and split "owner/repo"
+		// itself in half rather than the host from the path.
+		host, path, _ = strings.Cut(remote, ":")
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			host = host[at+1:]
+		}
+	default:
+		host, path, _ = strings.Cut(remote, "/")
+	}
+	host = strings.ToLower(host)
+	path = strings.TrimPrefix(path, "/")
+	if host == "" || path == "" {
+		// An unrecognised shape — a local path, a bare alias from a git config
+		// `insteadOf` rule. Lowercased so at least case does not fork an
+		// otherwise-identical value, but otherwise returned as-is rather than
+		// guessed apart into a host and a path that do not exist.
+		return strings.ToLower(remote)
+	}
+	return host + "/" + path
+}
+
 // WorktreeName is git's own name for the linked worktree at dir, and "" when
 // dir is the main checkout, is not a repository, or git will not answer.
 //

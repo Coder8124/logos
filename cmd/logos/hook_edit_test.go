@@ -225,7 +225,10 @@ func TestTheEditHookStaysUnderItsBudgetOnALargeVault(t *testing.T) {
 	repo, vault, db := editRepo(t)
 	ruleOut(t, db, vault, repo, readerRuling)
 
-	dir := filepath.Join(vault, session.CheckpointDir, projectFor(repo))
+	// ruleOut's checkpoint carries no host session id, so it landed in the
+	// project's _unattached conversation folder under session.ConvosDir, not
+	// directly in the project's own directory.
+	dir := filepath.Join(vault, session.CheckpointDir, projectFor(repo), session.ConvosDir, session.UnattachedFolder)
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("want the one seeded checkpoint, got %d (%v)", len(entries), err)

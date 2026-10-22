@@ -241,6 +241,21 @@ func (ix *Index) SyncInsights() (restored, rescued int, err error) {
 	return dream.Import(ix.DB, ix.Vault)
 }
 
+// SyncCheckpointHomes re-files any checkpoint whose host_session frontmatter
+// disagrees with the conversation folder it is physically sitting in.
+//
+// Unlike every other Sync* here, this one does not restore anything the
+// database alone knew — the checkpoint was never lost, only misplaced. It
+// runs on every index rebuild anyway, because the folder layout is derived
+// from the frontmatter (invariant 1) and this is the pass that keeps it
+// honest after an interrupted migration, a sync conflict copy, or a hand
+// move, the same way the rest of indexPass keeps the cache honest.
+//
+// Returns how many checkpoints it moved.
+func (ix *Index) SyncCheckpointHomes() (int, error) {
+	return session.Refile(ix.Vault)
+}
+
 // deadAmbientTables held ambient-capture state — events, rollup proposals,
 // the presence daemon's own bookkeeping — cut in 0.3.0 along with the
 // internal/{capture,rollup,presence} packages that wrote them. None of it had
