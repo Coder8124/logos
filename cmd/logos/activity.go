@@ -59,6 +59,13 @@ func runActivity(args []string) error {
 		return listActivityProjects(vault)
 	}
 
+	// G1 (plan0-5-5): measure the Stop hook's actual hit rate before building
+	// anything — G2's re-asking, G6's claim-checking — on top of an assumed
+	// compliance number nobody had looked at.
+	if hasFlag(args, "--compliance") {
+		return printComplianceReport(vault, q.Project)
+	}
+
 	events, err := activity.Read(vault, q)
 	if err != nil {
 		return err
@@ -330,6 +337,58 @@ func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
 			"If nothing here is worth handing off, say so in one line and stop.", stop.Project),
 	})
 	fmt.Println(string(out))
+}
+
+// complianceCounts reports how many checkpoint-asked events in the log were
+// followed, somewhere later in the same session, by an actual checkpoint or
+// handoff call. One pass over the whole log, grouped by session, since an ask
+// and its compliance can be arbitrarily far apart in time but never cross a
+// session boundary — asking again in a later session is a fresh ask.
+func complianceCounts(vault, project string) (asked, complied int, err error) {
+	events, err := activity.Read(vault, activity.Query{Project: project})
+	if err != nil {
+		return 0, 0, err
+	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].TS < events[j].TS })
+	bySession := map[string][]activity.Event{}
+	for _, e := range events {
+		if e.Session == "" {
+			continue
+		}
+		bySession[e.Session] = append(bySession[e.Session], e)
+	}
+	for _, es := range bySession {
+		for i, e := range es {
+			if e.Kind != kindCheckpointAsked {
+				continue
+			}
+			asked++
+			for _, later := range es[i+1:] {
+				if isCheckpointCall(later) {
+					complied++
+					break
+				}
+			}
+		}
+	}
+	return asked, complied, nil
+}
+
+// printComplianceReport is `logos activity --compliance`. Reporting the raw
+// counts alongside the rate (invariant 3) is the point: "73%" alone hides
+// whether that is 73 of 100 asks or 8 of 11.
+func printComplianceReport(vault, project string) error {
+	asked, complied, err := complianceCounts(vault, project)
+	if err != nil {
+		return err
+	}
+	if asked == 0 {
+		fmt.Println("no checkpoint asks recorded yet" + scopeLabel(activity.Query{Project: project}))
+		return nil
+	}
+	fmt.Printf("checkpoint compliance%s: %d of %d asks were followed by a checkpoint (%d%%)\n",
+		scopeLabel(activity.Query{Project: project}), complied, asked, complied*100/asked)
+	return nil
 }
 
 // isCheckpointCall reports a checkpoint or handoff through the MCP tool, under
