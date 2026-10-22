@@ -137,8 +137,20 @@ func Correct(db *sql.DB, p *provider.Provider, embedModel string, id int64, m *M
 			// insert-a-new-row case below, and a reader of owner's own file
 			// should be able to say what it replaced without the database.
 			res.ID, res.Existing = owner, true
-			db.Exec("UPDATE memories SET uses = uses + 1, supersedes = ? WHERE id = ?", oldUid, owner)
+			if _, err := db.Exec("UPDATE memories SET uses = uses + 1, supersedes = ? WHERE id = ?", oldUid, owner); err != nil {
+				return err
+			}
 			logEvent(db, owner, EvReinforced, m.Text, 0)
+			// Written now, not left to the shared exportMemoryFile call below:
+			// carryLocked still has to touch id's row (and maybe owner's pin),
+			// and every statement between this update and that later write is
+			// a chance to crash with the uses bump and the forward link sitting
+			// in the index with nothing in memories/<kind>.md to show for them.
+			// The shared call after carryLocked still runs and overwrites this —
+			// that second write is what picks up a pin change of carryLocked's.
+			if err := exportMemoryFile(db, m.Kind, owner); err != nil {
+				return err
+			}
 		} else {
 			var vec []byte
 			if p != nil {
