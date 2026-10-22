@@ -736,6 +736,95 @@ func TestAHandEditToTheKindDigestIsNeverSilentlyOverwritten(t *testing.T) {
 	}
 }
 
+// TestAHandEditToAMemoryFileIsNeverSilentlyOverwritten proves exportMemoryFile
+// has the same hand-edit guard writeMemoryFile's sibling flushLocked already
+// had for the kind digest — before this test existed, a reinforcement or
+// correction of the memory just overwrote a person's edit to its own file
+// with no warning at all.
+func TestAHandEditToAMemoryFileIsNeverSilentlyOverwritten(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the contract manufacturer is Pegatron", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+
+	path := memoryFilePath(dir, Fact, m.Uid)
+	handEdited := "a line a person typed directly into this memory's own file\n"
+	if err := os.WriteFile(path, []byte(handEdited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Storing the same text again hits insertLocked's exact-text duplicate
+	// path, which bumps uses and (since the Finding #2 fix) now tries to
+	// export the memory's file to carry that bump into the vault.
+	again := Memory{Text: m.Text, Kind: Fact, Source: "manual"}
+	_, err := Store(db, nil, "", &again)
+	if err == nil {
+		t.Fatal("Store overwrote a hand edit to the memory's own file without complaint")
+	} else if !strings.Contains(err.Error(), m.Uid) {
+		t.Errorf("the refusal does not name the memory file to edit instead: %v", err)
+	}
+
+	// The refusal is about the file, not the row: the reinforcement still
+	// landed in the cache even though the per-memory file could not be
+	// refreshed to match it.
+	all, err := All(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].Uses < 1 {
+		t.Errorf("want the reinforcement to still land in the cache despite the refused file write: %+v", all)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != handEdited {
+		t.Errorf("the hand-edited memory file changed despite the refusal:\nwant:\n%s\ngot:\n%s", handEdited, after)
+	}
+}
+
+// TestAQuarantinedLineNeverGetsAFileDuringMigration proves readKindFiles does
+// not pre-write a per-memory file for a hand-typed legacy line until upsert
+// has actually accepted it. Before this fix, a quarantined memory's text
+// sitting as a plain line in the old flat file got its own file written
+// during migration regardless — and since upsert goes on to reject that exact
+// line as heldLine (the text already belongs to memory #id, awaiting
+// review), the result was a file on disk for a uid no row in the index ever
+// held.
+func TestAQuarantinedLineNeverGetsAFileDuringMigration(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	text := "the launch slips to March"
+	// Seeded directly, bypassing Store, so it lands quarantined with a known
+	// fingerprint the way a real contested proposal would.
+	if _, err := db.Exec(
+		`INSERT INTO memories (text, kind, salience, confidence, source, created, fingerprint, quarantined, uid)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+		text, string(Fact), 0.5, 0.7, "manual", time.Now().Unix(), fingerprint(text), computeUID(Fact, text, "")); err != nil {
+		t.Fatal(err)
+	}
+
+	flatPath := filepath.Join(dir, Dir, string(Fact)+".md")
+	if err := os.MkdirAll(filepath.Dir(flatPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(flatPath, []byte("- "+text+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Import(db, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+
+	uid := computeUID(Fact, text, "")
+	if _, err := os.Stat(memoryFilePath(dir, Fact, uid)); !os.IsNotExist(err) {
+		t.Errorf("want no per-memory file for a line upsert held as quarantined, got stat err=%v", err)
+	}
+}
+
 // A crash between reading the legacy flat file and writing its lines out as
 // per-memory files must not cost the vault anything. readKindFiles only
 // reads memories/<kind>.md during migration; ExportKind — the call that
@@ -745,6 +834,7 @@ func TestAHandEditToTheKindDigestIsNeverSilentlyOverwritten(t *testing.T) {
 // killed the process, the original flat file nobody has touched yet is still
 // sitting there, complete, the same bytes a person last saw.
 func TestAnInterruptedMigrationLeavesTheOldVaultReadable(t *testing.T) {
+	db := testDB(t)
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, Dir), 0o755); err != nil {
 		t.Fatal(err)
@@ -762,7 +852,7 @@ func TestAnInterruptedMigrationLeavesTheOldVaultReadable(t *testing.T) {
 	// after it returns would leave things, proves the file this test is
 	// about has had nothing done to it — the caller (importInto) never
 	// reached the ExportKind call that would replace it.
-	if _, _, migrated, err := readKindFiles(dir, Fact); err != nil {
+	if _, _, migrated, err := readKindFiles(db, dir, Fact); err != nil {
 		t.Fatal(err)
 	} else if migrated != 2 {
 		t.Fatalf("want 2 lines migrated, got %d", migrated)
