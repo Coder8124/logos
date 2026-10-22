@@ -1232,26 +1232,6 @@ type kindDamaged string
 
 func (k kindDamaged) Error() string { return string(k) }
 
-// linesElsewhere is the fingerprint of every line in the other kinds' files.
-// An unreadable file adds nothing, which can only cost a moved line its
-// memory's metadata — never keep a deleted one.
-func linesElsewhere(dir string, kind Kind) map[string]bool {
-	out := map[string]bool{}
-	for _, k := range kinds {
-		if k == kind {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(dir, Dir, string(k)+".md"))
-		if err != nil {
-			continue
-		}
-		for _, m := range parseKind(k, string(raw)) {
-			out[fingerprint(m.Text)] = true
-		}
-	}
-	return out
-}
-
 // looksTruncated reports that a store file was cut off rather than edited.
 //
 // The distinction is the whole difficulty here, because the two look identical
