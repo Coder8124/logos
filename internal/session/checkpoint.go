@@ -641,8 +641,10 @@ func ResolvePath(vaultDir, slug string) (string, error) {
 		return direct, nil
 	}
 	stem := rel
-	if i := strings.LastIndexByte(stem, '/'); i >= 0 {
-		stem = stem[i+1:]
+	scopeHint := ""
+	if i := strings.LastIndexByte(rel, '/'); i >= 0 {
+		stem = rel[i+1:]
+		scopeHint = strings.TrimPrefix(rel[:i], CheckpointDir+"/")
 	}
 	name := stem + ".md"
 	if !IsCheckpointFile(name) {
@@ -653,6 +655,15 @@ func ResolvePath(vaultDir, slug string) (string, error) {
 		return "", err
 	}
 	for _, scope := range scopes {
+		// A citation that still names its project (scopeHint != "") only
+		// searches that project's own scope — otherwise two projects whose
+		// checkpoints happen to share a timestamp stem (the same second, or a
+		// citation from before stems were scoped per convo) make the first
+		// filename match across the whole vault an arbitrary pick instead of
+		// the project the citation actually names.
+		if scopeHint != "" && scope != scopeHint && !strings.HasPrefix(scope, scopeHint+"/") {
+			continue
+		}
 		dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
 		entries, err := CheckpointEntries(dir)
 		if err != nil {
