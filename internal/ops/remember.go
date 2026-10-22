@@ -68,10 +68,19 @@ func stored(r memory.Receipt) int64 {
 }
 
 // Anchor records where the repository at dir stood when m was written, unless
-// m already carries a commit (an import, or a caller that knows better).
+// m already carries a commit (an import, or a caller that knows better). It
+// also resolves the repo's remote into m.Remote, the one-time input to the
+// memory's uid (see Memory.Uid) — a separate guard from Commit's, so a caller
+// that already set one does not suppress the other.
 func Anchor(m *memory.Memory, dir string) {
-	if m.Commit != "" || dir == "" {
+	if dir == "" {
 		return
 	}
-	_, m.Commit = gitstate.Head(dir)
+	if m.Commit == "" {
+		_, m.Commit = gitstate.Head(dir)
+	}
+	if m.Remote == "" {
+		remote, _ := gitstate.Identity(dir)
+		m.Remote = gitstate.NormalizeRemote(remote)
+	}
 }

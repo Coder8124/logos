@@ -191,6 +191,18 @@ func Consolidate(db *sql.DB, rt *router.Router) (merged int, superseded int, err
 	gone := map[int64]bool{}
 	const gate = 0.80
 
+	// Every id a pair actually changes, so each gets its own file brought back
+	// in step with the row afterward — exportMemoryFile per id, not a kind-wide
+	// rewrite, for the reason it already documents: this pass can touch
+	// hundreds of pairs, and writing every survivor's file on every pair
+	// instead of once at the end would be the quadratic shape that function's
+	// comment warns against.
+	type touchedID struct {
+		id   int64
+		kind Kind
+	}
+	var touched []touchedID
+
 	// A refused write stops the pass rather than being counted: the counts were
 	// reported as "merged N" whether or not the UPDATE went through, so a
 	// database that refused every write produced a success receipt over a store
@@ -237,6 +249,7 @@ pairs:
 				logEvent(db, keep.ID, EvMerged, keep.Text, drop.ID)
 				logEvent(db, drop.ID, EvSuperseded, drop.Text, keep.ID)
 				gone[drop.ID] = true
+				touched = append(touched, touchedID{keep.ID, keep.Kind}, touchedID{drop.ID, drop.Kind})
 				merged++
 			case "update":
 				// The newer fact wins; the older is superseded but retained, with a
@@ -246,6 +259,7 @@ pairs:
 				}
 				logEvent(db, older.ID, EvSuperseded, older.Text, newer.ID)
 				gone[older.ID] = true
+				touched = append(touched, touchedID{older.ID, older.Kind})
 				superseded++
 			}
 		}
@@ -253,6 +267,11 @@ pairs:
 	// Consolidation retires memories wholesale, so the files have to follow or
 	// the next import would restore everything it just superseded.
 	if merged+superseded > 0 {
+		for _, t := range touched {
+			if err := exportMemoryFile(db, t.kind, t.id); err != nil {
+				return merged, superseded, errors.Join(werr, err)
+			}
+		}
 		for _, k := range kinds {
 			if err := flush(db, k); err != nil {
 				return merged, superseded, errors.Join(werr, err)

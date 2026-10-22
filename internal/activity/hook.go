@@ -68,6 +68,15 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 		Session: ShortID(str(p, "session_id")),
 		Project: project,
 	}
+	// Session above is cut for a human scanning the log; a checkpoint filing
+	// itself under the conversation's host_session needs the id the host
+	// actually gave, uncut, so it lands in the same folder a transcript-driven
+	// checkpoint of the same conversation does. Carried in Extra, not a second
+	// top-level field, because nothing else here reads it — only
+	// mcpserver.hostSession.
+	if full := str(p, "session_id"); full != "" {
+		e.Extra = map[string]any{"session_id": full}
+	}
 	if e.Project == "" {
 		if cwd := str(p, "cwd"); cwd != "" {
 			e.Project = filepath.Base(filepath.Clean(cwd))

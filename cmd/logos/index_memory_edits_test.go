@@ -11,11 +11,17 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 )
 
-// The file header invites editing a line. A line retyped whole drops its
-// `<!-- logos id=… -->` comment, and without it the index cannot tell the edit
-// from a new fact: the old memory is forgotten, project and confidence with it,
-// and a new one takes its place. That is the right reading of the file, but
-// `logos index` said "+0 ~0 -0" over it, and only `logos memory log` knew.
+// A line retyped whole drops its `<!-- logos id=… -->` comment, and without
+// it the index cannot tell the edit from a new fact: the old memory is
+// forgotten, project and confidence with it, and a new one takes its place.
+// That is the right reading of the file, but `logos index` said "+0 ~0 -0"
+// over it, and only `logos memory log` knew.
+//
+// Under A2 the file inviting that edit is the memory's own, under
+// memories/fact/ — fact.md is a generated digest now, and a hand edit there
+// is never read as data (see readKindFiles's generatedDigestBanner check),
+// so the retype has to land on the per-memory file for this to exercise the
+// behavior it was written for.
 func TestALineRetypedWithoutItsCommentIsAnnouncedAsReplacingItsMemory(t *testing.T) {
 	vaultDir := t.TempDir()
 	t.Setenv("LOGOS_VAULT", vaultDir)
@@ -28,7 +34,14 @@ func TestALineRetypedWithoutItsCommentIsAnnouncedAsReplacingItsMemory(t *testing
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(vaultDir, "memories", "fact.md")
+	matches, err := filepath.Glob(filepath.Join(vaultDir, "memories", "fact", "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d per-memory fact files, want 1: %v", len(matches), matches)
+	}
+	path := matches[0]
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

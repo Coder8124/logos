@@ -451,8 +451,9 @@ func TestHandoffBetweenTwoAgents(t *testing.T) {
 	}
 
 	// The record is a file in the vault, not a row — that is what lets it
-	// outlive the index and be read by a human.
-	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "kestrel-one", "*.md"))
+	// outlive the index and be read by a human. No host session id was given,
+	// so it lands in the project's _unattached conversation folder.
+	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "kestrel-one", "_convos", "_unattached", "*.md"))
 	if len(matches) != 1 {
 		t.Fatalf("want one checkpoint note in the vault, got %v", matches)
 	}
@@ -744,7 +745,7 @@ func TestCheckpointAcceptsListsAsStrings(t *testing.T) {
 	}); isErr {
 		t.Fatal("checkpoint rejected a string-shaped list")
 	}
-	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "logos", "*.md"))
+	matches, _ := filepath.Glob(filepath.Join(vaultDir, "sessions", "logos", "_convos", "_unattached", "*.md"))
 	if len(matches) != 1 {
 		t.Fatalf("want one checkpoint, got %v", matches)
 	}

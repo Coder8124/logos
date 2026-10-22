@@ -58,6 +58,7 @@ var cacheOnlyTables = map[string]string{
 	"replay_state":   "a read cursor, cache-only on purpose — see internal/replay/state.go",
 	"ruling_files":   "files named in checkpoints' Failed lists, re-read from sessions/ by the edit hook on its next run",
 	"ruling_shown":   "which rulings the edit hook already showed this session; losing it shows one once more",
+	"digest_stamps":  "the hash of each kind's digest as logos last wrote it; losing it costs one extra reconcile, never a missed edit",
 }
 
 // createdTables finds every table the code can create by reading the source,

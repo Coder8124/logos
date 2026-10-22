@@ -109,15 +109,19 @@ func autoRecord(s *transcript.Session, project string, at int64) (session.Checkp
 	// thing built from it with a receipt to say so.
 	found = append(found, secret.KeptPrivate("transcript", s.Private)...)
 	return session.Checkpoint{
-		Project:    project,
-		Agent:      s.Harness,
-		Task:       task,
-		State:      autoState(s),
-		Files:      h.Files,
-		Commands:   masked,
-		Turns:      len(s.Turns),
-		TS:         at,
-		Redactions: found,
+		Project: project,
+		Agent:   s.Harness,
+		// The transcript's own id, not Logos's: it is what lets every
+		// checkpoint this transcript ever produces — auto or explicit — be
+		// found as one conversation later.
+		HostSession: s.ID,
+		Task:        task,
+		State:       autoState(s),
+		Files:       h.Files,
+		Commands:    masked,
+		Turns:       len(s.Turns),
+		TS:          at,
+		Redactions:  found,
 	}, true
 }
 

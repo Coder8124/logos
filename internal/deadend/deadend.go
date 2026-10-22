@@ -111,7 +111,10 @@ func MarkDrift(hits []Ruling, dir string) {
 		return
 	}
 	for i := range hits {
-		if d, ok := a.Since(hits[i].Commit, hits[i].Record.Raw); ok {
+		// SinceAnchor falls back to Since unchanged when Record.Anchor is
+		// empty or fails to parse — every ruling recorded before this field
+		// existed, and a hand-edited one, are measured exactly as before.
+		if d, ok := a.SinceAnchor(hits[i].Commit, hits[i].Record.Anchor, hits[i].Record.Raw); ok {
 			hits[i].Drift = &d
 		}
 	}

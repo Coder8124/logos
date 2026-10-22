@@ -9,28 +9,24 @@ import (
 	"testing"
 )
 
-// The stamp is a claim: "the bytes on disk are the ones we wrote". Forgetting
-// the last memory of a kind deletes the file, so the read-back that renews the
-// claim fails — and the claim about a file that no longer exists was left
-// standing. Restore that file from a backup, a sync client or a git checkout
-// and the stale claim is wrong in the one direction that loses data: Reconcile
-// recognises the restored bytes as its own, skips the pass that would have
-// adopted them, and the next write regenerates the file without them.
+// Under A2, memories/<kind>.md is a generated digest and the memory's own
+// file under memories/<kind>/ is truth — so the restore this test exercises
+// is of that file, not the digest, and the thing that adopts it is `logos
+// index` (Import), not a later Store. Store never rescans memories/<kind>/ on
+// every call; exportMemoryFile's own comment is why: a per-Store full rescan
+// is the exact quadratic shape the per-kind stamp was built to avoid, and A2
+// does not get to reintroduce it through the filesystem instead of SQL.
 //
-// Fails on the old flush, which only stamped on a successful read-back.
+// What is still being proved is the same property the old version proved
+// about the digest: a file restored from a backup, a sync client or a git
+// checkout is adopted back as the memory it was, under its old id, rather
+// than silently staying lost because the index no longer remembers it.
 func TestAMemoryRestoredIntoAFileWeOnceDeletedIsNotSilentlyDropped(t *testing.T) {
 	db, dir := store(t)
-	path := filepath.Join(dir, Dir, string(Fact)+".md")
 
 	if _, err := Store(db, nil, "", &Memory{Text: "the deploy key lives in 1Password", Kind: Fact, Source: "test"}); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Forget it, which removes the file — the moment the stamp went stale.
 	all, err := All(db)
 	if err != nil {
 		t.Fatal(err)
@@ -38,11 +34,17 @@ func TestAMemoryRestoredIntoAFileWeOnceDeletedIsNotSilentlyDropped(t *testing.T)
 	if len(all) != 1 {
 		t.Fatalf("expected one memory before forgetting, got %d", len(all))
 	}
+	path := memoryFilePath(dir, Fact, all[0].Uid)
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if err := Forget(db, all[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("expected %s to be gone after forgetting the only memory of its kind", path)
+		t.Fatalf("expected %s to be gone after forgetting its memory", path)
 	}
 
 	// The restore: exactly the bytes that were there before, as a backup or a
@@ -51,9 +53,8 @@ func TestAMemoryRestoredIntoAFileWeOnceDeletedIsNotSilentlyDropped(t *testing.T)
 		t.Fatal(err)
 	}
 
-	// Any later write reconciles first. It must see the restored file as
-	// something to adopt, not as a file it wrote itself.
-	if _, err := Store(db, nil, "", &Memory{Text: "staging runs on the same key", Kind: Fact, Source: "test"}); err != nil {
+	// `logos index` is what rescans memories/<kind>/ and adopts what it finds.
+	if _, _, err := Import(db, nil, "", dir); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,8 +66,11 @@ func TestAMemoryRestoredIntoAFileWeOnceDeletedIsNotSilentlyDropped(t *testing.T)
 	for _, m := range got {
 		texts = append(texts, m.Text)
 	}
-	if len(got) != 2 {
-		t.Fatalf("after restoring a file we had deleted, memories = %v; want the restored one adopted alongside the new one", texts)
+	if len(got) != 1 {
+		t.Fatalf("after restoring a memory file we had deleted and reindexing, memories = %v; want the restored one back", texts)
+	}
+	if got[0].ID != all[0].ID {
+		t.Fatalf("restored memory has id #%d; want its old id #%d", got[0].ID, all[0].ID)
 	}
 }
 

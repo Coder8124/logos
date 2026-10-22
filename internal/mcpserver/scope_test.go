@@ -375,8 +375,11 @@ func TestOneWorktreeDoesNotResumeIntoAnother(t *testing.T) {
 
 	// Each tree's checkpoint is a file inside the project's folder, not beside
 	// it: a worktree is a sub-scope of kestrel, not a second kestrel.
+	// Neither checkpoint carries a host session id, so each lands in its
+	// worktree scope's own _unattached conversation folder, not directly in
+	// the scope directory — see session.ConvosDir.
 	for _, name := range []string{"feature-a", "feature-b"} {
-		found, _ := filepath.Glob(filepath.Join(vault, "sessions", "kestrel", name, "*.md"))
+		found, _ := filepath.Glob(filepath.Join(vault, "sessions", "kestrel", name, "_convos", "_unattached", "*.md"))
 		if len(found) != 1 {
 			t.Fatalf("want one checkpoint under sessions/kestrel/%s, got %v", name, found)
 		}

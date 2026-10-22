@@ -278,6 +278,35 @@ func runResume(args []string) error {
 		}
 	}
 
+	// A host session id, not a project: Claude Code's hook session_id, a
+	// transcript's own s.ID, or anything `host_session:` was ever written
+	// with. Checked before treating the argument as a project name, because
+	// resuming "this exact conversation, wherever it worked" is a different
+	// question from "this project's latest" and the two arguments do not
+	// collide in practice — a project name is never a host's session id.
+	//
+	// Only checked when project does not already name a real project: that
+	// lookup is one ReadDir, so it is cheap, and it is also the exact
+	// condition the comment above already claims must hold. Without it,
+	// `logos resume <project>` — the hook's own call on every session start,
+	// the single most frequent path in the whole binary — read and parsed
+	// every checkpoint in the vault before ever reaching the project it was
+	// actually given.
+	known, _ := session.Projects(ix.Vault)
+	isProject := false
+	for _, p := range known {
+		if p == project {
+			isProject = true
+			break
+		}
+	}
+	if !isProject {
+		if chain, err := session.ByHostSession(ix.Vault, project); err == nil && len(chain) > 0 {
+			printSessionChain(project, chain)
+			return nil
+		}
+	}
+
 	// Resume is the one command that must never need a model: the checkpoint it
 	// reads is markdown in the vault, and an agent picking up someone else's work
 	// on a machine with no runtime is exactly the case this exists for.
@@ -329,6 +358,25 @@ func runResume(args []string) error {
 	}
 	printAwaitingReview(ix.DB)
 	return nil
+}
+
+// printSessionChain renders every checkpoint one host conversation produced,
+// oldest first, so resuming by session id reads as the whole arc rather than
+// whatever the most recent checkpoint alone would say.
+func printSessionChain(hostSession string, chain []session.Checkpoint) {
+	fmt.Printf("# Resuming host session %s — %d checkpoint%s\n\n", hostSession, len(chain), pluralS(len(chain)))
+	for i, c := range chain {
+		fmt.Printf("## %d. %s (%s)\n\n", i+1, c.Slug, time.Unix(c.TS, 0).Format(time.RFC3339))
+		if c.Task != "" {
+			fmt.Printf("**Task:** %s\n\n", c.Task)
+		}
+		if c.State != "" {
+			fmt.Printf("**State:** %s\n\n", c.State)
+		}
+		if c.Next != "" {
+			fmt.Printf("**Next:** %s\n\n", c.Next)
+		}
+	}
 }
 
 // printAwaitingReview names the memories agents proposed that the user has not

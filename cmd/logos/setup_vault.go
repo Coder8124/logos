@@ -214,15 +214,24 @@ func vaultHolding(prev string, projects []string) (string, int) {
 }
 
 // checkpointsUnder counts a project's checkpoints, including the ones a
-// worktree keeps in its own subdirectory.
+// worktree keeps in its own subdirectory and the ones any scope now keeps one
+// level deeper, inside a conversation folder under session.ConvosDir.
 //
-// One level down, not a full walk. A worktree scope is spelled
+// One level down for worktrees, not a full walk. A worktree scope is spelled
 // "project/worktree" and session.Projects returns only the top level, so a
 // vault whose work is all on branches counted zero and the "this vault holds
 // work" prompt never appeared — setup repointed the machine away from it in
-// silence. Two levels is the whole of the layout; recursing further would only
-// find whatever else a user has put in their own directory.
+// silence. Two levels is the whole of the worktree layout; recursing further
+// would only find whatever else a user has put in their own directory. The
+// ConvosDir skip below is what keeps this from making the exact same mistake
+// one level deeper, mistaking a project's own conversation folder for a
+// sibling worktree.
 func checkpointsUnder(dir string) int {
+	// session.CheckpointEntries already finds every checkpoint sitting
+	// directly in dir or one level into dir/ConvosDir — the same reach
+	// session.History uses — so a checkpoint written by Commit after this
+	// migration is counted exactly like one written before it.
+	n := worktreeCheckpoints(dir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		// A project directory that cannot be read counts as nothing rather
@@ -231,17 +240,9 @@ func checkpointsUnder(dir string) int {
 		// part of it that is readable.
 		return 0
 	}
-	n := 0
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && e.Name() != session.ConvosDir {
 			n += worktreeCheckpoints(filepath.Join(dir, e.Name()))
-			continue
-		}
-		// The same predicate session.Read and doctor count with: a session
-		// directory also holds the project's working notes, and calling those
-		// a checkpoint overstates what the vault holds.
-		if session.IsCheckpointFile(e.Name()) {
-			n++
 		}
 	}
 	return n
@@ -262,20 +263,15 @@ func checkpointsInVault(sessions string) int {
 	return n
 }
 
-// worktreeCheckpoints counts the checkpoint files directly inside one
-// worktree's directory, and does not descend again.
+// worktreeCheckpoints counts the checkpoint files one scope's directory
+// reaches: directly inside it, or one level into its conversation folders
+// under session.ConvosDir, and does not descend into a sibling worktree.
 func worktreeCheckpoints(dir string) int {
-	entries, err := os.ReadDir(dir)
+	entries, err := session.CheckpointEntries(dir)
 	if err != nil {
 		return 0
 	}
-	n := 0
-	for _, e := range entries {
-		if !e.IsDir() && session.IsCheckpointFile(e.Name()) {
-			n++
-		}
-	}
-	return n
+	return len(entries)
 }
 
 // indexVault runs the first index so the vault is queryable immediately.

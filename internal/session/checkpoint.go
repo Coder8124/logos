@@ -24,9 +24,18 @@ import (
 // next agent a paragraph of reading and costs it an afternoon of rediscovery.
 type Checkpoint struct {
 	Session string
-	Project string
-	Agent   string
-	Task    string
+	// HostSession is the id the *host* uses for this conversation — Claude
+	// Code's hook session_id, or a transcript reader's own s.ID — never
+	// Logos's own Session stem above. Session names the checkpoint file;
+	// HostSession names the conversation that produced it, which is what
+	// lets every checkpoint from one sitting be found together regardless of
+	// how many times it was checkpointed. Empty when nothing told us: an
+	// MCP host that gives no session_id (Cursor, Claude Desktop) leaves this
+	// blank rather than guessing, which is more honest than a wrong id.
+	HostSession string
+	Project     string
+	Agent       string
+	Task        string
 	// Intent is why the task matters: the outcome it serves and the constraint
 	// that shapes it. Task says what; a resume that only says what leaves the
 	// next agent rereading the transcript to learn which trade-offs are open,
@@ -121,6 +130,35 @@ func (in *Inference) Empty() bool {
 // not a dotfile: these are notes you are meant to be able to open, read, and
 // put under version control alongside everything else.
 const CheckpointDir = "sessions"
+
+// ConvosDir is the reserved folder name directly under a scope — a project,
+// or a project/worktree pair — that holds its conversations. Reserved, not
+// inferred: a worktree folder and a conversation folder sit at the exact same
+// depth and look identical on disk (both are just a directory name under a
+// project), so without one fixed, never-a-worktree name marking where the
+// conversations start, Scopes could not tell a sibling worktree from one of
+// this project's own conversations, and would either miss real worktrees
+// once their checkpoints moved a level deeper, or list every conversation
+// folder as a phantom worktree scope of its own.
+const ConvosDir = "_convos"
+
+// UnattachedFolder is the conversation folder a checkpoint lands in when
+// nothing told Logos which conversation produced it — no host id, no folder
+// named after data nobody gave us (see Checkpoint.HostSession's doc comment
+// on why guessing is worse than this).
+const UnattachedFolder = "_unattached"
+
+// convoFolder names the conversation folder a checkpoint belongs in: the
+// host's own session id, sanitized the same way any other path segment is,
+// or UnattachedFolder when nothing gave us one — hand-written checkpoints and
+// checkpoints from hosts without hooks both land there, together, rather
+// than each inventing a folder name nobody supplied.
+func convoFolder(hostSession string) string {
+	if s := safe(hostSession); s != "" {
+		return s
+	}
+	return UnattachedFolder
+}
 
 func (c Checkpoint) Empty() bool {
 	return strings.TrimSpace(c.Task) == "" && strings.TrimSpace(c.State) == "" &&
@@ -252,12 +290,13 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// here holding one id, and both wrote to one path. WriteAtomic renames into
 	// place, so the second silently replaced the first: a handoff nobody was
 	// told had been lost, in the one file this product exists to keep.
-	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, s.ID)
+	convo := convoFolder(c.HostSession)
+	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, s.ID, convo)
 	if err != nil {
 		return err
 	}
 	c.Session = id
-	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, id))
+	c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, c.Project, ConvosDir, convo, id))
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
@@ -320,10 +359,30 @@ func (c *Checkpoint) maskSecrets() []secret.Redaction {
 // becomes an ordering key, which is all any reader uses it for. Sixty seconds is
 // as far as it goes: past that, something is wrong that a different filename
 // will not fix.
-func claimCheckpoint(vaultDir, project, agent, id string) (string, string, error) {
-	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(project))
+//
+// convo is the conversation folder (see convoFolder) the file is claimed
+// inside, under ConvosDir — never directly inside the scope itself, so a
+// fresh checkpoint is never the thing re-filing later finds "misfiled" and
+// moves.
+func claimCheckpoint(vaultDir, project, agent, id, convo string) (string, string, error) {
+	scopeDir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(project))
+	dir := filepath.Join(scopeDir, ConvosDir, convo)
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return "", "", err
+	}
+	// O_EXCL only guards against a second writer into this same convo folder:
+	// two conversations that land on the same timestamp-plus-agent id now
+	// claim it in two different folders, and the OS sees no collision at all.
+	// ResolvePath's citation-by-stem fallback matches by filename alone across
+	// every convo, so a name taken twice in one scope would resolve to
+	// whichever of the two it happened to reach first. Checked against the
+	// whole scope, not just dir, to keep every name in it unique the way a
+	// single flat directory used to guarantee for free.
+	taken := map[string]bool{}
+	if entries, err := CheckpointEntries(scopeDir); err == nil {
+		for _, en := range entries {
+			taken[en.Name] = true
+		}
 	}
 	start, err := time.Parse("20060102-150405", firstN(id, 15))
 	if err != nil {
@@ -335,6 +394,9 @@ func claimCheckpoint(vaultDir, project, agent, id string) (string, string, error
 		candidate := id
 		if i > 0 {
 			candidate = idFor(agent, start.Add(time.Duration(i)*time.Second))
+		}
+		if taken[candidate+".md"] {
+			continue
 		}
 		path := filepath.Join(dir, candidate+".md")
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, vault.FileMode)
@@ -369,24 +431,74 @@ func Latest(vaultDir, project string) (*Checkpoint, error) {
 	return &all[0], nil
 }
 
-// History returns up to n checkpoints for a project, newest first.
-func History(vaultDir, project string, n int) ([]Checkpoint, error) {
-	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
-	entries, err := os.ReadDir(dir)
+// CheckpointEntry is one checkpoint file found under a scope's own
+// directory, wherever it actually sits: directly in the scope (every
+// checkpoint written before this migration, and anything hand-placed since),
+// or inside one of the scope's conversation folders under ConvosDir
+// (everything Commit writes now). Rel is the path to open, relative to the
+// scope directory; Name is the checkpoint's own filename, kept separately
+// because it is the sort key — a conversation folder is named after a host
+// id or UnattachedFolder, not a timestamp, so sorting by Rel would interleave
+// conversations by folder name instead of ordering checkpoints by when they
+// were made. Exported so internal/deadend's own cache of ruling files can key
+// on the same relative path History does, rather than hand-rolling a second
+// walk that only knows the pre-ConvosDir layout.
+type CheckpointEntry struct {
+	Name string
+	Rel  string
+}
+
+// CheckpointEntries finds every checkpoint file a scope's directory reaches,
+// one level into ConvosDir and no further — a worktree scope's own directory
+// is a *different* scope, reached by asking History for it directly, and
+// descending into it here would merge two deliberately isolated histories
+// into one.
+func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
+	top, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
+	var out []CheckpointEntry
+	for _, e := range top {
 		if !e.IsDir() && IsCheckpointFile(e.Name()) {
-			names = append(names, e.Name())
+			out = append(out, CheckpointEntry{Name: e.Name(), Rel: e.Name()})
 		}
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	convos, err := os.ReadDir(filepath.Join(dir, ConvosDir))
+	if err != nil {
+		return out, nil // no ConvosDir yet is the ordinary unmigrated case
+	}
+	for _, convo := range convos {
+		if !convo.IsDir() {
+			continue
+		}
+		inner, err := os.ReadDir(filepath.Join(dir, ConvosDir, convo.Name()))
+		if err != nil {
+			continue // one unreadable conversation must not hide the others
+		}
+		for _, f := range inner {
+			if !f.IsDir() && IsCheckpointFile(f.Name()) {
+				out = append(out, CheckpointEntry{
+					Name: f.Name(),
+					Rel:  filepath.ToSlash(filepath.Join(ConvosDir, convo.Name(), f.Name())),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+// History returns up to n checkpoints for a project, newest first.
+func History(vaultDir, project string, n int) ([]Checkpoint, error) {
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
+	entries, err := CheckpointEntries(dir)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name > entries[j].Name })
 
 	// Take the newest n that actually say something, rather than the newest n
 	// files. A torn write — a crash or a full disk partway through a save —
@@ -395,12 +507,12 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 	// checkpoint behind it. `resume` then reported nothing at all for a project
 	// with a year of history, which is the worst possible reading of a damaged
 	// file: not "this one is broken" but "there is nothing here".
-	out := make([]Checkpoint, 0, len(names))
-	for _, name := range names {
+	out := make([]Checkpoint, 0, len(entries))
+	for _, en := range entries {
 		if n > 0 && len(out) >= n {
 			break
 		}
-		raw, err := os.ReadFile(filepath.Join(dir, name))
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(en.Rel)))
 		if err != nil {
 			continue // a checkpoint we cannot read must not hide the ones we can
 		}
@@ -408,10 +520,151 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		if c.Empty() {
 			continue
 		}
-		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(name, ".md")))
+		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(en.Rel, ".md")))
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// ByHostSession returns every checkpoint anywhere in the vault that carries
+// the given host session id, oldest first — the whole follows chain one
+// conversation produced, however many times it checkpointed and whatever
+// scope it checkpointed under.
+//
+// `logos resume <session-id>` needs this because a conversation's project can
+// change mid-work (a worktree spun up partway through) and because "what did
+// this conversation do" is a question about the id, not about any one
+// project's history. Built on Scopes and History rather than a parallel
+// directory walk, so a torn file is skipped exactly as resume already skips
+// one, and a checkpoint missing from Latest/History is never found here
+// either.
+func ByHostSession(vaultDir, hostSession string) ([]Checkpoint, error) {
+	if strings.TrimSpace(hostSession) == "" {
+		return nil, nil
+	}
+	scopes, err := Scopes(vaultDir)
+	if err != nil {
+		return nil, err
+	}
+	var out []Checkpoint
+	for _, scope := range scopes {
+		all, err := History(vaultDir, scope, 0)
+		if err != nil {
+			continue // one unreadable scope must not hide the others
+		}
+		for _, c := range all {
+			if c.HostSession == hostSession {
+				out = append(out, c)
+			}
+		}
+	}
+	// History returns newest first within a scope; the chain reads naturally
+	// oldest first across scopes too. Sorted on Session, not TS: two
+	// checkpoints claimed inside the same second still get filenames that
+	// collide-and-increment in order (see claimCheckpoint), so the filename
+	// is the finer clock and TS alone would leave same-second checkpoints in
+	// whatever order the directory scan happened to find them.
+	sort.Slice(out, func(i, j int) bool { return out[i].Session < out[j].Session })
+	return out, nil
+}
+
+// Refile moves every checkpoint whose host_session frontmatter disagrees with
+// the conversation folder it is physically sitting in, across the whole
+// vault, and returns how many it moved.
+//
+// Frontmatter is the truth (see Checkpoint.HostSession's doc comment); the
+// ConvosDir folder is a derived layout, rebuilt from it here exactly the way
+// `logos index` rebuilds the cache from the vault. A file can end up in the
+// wrong folder after an interrupted migration, a sync conflict copy, or a
+// hand move — never after an ordinary Commit, which already files a fresh
+// checkpoint where its own HostSession says it belongs.
+//
+// The new location is written before the old one is removed, so a crash
+// between the two leaves the checkpoint readable twice — the next Refile call
+// finishes the move and removes the stale copy — never a checkpoint that
+// briefly existed nowhere.
+func Refile(vaultDir string) (int, error) {
+	scopes, err := Scopes(vaultDir)
+	if err != nil {
+		return 0, err
+	}
+	refiled := 0
+	for _, scope := range scopes {
+		dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(scope)))
+		entries, err := CheckpointEntries(dir)
+		if err != nil {
+			continue // one unreadable scope must not hide the others
+		}
+		for _, en := range entries {
+			oldPath := filepath.Join(dir, filepath.FromSlash(en.Rel))
+			raw, err := os.ReadFile(oldPath)
+			if err != nil {
+				continue // unreadable file: nothing to refile, not a reason to stop
+			}
+			c := ParseCheckpoint(string(raw))
+			if c.Empty() {
+				continue // a torn write, not a misfiled checkpoint
+			}
+			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolder(c.HostSession), en.Name))
+			if en.Rel == wantRel {
+				continue // already filed where its own frontmatter says it belongs
+			}
+			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
+			if err := vault.WriteAtomic(newPath, raw); err != nil {
+				return refiled, fmt.Errorf("re-filing %s: %w", en.Rel, err)
+			}
+			if err := os.Remove(oldPath); err != nil {
+				return refiled, fmt.Errorf("re-filing %s: removing the old copy: %w", en.Rel, err)
+			}
+			refiled++
+		}
+	}
+	return refiled, nil
+}
+
+// ResolvePath finds a checkpoint a stored citation names, wherever it
+// actually sits in the vault now.
+//
+// slug is the citation as something else wrote it down: "sessions/<project>/
+// <stem>", the only shape every citation before ConvosDir existed ever used,
+// and still the shape already sitting in memories, checkpoints and ingest
+// records nobody is going to rewrite. Tried literally first, since that is
+// still correct for any checkpoint Refile has had no reason to move, and a
+// direct stat is one syscall where a vault-wide search is a walk of every
+// scope. Only on a miss does it fall back to a search by stem — the part of
+// the citation that survives a move, because Refile renames the directory a
+// checkpoint sits under and never the checkpoint's own filename.
+func ResolvePath(vaultDir, slug string) (string, error) {
+	rel := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(slug)), ".md")
+	direct := filepath.Join(vaultDir, filepath.FromSlash(rel)+".md")
+	if _, err := os.Stat(direct); err == nil {
+		return direct, nil
+	}
+	stem := rel
+	if i := strings.LastIndexByte(stem, '/'); i >= 0 {
+		stem = stem[i+1:]
+	}
+	name := stem + ".md"
+	if !IsCheckpointFile(name) {
+		return "", fmt.Errorf("%s is not a checkpoint in this vault", slug)
+	}
+	scopes, err := Scopes(vaultDir)
+	if err != nil {
+		return "", err
+	}
+	for _, scope := range scopes {
+		dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
+		entries, err := CheckpointEntries(dir)
+		if err != nil {
+			continue // one unreadable scope must not hide the others
+		}
+		for _, en := range entries {
+			if en.Name == name {
+				return filepath.Join(dir, filepath.FromSlash(en.Rel)), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s is not a checkpoint in this vault", slug)
 }
 
 // IsCheckpointFile decides whether a file in a session directory is one of
@@ -470,8 +723,17 @@ func Projects(vaultDir string) ([]string, error) {
 // checkpoints)", and internal/deadend never reached a ruling recorded from a
 // worktree — the one thing that package exists to surface.
 //
-// Two levels, because two levels is the whole of the scope layout; descending
-// further would only find files that are not ours.
+// Still two levels of *scope* — project, and optionally project/worktree —
+// because two levels is the whole of the scope layout a caller ever asks
+// History for by name. A third level exists on disk now, ConvosDir and the
+// conversation folders under it, but it is not a scope of its own: it is
+// where a scope's own checkpoints physically sit, and holdsRecord already
+// looks there, so every caller that walks Scopes and then calls History on
+// what it finds keeps seeing every checkpoint without needing to know
+// conversation folders exist at all. ConvosDir itself is skipped as a
+// worktree candidate below — without that, every project's own conversation
+// folder would be mistaken for a sibling worktree once checkpoints moved a
+// level deeper into it (see ConvosDir's doc comment).
 func Scopes(vaultDir string) ([]string, error) {
 	root := filepath.Join(vaultDir, CheckpointDir)
 	entries, err := os.ReadDir(root)
@@ -494,7 +756,10 @@ func Scopes(vaultDir string) ([]string, error) {
 			continue // one unreadable project must not hide the others
 		}
 		for _, n := range nested {
-			if n.IsDir() && holdsRecord(filepath.Join(root, e.Name(), n.Name())) {
+			if !n.IsDir() || n.Name() == ConvosDir {
+				continue
+			}
+			if holdsRecord(filepath.Join(root, e.Name(), n.Name())) {
 				out = append(out, e.Name()+"/"+n.Name())
 			}
 		}
@@ -504,7 +769,15 @@ func Scopes(vaultDir string) ([]string, error) {
 }
 
 // holdsRecord reports whether a directory holds a session record of its own:
-// a checkpoint, or the working-notes file.
+// a checkpoint, or the working-notes file, either sitting in the directory
+// directly (every checkpoint before this migration, and the notes file
+// always) or inside one of its conversation folders under ConvosDir
+// (everything Commit writes now). Without the second check, a migrated
+// project's own directory holds no file directly any more — every checkpoint
+// moved one level down into a conversation folder — and Scopes would stop
+// seeing projects and worktrees the moment their checkpoints finished
+// migrating, which is exactly backwards for a feature meant to make nothing
+// harder to find.
 //
 // The notes file counts because `logos tried --ruled-out` writes a ruling as a
 // note, deliberately, so a dead end can be recorded an hour into a session
@@ -512,6 +785,25 @@ func Scopes(vaultDir string) ([]string, error) {
 // notes and no checkpoint yet is exactly the session still in progress, and
 // dropping it would make the checker blind in its freshest case.
 func holdsRecord(dir string) bool {
+	if holdsRecordDirect(dir) {
+		return true
+	}
+	convos, err := os.ReadDir(filepath.Join(dir, ConvosDir))
+	if err != nil {
+		return false
+	}
+	for _, c := range convos {
+		if c.IsDir() && holdsRecordDirect(filepath.Join(dir, ConvosDir, c.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// holdsRecordDirect is holdsRecord without the ConvosDir descent, for
+// checking one specific directory (a scope's own, or one of its conversation
+// folders) rather than the scope-plus-conversations holdsRecord answers.
+func holdsRecordDirect(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false

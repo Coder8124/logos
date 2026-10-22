@@ -88,6 +88,48 @@ func TestACorrectionReplacesTheOldMemoryInRecallAndKeepsItInHistory(t *testing.T
 	}
 }
 
+// supersedes: is the new memory's own forward link to the uid of the memory
+// it replaced, written to its per-memory file rather than kept only as the
+// id-based SupersededBy pointer the old row carries — ids are local to the
+// database that issued them, and die with the index the old row's own file
+// is deleted from. This proves the uid survives the round trip a bare id
+// could not: delete the index, rebuild it from the vault alone, and the new
+// memory's file still names what it replaced.
+func TestASupersedesUidSurvivesDeletingTheIndex(t *testing.T) {
+	db, dir := vaultDB(t)
+	const was, now = "Staging runs on port 8080", "Staging runs on port 9090 since the proxy moved"
+	old := Memory{Text: was, Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.Uid == "" {
+		t.Fatal("the memory being corrected has no uid to carry forward")
+	}
+
+	res, err := Correct(db, nil, "", old.ID, &Memory{Text: now, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ImportLog(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	var got string
+	if err := wiped.QueryRow("SELECT supersedes FROM memories WHERE id = ?", res.ID).Scan(&got); err != nil {
+		t.Fatalf("the correction #%d did not come back from the rebuild: %v", res.ID, err)
+	}
+	if got != old.Uid {
+		t.Fatalf("after the rebuild the correction's supersedes is %q, want the old memory's uid %q", got, old.Uid)
+	}
+}
+
 // A pinned fact that gets corrected is still the fact the user pinned; and a
 // memory already replaced is not the one to correct — the caller is told which
 // one is, rather than forking the history into two "current" answers.
