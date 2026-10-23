@@ -652,7 +652,7 @@ logos show [project] [--history|--plans|--graph|--projects|--continuity|--since-
 logos stats [--usage|--memory]                  patterns, usage, what your memory leans on
 logos memory [add|correct|forget|log|recall|dream|loop|...]  persistent memory and its timeline
 logos review [--candidates|--connections]       accept or reject what waits for your yes
-logos import --from claude-mem|claude-md|cursor-rules|transcripts|git
+logos import --from claude-mem|claude-md|cursor-rules|claude-auto-memory|transcripts|git
 logos watch [--log]                             follow what agents record as it happens
 logos project <name> | rename <old> <new>       a project's dossier, or rename one
 logos config announce|auto|think|deny|prompt|key|activity   settings

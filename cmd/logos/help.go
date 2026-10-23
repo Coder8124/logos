@@ -132,8 +132,8 @@ MEMORY
 BRINGING IT IN
     logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]
                                       bring claude-mem's observations over as memories
-    logos import --from claude-md|cursor-rules [--dir DIR] [--dry-run] [--yes]
-                                      queue CLAUDE.md / AGENTS.md or Cursor rules for review
+    logos import --from claude-md|cursor-rules|claude-auto-memory [--dir DIR] [--dry-run] [--yes]
+                                      queue CLAUDE.md / AGENTS.md, Cursor rules or Claude Code's auto memory for review
     logos import --from transcripts [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
                                       --path is a file, or for a txcript harness a session id

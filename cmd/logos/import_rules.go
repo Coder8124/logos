@@ -10,9 +10,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
+	"github.com/Coder8124/logos/internal/transcript"
+	"gopkg.in/yaml.v3"
 )
 
 // The two rules-file importers. Their records go to the review queue, not to
@@ -20,9 +23,15 @@ import (
 // worded, which linter runs — and convention belongs in CONTRIBUTING.md, where
 // every contributor reads it, not in one person's recall. A person sorts the
 // operational few from the rest; until they do, nothing here is recalled.
+//
+// Claude Code's auto memory goes the same way for a different reason: its
+// notes are what an agent decided to write down, and no agent's write grants
+// trust. The point of importing them is that they stop being Claude Code's
+// alone — Codex, Cursor and a teammate's agent never read ~/.claude.
 const (
-	claudeMDSource    = "claude-md"
-	cursorRulesSource = "cursor-rules"
+	claudeMDSource         = "claude-md"
+	cursorRulesSource      = "cursor-rules"
+	claudeAutoMemorySource = "claude-auto-memory"
 	// Below an agent's own `remember` (0.85), as claude-mem's are: a rule
 	// file says what someone wanted once, and nothing says it still holds.
 	ruleConfidence = 0.6
@@ -32,6 +41,8 @@ type ruleFile struct {
 	shown   string // the path as the dry run names it
 	project string // "" for a file that applies to every repository
 	items   []string
+	kind    memory.Kind // "" for a rules file, whose items are preferences
+	skip    string      // why a file read had nothing to offer, said in the report
 }
 
 func runImportRules(from string, args []string) error {
@@ -53,19 +64,34 @@ func runImportRules(from string, args []string) error {
 	}
 	var found []*memory.Memory
 	for _, f := range files {
+		kind := f.kind
+		if kind == "" {
+			kind = memory.Preference
+		}
 		for _, item := range f.items {
 			found = append(found, &memory.Memory{
-				Text: item, Kind: memory.Preference, Project: f.project,
+				Text: item, Kind: kind, Project: f.project,
 				Source: from, Confidence: ruleConfidence, Quarantined: true,
 			})
 		}
 	}
+	for _, f := range files {
+		if f.skip != "" {
+			fmt.Printf("Left out %s: %s.\n", f.shown, f.skip)
+		}
+	}
 	if len(found) == 0 {
 		where := scope.DenyRoot(dir)
-		if from == claudeMDSource {
+		switch from {
+		case claudeMDSource:
 			where += " or ~/.claude"
+		case claudeAutoMemorySource:
+			// The folder is named, because a moved one (autoMemoryDirectory)
+			// is the likeliest reason it is empty, and "none" would read as
+			// Claude Code never having saved anything.
+			where = autoMemoryDir(scope.DenyRoot(dir))
 		}
-		fmt.Printf("Nothing to import: no %s rules in %s.\n", from, where)
+		fmt.Printf("Nothing to import: no %s %s in %s.\n", from, noun(from, 2), where)
 		return nil
 	}
 
@@ -103,11 +129,14 @@ func runImportRules(from string, args []string) error {
 
 	fmt.Println("Found:")
 	for _, f := range files {
+		if f.skip != "" {
+			continue
+		}
 		where := "project " + f.project
 		if f.project == "" {
 			where = "every project"
 		}
-		fmt.Printf("  %-36s %3d %s, for %s\n", f.shown, len(f.items), plural(len(f.items), "rule"), where)
+		fmt.Printf("  %-36s %3d %s, for %s\n", f.shown, len(f.items), noun(from, len(f.items)), where)
 	}
 	if len(fresh) > 0 {
 		fmt.Println("\nA sample of what would be queued:")
@@ -115,9 +144,13 @@ func runImportRules(from string, args []string) error {
 			fmt.Printf("  - %s\n", truncate(m.Text, 100))
 		}
 	}
-	fmt.Printf("\nEach becomes a proposal in the review queue, labelled source %s, confidence %.2f. Most of a rules file is convention, so none of it is recalled until you accept it.\n", from, ruleConfidence)
+	why := "Most of a rules file is convention, so none of it is recalled until you accept it."
+	if from == claudeAutoMemorySource {
+		why = "An agent wrote these, and an agent's word is not a yes, so none is recalled until you accept it."
+	}
+	fmt.Printf("\nEach becomes a proposal in the review queue, labelled source %s, confidence %.2f. %s\n", from, ruleConfidence, why)
 	if dismissed > 0 {
-		fmt.Printf("%d you rejected or forgot before; a rules file read again does not overrule that, so they are left out.\n", dismissed)
+		fmt.Printf("%d you rejected or forgot before; reading the files again does not overrule that, so they are left out.\n", dismissed)
 	}
 
 	if hasFlag(args, "--dry-run") {
@@ -145,7 +178,11 @@ func runImportRules(from string, args []string) error {
 	if c.masked > 0 {
 		fmt.Printf("%d had a secret-shaped token masked before it was written.\n", c.masked)
 	}
-	fmt.Println("They wait in `logos review`; accept the ones that are operational and leave the conventions to CONTRIBUTING.md.")
+	if from == claudeAutoMemorySource {
+		fmt.Println("They wait in `logos review`; what you accept is recalled by every agent that reads this vault, not only Claude Code.")
+	} else {
+		fmt.Println("They wait in `logos review`; accept the ones that are operational and leave the conventions to CONTRIBUTING.md.")
+	}
 	fmt.Printf("To undo all of it: logos memory forget --source %s\n", from)
 	return nil
 }
@@ -201,12 +238,23 @@ func notDismissed(db *sql.DB, found []*memory.Memory) (fresh []*memory.Memory, d
 	return fresh, dismissed, present, nil
 }
 
+// noun is what one item of the source is called, in the count n.
+func noun(from string, n int) string {
+	if from == claudeAutoMemorySource {
+		return plural(n, "memory")
+	}
+	return plural(n, "rule")
+}
+
 // readRuleFiles reads every rules file the source names, in the repository at
 // root and, for claude-md, in ~/.claude. A file that is missing is skipped; one
 // that is there and cannot be read is an error, because an import that quietly
 // left out a file would report a count the user takes as everything.
 func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 	home, _ := os.UserHomeDir()
+	if from == claudeAutoMemorySource {
+		return readAutoMemory(autoMemoryDir(root), home, project)
+	}
 	type cand struct {
 		path, project string
 	}
@@ -360,4 +408,136 @@ func uncommented(line string, open bool) (string, bool) {
 		b.WriteString(line[:start])
 		line, open = line[start+len("<!--"):], true
 	}
+}
+
+// autoMemoryDir is where Claude Code keeps auto memory for the repository at
+// root: <projects>/<path with every non-alphanumeric rune as "-">/memory. The
+// path is the main checkout's, symlinks resolved: Claude Code shares one auto
+// memory across a repository's worktrees and records the physical path, so a
+// worktree or a symlinked ~/code looked for a folder that never existed. The
+// naming is read off Claude Code's own folders, not a documented contract, so
+// a miss names the folder it looked in.
+func autoMemoryDir(root string) string {
+	projects := os.Getenv(transcript.LogosClaudeProjectsEnv)
+	if projects == "" {
+		config := os.Getenv("CLAUDE_CONFIG_DIR")
+		if config == "" {
+			home, _ := os.UserHomeDir()
+			config = filepath.Join(home, ".claude")
+		}
+		projects = filepath.Join(config, "projects")
+	}
+	if _, checkout := gitstate.Identity(root); checkout != "" {
+		root = checkout
+	} else if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	name := strings.Map(func(r rune) rune {
+		if r < 128 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return r
+		}
+		return '-'
+	}, root)
+	return filepath.Join(projects, name, "memory")
+}
+
+// autoMemoryKinds maps auto memory's four types onto Logos's kinds. feedback is
+// how the user wants the agent to work, which is what a preference is; a type
+// this does not know is kept as a fact rather than dropped.
+var autoMemoryKinds = map[string]memory.Kind{
+	"user":      memory.Preference,
+	"feedback":  memory.Preference,
+	"project":   memory.Context,
+	"reference": memory.Fact,
+}
+
+type autoMemoryFront struct {
+	Description string `yaml:"description"`
+	Type        string `yaml:"type"`
+	Metadata    struct {
+		Type string `yaml:"type"`
+	} `yaml:"metadata"`
+}
+
+// readAutoMemory reads one memory per note in dir. MEMORY.md is skipped: it is
+// the index Claude Code loads, one pointer line per note, and imported it would
+// offer every memory a second time as a fragment. Anything else left out is
+// listed with its reason, so the count is never taken for everything there was.
+func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []ruleFile
+	for _, e := range entries {
+		if e.Name() == "MEMORY.md" {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		shown := p
+		if home != "" && strings.HasPrefix(p, home+string(filepath.Separator)) {
+			shown = "~" + p[len(home):]
+		}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			out = append(out, ruleFile{shown: shown, skip: "not a note"})
+			continue
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return nil, err
+		}
+		front, body, err := splitAutoMemory(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%s: the frontmatter is not YAML, so its type is unknown: %w", shown, err)
+		}
+		kind, ok := autoMemoryKinds[strings.ToLower(front.Metadata.Type)]
+		if !ok {
+			if kind, ok = autoMemoryKinds[strings.ToLower(front.Type)]; !ok {
+				kind = memory.Fact
+			}
+		}
+		// The body is the memory, the Why and How lines with it: they are what
+		// makes a rule something the next agent can judge rather than obey.
+		// A note with no body still said something in its description.
+		text := strings.Join(strings.Fields(body), " ")
+		if text == "" {
+			text = strings.Join(strings.Fields(front.Description), " ")
+		}
+		if text == "" {
+			out = append(out, ruleFile{shown: shown, skip: "empty"})
+			continue
+		}
+		// A user note is who the person is, which does not change at the next
+		// repository; scoped to this one, every other project's recall missed it.
+		scoped := project
+		if strings.EqualFold(front.Metadata.Type, "user") || strings.EqualFold(front.Type, "user") {
+			scoped = ""
+		}
+		out = append(out, ruleFile{shown: shown, project: scoped, items: []string{text}, kind: kind})
+	}
+	return out, nil
+}
+
+// splitAutoMemory separates a note's frontmatter from its body. The fences are
+// whole "---" lines, so an empty block is still a block and a "----" rule in
+// the body is not the end of one.
+func splitAutoMemory(text string) (autoMemoryFront, string, error) {
+	var front autoMemoryFront
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return front, text, nil
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			err := yaml.Unmarshal([]byte(strings.Join(lines[1:i], "\n")), &front)
+			return front, strings.Join(lines[i+1:], "\n"), err
+		}
+	}
+	return front, text, nil
 }
