@@ -122,7 +122,7 @@ note) if [ "$LOGOS_AUTO_CHECKPOINT" = 1 ] && grep -q s-hook; then echo "auto-che
 esac`)
 
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	cmd.Stdin = strings.NewReader(`{"session_id":"s-hook"}`)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -114,7 +114,7 @@ activity) case "$*" in *--ask-checkpoint*) echo '{"decision":"block","reason":"c
 esac`)
 
 	cmd := exec.Command("/bin/bash", hook, "Stop")
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("hook: %v", err)
@@ -124,7 +124,7 @@ esac`)
 	}
 
 	cmd = exec.Command("/bin/bash", hook, "PostToolUse")
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	if out, _ := cmd.Output(); len(out) != 0 {
 		t.Errorf("a tool-call hook printed on stdout:\n%s", out)
 	}
@@ -146,7 +146,7 @@ note) echo "noted" ;;
 esac`)
 
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("hook: %v\n%s", err, out)

@@ -47,7 +47,16 @@ permissions:
   id-token: write # mint the OIDC token npm verifies
 
 jobs:
+  # The whole of CI, the same check a PR must pass. A release that ships a
+  # failing build helps nobody, and a commit pushed straight to main never met
+  # the PR gate at all.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,14 +81,6 @@ jobs:
         with:
           node-version: 24
       - run: npm install -g npm@latest
-
-      # The gate. A release that ships a failing build helps nobody, and these
-      # are the same commands that run locally.
-      - name: Test
-        run: |
-          gofmt -l . | grep -v '\.venv' | (! grep .) || (echo "unformatted files above"; exit 1)
-          go vet ./...
-          go test ./...
 
       - name: Build binaries
         run: ./scripts/release.sh "${GITHUB_REF_NAME:-dev}"
