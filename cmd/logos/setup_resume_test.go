@@ -166,7 +166,7 @@ func TestSetupWithYesWritesNoMemoriesFromHistory(t *testing.T) {
 	if n, err := memory.Count(ix.DB); err != nil || n != 0 {
 		t.Errorf("setup --yes wrote %d memories (err %v), want none", n, err)
 	}
-	if !strings.Contains(out, "`logos bootstrap` shows them first") {
+	if !strings.Contains(out, "`logos import --from git` shows them first") {
 		t.Errorf("setup --yes did not point at the history it left unread:\n%s", out)
 	}
 }

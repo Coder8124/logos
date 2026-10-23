@@ -47,10 +47,10 @@ func watchVault(ctx context.Context, vault string, w io.Writer, every time.Durat
 	// A watch that can never print a capture would sit silent and read as a
 	// broken command, so it says which of its sources are switched off.
 	if !activity.Recording(vault) {
-		fmt.Fprintln(w, "· captures are not being recorded in this vault, so none will show; `logos activity on` starts them")
+		fmt.Fprintln(w, "· captures are not being recorded in this vault, so none will show; `logos config activity on` starts them")
 	}
 	if !usagepkg.Recording(vault) {
-		fmt.Fprintln(w, "· the usage ledger is off, so rulings handed back will not show; `logos usage on` starts it")
+		fmt.Fprintln(w, "· the usage ledger is off, so rulings handed back will not show; `logos stats --usage on` starts it")
 	}
 	fmt.Fprintf(w, "Watching %s — captures, rulings handed back, memory changes. Ctrl-C stops.\n", vault)
 

@@ -48,7 +48,7 @@ func runWhy(args []string) error {
 		// imply the file is uninteresting, which is a different claim.
 		fmt.Printf("No checkpoint mentions %s.\n", path)
 		fmt.Println("\nEither nothing was written down while working on it, or it was")
-		fmt.Println("recorded under a different path. `logos sessions <project>` lists what")
+		fmt.Println("recorded under a different path. `logos show --history <project>` lists what")
 		fmt.Println("has been checkpointed.")
 		return nil
 	}

@@ -749,4 +749,4 @@ find "$VAULT" \( -name '*.md' -o -name '*.csv' \) | wc -l | xargs echo "  files:
 echo
 echo "next:"
 echo "  LOGOS_VAULT=\"$VAULT\" ./bin/logos index"
-echo "  LOGOS_VAULT=\"$VAULT\" ./bin/logos ask 'why is the BOM over target?'"
+echo "  LOGOS_VAULT=\"$VAULT\" ./bin/logos search --answer 'why is the BOM over target?'"

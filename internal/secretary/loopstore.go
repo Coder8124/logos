@@ -288,8 +288,8 @@ func render(all []Commitment) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntype: open-loops\nopen: %d\n---\n\n", open)
-	b.WriteString("Things you said you would do. `logos loop` lists what is still open;\n" +
-		"`logos loop done <id>` or `logos loop drop <id>` closes one.\n\n")
+	b.WriteString("Things you said you would do. `logos memory loop` lists what is still open;\n" +
+		"`logos memory loop done <id>` or `logos memory loop drop <id>` closes one.\n\n")
 	b.WriteString("Ticking a box here does nothing on its own — the status in each line's\n" +
 		"comment is what counts. Deleting a line forgets that loop entirely, from the\n" +
 		"next loop logos adds or closes, or the next `logos index`, whichever is first;\n" +

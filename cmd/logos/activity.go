@@ -135,7 +135,7 @@ func emptyActivity(vault string, q activity.Query) error {
 	}
 	if len(any) > 0 {
 		fmt.Printf("nothing recorded%s.\n", scopeLabel(q))
-		fmt.Println("  `logos activity --projects` lists what is being recorded.")
+		fmt.Println("  `logos watch --log --projects` lists what is being recorded.")
 		return nil
 	}
 	if !activity.Recording(vault) {
@@ -143,7 +143,7 @@ func emptyActivity(vault string, q activity.Query) error {
 		// nothing in it: that is the same healthy zero invariant 3 exists to
 		// stop.
 		fmt.Printf("activity recording is off for %s.\n\n", vault)
-		fmt.Println("      logos activity on")
+		fmt.Println("      logos config activity on")
 		return nil
 	}
 	fmt.Println("no activity recorded yet.")
@@ -173,7 +173,7 @@ func setActivityRecording(on bool) error {
 		return nil
 	}
 	fmt.Printf("activity recording is off for %s — nothing new is logged; what is already there is left alone\n", vault)
-	fmt.Println("  `logos activity on` resumes it. LOGOS_ACTIVITY=off turns it off for one process.")
+	fmt.Println("  `logos config activity on` resumes it. LOGOS_ACTIVITY=off turns it off for one process.")
 	return nil
 }
 

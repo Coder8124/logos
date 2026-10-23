@@ -57,7 +57,7 @@ func TestIngestPrintsWhatItReadAndWhatItQueued(t *testing.T) {
 	if !strings.Contains(out, "3 queued") {
 		t.Errorf("output does not report the queued candidates:\n%s", out)
 	}
-	if !strings.Contains(out, "review them:  logos ingest review") {
+	if !strings.Contains(out, "review them:  logos review --candidates") {
 		t.Errorf("output does not point at the review step:\n%s", out)
 	}
 }
@@ -177,7 +177,7 @@ func TestPromotionIsAnnouncedEvenWhenTheStatusWriteFails(t *testing.T) {
 	if !strings.Contains(out, "promoted to checkpoint:") {
 		t.Errorf("a durable promotion was not announced:\n%s", out)
 	}
-	if !strings.Contains(out, "warning:") || !strings.Contains(out, "logos ingest review --reject") {
+	if !strings.Contains(out, "warning:") || !strings.Contains(out, "logos review --candidates --reject") {
 		t.Errorf("the status-write failure was not surfaced with a recovery command:\n%s", out)
 	}
 }
@@ -233,7 +233,7 @@ func TestResumeMentionsPendingCandidates(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(out, "pending review") || !strings.Contains(out, "logos ingest review") {
+	if !strings.Contains(out, "pending review") || !strings.Contains(out, "logos review --candidates") {
 		t.Errorf("resume did not mention the pending ingest queue:\n%s", out)
 	}
 }

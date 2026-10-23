@@ -59,7 +59,7 @@ func Deny(dir string) (string, error) {
 		return "", err
 	}
 	// The sentence is for whoever finds the file in a diff and wonders.
-	body := "Logos does not track this repository. `logos deny --undo` removes this file and resumes.\n"
+	body := "Logos does not track this repository. `logos config deny --undo` removes this file and resumes.\n"
 	return path, os.WriteFile(path, []byte(body), 0o644)
 }
 

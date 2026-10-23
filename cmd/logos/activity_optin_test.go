@@ -18,7 +18,7 @@ func TestSetupUnderYesLeavesTheActivityLogOffAndSaysHowToTurnItOn(t *testing.T) 
 	if activity.Recording(vault) {
 		t.Error("--yes turned on a log the user was never asked about")
 	}
-	if !strings.Contains(out, "logos activity on") {
+	if !strings.Contains(out, "logos config activity on") {
 		t.Errorf("the run never said how to turn it on:\n%s", out)
 	}
 }

@@ -52,7 +52,7 @@ updated=$("${LOGOS[@]}" plugin autoupdate --notice 2>/dev/null) || updated=""
 # and empty always once recording is off.
 #
 # It is also the first contact: a repository Logos has not seen is announced
-# once, with the way out (`logos deny`), and a denied one gets nothing.
+# once, with the way out (`logos config deny`), and a denied one gets nothing.
 recording=$("${LOGOS[@]}" activity notice "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null) || recording=""
 
 # A plugin that updated itself in silence is indistinguishable from one that

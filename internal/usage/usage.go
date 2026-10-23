@@ -116,7 +116,7 @@ func SetRecording(vault string, on bool) error {
 	if err := vaultpkg.MkdirPrivate(filepath.Join(vault, Dir)); err != nil {
 		return err
 	}
-	return os.WriteFile(off, []byte("The usage ledger is off for this vault. `logos usage on` turns it back on.\n"), vaultpkg.FileMode)
+	return os.WriteFile(off, []byte("The usage ledger is off for this vault. `logos stats --usage on` turns it back on.\n"), vaultpkg.FileMode)
 }
 
 // Record appends one event.

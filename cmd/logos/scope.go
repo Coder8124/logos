@@ -143,7 +143,7 @@ func runProjectRename(args []string) error {
 		return err
 	}
 	if res.Empty() && res.Merged == 0 {
-		fmt.Printf("nothing filed under %q — check the name with `logos projects`\n", from)
+		fmt.Printf("nothing filed under %q — check the name with `logos show --projects`\n", from)
 		return nil
 	}
 

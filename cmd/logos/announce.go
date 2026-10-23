@@ -32,7 +32,7 @@ func runAnnounce(args []string) error {
 		fmt.Println("  quiet  the same facts, without the marker")
 		fmt.Println("  off    nothing extra — the agent is still told, you are not")
 		fmt.Println()
-		fmt.Println("  logos announce quiet")
+		fmt.Println("  logos config announce quiet")
 		return nil
 	}
 
@@ -45,7 +45,7 @@ func runAnnounce(args []string) error {
 	case "off", "silent":
 		l = announce.Off
 	default:
-		return fmt.Errorf("usage: logos announce [on|quiet|off|status]")
+		return fmt.Errorf("usage: logos config announce [on|quiet|off|status]")
 	}
 	if err := announce.Store(vault, l); err != nil {
 		return err
@@ -55,7 +55,7 @@ func runAnnounce(args []string) error {
 	// did, including when it has just turned everything else off.
 	fmt.Printf("announcements: %s\n", l)
 	if l == announce.Off {
-		fmt.Println("  Logos will keep working and stop mentioning it. `logos activity` still has the record.")
+		fmt.Println("  Logos will keep working and stop mentioning it. `logos watch --log` still has the record.")
 	}
 	if v := os.Getenv(announce.Env); strings.TrimSpace(v) != "" {
 		fmt.Printf("  note: %s=%s is set in this environment and overrides what was just stored.\n", announce.Env, v)

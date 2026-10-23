@@ -277,7 +277,7 @@ func renderInsights(all []Insight) string {
 	b.WriteString("Connections logos proposed while consolidating. None of these is a\n" +
 		"memory yet: nothing here is recalled or packed into context until you\n" +
 		"accept it.\n\n")
-	b.WriteString("Run `logos dream review` to accept or reject them. Deleting a line here\n" +
+	b.WriteString("Run `logos review --connections` to accept or reject them. Deleting a line here\n" +
 		"discards that insight, from the next insight logos queues or reviews, or the\n" +
 		"next `logos index`, whichever is first; this file is the record, not the\n" +
 		"database.\n\n")

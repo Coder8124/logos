@@ -86,7 +86,7 @@ func printReplay(res replay.Result) {
 
 	if res.Insights > 0 {
 		fmt.Printf("\nOvernight\n")
-		fmt.Printf("  %d dreamed connection(s) waiting — `logos dream review`\n", res.Insights)
+		fmt.Printf("  %d dreamed connection(s) waiting — `logos review --connections`\n", res.Insights)
 	}
 }
 

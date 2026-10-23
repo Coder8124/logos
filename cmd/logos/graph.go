@@ -57,7 +57,7 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 		if older > 0 {
 			// Invariant 3: the picture is the recent end of the project, and
 			// says so, rather than passing for all of it.
-			fmt.Printf("%d older %s not drawn — logos graph --list names every node\n",
+			fmt.Printf("%d older %s not drawn — logos show --graph --list names every node\n",
 				older, map[bool]string{true: "checkpoint", false: "checkpoints"}[older == 1])
 		}
 		return nil

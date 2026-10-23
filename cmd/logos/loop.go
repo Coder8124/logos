@@ -60,7 +60,7 @@ func commitmentCmd(args []string) error {
 		// tracked a blank loop that then sat as a bare bullet in every resume.
 		text := strings.TrimSpace(joinArgs(args[1:]))
 		if text == "" {
-			return fmt.Errorf("usage: logos loop add <text>")
+			return fmt.Errorf("usage: logos memory loop add <text>")
 		}
 		c := &secretary.Commitment{Text: text}
 		added, err := secretary.Add(ix.DB, c)
@@ -82,7 +82,7 @@ func commitmentCmd(args []string) error {
 	case "drop":
 		return closeLoop(ix.DB, args, secretary.Dropped, "dropped")
 	default:
-		return fmt.Errorf("usage: logos loop [list | add <text> | done <id> | drop <id>]")
+		return fmt.Errorf("usage: logos memory loop [list | add <text> | done <id> | drop <id>]")
 	}
 	return nil
 }
@@ -95,7 +95,7 @@ func commitmentCmd(args []string) error {
 func closeLoop(db *sql.DB, args []string, status secretary.Status, verb string) error {
 	id := parseID(args)
 	if id == 0 {
-		return fmt.Errorf("usage: logos loop %s <id> — the id is the number in brackets in `logos loop`", args[0])
+		return fmt.Errorf("usage: logos memory loop %s <id> — the id is the number in brackets in `logos memory loop`", args[0])
 	}
 	open, err := secretary.Open_(db)
 	if err != nil {
@@ -110,5 +110,5 @@ func closeLoop(db *sql.DB, args []string, status secretary.Status, verb string) 
 			return nil
 		}
 	}
-	return fmt.Errorf("no open loop [%d] — run `logos loop` to see the ids", id)
+	return fmt.Errorf("no open loop [%d] — run `logos memory loop` to see the ids", id)
 }

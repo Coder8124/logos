@@ -34,7 +34,7 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		pending, _ := ingest.Pending(s.vault)
 		if len(pending) == 0 {
 			return s.receipt("no ingested sessions are waiting to be distilled") +
-				"\n\nNothing is queued. `logos ingest` reads transcripts; this tool only serves what it already queued.", nil
+				"\n\nNothing is queued. `logos import --from transcripts` reads transcripts; this tool only serves what it already queued.", nil
 		}
 		var b strings.Builder
 		b.WriteString(s.receipt(fmt.Sprintf("%d ingested session(s) waiting to be distilled", len(pending))))
@@ -115,7 +115,7 @@ func (s *Session) ingestDistil(ref string, d ingest.Distillation) (string, error
 	if n := len(d.Wanted); n > 0 {
 		fmt.Fprintf(&b, "%d wanted entr%s not kept: a candidate has no place for them — a person promoting it writes the task.\n\n", n, pluralY(n))
 	}
-	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  logos ingest review --promote %s\n", shortSession(c.SessionID))
+	fmt.Fprintf(&b, "It is still a candidate, not a checkpoint. A person promotes it:\n  logos review --candidates --promote %s\n", shortSession(c.SessionID))
 	return b.String(), nil
 }
 

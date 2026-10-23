@@ -106,7 +106,7 @@ func TestWatchSaysWhenCapturesAreNotBeingRecorded(t *testing.T) {
 	waitFor(t, out, "Watching")
 	cancel()
 	<-done
-	if !strings.Contains(out.String(), "logos activity on") {
+	if !strings.Contains(out.String(), "logos config activity on") {
 		t.Errorf("watch did not say captures are off:\n%s", out.String())
 	}
 }

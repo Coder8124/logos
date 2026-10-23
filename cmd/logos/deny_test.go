@@ -121,7 +121,7 @@ func TestLogosDenyUndoResumesTrackingNextContact(t *testing.T) {
 func TestFirstContactAnnouncesItselfOnceNotOnEverySession(t *testing.T) {
 	standIn(t, "shop")
 	first := notice(t)
-	if !strings.Contains(first, "Logos started tracking this repo") || !strings.Contains(first, "logos deny") {
+	if !strings.Contains(first, "Logos started tracking this repo") || !strings.Contains(first, "logos config deny") {
 		t.Fatalf("first contact did not announce itself with the way out: %q", first)
 	}
 	if again := notice(t); strings.Contains(again, "started tracking") {
@@ -209,7 +209,7 @@ func TestADeniedRepoGetsAnMCPServerWithNoToolsThatWritesNothing(t *testing.T) {
 		t.Errorf("a denied repo was offered %d tools", len(tools))
 	}
 	call, _ := replies[3]["result"].(map[string]any)
-	if call == nil || call["isError"] == true || !strings.Contains(out.String(), "logos deny") {
+	if call == nil || call["isError"] == true || !strings.Contains(out.String(), "logos config deny") {
 		t.Errorf("a call in a denied repo did not answer plainly and say why:\n%s", out.String())
 	}
 	if entries, _ := os.ReadDir(work); len(entries) != 0 {

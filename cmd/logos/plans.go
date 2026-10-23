@@ -14,7 +14,7 @@ import (
 func runPlans(args []string) error {
 	project, _ := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: logos plans <project>")
+		return fmt.Errorf("usage: logos show --plans <project>")
 	}
 
 	vault, err := requireVault()

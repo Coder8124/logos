@@ -63,21 +63,31 @@ func main() {
 		migrateHint(os.Stderr)
 	}
 	args := os.Args[2:]
-	rest := strings.Join(args, " ")
 
 	// Most commands never looked for --help: `update --help` replaced the
 	// binary, `note --help` wrote a note reading "--help", `index --help`
 	// rebuilt the index. Asking how a command works has to be free, so the
 	// flag is answered here, before any command gets the chance to act.
-	// setup, review and mcp install print their own fuller usage.
-	if (hasFlag(args, "--help") || hasFlag(args, "-h")) && cmd != "setup" && cmd != "review" &&
-		!(cmd == "mcp" && firstNonFlag(args) == "install") && commandHelp(os.Stdout, cmd) {
+	// setup, review and mcp install print their own fuller usage — but not the
+	// forms surface hands to another verb, whose handler would get the --help
+	// instead and might not look for it. Asking surface, rather than listing
+	// those forms again here, keeps a new hand-off from slipping past.
+	to, _, _ := surface(cmd, args)
+	ownUsage := to == cmd &&
+		(cmd == "setup" || cmd == "review" || (cmd == "mcp" && firstNonFlag(args) == "install"))
+	if (hasFlag(args, "--help") || hasFlag(args, "-h")) && !ownUsage && commandHelp(os.Stdout, cmd) {
 		return
 	}
 
-	if err := checkCommandFlags(cmd, args); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	noteRenamed(os.Stderr, cmd, args)
+	cmd, args, form := surface(cmd, args)
+	rest := strings.Join(args, " ")
+
+	if spec, ok := commandFlags[cmd]; ok {
+		if err := checkFlags(form, args, spec); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	}
 
 	var err error
@@ -88,11 +98,14 @@ func main() {
 		// Asked for, so it goes to stdout and exits 0 — the difference between
 		// answering a question and reporting a bad command line. `help all`
 		// takes the flag spelling too, so `logos --help all` is not a puzzle.
-		if firstNonFlag(args) == "all" {
+		switch topic := firstNonFlag(args); {
+		case topic == "all":
 			helpAll(os.Stdout)
-			break
+		case topic == "":
+			helpShort(os.Stdout)
+		case !commandHelp(os.Stdout, topic):
+			err = fmt.Errorf("no help for %q — `logos help all` lists every command", topic)
 		}
-		helpShort(os.Stdout)
 	case cmd == "setup":
 		err = setupCmd(args)
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "install":
@@ -134,7 +147,7 @@ func main() {
 	case cmd == "ask" && rest != "":
 		err = ask(rest)
 	case cmd == "ask":
-		err = fmt.Errorf("usage: logos ask <question>")
+		err = fmt.Errorf("usage: logos search --answer <question>")
 	case cmd == "context" && rest != "":
 		err = runContext(args)
 	case cmd == "context":
@@ -183,6 +196,8 @@ func main() {
 		err = runWatch(args)
 	case cmd == "auto":
 		err = runAuto(args)
+	case cmd == "config":
+		err = configCmd(args)
 	case cmd == "project-name":
 		err = runProjectName(args)
 	case cmd == "hook":
@@ -371,7 +386,7 @@ func checkIndex(ix *index.Index) {
 		// with the rebuild half done.
 		fmt.Fprintln(os.Stderr, noIndex(ix)+" — a hook does not rebuild it; the next logos command does")
 	case !synced:
-		fmt.Fprintln(os.Stderr, noIndex(ix)+" — `logos index` builds it from the vault (or `logos auto config index on`)")
+		fmt.Fprintln(os.Stderr, noIndex(ix)+" — `logos index` builds it from the vault (or `logos config auto config index on`)")
 	}
 }
 
@@ -456,7 +471,7 @@ func truncate(s string, n int) string {
 
 func keyCmd(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: logos key set|rm <ref>")
+		return fmt.Errorf("usage: logos config key set|rm <ref>")
 	}
 	ref := args[1]
 
@@ -475,7 +490,7 @@ func keyCmd(args []string) error {
 	case "rm":
 		return router.DeleteKey(ref)
 	}
-	return fmt.Errorf("usage: logos key set|rm <ref>")
+	return fmt.Errorf("usage: logos config key set|rm <ref>")
 }
 
 // wasWere keeps the rescue receipts readable when exactly one thing was

@@ -30,8 +30,12 @@ const reviewUsage = `usage:
     logos review [--all]
     logos review --auto
     logos review --undo-auto [--since 24h|7d|YYYY-MM-DD]
+    logos review --candidates [--promote <id> | --reject <id>]
+    logos review --connections [accept|reject <id>]
 
 Accept or reject memories agents saved, which wait in quarantine until you do.
+--candidates and --connections are the other two queues: transcript candidates
+before they become checkpoints, and the connections a dream proposed overnight.
 
     --all         go through every pending memory instead of the first 20
     --auto        list what the review switch accepted for you
@@ -48,7 +52,9 @@ func runReview(args []string) error {
 	}
 	if err := checkFlags("logos review", args, flagSpec{
 		valued: []string{"--since"},
-		bare:   []string{"--all", "--auto", "--undo-auto"},
+		// --candidates and --connections never arrive (surface takes them to
+		// their own queues), but a typo of one should be told they exist.
+		bare: []string{"--all", "--auto", "--undo-auto", "--candidates", "--connections"},
 	}); err != nil {
 		return err
 	}

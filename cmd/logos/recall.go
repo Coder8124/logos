@@ -20,7 +20,7 @@ func recallCmd(args []string) error {
 	}
 	query := strings.TrimSpace(strings.Join(dropFlag(dropFlag(positionals(args, "--all-projects"), "--project"), "--limit"), " "))
 	if query == "" {
-		return fmt.Errorf("usage: logos recall <query> [--project <name>] [--all-projects] [--limit N]")
+		return fmt.Errorf("usage: logos memory recall <query> [--project <name>] [--all-projects] [--limit N]")
 	}
 	project := ""
 	if !hasFlag(args, "--all-projects") {

@@ -16,7 +16,7 @@ func GetKey(ref string) (string, error) {
 	out, err := exec.Command("security", "find-generic-password",
 		"-s", keychainService, "-a", ref, "-w").Output()
 	if err != nil {
-		return "", fmt.Errorf("no key %q in keychain (add with: logos key set %s)", ref, ref)
+		return "", fmt.Errorf("no key %q in keychain (add with: logos config key set %s)", ref, ref)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -34,7 +34,7 @@ func SetKey(ref, secret string) error {
 	// key back is the only way to know it is there.
 	got, err := GetKey(ref)
 	if err != nil || got != strings.TrimSpace(secret) {
-		return fmt.Errorf("storing key: the keychain did not keep it (logos key set %s to retry)", ref)
+		return fmt.Errorf("storing key: the keychain did not keep it (logos config key set %s to retry)", ref)
 	}
 	return nil
 }

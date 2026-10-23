@@ -13,7 +13,7 @@ import (
 // complete and is not; the answer itself already did its job and is kept.
 func (s *Server) ledger(e usage.Event) string {
 	if err := usage.Record(s.vault, e); err != nil {
-		return fmt.Sprintf("\n_logos could not add this to its usage ledger, so `logos usage` will not count it: %v_\n", err)
+		return fmt.Sprintf("\n_logos could not add this to its usage ledger, so `logos stats --usage` will not count it: %v_\n", err)
 	}
 	return ""
 }
@@ -22,7 +22,7 @@ func (s *Server) ledger(e usage.Event) string {
 // come after it.
 func (s *Server) ledgerPack(via, project string, pack contextpack.Pack) string {
 	if err := usage.RecordPack(s.vault, via, project, pack, ""); err != nil {
-		return fmt.Sprintf("\n_logos could not add this to its usage ledger, so `logos usage` will not count it: %v_\n", err)
+		return fmt.Sprintf("\n_logos could not add this to its usage ledger, so `logos stats --usage` will not count it: %v_\n", err)
 	}
 	return ""
 }

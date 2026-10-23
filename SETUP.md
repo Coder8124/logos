@@ -192,14 +192,14 @@ with nothing installed. Retrieval falls back to BM25, which for code
 (identifiers, error strings, paths) is the right tool rather than a consolation.
 
 A 274 MB embedding model adds paraphrase-tolerant search if you want it. The
-chat tiers are only for `logos ask` and the nightly dream pass — nothing an
+chat tiers are only for `logos search --answer` and the nightly dream pass — nothing an
 MCP host calls ever touches them, so a coding agent needs none of it. Ollama,
 LM Studio, Jan and Msty are auto-discovered if present.
 
 ```sh
 logos doctor --probe                # which models load, and honour JSON schemas
 logos index                         # re-sync after editing the vault by hand
-logos ask "what did I decide about pricing?"
+logos search --answer "what did I decide about pricing?"
 ```
 
 Want something to point it at? `./scripts/seed-demo-vault.sh` builds a synthetic
@@ -316,12 +316,12 @@ go run ./cmd/logos bench continuity --logos-only
 ## The history you already have
 
 A new vault is empty, and that is not the same as starting from zero: the agents
-on this machine have been writing transcripts all along. `logos ingest` reads
+on this machine have been writing transcripts all along. `logos import --from transcripts` reads
 them.
 
 ```sh
-logos ingest --dry-run     # what is there, from Claude Code and Codex
-logos ingest               # turn it into candidates you review before promoting
+logos import --from transcripts --dry-run   # what is there, from Claude Code and Codex
+logos import --from transcripts             # turn it into candidates you review before promoting
 ```
 
 Nothing is promoted without you: ingest fills a review queue, and the facts in it
@@ -439,9 +439,9 @@ every definition with every request pays for all of them on every turn: about
 `LOGOS_TOOLS=continuity` in `env`) serves the nine an agent uses mid-task —
 `remember`, `recall`, `context`, `resume`, `before_you_try`, `why`,
 `note_progress`, `checkpoint` and `handoff` — plus `ingest_harvest` and
-`ingest_distil`, because only an agent can distil what `logos ingest` harvests.
+`ingest_distil`, because only an agent can distil what `logos import --from transcripts` harvests.
 That is about 3.7k tokens. The six it drops are curation, and each has a
-terminal equivalent under `logos memory` or `logos projects`.
+terminal equivalent under `logos memory` or `logos show --projects`.
 
 ### Seeing it work
 
@@ -502,7 +502,7 @@ In Claude Code the plugin also brings a ruling to the edit it bears on. Before
 an agent edits a file that a recorded dead end names, a pre-tool hook adds one
 line beside the edit — who ruled it out, when, and whether the file has changed
 since — once per file per session, and nothing when no ruling names the file.
-It never blocks the edit, and `logos usage` counts how often it spoke. This
+It never blocks the edit, and `logos stats --usage` counts how often it spoke. This
 needs a host with pre-tool hooks: Cursor, Codex and the MCP-only hosts get
 nothing at edit time, and reach the same rulings through `before_you_try`.
 
@@ -639,27 +639,31 @@ definitions, which makes them part of the contract rather than a copy that drift
 ## The command surface
 
 ```text
-logos setup [--vault DIR] [--yes]               connect logos to every agent here
-logos migrate [--dry-run] [--yes]               move a 0.4 vault from ~/brain to ~/logos
-logos mcp serve | mcp install                   serve the memory; wire up the hosts
-logos ask <q> | search <q>                      query what it knows
-logos replay [--peek]                           what changed since you were last here
-logos reflect                                   descriptive stats over your memory
-logos memory [add|correct|forget|log|history|graph|diff]  persistent memory and its timeline
-logos review [--all]                            accept or reject quarantined memories
-logos projects | project <name>                 auto-detected projects and dossiers
-logos loop [add|done|drop]                      open commitments
-logos graph [focus] [--hops N] [--similar]      the note graph around a note
-logos context <task> [--project p] [--budget n] everything bearing on a task, budgeted
+logos setup [--vault DIR] [--yes] | --uninstall connect logos to every agent here, or undo it
 logos note [project] <what you did>             record progress; uncommitted until checkpoint
 logos checkpoint [project] [--handoff who]      commit where you stopped, into the vault
-logos resume [project] | sessions [project]     pick up; read the checkpoint log
+logos resume [project]                          pick up where the last agent left off
+logos context <task> [--project p] [--budget n] everything bearing on a task, budgeted
 logos tried <approach> [--project p]            has this already been ruled out?
-logos bench continuity [--logos-only]           the handoff suite, against every system installed
+logos why <file>                                what was being decided when it was touched
+logos search <q> | search --answer <q>          query what it knows, or answer from it
+logos show [project] [--history|--plans|--graph|--projects|--continuity|--since-last]
+                                                one project on one screen, and its views
+logos stats [--usage|--memory]                  patterns, usage, what your memory leans on
+logos memory [add|correct|forget|log|recall|dream|loop|...]  persistent memory and its timeline
+logos review [--candidates|--connections]       accept or reject what waits for your yes
+logos import --from claude-mem|claude-md|cursor-rules|transcripts|git
+logos watch [--log]                             follow what agents record as it happens
+logos project <name> | rename <old> <new>       a project's dossier, or rename one
+logos config announce|auto|think|deny|prompt|key|activity   settings
 logos index [--watch]                           sync the vault into the cache and embed
-logos dream [--phase nrem|rem]                  nightly consolidation: replay, fade, recombine
-logos doctor [--verbose] [--probe] | key set|rm <ref>  health; --verbose adds runtimes and tiers; API keys
+logos doctor [--verbose] [--probe]              health; --verbose adds runtimes and tiers
+logos update                                    update to the latest release
 ```
+
+`logos help all` lists every form, the plumbing hooks run, and the old
+spellings (`logos ask`, `logos sessions`, `logos dream`, …), which still work
+for now and say on stderr what replaced them.
 
 Environment: `LOGOS_VAULT` (default `~/logos`), `LOGOS_MODEL`, `LOGOS_EMBED`,
 `LOGOS_AGENT` (the name recorded in the session trail, default `cli`),
@@ -763,7 +767,7 @@ bound off the machine, and fails if it sees a single request.
 The vault is a folder of markdown, so Obsidian opens it as it is: *Open folder
 as vault* and pick `~/logos`. Nothing needs converting, and either side can
 edit while the other is open. Run `logos index` after editing by hand, or turn
-on `logos auto config index on`.
+on `logos config auto config index on`.
 
 - **What you will and won't see.** Obsidian hides folders whose names start
   with a dot, so `.logos/` (the index) never shows. Logos skips them too, so
