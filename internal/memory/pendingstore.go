@@ -420,6 +420,13 @@ func upsertPending(db *sql.DB, m Memory) (int64, bool, error) {
 	if id <= 0 {
 		id = nextID(db)
 	}
+	// A queue written before uid= was recorded (or a hand-mangled one) has
+	// none to give back. Derive it the way Store does rather than restore the
+	// proposal nameless, or accepting it writes no file and it lives only in
+	// the cache.
+	if m.Uid == "" {
+		m.Uid = computeUID(m.Kind, m.Text, m.Remote)
+	}
 	if _, err := db.Exec(
 		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, fingerprint, quarantined, turn, contests, commit_sha, uid)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`,
