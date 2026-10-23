@@ -241,7 +241,7 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintln(os.Stderr, "· could not restore open loops:", err)
 	} else {
 		if loops > 0 {
-			fmt.Fprintf(w, "restored %d tracked %s — run `logos loop`\n", loops, plural(loops, "loop"))
+			fmt.Fprintf(w, "restored %d tracked %s — run `logos memory loop`\n", loops, plural(loops, "loop"))
 		}
 		// The other direction, said for the reason the rescued memories are:
 		// a write to the vault failed earlier, and the process told about it
@@ -271,7 +271,7 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		// actually something waiting behind it.
 		line := fmt.Sprintf("restored %d dreamed %s", seen, plural(seen, "insight"))
 		if n, err := dream.PendingCount(ix.DB); err == nil && n > 0 {
-			line += " — run `logos dream review`"
+			line += " — run `logos review --connections`"
 		}
 		fmt.Fprintln(w, line)
 	}

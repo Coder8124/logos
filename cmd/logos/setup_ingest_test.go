@@ -28,7 +28,7 @@ func TestSetupSaysHowMuchHistoryIsAlreadyOnThisMachine(t *testing.T) {
 
 	out := captureStdout(t, func() { reportHistoryOnThisMachine() })
 
-	if !strings.Contains(out, "logos ingest") {
+	if !strings.Contains(out, "logos import --from transcripts") {
 		t.Errorf("setup never mentioned the command that reads this machine's history:\n%s", out)
 	}
 	if !strings.Contains(out, "claude-code") {

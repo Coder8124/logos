@@ -80,7 +80,7 @@ func TestTheLogDisclosesItselfOnceAndThenStopsSayingIt(t *testing.T) {
 	if first == "" {
 		t.Fatal("a fresh vault never told the user its prompts are being logged")
 	}
-	if !strings.Contains(first, "logos activity off") {
+	if !strings.Contains(first, "logos config activity off") {
 		t.Errorf("the disclosure does not say how to stop it:\n%s", first)
 	}
 	if !strings.Contains(first, filepath.Join(vault, activity.Dir)) {

@@ -55,7 +55,7 @@ func runDeny(args []string) error {
 	}
 
 	if scope.Denied(dir) {
-		fmt.Printf("%s is already denied; `logos deny --undo` lets Logos back in.\n", root)
+		fmt.Printf("%s is already denied; `logos config deny --undo` lets Logos back in.\n", root)
 		return nil
 	}
 	path, err := scope.Deny(dir)
@@ -63,7 +63,7 @@ func runDeny(args []string) error {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	fmt.Printf("Logos will not track %s: from the next session its hooks and MCP server here read and write nothing.\n", root)
-	fmt.Printf("  marker: %s — commit it to keep every agent out, or leave it uncommitted to keep it yours; `logos deny --undo` removes it.\n", path)
+	fmt.Printf("  marker: %s — commit it to keep every agent out, or leave it uncommitted to keep it yours; `logos config deny --undo` removes it.\n", path)
 	// Said because a user who denies a repo after a week in it will otherwise
 	// assume the week went with it.
 	fmt.Println("  what the vault already holds for it stays there; `logos forget` removes a memory.")
@@ -134,7 +134,7 @@ func activityNotice(args []string) error {
 	project := projectFor(dir)
 	first := project != "" && firstContact(vault, project)
 	if first {
-		said = append(said, "Logos started tracking this repo — `logos deny` to stop.")
+		said = append(said, "Logos started tracking this repo — `logos config deny` to stop.")
 	}
 	disclosure, _ := activity.Disclose(vault)
 	if disclosure != "" {

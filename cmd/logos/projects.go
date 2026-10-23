@@ -75,7 +75,7 @@ func projectsCmd(args []string) error {
 			if len(notesOnly) > 0 {
 				fmt.Printf("working notes, never checkpointed: %s\n", strings.Join(notesOnly, ", "))
 			}
-			fmt.Println("dossiers emerge as the rollup files your activity into project notes; `logos sessions <name>` reads the checkpoints directly in the meantime.")
+			fmt.Println("dossiers emerge as the rollup files your activity into project notes; `logos show --history <name>` reads the checkpoints directly in the meantime.")
 			return nil
 		}
 		fmt.Println("no projects detected yet — they emerge as the rollup files your activity into project notes.")
@@ -87,7 +87,7 @@ func projectsCmd(args []string) error {
 		fmt.Printf("    %d notes · %d people · %d files · %d goals · %d memories · %d conversations\n",
 			len(p.Notes), len(p.People), len(p.Files), len(p.Goals), len(p.Memories), p.Convos)
 	}
-	fmt.Println("\ntip: `logos project <name>` for the full dossier · `logos projects sync` to scope memory")
+	fmt.Println("\ntip: `logos project <name>` for the full dossier · `logos show --projects sync` to scope memory")
 	return nil
 }
 
@@ -118,10 +118,10 @@ func projectCmd(args []string) error {
 			return fmt.Errorf(
 				"no activity dossier for %q yet (it has checkpoints or memory, "+
 					"but the rollup that builds dossiers from activity hasn't run) — "+
-					"try `logos sessions %s` or `logos memory log --project %s` meanwhile",
+					"try `logos show --history %s` or `logos memory log --project %s` meanwhile",
 				name, name, name)
 		}
-		return fmt.Errorf("no project matching %q — try `logos projects`", name)
+		return fmt.Errorf("no project matching %q — try `logos show --projects`", name)
 	}
 
 	fmt.Printf("# %s", p.Name)

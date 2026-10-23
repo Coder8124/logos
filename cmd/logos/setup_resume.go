@@ -194,14 +194,14 @@ func offerBootstrap(root, project string, yes bool) {
 		fmt.Printf("  history    git refused to read %s here, so nothing below is drawn from it\n", what)
 	}
 	if yes {
-		fmt.Printf("  history    %d %s could be seeded from this repository's git history — `logos bootstrap` shows them first\n",
+		fmt.Printf("  history    %d %s could be seeded from this repository's git history — `logos import --from git` shows them first\n",
 			len(found), map[bool]string{true: "memory", false: "memories"}[len(found) == 1])
 		return
 	}
 	fmt.Printf("\n  From this repository's git history, as memories for %s:\n\n", project)
 	printSeeds(found)
 	if !confirmBootstrap(len(found)) {
-		fmt.Println("  Nothing written. `logos bootstrap` offers them again.")
+		fmt.Println("  Nothing written. `logos import --from git` offers them again.")
 		return
 	}
 	if err := storeSeeds(found, project); err != nil {

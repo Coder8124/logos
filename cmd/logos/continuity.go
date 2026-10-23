@@ -54,7 +54,7 @@ func runContinuity(args []string) error {
 			fmt.Printf("  %-24s   %d uncommitted note(s)\n", "", pc.Uncommitted)
 		}
 		if pc.Abandoned > 0 {
-			fmt.Printf("  %-24s   %d abandoned session(s) — see `logos sessions %s`\n", "", pc.Abandoned, pc.Project)
+			fmt.Printf("  %-24s   %d abandoned session(s) — see `logos show --history %s`\n", "", pc.Abandoned, pc.Project)
 		}
 	}
 	fmt.Printf("\n%d project%s · %d quiet or never checkpointed\n",

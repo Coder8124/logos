@@ -81,7 +81,7 @@ func Record(vault string, e Entry) error {
 		return err
 	}
 	if errors.Is(statErr, os.ErrNotExist) {
-		line = "# What Logos did on its own\n\nAppended by Logos; `logos auto status` reads it.\n\n" + line
+		line = "# What Logos did on its own\n\nAppended by Logos; `logos config auto status` reads it.\n\n" + line
 	}
 	if _, err := f.WriteString(line + "\n"); err != nil {
 		f.Close()
@@ -257,7 +257,7 @@ func Summary(entries []Entry) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "auto: " + strings.Join(parts, ", ") + " · `logos auto status`"
+	return "auto: " + strings.Join(parts, ", ") + " · `logos config auto status`"
 }
 
 // dreamSilent is how long a started dream may go without a result before

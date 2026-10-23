@@ -182,12 +182,12 @@ func SetRecording(vault string, on bool) error {
 		if err := os.Remove(off); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dir, onMarker), []byte("logos activity is on for this vault; `logos activity off` stops it\n"), vaultpkg.FileMode)
+		return os.WriteFile(filepath.Join(dir, onMarker), []byte("the activity log is on for this vault; `logos config activity off` stops it\n"), vaultpkg.FileMode)
 	}
 	if err := os.Remove(filepath.Join(dir, onMarker)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.WriteFile(off, []byte("logos activity is off for this vault; `logos activity on` resumes it\n"), vaultpkg.FileMode)
+	return os.WriteFile(off, []byte("the activity log is off for this vault; `logos config activity on` resumes it\n"), vaultpkg.FileMode)
 }
 
 // disclosedMarker records that this vault has told its user what the log does.
@@ -213,7 +213,7 @@ func Disclose(vault string) (string, error) {
 	if _, err := os.Stat(filepath.Join(dir, disclosedMarker)); err == nil {
 		return "", nil
 	}
-	return fmt.Sprintf("logos writes a log of your prompts and tool calls to %s, on this machine only; `logos activity off` stops it and `logos activity` shows it.", dir), nil
+	return fmt.Sprintf("logos writes a log of your prompts and tool calls to %s, on this machine only; `logos config activity off` stops it and `logos watch --log` shows it.", dir), nil
 }
 
 // MarkDisclosed records that the sentence Disclose returned has actually been

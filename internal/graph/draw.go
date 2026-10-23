@@ -140,7 +140,7 @@ func Draw(g Graph, cols, rows int, color bool) string {
 		// Invariant 3: a picture that quietly drops names reads as a graph
 		// with fewer notes in it than it has.
 		b.WriteString(paint(color, styleDim, fmt.Sprintf(
-			"%d %s left unlabelled for space — logos graph --list names every node\n",
+			"%d %s left unlabelled for space — logos show --graph --list names every node\n",
 			hidden, plural(hidden, "node", "nodes"))))
 	}
 	return b.String()

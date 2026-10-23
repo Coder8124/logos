@@ -498,7 +498,7 @@ func checkIngest(vaultDir string) Check {
 		// The same backlog the other two chore checks report, graded the same.
 		c.State = Warn
 		c.Detail += fmt.Sprintf("; %d candidate(s) pending review", pending)
-		c.Fix = "run `logos ingest review`"
+		c.Fix = "run `logos review --candidates`"
 	}
 	if needTxcript && c.Fix == "" {
 		c.Fix = "install txcript to read more harness formats"
@@ -568,7 +568,7 @@ func checkAbandonment(db *sql.DB) Check {
 	}
 	c.Detail = fmt.Sprintf("%d session%s never checkpointed — %s",
 		len(holding), pluralS(len(holding)), strings.Join(lines, "; "))
-	c.Fix = "run `logos sessions <project>` to see the notes, then checkpoint them or let the session go"
+	c.Fix = "run `logos show --history <project>` to see the notes, then checkpoint them or let the session go"
 	return c
 }
 

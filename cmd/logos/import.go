@@ -45,7 +45,7 @@ func runImport(args []string) error {
 		return runBootstrap(withoutFlag(args, "--from"))
 	}
 	if from != claudeMemSource {
-		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (the same as logos bootstrap)")
+		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
 	}
 	if hasFlag(args, "--auto") {
 		return runImportAuto()

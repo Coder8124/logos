@@ -171,7 +171,7 @@ func runDemo(args []string) error {
 	}
 	fmt.Println()
 	fmt.Println("  Try it against your own repository, no setup, nothing written:")
-	fmt.Println("    logos bootstrap --dry-run")
+	fmt.Println("    logos import --from git --dry-run")
 	fmt.Println()
 	return nil
 }

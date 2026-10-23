@@ -11,7 +11,7 @@ import (
 	"github.com/Coder8124/logos/internal/auto"
 )
 
-const autoUsage = "usage: logos auto [on|off|status|config [<switch> on|off]]"
+const autoUsage = "usage: logos config auto [on|off|status|config [<switch> on|off]]"
 
 // runAuto is `logos auto`: one switch for everything Logos does on its own,
 // and `config` for choosing which of it.
@@ -54,7 +54,7 @@ func runAuto(args []string) error {
 			return err
 		}
 		printAutoFixed(os.Stdout)
-		fmt.Println("\n  logos auto config <switch> on|off")
+		fmt.Println("\n  logos config auto config <switch> on|off")
 		return nil
 	case verb == "config" && len(args) == 3:
 		on, ok := map[string]bool{"on": true, "off": false}[strings.ToLower(args[2])]
@@ -82,7 +82,7 @@ func printAutoSwitches(w io.Writer, vault string) error {
 	}
 	switch {
 	case c.Master == nil:
-		fmt.Fprintln(w, "auto: not set — Logos does what it did before the switch; `logos auto on` or `off` decides")
+		fmt.Fprintln(w, "auto: not set — Logos does what it did before the switch; `logos config auto on` or `off` decides")
 	case *c.Master:
 		fmt.Fprintln(w, "auto: on")
 	default:

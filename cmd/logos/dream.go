@@ -157,7 +157,7 @@ func printDream(res dream.Result, phase string) {
 		} else if res.Insights == 0 {
 			fmt.Println("  no new connections tonight")
 		} else {
-			fmt.Printf("  %d connection(s) proposed — `logos dream review` to see them\n", res.Insights)
+			fmt.Printf("  %d connection(s) proposed — `logos review --connections` to see them\n", res.Insights)
 		}
 	}
 }
@@ -180,7 +180,7 @@ func dreamReview() error {
 		return err
 	}
 	if len(ins) == 0 {
-		fmt.Println("no dreamed insights waiting. run `logos dream` after a day's activity.")
+		fmt.Println("no dreamed insights waiting. run `logos memory dream` after a day's activity.")
 		return nil
 	}
 
@@ -189,7 +189,7 @@ func dreamReview() error {
 		fmt.Printf("      bridges: %s\n", memText(ix.DB, in.EndpointA))
 		fmt.Printf("           ⇄  %s\n", memText(ix.DB, in.EndpointB))
 	}
-	fmt.Println("\n`logos dream accept <id>` to keep · `logos dream reject <id>` to discard")
+	fmt.Println("\n`logos review --connections accept <id>` to keep · `logos review --connections reject <id>` to discard")
 	return nil
 }
 
@@ -199,7 +199,7 @@ func dreamDecide(args []string, accept bool) error {
 		verb = "accept"
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("which insight? `logos dream %s <id>`", verb)
+		return fmt.Errorf("which insight? `logos review --connections %s <id>`", verb)
 	}
 	id, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {

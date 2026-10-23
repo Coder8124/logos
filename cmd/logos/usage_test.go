@@ -111,7 +111,7 @@ func TestUsageOffIsSaidWhenSetAndWhenTheTotalsAreRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(out, "recording is off") || !strings.Contains(out, "logos usage on") {
+	if !strings.Contains(out, "recording is off") || !strings.Contains(out, "logos stats --usage on") {
 		t.Errorf("a report read with the ledger off did not say so:\n%s", out)
 	}
 	out = captureStdout(t, func() {

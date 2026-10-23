@@ -59,7 +59,7 @@ var specs = []spec{
 	{RulingsAtEdit, "show the rulings on a file when an agent is about to edit it", true},
 	// Off until asked: a dream spends a local model's time, and nobody who
 	// installed Logos before this switch agreed to that.
-	{Dream, "run logos dream in the background once a day, at session start", false},
+	{Dream, "run logos memory dream in the background once a day, at session start", false},
 	// Off until asked: before the switch a missing index was said, not
 	// rebuilt. A hook never rebuilds (LOGOS_HOOK), since a large vault can
 	// outlast its timeout, so `auto on` turning this on costs no hook its work.
@@ -307,8 +307,8 @@ type: logos-auto
 ---
 # What Logos does on its own
 
-Edit this by hand or with ` + "`logos auto`" + `. A switch on its own line wins over
-the ` + "`auto:`" + ` line; ` + "`logos auto status`" + ` says what each one is doing.
+Edit this by hand or with ` + "`logos config auto`" + `. A switch on its own line wins over
+the ` + "`auto:`" + ` line; ` + "`logos config auto status`" + ` says what each one is doing.
 
 `
 

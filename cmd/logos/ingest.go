@@ -131,7 +131,7 @@ func runIngest(args []string) error {
 			fmt.Printf("%d secret-shaped token(s) redacted before writing\n", redacted)
 		}
 		if queued > 0 {
-			fmt.Println("review them:  logos ingest review")
+			fmt.Println("review them:  logos review --candidates")
 		}
 		// #114: the command harvests and stops. Saying only "queued" let users
 		// read these as finished work and wait; the judgement fields — verified,
@@ -184,7 +184,7 @@ func runIngestReview(args []string) error {
 			fmt.Printf(" · %d unparsed lines", c.Skipped)
 		}
 		fmt.Printf(" · %s\n", c.Tier)
-		fmt.Printf("      promote:  logos ingest review --promote %s\n\n", shortID(c.SessionID))
+		fmt.Printf("      promote:  logos review --candidates --promote %s\n\n", shortID(c.SessionID))
 	}
 	return nil
 }
@@ -195,7 +195,7 @@ func ingestDecide(v, ref string, promote bool) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("no candidate matches %q — run `logos ingest review` for the list", ref)
+		return fmt.Errorf("no candidate matches %q — run `logos review --candidates` for the list", ref)
 	}
 	if !promote {
 		if err := ingest.Reject(abs, c); err != nil {
@@ -228,7 +228,7 @@ func ingestDecide(v, ref string, promote bool) error {
 	}
 	if err != nil {
 		fmt.Printf("warning: %v\n", err)
-		fmt.Printf("         run `logos ingest review --reject %s` or it is offered again\n", shortID(c.SessionID))
+		fmt.Printf("         run `logos review --candidates --reject %s` or it is offered again\n", shortID(c.SessionID))
 	}
 	return nil
 }
@@ -316,7 +316,7 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 	}
 
 	if !assumeYes {
-		fmt.Println("`logos ingest` reads other coding agents' session transcripts from disk")
+		fmt.Println("`logos import --from transcripts` reads other coding agents' session transcripts from disk")
 		fmt.Println("(Claude Code under ~/.claude/projects, Codex under ~/.codex/sessions, and")
 		fmt.Println("others via txcript). Only a checkpoint candidate is written to the vault —")
 		fmt.Println("never the transcript itself. This is asked once.")
@@ -458,7 +458,7 @@ func runIngestStatus() error {
 		fmt.Printf("\n%d candidate(s) have frontmatter or a timestamp that cannot be read back.\n", damaged)
 		fmt.Println("They are still in the queue, but a session date logos cannot read is a date")
 		fmt.Println("it will not carry: promoting one files a chat from months ago as though the")
-		fmt.Println("work happened today. Re-run `logos ingest` for those sessions to rewrite them.")
+		fmt.Println("work happened today. Re-run `logos import --from transcripts` for those sessions to rewrite them.")
 	}
 	if stranded > 0 {
 		fmt.Printf("\n%d can no longer be distilled: the transcript they cite is gone, so the\n", stranded)
@@ -470,7 +470,7 @@ func runIngestStatus() error {
 		fmt.Println("ask an agent connected to logos to run ingest_distil.")
 		// The user rarely controls that date. Offer the one thing they do
 		// control before it passes, not after.
-		fmt.Println("To keep the window open past that, `logos ingest archive <dir>` copies the")
+		fmt.Println("To keep the window open past that, `logos import --from transcripts archive <dir>` copies the")
 		fmt.Println("transcripts somewhere you choose and repoints the candidates at the copies.")
 	}
 	return nil
@@ -495,10 +495,10 @@ func runIngestArchive(args []string) error {
 	// create a directory called "--help" and copy raw transcripts into it, and
 	// so did any typo.
 	if strings.HasPrefix(dest, "-") {
-		return fmt.Errorf("%s is a flag, not a directory — logos ingest archive takes the directory to copy the transcripts into: logos ingest archive ~/transcripts-backup", dest)
+		return fmt.Errorf("%s is a flag, not a directory — logos import --from transcripts archive takes the directory to copy the transcripts into: logos import --from transcripts archive ~/transcripts-backup", dest)
 	}
 	if dest == "" {
-		return fmt.Errorf("logos ingest archive needs a directory to copy the transcripts into: logos ingest archive ~/transcripts-backup")
+		return fmt.Errorf("logos import --from transcripts archive needs a directory to copy the transcripts into: logos import --from transcripts archive ~/transcripts-backup")
 	}
 
 	v := vaultPath()

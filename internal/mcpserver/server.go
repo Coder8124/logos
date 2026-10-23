@@ -247,10 +247,10 @@ func Unavailable(err error) *Server {
 // denied repo was promised it would not get. It still answers the handshake,
 // for the reason Unavailable does.
 func Denied() *Server {
-	return &Server{unavailable: errors.New("this repository ran `logos deny`"), denied: true}
+	return &Server{unavailable: errors.New("this repository ran `logos config deny`"), denied: true}
 }
 
-const deniedText = "Logos is off for this repository: its owner ran `logos deny`, so nothing here is read from or written to memory. `logos deny --undo` turns it back on."
+const deniedText = "Logos is off for this repository: its owner ran `logos config deny`, so nothing here is read from or written to memory. `logos config deny --undo` turns it back on."
 
 // embedTimeout bounds each embedding a tool call waits on; see
 // provider.Interactive. Long enough for a warm runtime under load, short

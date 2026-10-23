@@ -72,7 +72,7 @@ func TestTheActivityNoticeIsPrintedOnceAndThenNothing(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(first, "logos activity off") {
+	if !strings.Contains(first, "logos config activity off") {
 		t.Errorf("the first session was not told what the log records or how to stop it:\n%s", first)
 	}
 

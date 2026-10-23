@@ -19,7 +19,7 @@
 #   - say nothing. This one is the exception to Logos's "announce yourself"
 #     rule, and deliberately: a line of output per tool call is not visibility,
 #     it is noise, and it would bury the receipts that *do* matter. The
-#     announcement for this feature is `logos activity`, which is where a person
+#     announcement for this feature is `logos watch --log`, which is where a person
 #     goes to look, and the README, which says what the log keeps.
 set -uo pipefail
 

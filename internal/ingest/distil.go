@@ -209,14 +209,14 @@ const DefaultMaxTurns = 120
 //     now.
 func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 	if !HasConsent(vaultDir) {
-		return Evidence{}, fmt.Errorf("transcript reading was never granted on this machine — run `logos ingest` first; it asks once")
+		return Evidence{}, fmt.Errorf("transcript reading was never granted on this machine — run `logos import --from transcripts` first; it asks once")
 	}
 	c, _, ok, err := Find(vaultDir, ref)
 	if err != nil {
 		return Evidence{}, err
 	}
 	if !ok {
-		return Evidence{}, fmt.Errorf("no ingested candidate matches %q — only sessions a `logos ingest` already queued can be distilled", ref)
+		return Evidence{}, fmt.Errorf("no ingested candidate matches %q — only sessions a `logos import --from transcripts` already queued can be distilled", ref)
 	}
 	if c.Status != StatusPending {
 		return Evidence{}, fmt.Errorf("candidate %s is %s, not pending", shortRef(c.SessionID), c.Status)
@@ -227,7 +227,7 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 		return Evidence{}, fmt.Errorf("reading the source recorded on the candidate (%s): %w", c.Source, err)
 	}
 	if c.Hash != "" && s.Hash != c.Hash {
-		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `logos ingest` to queue the new version", c.Source)
+		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `logos import --from transcripts` to queue the new version", c.Source)
 	}
 
 	return serve(Evidence{Candidate: c, Turns: s.Turns}, maxTurns), nil

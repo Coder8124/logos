@@ -21,7 +21,7 @@ import (
 // and a total that stopped growing must say why rather than look complete.
 func ledger(vault string, e usagepkg.Event) {
 	if err := usagepkg.Record(vault, e); err != nil {
-		fmt.Fprintf(os.Stderr, "· could not add this to the usage ledger, so `logos usage` will not count it: %v\n", err)
+		fmt.Fprintf(os.Stderr, "· could not add this to the usage ledger, so `logos stats --usage` will not count it: %v\n", err)
 	}
 }
 
@@ -31,7 +31,7 @@ func ledger(vault string, e usagepkg.Event) {
 // since that is what the receipt matches against.
 func ledgerPack(vault, via, project string, pack contextpack.Pack) {
 	if err := usagepkg.RecordPack(vault, via, project, pack, activity.ShortID(os.Getenv("LOGOS_SESSION"))); err != nil {
-		fmt.Fprintf(os.Stderr, "· could not add this to the usage ledger, so `logos usage` will not count it: %v\n", err)
+		fmt.Fprintf(os.Stderr, "· could not add this to the usage ledger, so `logos stats --usage` will not count it: %v\n", err)
 	}
 }
 
@@ -88,7 +88,7 @@ func runUsage(args []string) error {
 	t := usagepkg.Sum(events, project)
 	if !usagepkg.Recording(v) {
 		// Totals that stopped growing read as Logos doing nothing; say why.
-		fmt.Println("· recording is off — the totals below stopped when it was turned off. `logos usage on` resumes it.")
+		fmt.Println("· recording is off — the totals below stopped when it was turned off. `logos stats --usage on` resumes it.")
 		fmt.Println()
 	}
 
@@ -98,7 +98,7 @@ func runUsage(args []string) error {
 	}
 	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Avoided == 0 {
 		if week {
-			fmt.Printf("· nothing recorded for %s in the last 7 days — `logos usage` without --week shows the whole ledger\n", who)
+			fmt.Printf("· nothing recorded for %s in the last 7 days — `logos stats --usage` without --week shows the whole ledger\n", who)
 			printUnreadable(bad, v)
 			return nil
 		}
@@ -108,9 +108,9 @@ func runUsage(args []string) error {
 		return nil
 	}
 	if week {
-		fmt.Printf("logos usage — %s, the last 7 days (since %s)\n\n", who, time.Unix(from, 0).Format("2 Jan 2006"))
+		fmt.Printf("logos stats --usage — %s, the last 7 days (since %s)\n\n", who, time.Unix(from, 0).Format("2 Jan 2006"))
 	} else {
-		fmt.Printf("logos usage — %s, since %s\n\n", who, time.Unix(t.Since, 0).Format("2 Jan 2006"))
+		fmt.Printf("logos stats --usage — %s, since %s\n\n", who, time.Unix(t.Since, 0).Format("2 Jan 2006"))
 	}
 
 	they := "they"
@@ -207,6 +207,6 @@ func setUsageRecording(on bool) error {
 		return nil
 	}
 	fmt.Printf("usage recording is off for %s — nothing new is counted; what is already in %s is left alone\n", v, filepath.Join(v, usagepkg.Dir))
-	fmt.Println("  `logos usage on` resumes it. LOGOS_USAGE=off turns it off for one process.")
+	fmt.Println("  `logos stats --usage on` resumes it. LOGOS_USAGE=off turns it off for one process.")
 	return nil
 }

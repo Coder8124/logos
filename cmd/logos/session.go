@@ -354,7 +354,7 @@ func runResume(args []string) error {
 		fmt.Println("\n(no checkpoint yet for this project — this is context, not a handoff)")
 	}
 	if n := ingestPendingCount(ix.Vault); n > 0 {
-		fmt.Printf("\n%d ingested candidate%s pending review — logos ingest review\n", n, pluralS(n))
+		fmt.Printf("\n%d ingested candidate%s pending review — logos review --candidates\n", n, pluralS(n))
 	}
 	printAwaitingReview(ix.DB)
 	return nil
@@ -413,7 +413,7 @@ func printNothingToResume(vaultDir, project string) {
 	// nothing at all, which reads as the candidates having been lost.
 	defer func() {
 		if n := ingestPendingCount(vaultDir); n > 0 {
-			fmt.Printf("\n%d ingested candidate%s pending review — logos ingest review\n", n, pluralS(n))
+			fmt.Printf("\n%d ingested candidate%s pending review — logos review --candidates\n", n, pluralS(n))
 		}
 	}()
 
@@ -447,7 +447,7 @@ func printNothingToResume(vaultDir, project string) {
 func runSessionLog(args []string) error {
 	project, _ := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: logos sessions [project] [--close <session-id>]")
+		return fmt.Errorf("usage: logos show --history [project] [--close <session-id>]")
 	}
 
 	if id := flagStr(args, "--close", ""); id != "" {

@@ -182,7 +182,7 @@ func reportHistoryOnThisMachine() {
 	}
 	// --dry-run because promotion is consented to one candidate at a time, and
 	// the first thing anyone should see is how much there is, not a queue.
-	fmt.Println("             → `logos ingest --dry-run` reads them; nothing is written without your say")
+	fmt.Println("             → `logos import --from transcripts --dry-run` reads them; nothing is written without your say")
 }
 
 // wireOptsFrom reads the wiring flags shared by `setup` and `mcp install`.
@@ -854,10 +854,10 @@ func offerActivityRecording(vault string, yes bool) {
 	fmt.Println("\n  activity log")
 	fmt.Println("    The hooks just installed can also write a local log of your prompts, tool")
 	fmt.Printf("    calls and turn ends to %s. Nothing is sent anywhere and no\n", filepath.Join(vault, activity.Dir))
-	fmt.Printf("    model reads it; `logos activity` shows it, and a month's entries are deleted\n")
+	fmt.Printf("    model reads it; `logos watch --log` shows it, and a month's entries are deleted\n")
 	fmt.Printf("    %d days after that month ends. It is off unless you want it.\n", int(activity.Retention.Hours()/24))
 	if yes || !confirmNo("    record activity for this vault?") {
-		fmt.Println("    —  off; `logos activity on` turns it on later")
+		fmt.Println("    —  off; `logos config activity on` turns it on later")
 		return
 	}
 	if err := activity.SetRecording(vault, true); err != nil {
@@ -865,7 +865,7 @@ func offerActivityRecording(vault string, yes bool) {
 		fmt.Printf("    ✗  could not turn it on: %v\n", err)
 		return
 	}
-	fmt.Println("    ✓  on; `logos activity off` stops it")
+	fmt.Println("    ✓  on; `logos config activity off` stops it")
 }
 
 // confirm asks a yes/no question. An interactive user pressing return accepts;

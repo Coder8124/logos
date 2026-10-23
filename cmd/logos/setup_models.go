@@ -78,7 +78,7 @@ func checkRuntime(yes, dryRun bool) {
 	// Default no, and say what declining costs. With the server no longer
 	// refusing to start without a runtime, "no" is a safe answer rather than a
 	// gamble — which is what makes stating the size honest rather than a scare.
-	fmt.Printf("             %s are optional (%s) — only `logos ask`, `voice`\n",
+	fmt.Printf("             %s are optional (%s) — only `logos search --answer`, `voice`\n",
 		strings.Join(chat, " and "), totalSize(chat))
 	fmt.Println("             and the nightly rollup use them. No MCP tool does.")
 	if !allModels(os.Args) {
