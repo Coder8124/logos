@@ -120,6 +120,50 @@ func TestRestoringTheQueueTwiceDoesNotDoubleIt(t *testing.T) {
 	}
 }
 
+// A proposal's uid is its name everywhere a numeric id is not: its own file
+// once accepted, the supersedes link, and a merge across machines. The queue
+// file carried every other field and not this one, so a rebuild handed each
+// proposal back with uid "" — and accepting it then wrote no file of its own,
+// leaving an accepted memory that lived only in the cache.
+func TestAProposalKeepsItsUidWhenTheIndexIsDeleted(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "staging resets every Sunday night", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	var uid string
+	if err := db.QueryRow("SELECT uid FROM memories WHERE id = ?", m.ID).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if uid == "" {
+		t.Fatal("a stored proposal has no uid to lose; the test proves nothing")
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ImportPending(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := wiped.QueryRow("SELECT uid FROM memories WHERE id = ?", m.ID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != uid {
+		t.Fatalf("after the rebuild the proposal's uid is %q, want %q", got, uid)
+	}
+
+	if err := Accept(wiped, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(memoryFilePath(dir, Fact, uid)); err != nil {
+		t.Errorf("accepting the restored proposal wrote no file of its own: %v", err)
+	}
+}
+
 // Accepting is the moment a proposal leaves the queue and enters memory. Both
 // files have to move, or the next rebuild puts an already-accepted memory back
 // in front of the reviewer.
