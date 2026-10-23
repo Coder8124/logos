@@ -19,6 +19,11 @@
 # Branch protection should require exactly one check, `ci ok`, which fails if
 # any job before it failed. Adding or renaming a job then needs no change to
 # the protection rules.
+#
+# release.yml calls this workflow and publishes only if it passes. Its own gate
+# had been gofmt, vet and go test — weaker than a PR's — and a push straight to
+# main skips the PR, so a tag could ship code that never met the race detector,
+# the chaos tier or staticcheck.
 
 name: ci
 
@@ -30,14 +35,17 @@ on:
   # in the toolchain or a dependency.
   schedule:
     - cron: "17 6 * * 1"
+  workflow_call:
 
 permissions:
   contents: read
 
 # A new push to a PR supersedes the run before it. main's runs are never
-# cancelled: each one is the record of whether that commit was good.
+# cancelled: each one is the record of whether that commit was good. The ref is
+# in the group because a release tags a commit main has just run: by sha alone,
+# the release's run would queue behind main's, or a third run would cancel it.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event.pull_request.number || format('{0}@{1}', github.ref, github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -50,6 +58,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      # personal/, yap files/ and CLAUDE.md are one person's notes, ignored so
+      # they stay out; `git add -f` gets past that silently, and this does not.
+      - name: Nothing ignored is tracked
+        run: |
+          if git ls-files -ci --exclude-standard | grep .; then
+            echo "tracked above, but .gitignore keeps them out"; exit 1
+          fi
 
       - name: Format
         run: gofmt -l . | grep -v '\.venv' | (! grep .) || (echo "unformatted files above"; exit 1)
@@ -72,6 +88,12 @@ jobs:
       # Pinned, so a new staticcheck release cannot turn main red on its own.
       - name: Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      # release.yml runs only on a tag, so a mistake in it was found by the
+      # release it broke. shellcheck is off: it has never been run over these
+      # scripts, and its first findings belong in a change of their own.
+      - name: Workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck=
 
       # Not pinned in effect: the tool is, but the vulnerability database it
       # reads is live. A new advisory can turn a PR red that did not cause it —
@@ -189,19 +211,31 @@ jobs:
         working-directory: npm
         run: node scripts/test.js
 
+  # The rules in CONTRIBUTING.md that a diff can be checked against, for each
+  # commit the PR adds. Each script runs the same way locally against
+  # origin/main.
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
+    env:
+      BASE: ${{ github.event.pull_request.base.sha }}
+      HEAD: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Commit messages
-        run: >-
-          scripts/check-commits.sh
-          ${{ github.event.pull_request.base.sha }}
-          ${{ github.event.pull_request.head.sha }}
+        run: scripts/check-commits.sh "$BASE" "$HEAD"
+      - name: Test names are sentences
+        run: scripts/check-test-names.sh "$BASE" "$HEAD"
+      # A BUG: commit's tests, run with the fix and then without it.
+      - name: Bugfixes are proved
+        run: scripts/check-bug-tests.sh "$BASE" "$HEAD"
 
   ci-ok:
     name: ci ok
