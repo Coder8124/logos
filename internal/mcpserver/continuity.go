@@ -212,14 +212,9 @@ func writeList(b *strings.Builder, label string, items []string) {
 func (s *Session) resume(projectArg, agent string, budget int, since contextpack.Since) (string, error) {
 	project, worktree := s.resolveContinuity(projectArg)
 	chose := ""
-	// A folder name the vault has never heard of is the ordinary way to reach
-	// this branch, not a launch in /: a scratch directory, a fresh clone under
-	// another name. The guard used to test only for an empty name, and a
-	// working directory almost always has a basename, so the fallback below
-	// was dead code while the agent was told, emphatically, that nothing was
-	// recorded (#169). A name the caller gave, or LOGOS_PROJECT set, is still
-	// honoured as asked — there the caller asserted something, and is told it
-	// was wrong below rather than handed another project's work.
+	// A name the caller gave, or LOGOS_PROJECT set, is honoured as asked — it
+	// is never swapped for a guess; a wrong explicit name is told so below
+	// rather than handed another project's work.
 	guess := s.inferredProject()
 	swept, sweptFor := "", ""
 	sweep := auto.On(s.vault, auto.Checkpoint)
@@ -232,13 +227,20 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		// now and there is nothing to fall back from.
 		swept, sweptFor = ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now())), project
 	}
-	if strings.TrimSpace(projectArg) == "" && guess != "" && !s.projectExists(project) {
-		if ps := s.checkpointedProjects(); len(ps) > 0 {
-			chose = fmt.Sprintf("_Nothing in this vault is filed under %s, the folder this host was launched in — resuming %s, the most recently checkpointed project%s. Pass project to resume a different one, or checkpoint to start %s._\n\n",
-				untrusted.Inline(guess), untrusted.Inline(ps[0].name), s.knownProjects(), untrusted.Inline(guess))
-			project, worktree = ps[0].name, ""
-		}
-	}
+	// #169 made an unknown folder name fall all the way back to the most
+	// recently checkpointed project in the whole vault, on the theory that an
+	// unknown name is almost always a scratch directory or a renamed clone of
+	// one the vault already knows. It is just as often a second real project
+	// that simply has not been checkpointed yet, and nothing here can tell the
+	// two apart — so the fallback handed an agent standing in a brand-new
+	// "snowflake" the checkpoint from an unrelated "email" project, and it read
+	// as that project's own history (#326). A guessed name that the sweep
+	// could not resolve now falls through to the same "nothing filed under
+	// this name" report an explicit, wrong name gets below, instead of
+	// borrowing a stranger's work. A host with truly no name to guess from
+	// (projectArg empty and the folder giving none, below) still gets the most
+	// recent checkpoint — there, "most recent" is not a guess among several
+	// real projects, it is the only signal there is.
 	if strings.TrimSpace(project) == "" {
 		// Hosts without hooks (Cursor, Codex, Claude Desktop) launched outside
 		// any repository give no project, and an error sent the user off to
