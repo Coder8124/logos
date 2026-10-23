@@ -46,71 +46,83 @@ var renamed = map[string]string{
 var configSettings = []string{"announce", "auto", "think", "deny", "prompt", "key", "activity"}
 
 // noteRenamed tells a person typing a retired spelling what it is called now.
-// It is silent where nobody is reading: a hook, and the background runs logos
-// launches of itself (`dream --auto`), would otherwise fill a host's log with a
-// notice no one can act on. `activity record` and `activity notice` are what
-// installed hooks run, so they are plumbing rather than a retired spelling.
+// It is silent where nobody is reading: a hook (LOGOS_HOOK — hookCmd's own flag
+// is not set yet when this runs), and the background runs logos launches of
+// itself (`dream --auto`), would otherwise fill a host's log with a notice no
+// one can act on. `activity record` and `activity notice` are what installed
+// hooks run, so they are plumbing rather than a retired spelling.
 func noteRenamed(w io.Writer, cmd string, args []string) {
 	now, ok := renamed[cmd]
-	if !ok || inHook || os.Getenv("LOGOS_HOOK") != "" || hasFlag(args, "--auto") {
+	if !ok || os.Getenv("LOGOS_HOOK") != "" || hasFlag(args, "--auto") {
 		return
 	}
-	if cmd == "activity" && len(args) > 0 && (args[0] == "record" || args[0] == "notice") {
-		return
+	if cmd == "activity" && len(args) > 0 {
+		switch args[0] {
+		case "record", "notice":
+			return
+		case "on", "off", "status":
+			// The switch moved to config, not to the log viewer: pointing
+			// `activity off` at `watch --log` sends someone to read the log
+			// they asked to stop.
+			now = "logos config activity"
+		}
 	}
 	fmt.Fprintf(w, "logos: `logos %s` is now `%s`; the old name stops working in a later release\n", cmd, now)
 }
 
 // surface maps a command line in the condensed spelling onto the verb and
-// arguments main dispatches on. A line already in an old spelling, or in one
-// that did not change, comes back as it was.
-func surface(cmd string, args []string) (string, []string) {
+// arguments main dispatches on, and names the form as the person typed it, so
+// an error about the line can say `logos show --history` rather than a verb
+// they never wrote. A line already in an old spelling, or in one that did not
+// change, comes back as it was.
+func surface(cmd string, args []string) (verb string, rest []string, form string) {
+	form = "logos " + cmd
 	switch cmd {
 	case "search":
-		if hasFlag(args, "--answer") {
-			return "ask", without(args, "--answer")
+		// Only before the query: everything after it is the text searched
+		// for, and a query about the flag is not a request for an answer.
+		if len(args) > 0 && args[0] == "--answer" {
+			return "ask", args[1:], form + " --answer"
 		}
 	case "memory":
 		if len(args) > 0 && slices.Contains([]string{"recall", "dream", "loop"}, args[0]) {
-			return args[0], args[1:]
+			return args[0], args[1:], form + " " + args[0]
 		}
 	case "show":
-		for _, m := range []struct{ flag, verb string }{
-			{"--history", "sessions"},
-			{"--plans", "plans"},
-			{"--continuity", "continuity"},
-			{"--projects", "projects"},
-			{"--graph", "graph"},
-			{"--since-last", "replay"},
-		} {
-			if hasFlag(args, m.flag) {
-				return m.verb, without(args, m.flag)
-			}
+		if flag, verb := firstForm(args, map[string]string{
+			"--history":    "sessions",
+			"--plans":      "plans",
+			"--continuity": "continuity",
+			"--projects":   "projects",
+			"--graph":      "graph",
+			"--since-last": "replay",
+		}); verb != "" {
+			return verb, positionals(args, flag), form + " " + flag
 		}
 	case "stats":
-		switch {
-		case hasFlag(args, "--usage"):
-			return "usage", without(args, "--usage")
-		case hasFlag(args, "--memory"):
-			return "reflect", without(args, "--memory")
+		if flag, verb := firstForm(args, map[string]string{
+			"--usage":  "usage",
+			"--memory": "reflect",
+		}); verb != "" {
+			return verb, positionals(args, flag), form + " " + flag
 		}
-		return "insights", args
+		return "insights", args, form
 	case "config":
 		// A bare `config`, or a setting it does not have, stays "config" for
 		// configCmd, which answers with the list of settings that exist.
 		if len(args) > 0 && slices.Contains(configSettings, args[0]) {
-			return args[0], args[1:]
+			return args[0], args[1:], form + " " + args[0]
 		}
 	case "import":
-		switch flagStr(args, "--from", "") {
+		switch from := flagStr(args, "--from", ""); from {
 		case "transcripts":
-			return "ingest", dropFlag(args, "--from")
+			return "ingest", dropFlag(args, "--from"), form + " --from " + from
 		case "git":
-			return "bootstrap", dropFlag(args, "--from")
+			return "bootstrap", dropFlag(args, "--from"), form + " --from " + from
 		}
 	case "watch":
 		if hasFlag(args, "--log") {
-			return "activity", without(args, "--log")
+			return "activity", positionals(args, "--log"), form + " --log"
 		}
 	case "review":
 		// Three queues wait for a person's yes. Memories are the default; the
@@ -118,20 +130,35 @@ func surface(cmd string, args []string) (string, []string) {
 		// look, while each keeps the handler that knows its own answers.
 		switch {
 		case hasFlag(args, "--candidates"):
-			return "ingest", append([]string{"review"}, without(args, "--candidates")...)
+			return "ingest", append([]string{"review"}, positionals(args, "--candidates")...), form + " --candidates"
 		case hasFlag(args, "--connections"):
-			rest := without(args, "--connections")
-			if len(rest) == 0 {
-				rest = []string{"review"}
+			// Anything but accept or reject is the queue. dream with any other
+			// first argument is a whole nightly pass, so `--connections --all`
+			// must not reach it as a request to look.
+			rest := positionals(args, "--connections")
+			if len(rest) == 0 || !slices.Contains([]string{"review", "accept", "reject"}, rest[0]) {
+				rest = append([]string{"review"}, rest...)
 			}
-			return "dream", rest
+			return "dream", rest, form + " --connections"
 		}
 	case "setup":
 		if hasFlag(args, "--uninstall") {
-			return "mcp", append([]string{"uninstall"}, without(args, "--uninstall")...)
+			return "mcp", append([]string{"uninstall"}, positionals(args, "--uninstall")...), form + " --uninstall"
 		}
 	}
-	return cmd, args
+	return cmd, args, form
+}
+
+// firstForm is the form flag that comes first on the line, and its verb. By
+// position, not by table order: `show --graph --history` asked for the graph,
+// and the --history left over is the handler's to refuse.
+func firstForm(args []string, forms map[string]string) (flag, verb string) {
+	for _, a := range args {
+		if v, ok := forms[a]; ok {
+			return a, v
+		}
+	}
+	return "", ""
 }
 
 // configCmd is `logos config` with no setting, or one it does not have. Asked
@@ -143,15 +170,4 @@ func configCmd(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("logos config has no setting %q — it has %v", args[0], configSettings)
-}
-
-// without is args with every exact occurrence of a bare flag removed.
-func without(args []string, flag string) []string {
-	out := make([]string, 0, len(args))
-	for _, a := range args {
-		if a != flag {
-			out = append(out, a)
-		}
-	}
-	return out
 }

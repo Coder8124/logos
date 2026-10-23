@@ -759,6 +759,8 @@ const setupUsage = `usage:
                                       merge logos into a config file at a location logos does not know by convention
     logos mcp install [--vault DIR] [--host NAME] [--dry-run] [--yes] [--downgrade]
                                       register an existing vault with the MCP hosts found
+    logos setup --uninstall [--host NAME] [--yes]
+                                      remove logos from the hosts it was wired into
 
   --vault DIR     the vault to use (default: $LOGOS_VAULT, else the recorded vault, else ~/logos)
   --host NAME     wire only this host; repeat for more

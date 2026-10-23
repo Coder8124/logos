@@ -18,7 +18,7 @@ import (
 func TestEveryNewSpellingReachesTheHandlerTheOldOneDid(t *testing.T) {
 	for old, now := range renamed {
 		words := strings.Fields(strings.TrimPrefix(now, "logos "))
-		got, _ := surface(words[0], words[1:])
+		got, _, _ := surface(words[0], words[1:])
 		if got != old {
 			t.Errorf("%q is said to replace `logos %s`, and reaches %q", now, old, got)
 		}
@@ -53,7 +53,7 @@ func TestTheFormFlagIsRemovedAndEveryOtherArgumentKept(t *testing.T) {
 		{"setup", []string{"--uninstall", "--host", "cursor"}, "mcp", []string{"uninstall", "--host", "cursor"}},
 		{"search", []string{"--answer", "why", "sqlite"}, "ask", []string{"why", "sqlite"}},
 	} {
-		cmd, args := surface(c.cmd, c.args)
+		cmd, args, _ := surface(c.cmd, c.args)
 		if cmd != c.wantCmd || !slices.Equal(args, c.wantArgs) {
 			t.Errorf("logos %s %v reached %s %v, want %s %v", c.cmd, c.args, cmd, args, c.wantCmd, c.wantArgs)
 		}
@@ -126,6 +126,91 @@ func TestAnOldSpellingStillRunsAndSaysOnlyOnStderrWhatReplacedIt(t *testing.T) {
 	}
 }
 
+// `review --connections` is a request to look. dream with anything but
+// review, accept or reject as its first argument is the whole nightly pass, so
+// a flag after --connections used to turn looking into a write to the vault.
+func TestAFlagOnTheConnectionsQueueStillOnlyShowsTheQueue(t *testing.T) {
+	for _, extra := range [][]string{{"--all"}, {"--dry-run"}, {"--auto"}, {"--date", "2026-10-01"}} {
+		args := append([]string{"--connections"}, extra...)
+		cmd, got, _ := surface("review", args)
+		if cmd != "dream" || len(got) == 0 || got[0] != "review" {
+			t.Errorf("logos review %v reached %s %v, which runs a dream", args, cmd, got)
+		}
+	}
+}
+
+// The form is picked by the first form flag on the line, not by table order:
+// `show --graph --history` asked for the graph.
+func TestTheFirstFormFlagOnTheLineChoosesTheForm(t *testing.T) {
+	for _, c := range []struct {
+		cmd     string
+		args    []string
+		wantCmd string
+	}{
+		{"show", []string{"--graph", "--history", "kestrel"}, "graph"},
+		{"show", []string{"--history", "--graph", "kestrel"}, "sessions"},
+		{"stats", []string{"--memory", "--usage"}, "reflect"},
+		{"stats", []string{"--usage", "--memory"}, "usage"},
+	} {
+		if cmd, _, _ := surface(c.cmd, c.args); cmd != c.wantCmd {
+			t.Errorf("logos %s %v reached %s, want %s", c.cmd, c.args, cmd, c.wantCmd)
+		}
+	}
+}
+
+// Everything after `search` is the query, so --answer only picks the
+// generative form in front of it; a search for the flag's own name is a search.
+func TestASearchForTheWordAnswerIsStillASearch(t *testing.T) {
+	args := []string{"how", "do", "I", "pass", "--answer"}
+	if cmd, got, _ := surface("search", args); cmd != "search" || !slices.Equal(got, args) {
+		t.Errorf("logos search %v reached %s %v", args, cmd, got)
+	}
+}
+
+// `activity off` moved to config; pointing it at the log viewer sends someone
+// to read the log they asked to stop.
+func TestTheActivitySwitchIsToldItsNewPlaceNotTheLogViewers(t *testing.T) {
+	var b bytes.Buffer
+	noteRenamed(&b, "activity", []string{"off"})
+	if !strings.Contains(b.String(), "logos config activity") {
+		t.Errorf("`logos activity off` was pointed elsewhere: %q", b.String())
+	}
+	b.Reset()
+	noteRenamed(&b, "activity", []string{"--days", "2"})
+	if !strings.Contains(b.String(), "logos watch --log") {
+		t.Errorf("reading the activity log was pointed elsewhere: %q", b.String())
+	}
+}
+
+// A flag error names the command as typed. Checked after the translation, it
+// used to name the retired verb: `show --history --bogus` blamed `logos
+// sessions`, a command the person never wrote and is told not to.
+func TestAFlagErrorNamesTheSpellingThePersonTyped(t *testing.T) {
+	for _, c := range []struct {
+		words []string
+		want  string
+		not   string
+	}{
+		{[]string{"show", "--history", "--bogus"}, "logos show --history", "logos sessions"},
+		{[]string{"stats", "--usage", "--bogus"}, "logos stats --usage", "logos usage"},
+	} {
+		home := t.TempDir()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		cmd := exec.CommandContext(ctx, os.Args[0])
+		cmd.Env = append(os.Environ(), runMainEnv+"="+strings.Join(c.words, "\x1f"),
+			"HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+			"LOGOS_VAULT="+t.TempDir(), "LOGOS_EMBED=off", "LOGOS_RUNTIME=off")
+		out, err := cmd.CombinedOutput()
+		cancel()
+		if err == nil {
+			t.Fatalf("logos %v accepted an unknown flag:\n%s", c.words, out)
+		}
+		if !strings.Contains(string(out), c.want) || strings.Contains(string(out), c.not) {
+			t.Errorf("logos %v named the wrong command:\n%s", c.words, out)
+		}
+	}
+}
+
 // `--help` on a form surface hands to another verb must be answered before the
 // hand-off: `setup --uninstall --help` became `mcp uninstall --help`, which
 // skipped the early help check because setup prints its own usage, and the
@@ -135,6 +220,7 @@ func TestHelpOnAHandedOffFormTouchesNothing(t *testing.T) {
 		{"setup", "--uninstall", "--help"},
 		{"review", "--candidates", "--help"},
 		{"review", "--connections", "--help"},
+		{"review", "--connections", "--all", "--help"},
 	} {
 		home, vault := t.TempDir(), filepath.Join(t.TempDir(), "vault")
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

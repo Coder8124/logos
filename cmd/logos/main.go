@@ -71,21 +71,24 @@ func main() {
 	// flag is answered here, before any command gets the chance to act.
 	// setup, review and mcp install print their own fuller usage — but not the
 	// forms surface hands to another verb, whose handler would get the --help
-	// instead and might not look for it.
-	ownUsage := (cmd == "setup" && !hasFlag(args, "--uninstall")) ||
-		(cmd == "review" && !hasFlag(args, "--candidates") && !hasFlag(args, "--connections")) ||
-		(cmd == "mcp" && firstNonFlag(args) == "install")
+	// instead and might not look for it. Asking surface, rather than listing
+	// those forms again here, keeps a new hand-off from slipping past.
+	to, _, _ := surface(cmd, args)
+	ownUsage := to == cmd &&
+		(cmd == "setup" || cmd == "review" || (cmd == "mcp" && firstNonFlag(args) == "install"))
 	if (hasFlag(args, "--help") || hasFlag(args, "-h")) && !ownUsage && commandHelp(os.Stdout, cmd) {
 		return
 	}
 
 	noteRenamed(os.Stderr, cmd, args)
-	cmd, args = surface(cmd, args)
+	cmd, args, form := surface(cmd, args)
 	rest = strings.Join(args, " ")
 
-	if err := checkCommandFlags(cmd, args); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	if spec, ok := commandFlags[cmd]; ok {
+		if err := checkFlags(form, args, spec); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	}
 
 	var err error

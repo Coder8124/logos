@@ -39,10 +39,6 @@ func runImport(args []string) error {
 	switch from {
 	case claudeMDSource, cursorRulesSource:
 		return runImportRules(from, args)
-	case "git":
-		// Named here so the one verb lists every way in; git history is what
-		// bootstrap already reads.
-		return runBootstrap(withoutFlag(args, "--from"))
 	}
 	if from != claudeMemSource {
 		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
@@ -386,18 +382,4 @@ func observationText(title, subtitle, text, narrative string) string {
 	default:
 		return clean(narrative)
 	}
-}
-
-// withoutFlag drops a valued flag and its value, for handing the rest of a
-// command line to another verb that does not know the flag.
-func withoutFlag(args []string, name string) []string {
-	var out []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == name {
-			i++
-			continue
-		}
-		out = append(out, args[i])
-	}
-	return out
 }
