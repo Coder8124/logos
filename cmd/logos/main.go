@@ -63,7 +63,6 @@ func main() {
 		migrateHint(os.Stderr)
 	}
 	args := os.Args[2:]
-	rest := strings.Join(args, " ")
 
 	// Most commands never looked for --help: `update --help` replaced the
 	// binary, `note --help` wrote a note reading "--help", `index --help`
@@ -82,7 +81,7 @@ func main() {
 
 	noteRenamed(os.Stderr, cmd, args)
 	cmd, args, form := surface(cmd, args)
-	rest = strings.Join(args, " ")
+	rest := strings.Join(args, " ")
 
 	if spec, ok := commandFlags[cmd]; ok {
 		if err := checkFlags(form, args, spec); err != nil {
