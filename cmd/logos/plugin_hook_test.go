@@ -30,7 +30,7 @@ func runSessionStartHook(t *testing.T, bin string) (string, time.Duration) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir()}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	took := time.Since(start)

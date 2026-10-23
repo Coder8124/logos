@@ -69,7 +69,7 @@ esac`)
 	project := t.TempDir()
 
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + project}
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + project, noFixedInstallDirs}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("hook: %v\n%s", err, out)
 	}
