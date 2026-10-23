@@ -10,9 +10,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
+	"github.com/Coder8124/logos/internal/transcript"
+	"gopkg.in/yaml.v3"
 )
 
 // The two rules-file importers. Their records go to the review queue, not to
@@ -39,6 +42,7 @@ type ruleFile struct {
 	project string // "" for a file that applies to every repository
 	items   []string
 	kind    memory.Kind // "" for a rules file, whose items are preferences
+	skip    string      // why a file read had nothing to offer, said in the report
 }
 
 func runImportRules(from string, args []string) error {
@@ -71,6 +75,11 @@ func runImportRules(from string, args []string) error {
 			})
 		}
 	}
+	for _, f := range files {
+		if f.skip != "" {
+			fmt.Printf("Left out %s: %s.\n", f.shown, f.skip)
+		}
+	}
 	if len(found) == 0 {
 		where := scope.DenyRoot(dir)
 		switch from {
@@ -80,7 +89,7 @@ func runImportRules(from string, args []string) error {
 			// The folder is named, because a moved one (autoMemoryDirectory)
 			// is the likeliest reason it is empty, and "none" would read as
 			// Claude Code never having saved anything.
-			where = autoMemoryDir(dir)
+			where = autoMemoryDir(scope.DenyRoot(dir))
 		}
 		fmt.Printf("Nothing to import: no %s %s in %s.\n", from, noun(from, 2), where)
 		return nil
@@ -120,6 +129,9 @@ func runImportRules(from string, args []string) error {
 
 	fmt.Println("Found:")
 	for _, f := range files {
+		if f.skip != "" {
+			continue
+		}
 		where := "project " + f.project
 		if f.project == "" {
 			where = "every project"
@@ -166,7 +178,11 @@ func runImportRules(from string, args []string) error {
 	if c.masked > 0 {
 		fmt.Printf("%d had a secret-shaped token masked before it was written.\n", c.masked)
 	}
-	fmt.Println("They wait in `logos review`; accept the ones that are operational and leave the conventions to CONTRIBUTING.md.")
+	if from == claudeAutoMemorySource {
+		fmt.Println("They wait in `logos review`; what you accept is recalled by every agent that reads this vault, not only Claude Code.")
+	} else {
+		fmt.Println("They wait in `logos review`; accept the ones that are operational and leave the conventions to CONTRIBUTING.md.")
+	}
 	fmt.Printf("To undo all of it: logos memory forget --source %s\n", from)
 	return nil
 }
@@ -395,14 +411,26 @@ func uncommented(line string, open bool) (string, bool) {
 }
 
 // autoMemoryDir is where Claude Code keeps auto memory for the repository at
-// root: <config>/projects/<root with every non-alphanumeric rune as "-">/memory.
-// The naming is read off Claude Code's own folders, not a documented contract
-// (/Users/a/brain is -Users-a-brain), so a miss names the folder it looked in.
+// root: <projects>/<path with every non-alphanumeric rune as "-">/memory. The
+// path is the main checkout's, symlinks resolved: Claude Code shares one auto
+// memory across a repository's worktrees and records the physical path, so a
+// worktree or a symlinked ~/code looked for a folder that never existed. The
+// naming is read off Claude Code's own folders, not a documented contract, so
+// a miss names the folder it looked in.
 func autoMemoryDir(root string) string {
-	config := os.Getenv("CLAUDE_CONFIG_DIR")
-	if config == "" {
-		home, _ := os.UserHomeDir()
-		config = filepath.Join(home, ".claude")
+	projects := os.Getenv(transcript.LogosClaudeProjectsEnv)
+	if projects == "" {
+		config := os.Getenv("CLAUDE_CONFIG_DIR")
+		if config == "" {
+			home, _ := os.UserHomeDir()
+			config = filepath.Join(home, ".claude")
+		}
+		projects = filepath.Join(config, "projects")
+	}
+	if _, checkout := gitstate.Identity(root); checkout != "" {
+		root = checkout
+	} else if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
 	}
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
@@ -413,7 +441,7 @@ func autoMemoryDir(root string) string {
 		}
 		return '-'
 	}, root)
-	return filepath.Join(config, "projects", name, "memory")
+	return filepath.Join(projects, name, "memory")
 }
 
 // autoMemoryKinds maps auto memory's four types onto Logos's kinds. feedback is
@@ -426,11 +454,18 @@ var autoMemoryKinds = map[string]memory.Kind{
 	"reference": memory.Fact,
 }
 
-var autoMemoryType = regexp.MustCompile(`(?m)^\s*type:\s*["']?([A-Za-z]+)`)
+type autoMemoryFront struct {
+	Description string `yaml:"description"`
+	Type        string `yaml:"type"`
+	Metadata    struct {
+		Type string `yaml:"type"`
+	} `yaml:"metadata"`
+}
 
 // readAutoMemory reads one memory per note in dir. MEMORY.md is skipped: it is
 // the index Claude Code loads, one pointer line per note, and imported it would
-// offer every memory a second time as a fragment.
+// offer every memory a second time as a fragment. Anything else left out is
+// listed with its reason, so the count is never taken for everything there was.
 func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -441,48 +476,68 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 	}
 	var out []ruleFile
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || e.Name() == "MEMORY.md" {
+		if e.Name() == "MEMORY.md" {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
+		shown := p
+		if home != "" && strings.HasPrefix(p, home+string(filepath.Separator)) {
+			shown = "~" + p[len(home):]
+		}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			out = append(out, ruleFile{shown: shown, skip: "not a note"})
+			continue
+		}
 		raw, err := os.ReadFile(p)
 		if err != nil {
 			return nil, err
 		}
-		text := strings.ReplaceAll(string(raw), "\r\n", "\n")
-		kind := memory.Fact
-		var desc string
-		if rest, ok := strings.CutPrefix(text, "---\n"); ok {
-			if end := strings.Index(rest, "\n---"); end >= 0 {
-				front := rest[:end]
-				text = rest[end+len("\n---"):]
-				if m := autoMemoryType.FindStringSubmatch(front); m != nil {
-					if k, ok := autoMemoryKinds[strings.ToLower(m[1])]; ok {
-						kind = k
-					}
-				}
-				for _, line := range strings.Split(front, "\n") {
-					if v, ok := strings.CutPrefix(strings.TrimSpace(line), "description:"); ok {
-						desc = strings.Trim(strings.TrimSpace(v), `"'`)
-					}
-				}
+		front, body, err := splitAutoMemory(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%s: the frontmatter is not YAML, so its type is unknown: %w", shown, err)
+		}
+		kind, ok := autoMemoryKinds[strings.ToLower(front.Metadata.Type)]
+		if !ok {
+			if kind, ok = autoMemoryKinds[strings.ToLower(front.Type)]; !ok {
+				kind = memory.Fact
 			}
 		}
 		// The body is the memory, the Why and How lines with it: they are what
 		// makes a rule something the next agent can judge rather than obey.
 		// A note with no body still said something in its description.
-		body := strings.Join(strings.Fields(text), " ")
-		if body == "" {
-			body = desc
+		text := strings.Join(strings.Fields(body), " ")
+		if text == "" {
+			text = strings.Join(strings.Fields(front.Description), " ")
 		}
-		if body == "" {
+		if text == "" {
+			out = append(out, ruleFile{shown: shown, skip: "empty"})
 			continue
 		}
-		shown := p
-		if home != "" && strings.HasPrefix(p, home+string(filepath.Separator)) {
-			shown = "~" + p[len(home):]
+		// A user note is who the person is, which does not change at the next
+		// repository; scoped to this one, every other project's recall missed it.
+		scoped := project
+		if strings.EqualFold(front.Metadata.Type, "user") || strings.EqualFold(front.Type, "user") {
+			scoped = ""
 		}
-		out = append(out, ruleFile{shown: shown, project: project, items: []string{body}, kind: kind})
+		out = append(out, ruleFile{shown: shown, project: scoped, items: []string{text}, kind: kind})
 	}
 	return out, nil
+}
+
+// splitAutoMemory separates a note's frontmatter from its body. The fences are
+// whole "---" lines, so an empty block is still a block and a "----" rule in
+// the body is not the end of one.
+func splitAutoMemory(text string) (autoMemoryFront, string, error) {
+	var front autoMemoryFront
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return front, text, nil
+	}
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			err := yaml.Unmarshal([]byte(strings.Join(lines[1:i], "\n")), &front)
+			return front, strings.Join(lines[i+1:], "\n"), err
+		}
+	}
+	return front, text, nil
 }
