@@ -37,11 +37,11 @@ const claudeMemConfidence = 0.6
 func runImport(args []string) error {
 	from := strings.TrimSpace(flagStr(args, "--from", ""))
 	switch from {
-	case claudeMDSource, cursorRulesSource:
+	case claudeMDSource, cursorRulesSource, claudeAutoMemorySource:
 		return runImportRules(from, args)
 	}
 	if from != claudeMemSource {
-		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
+		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules|claude-auto-memory [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
 	}
 	if hasFlag(args, "--auto") {
 		return runImportAuto()
