@@ -365,3 +365,51 @@ func TestAProcedureWhoseVerifyFailedIsNotVerified(t *testing.T) {
 		t.Errorf("a procedure whose verify failed was claimed as verified:\n%s", out)
 	}
 }
+
+// Without the index a shown procedure cannot be resolved to its verify; the
+// receipt said nothing, which reads the same as nothing having been shown.
+func TestAProcedureShownWithoutAnIndexIsSaidToGoUnchecked(t *testing.T) {
+	standIn(t, "elsewhere")
+	hits := []procedure.Hit{{Memory: "route: run migrations with the lock flag | trap: two deploys at once corrupt the schema table | verify: make migrate-check"}}
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindProcedure, Via: "mcp:before_you_try", Project: "shop", Refs: usagepkg.ProcedureRefs(hits),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-noix","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"run the migrations"}}`)
+	events, err := sessionEvents(vaultPath(), "shop", "s-noix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, _, err := usagepkg.Read(vaultPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = provenReceipt(vaultPath(), nil, "shop", "s-noix", events, ledger)
+	if err == nil || !strings.Contains(err.Error(), "1 procedure shown this session went unchecked") {
+		t.Errorf("a procedure left unchecked for want of the index was not said: %v", err)
+	}
+}
+
+// A ledger line that cannot be parsed may be the one that showed this session
+// a ruling or a procedure, so the receipt says how many it skipped.
+func TestTheSessionReceiptCountsUnreadableLedgerLines(t *testing.T) {
+	standIn(t, "elsewhere")
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{Kind: usagepkg.KindPack, Via: "mcp:resume", Project: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(vaultPath(), usagepkg.Dir, "*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("want one ledger file, found %v", files)
+	}
+	f, err := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("{not json\n")
+	f.Close()
+	hookEvent(t, "PostToolUse", `{"session_id":"s-bad","tool_name":"Bash","tool_input":{"command":"go build ./..."}}`)
+	if out := endSession(t, "s-bad"); !strings.Contains(out, "1 unreadable usage ledger line skipped") {
+		t.Errorf("the receipt did not say it skipped an unreadable ledger line:\n%s", out)
+	}
+}

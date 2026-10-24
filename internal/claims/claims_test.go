@@ -1,6 +1,7 @@
 package claims
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +177,32 @@ func TestAVerifyIsPassedOnlyByARunAfterTheProcedureWasShown(t *testing.T) {
 	}
 	if Passed("cd db", both, "s", shown) {
 		t.Error("a verify that is only a cd was passed")
+	}
+	if !Passed("`make migrate-check`", []activity.Event{run("s", "make migrate-check", shown+5, false)}, "s", shown) {
+		t.Error("a verify written in backticks was not passed by its run")
+	}
+	passThenFail := []activity.Event{run("s", "make migrate-check", shown+5, false), run("s", "make migrate-check", shown+9, true)}
+	if Passed("make migrate-check", passThenFail, "s", shown) {
+		t.Error("a verify whose last run failed was passed by an earlier one")
+	}
+	for _, line := range []string{"make migrate-check | tail -5", "make migrate-check || true"} {
+		if Passed("make migrate-check", []activity.Event{run("s", line, shown+5, false)}, "s", shown) {
+			t.Errorf("a verify run as %q, whose status is not its own, was passed", line)
+		}
+	}
+}
+
+func TestAPipePastTheSummaryCutStillKeepsAVerifyFromPassing(t *testing.T) {
+	line := "cd " + strings.Repeat("x", 170) + " && make migrate-check | tail -5"
+	e, err := activity.FromHook("PostToolUse", []byte(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"`+line+`"}}`), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(e.Summary, "|") {
+		t.Fatalf("the summary kept the pipe, so this does not test the cut: %q", e.Summary)
+	}
+	e.TS = 1005
+	if Passed("make migrate-check", []activity.Event{e}, "s", 1000) {
+		t.Error("a verify piped past the summary's cut was passed")
 	}
 }

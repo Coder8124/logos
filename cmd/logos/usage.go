@@ -96,7 +96,7 @@ func runUsage(args []string) error {
 	if project != "" {
 		who = project
 	}
-	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Avoided == 0 {
+	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Avoided == 0 && t.Procedures == 0 {
 		if week {
 			fmt.Printf("· nothing recorded for %s in the last 7 days — `logos stats --usage` without --week shows the whole ledger\n", who)
 			printUnreadable(bad, v)
@@ -140,6 +140,12 @@ func runUsage(args []string) error {
 		fmt.Printf("· %d ruling%s may have been avoided — shown to a session that then never touched a file %s\n",
 			t.Avoided, pluralS(t.Avoided), names)
 		fmt.Println("  (said at session end; a session that stayed away may have had other reasons)")
+	}
+
+	if t.Procedures > 0 {
+		fmt.Printf("· %d procedure%s handed back by before_you_try; %d time%s a session then saw its verify pass\n",
+			t.Procedures, pluralS(t.Procedures), t.Proven, pluralS(t.Proven))
+		fmt.Println("  (the verify's program and first argument, run after it was shown — not proof the route was followed)")
 	}
 
 	fmt.Printf("· %d restore%s, %d of them a handoff — a checkpoint one agent wrote, resumed by another\n",

@@ -16,3 +16,16 @@ func TestTalliesCountShowingsAndProvenSessionsByProcedure(t *testing.T) {
 		t.Errorf("tallies = %+v", got)
 	}
 }
+
+// The stats totals left procedures out, so a project whose ledger held only
+// before_you_try procedure lines read as one where nothing was recorded.
+func TestTheTotalsCountProceduresHandedBackAndProven(t *testing.T) {
+	a, b := Ref("procedure a"), Ref("procedure b")
+	got := Sum([]Event{
+		{Kind: KindProcedure, Refs: []string{a, b}},
+		{Kind: KindProven, Refs: []string{a}},
+	}, "")
+	if got.Procedures != 2 || got.Proven != 1 {
+		t.Errorf("totals = %+v, want 2 procedures and 1 proven", got)
+	}
+}

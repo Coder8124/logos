@@ -38,13 +38,9 @@ const checkWindow = 60
 // (LOGOS_SESSION) and records it. An MCP server serves the whole session and
 // is never told its id, so its checks are matched to this session's own
 // activity rows for the same tool call, by time.
-func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event) ([]deadend.Ruling, error) {
+func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event, ledger []usagepkg.Event) ([]deadend.Ruling, error) {
 	if sessionID == "" || !usagepkg.Recording(vault) {
 		return nil, nil
-	}
-	ledger, _, err := usagepkg.Read(vault)
-	if err != nil {
-		return nil, err
 	}
 	shown := map[string]bool{}
 	already := map[string]bool{}
@@ -85,20 +81,7 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 		if via == "" {
 			continue
 		}
-		best := -1
-		// The project as well as the time: a session on another project can
-		// run the same check in the same minute.
-		for i, e := range ledger {
-			if used[i] || e.Kind != usagepkg.KindDeadEnd || e.Via != via || !usagepkg.SameProject(e.Project, project) ||
-				e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
-				continue
-			}
-			if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
-				best = i
-			}
-		}
-		if best >= 0 {
-			used[best] = true
+		if best := nearestCheck(ledger, used, a, usagepkg.KindDeadEnd, via, project); best >= 0 {
 			for _, r := range ledger[best].Refs {
 				shown[r] = true
 			}
@@ -150,14 +133,15 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 // that the verify passed, not that the route was followed.
 //
 // Procedures are memories, so without the index there is nothing to resolve
-// a ledger ref to, and nothing is claimed.
-func provenReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event) ([]procedure.Record, error) {
-	if sessionID == "" || db == nil || !usagepkg.Recording(vault) {
+// a ledger ref to: nothing is claimed, and the hook is told how many went
+// unchecked rather than staying quiet as if none were shown.
+//
+// Like avoidedReceipt, it matches by time and project because the MCP server
+// never learns its session id, so two sessions on one project checking within
+// the same minute can take each other's line.
+func provenReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event, ledger []usagepkg.Event) ([]procedure.Record, error) {
+	if sessionID == "" || !usagepkg.Recording(vault) {
 		return nil, nil
-	}
-	ledger, _, err := usagepkg.Read(vault)
-	if err != nil {
-		return nil, err
 	}
 	already := map[string]bool{}
 	for _, e := range ledger {
@@ -175,20 +159,10 @@ func provenReceipt(vault string, db *sql.DB, project, sessionID string, events [
 		if checkVia(a) != "mcp:before_you_try" {
 			continue
 		}
-		best := -1
-		for i, e := range ledger {
-			if used[i] || e.Kind != usagepkg.KindProcedure || e.Via != "mcp:before_you_try" || !usagepkg.SameProject(e.Project, project) ||
-				e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
-				continue
-			}
-			if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
-				best = i
-			}
-		}
+		best := nearestCheck(ledger, used, a, usagepkg.KindProcedure, "mcp:before_you_try", project)
 		if best < 0 {
 			continue
 		}
-		used[best] = true
 		for _, r := range ledger[best].Refs {
 			if t, ok := shownAt[r]; !ok || a.TS < t {
 				shownAt[r] = a.TS
@@ -197,6 +171,10 @@ func provenReceipt(vault string, db *sql.DB, project, sessionID string, events [
 	}
 	if len(shownAt) == 0 {
 		return nil, nil
+	}
+	if db == nil {
+		return nil, fmt.Errorf("the index could not be opened, so %d %s shown this session went unchecked against the verify it names",
+			len(shownAt), plural(len(shownAt), "procedure"))
 	}
 
 	corpus, err := memory.RecallProcedures(db, nil, "", "", 0)
@@ -241,6 +219,27 @@ func renderProven(rs []procedure.Record) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// nearestCheck is the ledger line of kind and via that the tool call a wrote:
+// the unused one nearest it in time, marked used so the next call cannot
+// take it too. The project as well as the time: a session on another project
+// can run the same check in the same minute. It is -1 when there is none.
+func nearestCheck(ledger []usagepkg.Event, used map[int]bool, a activity.Event, kind, via, project string) int {
+	best := -1
+	for i, e := range ledger {
+		if used[i] || e.Kind != kind || e.Via != via || !usagepkg.SameProject(e.Project, project) ||
+			e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
+			continue
+		}
+		if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
+			best = i
+		}
+	}
+	if best >= 0 {
+		used[best] = true
+	}
+	return best
 }
 
 // checkVia is the ledger Via a tool call's dead-end check was recorded under,
@@ -329,14 +328,26 @@ func sessionReceipt(vault, project string, raw []byte) string {
 		defer ix.Close()
 		db = ix.DB
 	}
+	if !usagepkg.Recording(vault) {
+		return ""
+	}
+	// One read for both receipts, so a ledger that cannot be read is said
+	// once, and lines it skipped are said at all.
+	ledger, bad, err := usagepkg.Read(vault)
+	if err != nil {
+		return fmt.Sprintf("receipt not worked out: the usage ledger could not be read: %v\n", err)
+	}
 	var out strings.Builder
-	rs, err := avoidedReceipt(vault, db, project, end.Session, events)
+	if bad > 0 {
+		fmt.Fprintf(&out, "receipt: %d unreadable usage ledger %s skipped, so it may leave out what this session was shown\n", bad, plural(bad, "line"))
+	}
+	rs, err := avoidedReceipt(vault, db, project, end.Session, events, ledger)
 	if err != nil {
 		fmt.Fprintf(&out, "receipt not worked out: %v\n", err)
 	} else {
 		out.WriteString(renderAvoided(rs))
 	}
-	ps, err := provenReceipt(vault, db, project, end.Session, events)
+	ps, err := provenReceipt(vault, db, project, end.Session, events, ledger)
 	out.WriteString(renderProven(ps))
 	switch {
 	case err != nil && len(ps) > 0:

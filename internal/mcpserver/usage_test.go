@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -86,5 +88,22 @@ func TestBeforeYouTryReadsAProceduresEvidenceFromTheLedger(t *testing.T) {
 	}
 	if got := usage.Tallies(events)[ref]; got.Shown != 2 {
 		t.Errorf("this showing was not recorded: %+v", got)
+	}
+
+	// A line the ledger could not parse may have been one of these showings, so
+	// counts read past it are said to be possibly low rather than shown as exact.
+	files, _ := filepath.Glob(filepath.Join(s.vault, usage.Dir, "*.jsonl"))
+	f, err := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("{not json\n")
+	f.Close()
+	out, err = s.dispatch("before_you_try", map[string]any{"approach": "run migrations with the lock flag", "project": "shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "1 unreadable usage ledger line(s) were skipped") {
+		t.Errorf("counts read past an unreadable ledger line were not marked:\n%s", out)
 	}
 }

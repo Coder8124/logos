@@ -297,7 +297,11 @@ type Totals struct {
 	// Avoided is how many rulings sessions were shown and then never touched
 	// what they name: "may have avoided", never "avoided".
 	Avoided int
-	Since   int64
+	// Procedures is how many procedures before_you_try handed back, and Proven
+	// how many a session then ran the verify of, and saw pass, after it.
+	Procedures int
+	Proven     int
+	Since      int64
 }
 
 // Saved is what the packs' budgets left out, in tokens.
@@ -332,6 +336,10 @@ func Sum(events []Event, project string) Totals {
 			t.Rulings += e.Rulings
 		case KindAtEdit:
 			t.AtEdit += e.Rulings
+		case KindProcedure:
+			t.Procedures += len(e.Refs)
+		case KindProven:
+			t.Proven += len(e.Refs)
 		}
 	}
 	return t

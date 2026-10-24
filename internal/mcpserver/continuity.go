@@ -101,9 +101,12 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 	// reader is told rather than shown counts that look like none.
 	var tallyNote string
 	if len(procHits) > 0 {
-		events, _, err := usage.Read(s.vault)
-		if err != nil {
+		events, bad, err := usage.Read(s.vault)
+		switch {
+		case err != nil:
 			tallyNote = fmt.Sprintf("\n_logos could not read its usage ledger, so how often these were shown and proven is left out: %v_\n", err)
+		case bad > 0:
+			tallyNote = fmt.Sprintf("\n_%d unreadable usage ledger line(s) were skipped, so these counts may be low._\n", bad)
 		}
 		tallies := usage.Tallies(events)
 		for i := range procHits {
