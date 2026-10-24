@@ -165,3 +165,22 @@ func TestLockFilesLiveInTheDisposableHalfOfTheVault(t *testing.T) {
 		t.Errorf("expected the lock file under .logos/locks: %v", err)
 	}
 }
+
+// Recall takes the lock this way so it can never hang behind `logos index`;
+// a TryLock that waited would be Lock under another name.
+func TestTryLockGivesUpWhileTheLockIsHeld(t *testing.T) {
+	dir := t.TempDir()
+	g, err := Lock(dir, "memory-fact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held, err := TryLock(dir, "memory-fact"); held || err != nil {
+		t.Fatalf("TryLock on a held lock: held=%v err=%v, want false, nil", held, err)
+	}
+	g.Unlock()
+	g2, held, err := TryLock(dir, "memory-fact")
+	if !held || err != nil {
+		t.Fatalf("TryLock on a free lock: held=%v err=%v", held, err)
+	}
+	g2.Unlock()
+}

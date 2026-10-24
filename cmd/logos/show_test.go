@@ -160,6 +160,8 @@ func TestShowNamesTheMemoriesNotRecalledInSixtyDays(t *testing.T) {
 		{Text: "Refunds go through the ledger service.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(150)},
 		{Text: "Checkout must stay under 200ms at p95.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(90)},
 		{Text: "The tax table is owned by finance.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(5)},
+		{Text: "route: run make check before pushing | trap: CI runs the race detector and a plain go test does not", Kind: memory.Procedure, Source: "mcp", Project: "shop", Created: days(120)},
+		{Text: "Prefers table-driven tests.", Kind: memory.Preference, Source: "mcp", Project: "shop", Created: days(120)},
 	} {
 		if _, err := memory.Store(ix.DB, nil, "", m); err != nil {
 			t.Fatal(err)
@@ -200,9 +202,9 @@ func TestShowNamesTheMemoriesNotRecalledInSixtyDays(t *testing.T) {
 	if strings.Index(section, "kestrel") > strings.Index(section, "Invoices") {
 		t.Errorf("the longest untouched memory is not listed first:\n%s", section)
 	}
-	for _, not := range []string{"ledger service", "200ms", "tax table"} {
+	for _, not := range []string{"ledger service", "200ms", "tax table", "make check", "table-driven"} {
 		if strings.Contains(section, not) {
-			t.Errorf("%q was listed as fading though it was recalled lately, pinned, or is new:\n%s", not, section)
+			t.Errorf("%q was listed as fading though it was recalled lately, pinned, new, or reaches agents without a recall:\n%s", not, section)
 		}
 	}
 }

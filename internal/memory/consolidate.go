@@ -81,10 +81,15 @@ const FadingDays = 60
 // out of every context pack looked, from the outside, like one Logos had lost.
 // Listing them gives the person the decision decay was making for them. A
 // pinned memory is left out — the pin already answered the question.
+//
+// So are the two kinds that reach an agent without a recall, so their clock
+// says nothing about whether they are read: a procedure is shown by
+// before_you_try, and preferences are surfaced into every context pack. Listing
+// those beside "let one go" would invite deleting what is used every session.
 func Fading(mems []Memory, now int64) []Memory {
 	var out []Memory
 	for _, m := range mems {
-		if m.Pin != PinNone {
+		if m.Pin != PinNone || m.Kind == Procedure || m.Kind == Preference {
 			continue
 		}
 		if now-lastTouched(m) >= FadingDays*86400 {
