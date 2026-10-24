@@ -30,7 +30,7 @@ func hookKind(event string) string {
 	switch event {
 	case "UserPromptSubmit":
 		return KindPrompt
-	case "PostToolUse", "PreToolUse":
+	case "PostToolUse", "PreToolUse", "PostToolUseFailure":
 		return KindTool
 	case "Stop", "SubagentStop":
 		return KindTurnEnd
@@ -83,6 +83,10 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 		}
 	}
 	e.Tool = str(p, "tool_name")
+	// The event's name is the signal, not a field in its payload: Claude Code
+	// sends PostToolUseFailure instead of PostToolUse when a call fails, and
+	// what it puts in that payload is not something we ship or can pin.
+	e.Failed = event == "PostToolUseFailure"
 	// The summary is all that is kept of a tool call. The input used to be
 	// stored whole — every Write's content, every Edit's old and new text,
 	// every shell command — unredacted, in a log nobody chose to write. A shell

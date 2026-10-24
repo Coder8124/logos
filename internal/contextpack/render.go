@@ -318,7 +318,7 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 	if reader != "" && c.Agent != "" && reader != c.Agent {
 		verified = fmt.Sprintf("Verified by **%s**, not by you — safe to continue from", inline(c.Agent))
 	}
-	list(b, verified, c.Verified)
+	verifiedList(b, verified, c)
 	list(b, "Known broken — do not build on it", c.Blockers)
 	// An auto checkpoint's commands are what ran, with no claim they showed
 	// anything; the activity log does not keep their results.
@@ -327,6 +327,30 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 		return
 	}
 	list(b, "Shown by running", c.Commands)
+}
+
+// verifiedList is list for the verified lines, with the ones that name a
+// command the session's activity log never saw run marked as such. Marked on
+// the line, not gathered under a heading of their own: a budget trim can
+// separate a heading from what it qualifies, and it is the line that gets
+// built on.
+func verifiedList(b *strings.Builder, heading string, c *session.Checkpoint) {
+	if len(c.Verified) == 0 {
+		return
+	}
+	unseen := map[string]bool{}
+	for _, u := range c.Unseen {
+		unseen[u] = true
+	}
+	fmt.Fprintf(b, "**%s:**\n", heading)
+	for _, it := range c.Verified {
+		fmt.Fprintf(b, "- %s", inline(it))
+		if unseen[it] {
+			b.WriteString(" — _unverified: the activity log never saw this run_")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 }
 
 // inferredFromTranscript shows what an agent read out of an auto record's

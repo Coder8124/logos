@@ -58,7 +58,12 @@ type Checkpoint struct {
 	// expired tokens — go test ./internal/auth -run TestExpiry"), Commands are
 	// the invocations that produced it, and Blockers are the standing refutation:
 	// what is known broken, and what it stops.
-	Verified  []string
+	Verified []string
+	// Unseen is the verified lines that name a command the session's activity
+	// log never saw run — see package claims. A copy of those lines, not a
+	// flag on each, so a checkpoint written before this existed reads the same
+	// and a reader of the file sees the doubt under its own heading.
+	Unseen    []string
 	Blockers  []string
 	Commands  []string
 	Questions []string
@@ -337,6 +342,11 @@ func (c *Checkpoint) maskSecrets() []secret.Redaction {
 	all("Decisions", c.Decisions)
 	all("Didn't work", c.Failed)
 	all("Verified", c.Verified)
+	// Masked alike, so each still equals the verified line it marks, and not
+	// counted: the secret is the one already counted under Verified.
+	for i := range c.Unseen {
+		c.Unseen[i], _ = secret.Mask("", c.Unseen[i])
+	}
 	all("Blockers", c.Blockers)
 	all("Commands", c.Commands)
 	all("Questions", c.Questions)

@@ -11,6 +11,7 @@ package advice
 import (
 	"fmt"
 
+	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/session"
 )
@@ -67,6 +68,22 @@ func Checkpoint(c session.Checkpoint, earlier []session.Checkpoint, dropped int,
 		out = append(out, fmt.Sprintf("Recorded as given; %s about a tool, package manager or PATH with no layer — one that is about this machine's toolchain rather than the code belongs as `route: ... | observation: ... | layer: environment`, so an agent on another toolchain can tell it does not apply to them.", count(n, f.RuledOut)))
 	}
 	return out
+}
+
+// Claims returns the receipt's sentences for what the activity log said about
+// c's claims, and whether one of them is the empty-failed question — which
+// the caller then marks in the log, so it is asked once a session.
+func Claims(c session.Checkpoint, r claims.Report, f Fields) (out []string, asked bool) {
+	if n := len(r.Unseen); n > 0 {
+		out = append(out, fmt.Sprintf("Marked unverified: %s names a command this session's activity log never saw run (%q) — resume shows the mark; if it ran where the log could not see, say where in the line.",
+			count(n, [2]string{f.Verified + " line", f.Verified + " lines"}), r.Unseen[0]))
+	}
+	if len(c.Failed) == 0 && len(r.Failures) > 0 && !r.Questioned {
+		out = append(out, fmt.Sprintf("Recorded as given; %s is empty, but this session's activity log shows %s, the last %q — if any of them ruled an approach out, checkpoint again with it in %s, or the next agent will try it again. Asked once this session.",
+			f.Failed, count(len(r.Failures), [2]string{"failing tool call", "failing tool calls"}), r.Failures[len(r.Failures)-1], f.Failed))
+		asked = true
+	}
+	return out, asked
 }
 
 func count(n int, noun [2]string) string {
