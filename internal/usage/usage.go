@@ -30,6 +30,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/textmatch"
 	vaultpkg "github.com/Coder8124/logos/internal/vault"
@@ -44,6 +45,12 @@ const (
 	KindDeadEnd = "dead-end" // a recorded dead end was handed back before a retry
 	KindAtEdit  = "at-edit"  // a ruling naming a file was shown as that file was edited
 	KindAvoided = "avoided"  // a session ended without touching what a ruling it was shown names
+	// A procedure's evidence is earned here, not in its text: the text is
+	// what its uid is derived from, so rewriting "evidence: once" would make
+	// it a different memory, and the ledger is already the vault's record of
+	// what was shown to whom.
+	KindProcedure = "procedure" // procedures known to work were handed back before a try
+	KindProven    = "proven"    // a procedure's verify passed in the session after it was shown
 )
 
 // Week is how far back `logos usage --week` reads.
@@ -167,6 +174,43 @@ func RulingRefs(hits []deadend.Ruling) []string {
 	var out []string
 	for _, h := range hits {
 		out = append(out, Ref(h.Record.Raw))
+	}
+	return out
+}
+
+// ProcedureRefs are the refs of procedures a check handed back.
+func ProcedureRefs(hits []procedure.Hit) []string {
+	var out []string
+	for _, h := range hits {
+		out = append(out, Ref(h.Memory))
+	}
+	return out
+}
+
+// Tally is what the ledger says about one procedure: how many times it was
+// handed back, and in how many sessions its verify then passed.
+type Tally struct {
+	Shown  int
+	Proven int
+}
+
+// Tallies counts, by Ref of a procedure's text, what the ledger recorded of
+// procedures being shown and proven.
+func Tallies(events []Event) map[string]Tally {
+	out := map[string]Tally{}
+	for _, e := range events {
+		for _, r := range e.Refs {
+			t := out[r]
+			switch e.Kind {
+			case KindProcedure:
+				t.Shown++
+			case KindProven:
+				t.Proven++
+			default:
+				continue
+			}
+			out[r] = t
+		}
 	}
 	return out
 }

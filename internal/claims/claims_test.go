@@ -139,3 +139,42 @@ func TestOnlyFailingShellCommandsAreAskedAbout(t *testing.T) {
 		t.Errorf("tool misses were counted as failures: %q", r.Failures)
 	}
 }
+
+// A procedure's verify is evidence for it only when it ran after the
+// procedure was shown, in the same session, and passed: an earlier run, a
+// failing one, or one in another session says nothing about whether
+// following the procedure worked.
+func TestAVerifyIsPassedOnlyByARunAfterTheProcedureWasShown(t *testing.T) {
+	shown := int64(1000)
+	run := func(session, command string, ts int64, failed bool) activity.Event {
+		e := bash("p", session, command)
+		e.Kind, e.TS, e.Failed = activity.KindTool, ts, failed
+		return e
+	}
+	cases := []struct {
+		name   string
+		events []activity.Event
+		want   bool
+	}{
+		{"passed after", []activity.Event{run("s", "make migrate-check", shown+5, false)}, true},
+		{"passed before", []activity.Event{run("s", "make migrate-check", shown-5, false)}, false},
+		{"failed after", []activity.Event{run("s", "make migrate-check", shown+5, true)}, false},
+		{"another session", []activity.Event{run("t", "make migrate-check", shown+5, false)}, false},
+		{"other subcommand", []activity.Event{run("s", "make build", shown+5, false)}, false},
+	}
+	for _, c := range cases {
+		if got := Passed("cd db && make migrate-check", c.events, "s", shown); got != c.want {
+			t.Errorf("%s: Passed = %v, want %v", c.name, got, c.want)
+		}
+	}
+	both := []activity.Event{run("s", "go vet ./...", shown+1, false), run("s", "go test ./...", shown+2, false)}
+	if !Passed("go vet ./... && go test ./...", both, "s", shown) {
+		t.Error("a verify whose every command passed was not passed")
+	}
+	if Passed("go vet ./... && go test ./...", both[:1], "s", shown) {
+		t.Error("a verify with a command never run was passed")
+	}
+	if Passed("cd db", both, "s", shown) {
+		t.Error("a verify that is only a cd was passed")
+	}
+}

@@ -8,8 +8,11 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/activity"
+	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/procedure"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
 
@@ -135,6 +138,111 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 	return out, err
 }
 
+// provenReceipt is the session-end "procedure verified" receipt: procedures a
+// before_you_try in this session handed back whose verify then ran, and
+// passed, later in the same session. Each is recorded in the ledger as proven
+// once a session, which is where before_you_try reads its evidence from.
+//
+// The match is as mechanical as avoidedReceipt's and for the same reason —
+// the log holds program and first argument of each command, so "go test
+// ./internal/auth" is met by any passing go test after the procedure was
+// shown. That is weaker than the verify itself, and the receipt says only
+// that the verify passed, not that the route was followed.
+//
+// Procedures are memories, so without the index there is nothing to resolve
+// a ledger ref to, and nothing is claimed.
+func provenReceipt(vault string, db *sql.DB, project, sessionID string, events []activity.Event) ([]procedure.Record, error) {
+	if sessionID == "" || db == nil || !usagepkg.Recording(vault) {
+		return nil, nil
+	}
+	ledger, _, err := usagepkg.Read(vault)
+	if err != nil {
+		return nil, err
+	}
+	already := map[string]bool{}
+	for _, e := range ledger {
+		if e.Session == sessionID && e.Kind == usagepkg.KindProven {
+			for _, r := range e.Refs {
+				already[r] = true
+			}
+		}
+	}
+	// shownAt is when each procedure was first handed back in this session:
+	// a verify that passed before it was shown is not evidence for it.
+	shownAt := map[string]int64{}
+	used := map[int]bool{}
+	for _, a := range events {
+		if checkVia(a) != "mcp:before_you_try" {
+			continue
+		}
+		best := -1
+		for i, e := range ledger {
+			if used[i] || e.Kind != usagepkg.KindProcedure || e.Via != "mcp:before_you_try" || !usagepkg.SameProject(e.Project, project) ||
+				e.TS > a.TS+5 || e.TS < a.TS-checkWindow {
+				continue
+			}
+			if best < 0 || abs64(e.TS-a.TS) < abs64(ledger[best].TS-a.TS) {
+				best = i
+			}
+		}
+		if best < 0 {
+			continue
+		}
+		used[best] = true
+		for _, r := range ledger[best].Refs {
+			if t, ok := shownAt[r]; !ok || a.TS < t {
+				shownAt[r] = a.TS
+			}
+		}
+	}
+	if len(shownAt) == 0 {
+		return nil, nil
+	}
+
+	corpus, err := memory.RecallProcedures(db, nil, "", "", 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []procedure.Record
+	var refs []string
+	for _, m := range corpus {
+		ref := usagepkg.Ref(m.Text)
+		at, ok := shownAt[ref]
+		if !ok || already[ref] {
+			continue
+		}
+		already[ref] = true
+		rec := procedure.ParseRecord(m.Text)
+		if rec.Verify == "" || !claims.Passed(rec.Verify, events, sessionID, at) {
+			continue
+		}
+		out = append(out, rec)
+		refs = append(refs, ref)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	err = usagepkg.Record(vault, usagepkg.Event{
+		Kind: usagepkg.KindProven, Via: "hook:session-end", Project: project, Session: sessionID, Refs: refs,
+	})
+	return out, err
+}
+
+// renderProven is the proven receipt, one line a procedure. Only a procedure
+// recorded as once changes what before_you_try calls it, so only that one is
+// told it moved.
+func renderProven(rs []procedure.Record) string {
+	var b strings.Builder
+	for _, r := range rs {
+		fmt.Fprintf(&b, "procedure verified: %s — its verify passed after it was shown", terminalSafe(r.Route, 120))
+		if r.Evidence == procedure.EvidenceOnce {
+			b.WriteString(" (once → verified)")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // checkVia is the ledger Via a tool call's dead-end check was recorded under,
 // or "" when the call was not one the receipt counts. `why` is left out: it
 // answers what was decided about a file someone came to look at, not whether
@@ -221,9 +329,20 @@ func sessionReceipt(vault, project string, raw []byte) string {
 		defer ix.Close()
 		db = ix.DB
 	}
+	var out strings.Builder
 	rs, err := avoidedReceipt(vault, db, project, end.Session, events)
 	if err != nil {
-		return fmt.Sprintf("receipt not worked out: %v\n", err)
+		fmt.Fprintf(&out, "receipt not worked out: %v\n", err)
+	} else {
+		out.WriteString(renderAvoided(rs))
 	}
-	return renderAvoided(rs)
+	ps, err := provenReceipt(vault, db, project, end.Session, events)
+	out.WriteString(renderProven(ps))
+	switch {
+	case err != nil && len(ps) > 0:
+		fmt.Fprintf(&out, "these were not added to the usage ledger, so before_you_try will not count them: %v\n", err)
+	case err != nil:
+		fmt.Fprintf(&out, "procedure receipt not worked out: %v\n", err)
+	}
+	return out.String()
 }

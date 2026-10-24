@@ -267,3 +267,44 @@ func alternatives(w string) []string {
 	}
 	return append([]string{w}, strings.Split(w, "/")...)
 }
+
+// Passed reports whether a procedure's verify ran without failing in session
+// at or after after, the time the procedure was shown. Every command of the
+// verify must have run, matched as the log keeps commands — program and first
+// argument — so "go test ./internal/auth" is met by any passing go test: the
+// log keeps no more of a command line than that, and a verify the session
+// never ran is what this exists to tell apart. A cd only says where the rest
+// ran, so it is not asked for.
+func Passed(verify string, events []activity.Event, session string, after int64) bool {
+	if session == "" {
+		return false
+	}
+	var want [][]string
+	for _, words := range activity.Commands(verify) {
+		if words[0] != "cd" {
+			want = append(want, words)
+		}
+	}
+	if len(want) == 0 {
+		return false
+	}
+	var mine [][]string
+	for _, e := range events {
+		if e.Session != session || e.TS < after || e.Failed ||
+			e.Kind != activity.KindTool || e.Tool != "Bash" {
+			continue
+		}
+		cmds, _ := commands(e)
+		mine = append(mine, cmds...)
+	}
+	for _, w := range want {
+		inv := invocation{program: w[0]}
+		if len(w) > 1 {
+			inv.args = []string{w[1]}
+		}
+		if !ran([]invocation{inv}, mine) {
+			return false
+		}
+	}
+	return true
+}

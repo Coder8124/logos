@@ -35,6 +35,16 @@ type Hit struct {
 	// moved — and, as with Stale, the procedure is still shown.
 	Commit string
 	Drift  *gitstate.Drift
+	// Shown is how many times before this one the procedure was handed back,
+	// and Proven in how many sessions its verify then passed, both from the
+	// usage ledger. Evidence is earned there rather than written into the
+	// text: the text is what a memory's uid is made from.
+	Shown  int
+	Proven int
+	// Memory is the procedure's whole text, which the ledger knows it by:
+	// Text is only the route, which two procedures can share, and
+	// Record.Raw is cut at recordCap.
+	Memory string
 }
 
 // MarkDrift is deadend.MarkDrift for procedures: each hit recorded at a commit
@@ -102,6 +112,7 @@ func Check(corpus []memory.Memory, p *provider.Provider, embedModel, approach, p
 			Score:     math.Max(lexical[i], semantic[i]),
 			Elsewhere: project != "" && c.Project != "" && c.Project != project,
 			Record:    records[i],
+			Memory:    c.Text,
 			Stale:     deadend.PossiblySuperseded(records[i].Scope, c.Created, time.Now()),
 			Commit:    c.Commit,
 		})
