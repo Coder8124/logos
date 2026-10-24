@@ -122,6 +122,10 @@ type Pack struct {
 	// still hold, and the reader is the one who can tell — but only if it is
 	// told the file moved.
 	RulingDrift map[string]*gitstate.Drift `json:"ruling_drift,omitempty"`
+	// Retired is how many rulings were left out because a person retired
+	// them with `logos review --stale` — said, so a handoff that is suddenly
+	// shorter does not read as rulings lost.
+	Retired int `json:"retired,omitempty"`
 	// Reader is who asked, when the caller said. See Request.Agent.
 	Reader string `json:"reader,omitempty"`
 	// NoDistilOffer is the distil switch turned off: an auto record still
@@ -270,13 +274,21 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// marked inherited and the render says so. The moment the worktree writes
 	// its own, this stops looking outside it, which is the whole point: two
 	// parallel trees must not hand each other their stopping places.
+	var reviews map[string]session.Review
 	if scope := p.Continuity(); scope != "" && ix.Vault != "" {
 		all, err := session.History(ix.Vault, scope, checkpointDepth)
 		if (err != nil || len(all) == 0) && p.Worktree != "" {
 			if all, err = session.History(ix.Vault, p.scope(), checkpointDepth); err == nil && len(all) > 0 {
 				p.Inherited = true
+				scope = p.scope()
 			}
 		}
+		// The verdicts are read from the scope the rulings were, so an
+		// inherited ruling a person retired on the project stays retired in
+		// the worktree that inherits it. An unreadable file is no verdicts:
+		// the rulings are then handed over as they were recorded, which is
+		// the state before anyone reviewed them, not a wrong one.
+		reviews, _ = session.Reviews(ix.Vault, scope)
 		if err == nil && len(all) > 0 && req.Dir != "" {
 			all, p.OtherRepo = sameRepository(all, req.Dir)
 		}
@@ -288,7 +300,8 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	p.Reader = req.Agent
 	p.noteDrift(req.Dir)
-	p.markRulings(req.Dir)
+	p.applyReviews(reviews)
+	p.markRulings(req.Dir, reviews)
 	// Uncommitted notes get no such fallback. A checkpoint is a finished record
 	// of where the codebase was; an open note is another agent's live work in
 	// another tree, and presenting that as this session's own progress is
@@ -875,7 +888,12 @@ func (p *Pack) noteDrift(dir string) {
 // checkpoint recorded. Newest first, so a ruling restated in a later
 // checkpoint is measured from the later commit — the one it was last
 // confirmed at.
-func (p *Pack) markRulings(dir string) {
+//
+// A ruling a person re-confirmed with `logos review --stale` is measured from
+// the commit they confirmed it at instead: they looked at the files that moved
+// and said it still holds, and warning again about the same commits would
+// teach them the warning means nothing.
+func (p *Pack) markRulings(dir string, reviews map[string]session.Review) {
 	if p.Checkpoint == nil {
 		return
 	}
@@ -890,7 +908,11 @@ func (p *Pack) markRulings(dir string) {
 			if _, done := p.RulingDrift[k]; done {
 				continue
 			}
-			d, ok := a.Since(c.Git.Commit, f)
+			commit := c.Git.Commit
+			if r, ok := reviews[session.ReviewKey(f)]; ok && r.Commit != "" {
+				commit = r.Commit
+			}
+			d, ok := a.Since(commit, f)
 			if !ok {
 				continue
 			}
@@ -900,6 +922,39 @@ func (p *Pack) markRulings(dir string) {
 			p.RulingDrift[k] = &d
 		}
 	}
+}
+
+// applyReviews drops the rulings a person retired with `logos review --stale`
+// from every checkpoint the pack hands over. The checkpoints on disk keep them
+// — a checkpoint is what was said at the time — but a ruling someone looked at
+// and called obsolete is no longer something the next agent should avoid.
+// Copies, so the checkpoint value the caller passed in is not edited.
+func (p *Pack) applyReviews(reviews map[string]session.Review) {
+	if len(reviews) == 0 || p.Checkpoint == nil {
+		return
+	}
+	left := map[string]bool{}
+	keep := func(c *session.Checkpoint) {
+		var out []string
+		for _, f := range c.Failed {
+			if k := session.ReviewKey(f); reviews[k].Retired {
+				left[k] = true
+				continue
+			}
+			out = append(out, f)
+		}
+		c.Failed = out
+	}
+	cp := *p.Checkpoint
+	keep(&cp)
+	p.Checkpoint = &cp
+	hist := make([]session.Checkpoint, len(p.History))
+	copy(hist, p.History)
+	for i := range hist {
+		keep(&hist[i])
+	}
+	p.History = hist
+	p.Retired = len(left)
 }
 
 // IntentFrom names the earlier checkpoint a reason was inherited from, so the

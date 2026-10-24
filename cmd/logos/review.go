@@ -30,6 +30,7 @@ const reviewUsage = `usage:
     logos review [--all]
     logos review --auto
     logos review --undo-auto [--since 24h|7d|YYYY-MM-DD]
+    logos review --stale
     logos review --candidates [--promote <id> | --reject <id>]
     logos review --connections [accept|reject <id>]
 
@@ -41,6 +42,8 @@ before they become checkpoints, and the connections a dream proposed overnight.
     --auto        list what the review switch accepted for you
     --undo-auto   return what the review switch accepted to the queue: since
                   your last review, or since --since
+    --stale       go through the rulings and memories whose files changed since
+                  they were recorded: keep, retire, or re-confirm at HEAD
 `
 
 func runReview(args []string) error {
@@ -54,7 +57,7 @@ func runReview(args []string) error {
 		valued: []string{"--since"},
 		// --candidates and --connections never arrive (surface takes them to
 		// their own queues), but a typo of one should be told they exist.
-		bare: []string{"--all", "--auto", "--undo-auto", "--candidates", "--connections"},
+		bare: []string{"--all", "--auto", "--undo-auto", "--stale", "--candidates", "--connections"},
 	}); err != nil {
 		return err
 	}
@@ -76,6 +79,8 @@ func runReview(args []string) error {
 		return listAutoAccepted(ix.DB)
 	case hasFlag(args, "--undo-auto"):
 		return undoAutoAccepted(ix.DB, flagStr(args, "--since", ""))
+	case hasFlag(args, "--stale"):
+		return runReviewStale(ix)
 	}
 	// The review switch first, so what it would accept is not offered to the
 	// person who turned it on to be spared exactly that. Said on the spot: this

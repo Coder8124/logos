@@ -180,6 +180,10 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 		if err != nil {
 			continue // one unreadable project must not hide the others
 		}
+		// What `logos review --stale` decided: a retired ruling is not a dead
+		// end any more, and a re-confirmed one is measured from the commit it
+		// was confirmed at. An unreadable file leaves the rulings as recorded.
+		reviews, _ := session.Reviews(vaultDir, proj)
 		for _, c := range history {
 			for _, f := range c.Failed {
 				// Checkpoints written before checkpoint dropped placeholders
@@ -187,10 +191,18 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				if session.IsPlaceholder(f) {
 					continue
 				}
+				r := reviews[session.ReviewKey(f)]
+				if r.Retired {
+					continue
+				}
+				commit := c.Git.Commit
+				if r.Commit != "" {
+					commit = r.Commit
+				}
 				rec := ParseRecord(textmatch.Flatten(f))
 				out = append(out, Ruling{
 					Text: rec.Route, Project: proj, Agent: c.Agent,
-					When: c.TS, Slug: c.Slug, Source: FromCheckpoint, Commit: c.Git.Commit,
+					When: c.TS, Slug: c.Slug, Source: FromCheckpoint, Commit: commit,
 					Record: rec, Stale: PossiblySuperseded(rec.Scope, c.TS, time.Now()),
 				})
 			}

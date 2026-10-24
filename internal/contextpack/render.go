@@ -225,6 +225,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	if older := p.priorFailures(); len(older) > 0 {
 		list(&tail, "Ruled out earlier in this project", older)
 	}
+	staleHint(&tail, p)
 	if earlier := p.priorDecisions(); len(earlier) > 0 {
 		list(&tail, "Decided earlier in this project", earlier)
 	}
@@ -595,6 +596,26 @@ func (p *Pack) priorFailures() []string {
 		}
 	}
 	return out
+}
+
+// staleHint names the one command that settles the drift warnings above, and
+// what it already settled. A warning that recurs on every resume with no way
+// to answer it is one the reader learns to skip, and then it is skipped on the
+// day it is right.
+func staleHint(b *strings.Builder, p *Pack) {
+	var drifted int
+	for _, d := range p.RulingDrift {
+		if d != nil {
+			drifted++
+		}
+	}
+	if drifted > 0 {
+		fmt.Fprintf(b, "_%d %s may be out of date — `logos review --stale` to keep, retire or re-confirm %s._\n\n",
+			drifted, plural(drifted, "ruling", "rulings"), plural(drifted, "it", "them"))
+	}
+	if p.Retired > 0 {
+		fmt.Fprintf(b, "_%d %s retired with `logos review --stale` left out._\n\n", p.Retired, plural(p.Retired, "ruling", "rulings"))
+	}
 }
 
 // priorDecisions is what earlier checkpoints decided, newest first, attributed
