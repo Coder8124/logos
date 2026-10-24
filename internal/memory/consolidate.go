@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,11 +28,7 @@ const HalfLifeDays = 90.0
 // ranking should trust, not the raw stored number: memory that earns its keep
 // through recall stays prominent; memory that never helps recedes.
 func EffectiveSalience(m Memory, now int64) float64 {
-	ref := m.LastUsed
-	if ref == 0 {
-		ref = m.Created
-	}
-	ageDays := float64(now-ref) / 86400
+	ageDays := float64(now-lastTouched(m)) / 86400
 	if ageDays < 0 {
 		ageDays = 0
 	}
@@ -70,6 +67,41 @@ func Faded(db *sql.DB, now int64) (int, error) {
 		}
 	}
 	return n, rows.Err()
+}
+
+// FadingDays is how long a memory can go unrecalled before `logos show` asks
+// whether it is still wanted — two-thirds of a half-life, while it still ranks
+// well enough to be worth deciding about rather than already out of sight.
+const FadingDays = 60
+
+// Fading picks out the memories no recall has touched in FadingDays (never
+// recalled counts from when it was written), the longest untouched first.
+//
+// Decay already ranked these down, and said so to nobody: a memory that drifted
+// out of every context pack looked, from the outside, like one Logos had lost.
+// Listing them gives the person the decision decay was making for them. A
+// pinned memory is left out — the pin already answered the question.
+func Fading(mems []Memory, now int64) []Memory {
+	var out []Memory
+	for _, m := range mems {
+		if m.Pin != PinNone {
+			continue
+		}
+		if now-lastTouched(m) >= FadingDays*86400 {
+			out = append(out, m)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return lastTouched(out[i]) < lastTouched(out[j]) })
+	return out
+}
+
+// lastTouched is the moment decay counts from, the same reference
+// EffectiveSalience uses.
+func lastTouched(m Memory) int64 {
+	if m.LastUsed > 0 {
+		return m.LastUsed
+	}
+	return m.Created
 }
 
 // Surface returns the top non-superseded memories of the given kinds by

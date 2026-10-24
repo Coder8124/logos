@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -135,5 +136,73 @@ func TestShowListsAPinnedProcedureAmongTheProjectsMemories(t *testing.T) {
 	})
 	if !strings.Contains(out, "run migrations with --lock") {
 		t.Errorf("the pinned procedure is missing from the page:\n%s", out)
+	}
+}
+
+// Decay ranked an unused memory down and told nobody, so a fact that drifted
+// out of every pack looked like one Logos had lost. The page names what has
+// gone unrecalled, by id, with the two answers to it — and leaves alone what
+// was recalled lately or pinned.
+func TestShowNamesTheMemoriesNotRecalledInSixtyDays(t *testing.T) {
+	standIn(t, "elsewhere")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	days := func(n int) int64 { return time.Now().AddDate(0, 0, -n).Unix() }
+	stored := map[string]*memory.Memory{}
+	for _, m := range []*memory.Memory{
+		{Text: "The staging box is called kestrel.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(100)},
+		{Text: "Invoices are generated nightly.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(200)},
+		{Text: "Refunds go through the ledger service.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(150)},
+		{Text: "Checkout must stay under 200ms at p95.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(90)},
+		{Text: "The tax table is owned by finance.", Kind: memory.Fact, Source: "mcp", Project: "shop", Created: days(5)},
+	} {
+		if _, err := memory.Store(ix.DB, nil, "", m); err != nil {
+			t.Fatal(err)
+		}
+		stored[m.Text] = m
+	}
+	setUsed := func(text string, at int64) {
+		if _, err := ix.DB.Exec("UPDATE memories SET last_used = ?, uses = 1 WHERE id = ?", at, stored[text].ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setUsed("Invoices are generated nightly.", days(70))
+	setUsed("Refunds go through the ledger service.", days(10))
+	if err := memory.Pin(ix.DB, stored["Checkout must stay under 200ms at p95."].ID); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	out := captureStdout(t, func() {
+		if err := runShow([]string{"shop"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	_, section, ok := strings.Cut(out, "Fading — 2 memories not recalled in 60 days")
+	if !ok {
+		t.Fatalf("the page has no fading section counting 2:\n%s", out)
+	}
+	for _, want := range []string{
+		fmt.Sprintf("#%d fact: The staging box is called kestrel. (never recalled, written 100d ago)", stored["The staging box is called kestrel."].ID),
+		fmt.Sprintf("#%d fact: Invoices are generated nightly. (last recalled 70d ago)", stored["Invoices are generated nightly."].ID),
+		"logos memory pin <id>",
+		"logos memory forget <id>",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the fading section is missing %q:\n%s", want, section)
+		}
+	}
+	if strings.Index(section, "kestrel") > strings.Index(section, "Invoices") {
+		t.Errorf("the longest untouched memory is not listed first:\n%s", section)
+	}
+	for _, not := range []string{"ledger service", "200ms", "tax table"} {
+		if strings.Contains(section, not) {
+			t.Errorf("%q was listed as fading though it was recalled lately, pinned, or is new:\n%s", not, section)
+		}
 	}
 }
