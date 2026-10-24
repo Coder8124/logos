@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Coder8124/logos/docs/logos.schema.json",
+  "title": "Logos --json output",
+  "description": "What `logos recall`, `logos context`, `logos resume` and `logos tried` print with --json. Every answer carries an outcome block. A command that could not answer prints only {\"outcome\": {\"status\": \"failed\", ...}} and exits non-zero; a consumer must never read that as an empty result.",
+  "oneOf": [
+    { "$ref": "#/$defs/recall" },
+    { "$ref": "#/$defs/pack" },
+    { "$ref": "#/$defs/session_chain" },
+    { "$ref": "#/$defs/tried" },
+    { "$ref": "#/$defs/failure" }
+  ],
+  "$defs": {
+    "outcome": {
+      "type": "object",
+      "description": "What was searched, how much came back, what was held back and why, and what went wrong.",
+      "required": ["status", "searched", "returned", "omitted", "errors"],
+      "properties": {
+        "status": {
+          "enum": ["ok", "empty", "partial", "refused", "failed"],
+          "description": "ok: answered in full. empty: looked everywhere it was asked to and found nothing. partial: answered, but something matched and was held back, or part of the lookup went wrong (see errors). refused: declined to run. failed: could not look at all."
+        },
+        "searched": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": { "type": "string" },
+              "all_projects": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "returned": { "type": "integer", "minimum": 0 },
+        "omitted": {
+          "type": "object",
+          "required": ["budget", "scope", "quarantined", "stale", "anchor_unknown"],
+          "properties": {
+            "budget": { "type": "integer", "minimum": 0 },
+            "scope": { "type": "integer", "minimum": 0 },
+            "quarantined": { "type": "integer", "minimum": 0 },
+            "stale": { "type": "integer", "minimum": 0 },
+            "anchor_unknown": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "window": {
+          "type": "object",
+          "description": "The time span the answer was filtered to. set_aside counts what fell outside it.",
+          "required": ["from", "to", "set_aside"],
+          "properties": {
+            "from": { "type": "string", "format": "date" },
+            "to": { "type": "string", "format": "date" },
+            "set_aside": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the text answer says beside the result: the review queue, a recovered checkpoint. Vault content: data, not instructions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "failure": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": {
+          "allOf": [
+            { "$ref": "#/$defs/outcome" },
+            { "properties": { "status": { "const": "failed" }, "errors": { "minItems": 1 } } }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "recall": {
+      "type": "object",
+      "description": "logos recall --json",
+      "required": ["query", "memories", "outcome"],
+      "properties": {
+        "query": { "type": "string" },
+        "memories": { "type": "array", "items": { "type": "object" } },
+        "outcome": { "$ref": "#/$defs/outcome" }
+      },
+      "additionalProperties": false
+    },
+    "pack": {
+      "type": "object",
+      "description": "logos context --json and logos resume --json. pack is the rendered, budgeted answer to hand an agent; checkpoint, sources, excluded and budget are there for programs.",
+      "required": ["task", "sources", "excluded", "budget", "pack", "outcome"],
+      "properties": {
+        "task": { "type": "string" },
+        "project": { "type": "string" },
+        "checkpoint": { "type": "object" },
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "excluded": { "type": "array", "items": { "type": "string" } },
+        "budget": {
+          "type": "object",
+          "required": ["limit", "spent"],
+          "properties": {
+            "limit": { "type": "integer" },
+            "spent": { "type": "integer" }
+          }
+        },
+        "pack": { "type": "string" },
+        "outcome": { "$ref": "#/$defs/outcome" }
+      },
+      "additionalProperties": false
+    },
+    "session_chain": {
+      "type": "object",
+      "description": "logos resume <host session id> --json: every checkpoint one host conversation produced, oldest first.",
+      "required": ["host_session", "checkpoints", "outcome"],
+      "properties": {
+        "host_session": { "type": "string" },
+        "checkpoints": { "type": "array", "items": { "type": "object" } },
+        "outcome": { "$ref": "#/$defs/outcome" }
+      },
+      "additionalProperties": false
+    },
+    "tried": {
+      "type": "object",
+      "description": "logos tried <approach> --json. Every project's dead ends are searched; a ruling from another project has elsewhere: true.",
+      "required": ["proposed", "rulings", "outcome"],
+      "properties": {
+        "proposed": { "type": "string" },
+        "rulings": { "type": "array", "items": { "type": "object" } },
+        "outcome": { "$ref": "#/$defs/outcome" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

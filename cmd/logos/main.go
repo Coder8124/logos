@@ -85,6 +85,7 @@ func main() {
 
 	if spec, ok := commandFlags[cmd]; ok {
 		if err := checkFlags(form, args, spec); err != nil {
+			printJSONFailure(cmd, args, err)
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -245,6 +246,7 @@ func main() {
 	}
 
 	if err != nil {
+		printJSONFailure(cmd, args, err)
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

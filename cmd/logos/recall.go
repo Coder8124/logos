@@ -15,12 +15,13 @@ import (
 // memories too, but ranked among notes and without the review queue's report,
 // so a person checking what an agent will be told had no way to see it.
 func recallCmd(args []string) error {
+	asJSON, args := jsonFlag(args)
 	if err := checkCommandFlags("recall", args); err != nil {
 		return err
 	}
 	query := strings.TrimSpace(strings.Join(dropFlag(dropFlag(positionals(args, "--all-projects"), "--project"), "--limit"), " "))
 	if query == "" {
-		return fmt.Errorf("usage: logos memory recall <query> [--project <name>] [--all-projects] [--limit N]")
+		return fmt.Errorf("usage: logos memory recall <query> [--project <name>] [--all-projects] [--limit N] [--json]")
 	}
 	project := ""
 	if !hasFlag(args, "--all-projects") {
@@ -52,11 +53,22 @@ func recallCmd(args []string) error {
 		return err
 	}
 	ifEmpty := "No relevant memories."
+	missing := false
 	if project != "" {
 		ifEmpty = fmt.Sprintf("No relevant memories in %s. Pass --all-projects to search every project.", project)
 		if len(r.Memories) == 0 && !ops.ProjectExists(ix.DB, vaultPath(), project) {
 			ifEmpty = fmt.Sprintf("No project named %s in this vault.", untrusted.Inline(project))
+			missing = true
 		}
+	}
+	if asJSON {
+		// The one sentence that changes what an empty answer means: no
+		// project by that name is not the same as a project with nothing on
+		// the query.
+		if missing {
+			return printRecallJSON(query, r, ifEmpty)
+		}
+		return printRecallJSON(query, r)
 	}
 	fmt.Println(r.Text(ifEmpty))
 	return nil
