@@ -895,11 +895,40 @@ func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) (
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
+}
+
+// touchRecalled counts each memory a recall returned as used, and carries the
+// new recall time into that memory's own file once a day.
+//
+// It used to update the row and nothing else. used= and uses= are in the vault
+// line so a rebuild keeps them, but the line was rewritten only when the memory
+// changed for some other reason — so deleting the index and running `logos
+// index` restarted the clock of every memory recalled since, and a fact used
+// yesterday came back as one nobody had needed since it was written. Decay
+// ranks by that clock and `logos show` offers what it says has faded for
+// forgetting.
+//
+// Once a day rather than on every recall: a clock read in weeks needs no finer
+// resolution, and a file rewritten on every read is churn in a vault people
+// keep in git. The day is measured from the row's last recall, which is the
+// one the vault last got.
+//
+// A file write that fails is dropped here, not returned: the recall's answer
+// is still right, and a vault that cannot be written fails every store and is
+// named by doctor — failing the read over its bookkeeping would cost the agent
+// the memories it asked for.
+func touchRecalled(db *sql.DB, mems []Memory, now int64) {
+	for _, m := range mems {
+		if _, err := db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID); err != nil {
+			continue
+		}
+		if now-m.LastUsed < 86400 {
+			continue
+		}
+		withKind(db, m.Kind, func() error { return exportMemoryFile(db, m.Kind, m.ID) })
+	}
 }
 
 // recallByVec ranks stored memories using hybrid retrieval (vector + BM25 fused)
@@ -1049,10 +1078,7 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
 }
 
@@ -1077,10 +1103,7 @@ func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
 }
 
