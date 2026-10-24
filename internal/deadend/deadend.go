@@ -191,13 +191,9 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 				if session.IsPlaceholder(f) {
 					continue
 				}
-				r := reviews[session.ReviewKey(f)]
-				if r.Retired {
+				retired, commit := reviews[session.ReviewKey(f)].For(c.TS, c.Git.Commit)
+				if retired {
 					continue
-				}
-				commit := c.Git.Commit
-				if r.Commit != "" {
-					commit = r.Commit
 				}
 				rec := ParseRecord(textmatch.Flatten(f))
 				out = append(out, Ruling{

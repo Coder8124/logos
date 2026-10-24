@@ -30,6 +30,28 @@ type Review struct {
 	TS      int64
 }
 
+// For applies a verdict to one checkpoint's copy of the ruling, and says
+// whether that copy is retired and which commit to measure it from.
+//
+// A verdict covers only checkpoints recorded up to when it was given. A dead
+// end retired and then recorded again by a later agent is a new finding —
+// the file regressed, say — and dropping it on a text match would send the
+// next agent straight back into it. Likewise a later restatement's commit is
+// newer than the re-confirm, and measuring from the re-confirm would warn
+// again about commits that agent already worked on top of.
+func (r Review) For(checkpointTS int64, checkpointCommit string) (retired bool, commit string) {
+	if r.TS == 0 || r.TS < checkpointTS {
+		return false, checkpointCommit
+	}
+	if r.Retired {
+		return true, checkpointCommit
+	}
+	if r.Commit != "" {
+		return false, r.Commit
+	}
+	return false, checkpointCommit
+}
+
 // ReviewKey is how a reviewed ruling is matched back to its checkpoint entry:
 // case and whitespace folded, the same key resume dedups rulings by, so a
 // ruling restated in a later checkpoint with different wrapping is the same

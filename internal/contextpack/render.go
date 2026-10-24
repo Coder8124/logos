@@ -603,15 +603,32 @@ func (p *Pack) priorFailures() []string {
 // to answer it is one the reader learns to skip, and then it is skipped on the
 // day it is right.
 func staleHint(b *strings.Builder, p *Pack) {
-	var drifted int
+	var rulings, mems int
 	for _, d := range p.RulingDrift {
 		if d != nil {
-			drifted++
+			rulings++
 		}
 	}
-	if drifted > 0 {
-		fmt.Fprintf(b, "_%d %s may be out of date — `logos review --stale` to keep, retire or re-confirm %s._\n\n",
-			drifted, plural(drifted, "ruling", "rulings"), plural(drifted, "it", "them"))
+	// Memories too, since --stale offers them: a drift note on a procedure
+	// with no hint beside it is the unanswerable warning again. By id, as one
+	// memory can be both pinned and related.
+	seen := map[int64]bool{}
+	for _, m := range p.all() {
+		if m.Drift != nil && !seen[m.ID] {
+			seen[m.ID] = true
+			mems++
+		}
+	}
+	var what []string
+	if rulings > 0 {
+		what = append(what, fmt.Sprintf("%d %s", rulings, plural(rulings, "ruling", "rulings")))
+	}
+	if mems > 0 {
+		what = append(what, fmt.Sprintf("%d %s", mems, plural(mems, "memory", "memories")))
+	}
+	if n := rulings + mems; n > 0 {
+		fmt.Fprintf(b, "_%s may be out of date — `logos review --stale` to keep, retire or re-confirm %s._\n\n",
+			strings.Join(what, " and "), itOrThem(n))
 	}
 	if p.Retired > 0 {
 		fmt.Fprintf(b, "_%d %s retired with `logos review --stale` left out._\n\n", p.Retired, plural(p.Retired, "ruling", "rulings"))
@@ -707,7 +724,9 @@ func (p *Pack) otherOpenWork() []string {
 }
 
 func normalizeKey(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+	// The key `logos review --stale` files its verdicts under: were the two
+	// to differ, a retire would quietly stop matching the ruling it named.
+	return session.ReviewKey(s)
 }
 
 // all is every memory the pack is carrying, preferences and pins included.

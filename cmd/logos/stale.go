@@ -32,6 +32,11 @@ type staleItem struct {
 
 func (s staleItem) label() string {
 	if s.mem != nil {
+		// Said, because retiring excludes it everywhere: a global preference
+		// that no longer fits this project may still fit every other one.
+		if s.mem.Project == "" {
+			return fmt.Sprintf("%s #%d, every project", s.mem.Kind, s.mem.ID)
+		}
 		return fmt.Sprintf("%s #%d", s.mem.Kind, s.mem.ID)
 	}
 	return "ruling"
@@ -45,7 +50,7 @@ func (s staleItem) text() string {
 }
 
 // gatherStale collects what has drifted in the repository at dir: every
-// ruling the project's checkpoints hold, and every memory recorded at a commit
+// ruling the scope's checkpoints hold, and every memory recorded at a commit
 // of it — procedures among them, which no other listing shows.
 //
 // Rulings are read from the checkpoints directly rather than through
@@ -54,16 +59,16 @@ func (s staleItem) text() string {
 // They are measured the way deadend.MarkDrift measures them, newest
 // checkpoint first so a ruling restated later is measured from the later
 // commit, and from the commit a person re-confirmed it at when they did.
-func gatherStale(vaultDir string, db *sql.DB, project, dir string) ([]staleItem, error) {
+func gatherStale(vaultDir string, db *sql.DB, project, scope, dir string) ([]staleItem, error) {
 	a := gitstate.NewAnchors(dir)
 	if a == nil {
 		return nil, nil
 	}
-	history, err := session.History(vaultDir, project, 0)
+	history, err := session.History(vaultDir, scope, 0)
 	if err != nil {
 		return nil, fmt.Errorf("reading the checkpoints: %w", err)
 	}
-	reviews, err := session.Reviews(vaultDir, project)
+	reviews, err := session.Reviews(vaultDir, scope)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", session.ReviewedFile, err)
 	}
@@ -77,13 +82,9 @@ func gatherStale(vaultDir string, db *sql.DB, project, dir string) ([]staleItem,
 				continue
 			}
 			seen[k] = true
-			r := reviews[k]
-			if r.Retired {
+			retired, commit := reviews[k].For(c.TS, c.Git.Commit)
+			if retired {
 				continue
-			}
-			commit := c.Git.Commit
-			if r.Commit != "" {
-				commit = r.Commit
 			}
 			rec := deadend.ParseRecord(textmatch.Flatten(f))
 			if d, ok := a.SinceAnchor(commit, rec.Anchor, rec.Raw); ok {
@@ -120,7 +121,7 @@ func gatherStale(vaultDir string, db *sql.DB, project, dir string) ([]staleItem,
 // for "I don't know yet". Retire leaves a ruling out of every later handoff
 // and excludes a memory (on record still, `logos memory unpin` reverses it).
 // Re-confirm moves the item's commit to head, so it is measured from now.
-func reviewStale(in *bufio.Reader, items []staleItem, vaultDir string, db *sql.DB, project, head string) (kept, retired, confirmed int, err error) {
+func reviewStale(in *bufio.Reader, items []staleItem, vaultDir string, db *sql.DB, scope, head string) (kept, retired, confirmed int, err error) {
 	fmt.Printf("%d may be out of date · [k]eep  [r]etire  [c]onfirm still true at %s  [q]uit\n\n", len(items), short(head))
 	for i, it := range items {
 		fmt.Printf("[%d/%d] (%s) %s\n", i+1, len(items), it.label(), terminalSafe(textmatch.Flatten(it.text()), 400))
@@ -141,7 +142,7 @@ func reviewStale(in *bufio.Reader, items []staleItem, vaultDir string, db *sql.D
 				if it.mem != nil {
 					act = memory.Exclude(db, it.mem.ID)
 				} else {
-					act = session.Retire(vaultDir, project, it.entry)
+					act = session.Retire(vaultDir, scope, it.entry)
 				}
 				if act == nil {
 					retired++
@@ -151,7 +152,7 @@ func reviewStale(in *bufio.Reader, items []staleItem, vaultDir string, db *sql.D
 				if it.mem != nil {
 					act = memory.Reconfirm(db, it.mem.ID, head)
 				} else {
-					act = session.Reconfirm(vaultDir, project, it.entry, head)
+					act = session.Reconfirm(vaultDir, scope, it.entry, head)
 				}
 				if act == nil {
 					confirmed++
@@ -184,7 +185,17 @@ func runReviewStale(ix *index.Index) error {
 	if project == "" || head == "" {
 		return fmt.Errorf("--stale measures what changed in a repository; run it inside the project's checkout")
 	}
-	items, err := gatherStale(ix.Vault, ix.DB, project, dir)
+	// The scope resume reads: a linked worktree with checkpoints of its own
+	// has its rulings, and its verdicts, filed under project/worktree, and
+	// reviewing the project's instead would leave resume's warnings there
+	// unanswerable.
+	scope := project
+	if w := gitstate.WorktreeName(dir); w != "" {
+		if own, err := session.History(ix.Vault, project+"/"+w, 1); err == nil && len(own) > 0 {
+			scope = project + "/" + w
+		}
+	}
+	items, err := gatherStale(ix.Vault, ix.DB, project, scope, dir)
 	if err != nil {
 		return err
 	}
@@ -192,7 +203,7 @@ func runReviewStale(ix *index.Index) error {
 		fmt.Printf("nothing recorded on %s names a file that changed since — no rulings or memories to review\n", project)
 		return nil
 	}
-	kept, retired, confirmed, err := reviewStale(bufio.NewReader(os.Stdin), items, ix.Vault, ix.DB, project, head)
+	kept, retired, confirmed, err := reviewStale(bufio.NewReader(os.Stdin), items, ix.Vault, ix.DB, scope, head)
 	fmt.Printf("%d kept, %d retired, %d re-confirmed, %d not reached\n", kept, retired, confirmed, len(items)-kept-retired-confirmed)
 	return err
 }

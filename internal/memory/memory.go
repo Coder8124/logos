@@ -1438,19 +1438,29 @@ func Reconfirm(db *sql.DB, id int64, commit string) error {
 	if strings.TrimSpace(commit) == "" {
 		return fmt.Errorf("re-confirming needs the commit it holds at")
 	}
-	var text, kind string
-	if err := db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind); err != nil {
+	var text, kind, was string
+	if err := db.QueryRow("SELECT text, kind, commit_sha FROM memories WHERE id = ?", id).Scan(&text, &kind, &was); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("no memory #%d", id)
 		}
 		return err
 	}
 	return withKind(db, Kind(kind), func() error {
+		// The file is written from the row, so the row changes first — and
+		// changes back if the file could not be written, so the index never
+		// holds a re-confirm the vault does not, and the event is logged only
+		// once both do.
 		if _, err := db.Exec("UPDATE memories SET commit_sha = ? WHERE id = ?", commit, id); err != nil {
 			return err
 		}
+		if err := exportMemoryFile(db, Kind(kind), id); err != nil {
+			if _, rerr := db.Exec("UPDATE memories SET commit_sha = ? WHERE id = ?", was, id); rerr != nil {
+				return fmt.Errorf("writing memory #%d's file: %w; and the index now says re-confirmed at %s: %v", id, err, commit, rerr)
+			}
+			return fmt.Errorf("writing memory #%d's file: %w", id, err)
+		}
 		logEvent(db, id, EvUpdated, "re-confirmed at "+commit+": "+text, 0)
-		return errors.Join(exportMemoryFile(db, Kind(kind), id), flushLocked(db, Kind(kind)))
+		return flushLocked(db, Kind(kind))
 	})
 }
 

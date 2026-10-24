@@ -40,7 +40,7 @@ func TestReviewStaleOffersWhatDriftedAndItsAnswersStick(t *testing.T) {
 	commitTo(t, repo, "internal/parse/reader.go", "read in chunks\n")
 	_, head := gitstate.Head(repo)
 
-	items, err := gatherStale(vault, db, "api", repo)
+	items, err := gatherStale(vault, db, "api", "api", repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestReviewStaleOffersWhatDriftedAndItsAnswersStick(t *testing.T) {
 		t.Fatalf("got %d kept, %d retired, %d confirmed", kept, retired, confirmed)
 	}
 
-	again, err := gatherStale(vault, db, "api", repo)
+	again, err := gatherStale(vault, db, "api", "api", repo)
 	if err != nil {
 		t.Fatal(err)
 	}

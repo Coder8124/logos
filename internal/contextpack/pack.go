@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/graph"
 	"github.com/Coder8124/logos/internal/index"
@@ -32,6 +33,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/textmatch"
 	"github.com/Coder8124/logos/internal/when"
 )
 
@@ -901,18 +903,24 @@ func (p *Pack) markRulings(dir string, reviews map[string]session.Review) {
 	if a == nil {
 		return
 	}
+	// Seen before it is measured: once the newest copy of a ruling shows no
+	// drift, an older copy measured from an older commit must not warn about
+	// changes the newer one was recorded on top of.
+	seen := map[string]bool{}
 	cps := append([]session.Checkpoint{*p.Checkpoint}, p.History...)
 	for _, c := range cps {
 		for _, f := range c.Failed {
 			k := normalizeKey(f)
-			if _, done := p.RulingDrift[k]; done {
+			if seen[k] {
 				continue
 			}
-			commit := c.Git.Commit
-			if r, ok := reviews[session.ReviewKey(f)]; ok && r.Commit != "" {
-				commit = r.Commit
-			}
-			d, ok := a.Since(commit, f)
+			seen[k] = true
+			_, commit := reviews[k].For(c.TS, c.Git.Commit)
+			// Measured the way before_you_try and `logos review --stale`
+			// measure it, structured anchor included, so every warning
+			// here is one --stale offers to settle.
+			rec := deadend.ParseRecord(textmatch.Flatten(f))
+			d, ok := a.SinceAnchor(commit, rec.Anchor, rec.Raw)
 			if !ok {
 				continue
 			}
@@ -933,14 +941,16 @@ func (p *Pack) applyReviews(reviews map[string]session.Review) {
 	if len(reviews) == 0 || p.Checkpoint == nil {
 		return
 	}
-	left := map[string]bool{}
+	left, kept := map[string]bool{}, map[string]bool{}
 	keep := func(c *session.Checkpoint) {
 		var out []string
 		for _, f := range c.Failed {
-			if k := session.ReviewKey(f); reviews[k].Retired {
+			k := session.ReviewKey(f)
+			if retired, _ := reviews[k].For(c.TS, c.Git.Commit); retired {
 				left[k] = true
 				continue
 			}
+			kept[k] = true
 			out = append(out, f)
 		}
 		c.Failed = out
@@ -954,7 +964,13 @@ func (p *Pack) applyReviews(reviews map[string]session.Review) {
 		keep(&hist[i])
 	}
 	p.History = hist
-	p.Retired = len(left)
+	// A ruling recorded again after it was retired is still handed over, from
+	// the later checkpoint, so it is not one that was left out.
+	for k := range left {
+		if !kept[k] {
+			p.Retired++
+		}
+	}
 }
 
 // IntentFrom names the earlier checkpoint a reason was inherited from, so the
