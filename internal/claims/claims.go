@@ -16,6 +16,7 @@ package claims
 
 import (
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/activity"
 )
@@ -32,20 +33,30 @@ type Report struct {
 	// Unseen is the verified lines that name a command this session's log
 	// never ran, in the order given.
 	Unseen []string
-	// Failures is the session's failing tool calls, oldest first.
+	// Failures is the session's failing shell commands, oldest first.
 	Failures []string
 	// Questioned is whether this session's empty failed was already asked about.
 	Questioned bool
 }
 
-// Check reads project's activity log and holds verified up against the
-// session that is checkpointing. That session is the newest one the log has
-// for project — the same reading mcpserver's hostSession makes, with the same
-// limit: two agents on one project at once can be told apart only by the host.
-// No log, or recording switched off, is a Report with no Session: a log that
-// was never kept cannot say a command did not run.
+// fresh is how recently the session checked must have logged. A checkpoint
+// comes at the end of work its own host logged as it went; a log whose newest
+// event for the project is older than this was written by some other session —
+// yesterday's, or a host with no hooks checkpointing now — and checking this
+// checkpoint against it would mark lines it had no part in.
+const fresh = 30 * time.Minute
+
+// Check reads the activity log and holds verified up against the session that
+// is checkpointing on project: the one that logged last for it, within fresh.
+// Two agents on one project at once can be told apart only by the host, which
+// is the limit mcpserver's hostSession lives with too.
+// Recording off, no log, or no recent session is a Report with no Session: a
+// log that was not kept cannot say a command did not run.
 func Check(vault, project string, verified []string) (Report, error) {
-	events, err := activity.Read(vault, activity.Query{Project: project})
+	if !activity.Recording(vault) {
+		return Report{}, nil
+	}
+	events, err := activity.Read(vault, activity.Query{})
 	if err != nil {
 		return Report{}, err
 	}
@@ -54,7 +65,7 @@ func Check(vault, project string, verified []string) (Report, error) {
 	var r Report
 	newest := int64(-1)
 	for _, e := range events {
-		if e.Session == "" {
+		if e.Project != project || e.Session == "" {
 			continue
 		}
 		if newest >= 0 && e.TS < newest {
@@ -62,39 +73,53 @@ func Check(vault, project string, verified []string) (Report, error) {
 		}
 		newest, r.Session = e.TS, e.Session
 	}
-	if r.Session == "" {
+	if r.Session == "" || time.Since(time.Unix(newest, 0)) > fresh {
 		return Report{}, nil
 	}
-	// Programs and their first arguments as this project has ever run them,
-	// so "go test" in a verified line is read as a command and "auth works"
-	// is not — there is no list of programs to keep, only the log.
+	// Programs and their first arguments as this vault has ever run them, in
+	// any project, so "go test" in a verified line is read as a command and
+	// "auth works" is not — there is no list of programs to keep, only the log.
 	known := map[string]map[string]bool{}
 	var mine [][]string
+	// blind is a session command line cut short before the log kept commands
+	// apart from the summary: what it ran past the cut is unknown, so no line
+	// can be said not to have run.
+	blind := false
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
-		if e.Kind == kindQuestioned && e.Session == r.Session {
+		ours := e.Project == project && e.Session == r.Session
+		if ours && e.Kind == kindQuestioned {
 			r.Questioned = true
 		}
-		if e.Kind != activity.KindTool {
+		if e.Kind != activity.KindTool || e.Tool != "Bash" {
 			continue
 		}
-		if e.Session == r.Session && e.Failed {
+		// Only a failing command is asked about: a Read of a missing file or
+		// an Edit that missed its string fails in nearly every session and
+		// rules nothing out.
+		if ours && e.Failed {
 			r.Failures = append(r.Failures, e.Summary)
 		}
-		if e.Tool != "Bash" {
-			continue
-		}
-		for _, words := range simpleCommands(strings.TrimPrefix(e.Summary, "Bash: ")) {
+		cmds, cut := commands(e)
+		for _, words := range cmds {
 			if known[words[0]] == nil {
 				known[words[0]] = map[string]bool{}
 			}
 			if len(words) > 1 {
 				known[words[0]][words[1]] = true
 			}
-			if e.Session == r.Session {
+			// A run that failed does not support "passes": it is the claim
+			// this check exists to catch.
+			if ours && !e.Failed {
 				mine = append(mine, words)
 			}
 		}
+		if ours && cut {
+			blind = true
+		}
+	}
+	if blind {
+		return r, nil
 	}
 	for _, line := range verified {
 		if names, ok := named(line, known); ok && !ran(names, mine) {
@@ -102,6 +127,33 @@ func Check(vault, project string, verified []string) (Report, error) {
 		}
 	}
 	return r, nil
+}
+
+// commands is what a logged shell call ran, and whether the summary it was
+// read from was cut. The hook keeps the commands apart from the cut summary;
+// an event from before it did is read from the summary, minus the last
+// command when the summary ends in the cut's ellipsis.
+func commands(e activity.Event) ([][]string, bool) {
+	if kept, ok := e.Extra["commands"].([]any); ok {
+		var out [][]string
+		for _, c := range kept {
+			if s, ok := c.(string); ok {
+				if words := strings.Fields(s); len(words) > 0 {
+					out = append(out, words)
+				}
+			}
+		}
+		return out, false
+	}
+	line := strings.TrimPrefix(e.Summary, "Bash: ")
+	cmds := activity.Commands(line)
+	if !strings.HasSuffix(line, "…") {
+		return cmds, false
+	}
+	if len(cmds) > 0 {
+		cmds = cmds[:len(cmds)-1]
+	}
+	return cmds, true
 }
 
 // MarkQuestioned records that session's empty failed was asked about.
@@ -176,31 +228,6 @@ func ran(names []invocation, mine [][]string) bool {
 		}
 	}
 	return true
-}
-
-// simpleCommands splits a shell line into its simple commands, each as words
-// with leading variable assignments dropped: in `cd x && LOGOS_VAULT=/tmp/v
-// go test ./...` the commands are cd and go, and it is go that a verified line
-// names.
-func simpleCommands(line string) [][]string {
-	var out [][]string
-	for _, part := range strings.FieldsFunc(line, func(r rune) bool {
-		return r == '&' || r == '|' || r == ';' || r == '\n' || r == '(' || r == ')'
-	}) {
-		words := strings.Fields(part)
-		for len(words) > 0 && isAssignment(words[0]) {
-			words = words[1:]
-		}
-		if len(words) > 0 {
-			out = append(out, words)
-		}
-	}
-	return out
-}
-
-func isAssignment(w string) bool {
-	i := strings.IndexByte(w, '=')
-	return i > 0 && !strings.ContainsAny(w[:i], "-./")
 }
 
 // fields splits prose into words, with the punctuation prose puts after a

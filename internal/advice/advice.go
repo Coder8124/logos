@@ -74,13 +74,15 @@ func Checkpoint(c session.Checkpoint, earlier []session.Checkpoint, dropped int,
 // c's claims, and whether one of them is the empty-failed question — which
 // the caller then marks in the log, so it is asked once a session.
 func Claims(c session.Checkpoint, r claims.Report, f Fields) (out []string, asked bool) {
-	if n := len(r.Unseen); n > 0 {
-		out = append(out, fmt.Sprintf("Marked unverified: %s names a command this session's activity log never saw run (%q) — resume shows the mark; if it ran where the log could not see, say where in the line.",
-			count(n, [2]string{f.Verified + " line", f.Verified + " lines"}), r.Unseen[0]))
+	// c.Unseen, not r.Unseen: the commit masked the checkpoint's copy, and the
+	// receipt must quote the line as the file holds it, not as it was typed.
+	if n := len(c.Unseen); n > 0 {
+		out = append(out, fmt.Sprintf("Marked unverified: %s names a command this session's activity log never saw run successfully (%q) — resume shows the mark. It is a note for the next agent, not a refusal: a run the log could not see (CI, another machine, the same shell call as this checkpoint) stays marked, so rerun it here if it matters.",
+			count(n, [2]string{f.Verified + " line", f.Verified + " lines"}), c.Unseen[0]))
 	}
 	if len(c.Failed) == 0 && len(r.Failures) > 0 && !r.Questioned {
 		out = append(out, fmt.Sprintf("Recorded as given; %s is empty, but this session's activity log shows %s, the last %q — if any of them ruled an approach out, checkpoint again with it in %s, or the next agent will try it again. Asked once this session.",
-			f.Failed, count(len(r.Failures), [2]string{"failing tool call", "failing tool calls"}), r.Failures[len(r.Failures)-1], f.Failed))
+			f.Failed, count(len(r.Failures), [2]string{"failing shell command", "failing shell commands"}), r.Failures[len(r.Failures)-1], f.Failed))
 		asked = true
 	}
 	return out, asked

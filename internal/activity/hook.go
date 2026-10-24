@@ -95,7 +95,55 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	// vault in the clear.
 	summary, kept := summarize(kind, e.Tool, p)
 	e.Summary, e.Private = ingest.Redact(summary), kept
+	// The summary is cut at 160 runes, and `cd <long path> && go build ./... &&
+	// go test ./...` loses its go test to the cut. internal/claims reads what a
+	// session ran to check a checkpoint's verified lines against, so the
+	// commands are kept apart from the cut: each one's program and first
+	// argument only, masked like the summary, never the rest of the line.
+	if kind == KindTool {
+		in, _ := p["tool_input"].(map[string]any)
+		if line := str(in, "command"); line != "" {
+			line, _ = secret.StripPrivate("", line)
+			var cmds []any
+			for _, words := range Commands(line) {
+				if len(words) > 2 {
+					words = words[:2]
+				}
+				cmds = append(cmds, ingest.Redact(strings.Join(words, " ")))
+			}
+			if len(cmds) > 0 {
+				if e.Extra == nil {
+					e.Extra = map[string]any{}
+				}
+				e.Extra["commands"] = cmds
+			}
+		}
+	}
 	return e, nil
+}
+
+// Commands splits a shell line into its simple commands, each as words with
+// leading variable assignments dropped: in `cd x && LOGOS_VAULT=/tmp/v go test
+// ./...` the commands are cd and go, and it is go that a verified line names.
+func Commands(line string) [][]string {
+	var out [][]string
+	for _, part := range strings.FieldsFunc(line, func(r rune) bool {
+		return r == '&' || r == '|' || r == ';' || r == '\n' || r == '(' || r == ')'
+	}) {
+		words := strings.Fields(part)
+		for len(words) > 0 && isAssignment(words[0]) {
+			words = words[1:]
+		}
+		if len(words) > 0 {
+			out = append(out, words)
+		}
+	}
+	return out
+}
+
+func isAssignment(w string) bool {
+	i := strings.IndexByte(w, '=')
+	return i > 0 && !strings.ContainsAny(w[:i], "-./")
 }
 
 // summarize writes the one line a person reads without expanding the row.

@@ -2,31 +2,140 @@ package claims
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/activity"
 )
+
+// logged starts a recording vault holding events, each stamped now unless it
+// says otherwise.
+func logged(t *testing.T, events ...activity.Event) string {
+	t.Helper()
+	vault := t.TempDir()
+	if err := activity.SetRecording(vault, true); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	for _, e := range events {
+		if e.TS == 0 {
+			e.TS = now
+		}
+		if e.Kind == "" {
+			e.Kind = activity.KindTool
+		}
+		if err := activity.Append(vault, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return vault
+}
+
+func bash(project, session, command string) activity.Event {
+	return activity.Event{Project: project, Session: session, Tool: "Bash", Summary: "Bash: " + command}
+}
+
+func check(t *testing.T, vault string, verified ...string) Report {
+	t.Helper()
+	r, err := Check(vault, "p", verified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
 // The log is read newest first and keeps file order within a second, so the
 // first event of the newest second is the session that wrote earlier in it.
 // Checking that one would hold a checkpoint up against somebody else's commands.
 func TestTheSessionCheckedIsTheOneThatWroteLastInTheSameSecond(t *testing.T) {
-	vault := t.TempDir()
-	if err := activity.SetRecording(vault, true); err != nil {
+	vault := logged(t, bash("p", "other", "go test ./..."), bash("p", "mine", "go build ./..."))
+	r := check(t, vault, "go test ./... passes")
+	if r.Session != "mine" || len(r.Unseen) != 1 {
+		t.Errorf("checked session %q, unseen %q; want mine, with the test it never ran marked", r.Session, r.Unseen)
+	}
+}
+
+// With recording switched off the log stops at the day it was turned off, and
+// its newest session is a past one: nothing it lacks says anything about now.
+func TestWithRecordingOffNothingIsChecked(t *testing.T) {
+	vault := logged(t, bash("p", "s", "go build ./..."), bash("q", "o", "go test ./..."))
+	if err := activity.SetRecording(vault, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range []activity.Event{
-		{TS: 100, Kind: activity.KindTool, Project: "p", Session: "other", Tool: "Bash", Summary: "Bash: go test ./..."},
-		{TS: 100, Kind: activity.KindTool, Project: "p", Session: "mine", Tool: "Bash", Summary: "Bash: go build ./..."},
-	} {
-		if err := activity.Append(vault, e); err != nil {
-			t.Fatal(err)
-		}
+	if r := check(t, vault, "go test ./... passes"); r.Session != "" || len(r.Unseen) != 0 {
+		t.Errorf("checked a log that is not being kept: %+v", r)
 	}
-	r, err := Check(vault, "p", []string{"go test ./... passes"})
+}
+
+// A host with no hooks logs nothing, so the newest session in the log is
+// another one, hours old. Its commands are not this checkpoint's.
+func TestASessionThatLoggedNothingRecentlyIsNotChecked(t *testing.T) {
+	old := time.Now().Add(-3 * time.Hour).Unix()
+	e := bash("p", "yesterday", "go build ./...")
+	e.TS = old
+	f := bash("p", "yesterday", "go test ./x")
+	f.TS, f.Failed = old, true
+	vault := logged(t, e, f, bash("q", "o", "go test ./..."))
+	if r := check(t, vault, "go test ./auth passes"); r.Session != "" || len(r.Unseen) != 0 || len(r.Failures) != 0 {
+		t.Errorf("a stale session was held against this checkpoint: %+v", r)
+	}
+}
+
+// "go test passes" from a session whose only go test failed is the claim this
+// exists to catch; a failed run is not support for it.
+func TestARunThatFailedDoesNotSupportAVerifiedLine(t *testing.T) {
+	f := bash("p", "s", "go test ./cart")
+	f.Failed = true
+	vault := logged(t, f)
+	r := check(t, vault, "go test ./cart passes")
+	if len(r.Unseen) != 1 || len(r.Failures) != 1 {
+		t.Errorf("a failed run supported the line: %+v", r)
+	}
+}
+
+// The summary is cut at 160 runes; the hook keeps the commands apart from the
+// cut, so a go vet at the end of a long line still counts as run.
+func TestACommandPastTheSummaryCutStillCountsAsRun(t *testing.T) {
+	line := "cd /Users/someone/IdeaProjects/a-very-long-checkout-name-for-this && LOGOS_VAULT=/tmp/scratch-vault go build ./... && go test ./... && go vet ./... && gofmt -l ."
+	e, err := activity.FromHook("PostToolUse", []byte(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"`+line+`"}}`), "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Session != "mine" || len(r.Unseen) != 1 {
-		t.Errorf("checked session %q, unseen %q; want mine, with the test it never ran marked", r.Session, r.Unseen)
+	if len([]rune(e.Summary)) < 160 {
+		t.Fatalf("the line was not long enough to be cut: %q", e.Summary)
+	}
+	vault := logged(t, e)
+	if r := check(t, vault, "go vet ./... clean", "gofmt clean"); len(r.Unseen) != 0 {
+		t.Errorf("commands past the cut were marked unverified: %q", r.Unseen)
+	}
+}
+
+// An event logged before the hook kept commands apart has only its cut
+// summary, and what ran past the cut is unknown; no line is marked on it.
+func TestACutSummaryWithNoCommandsKeptMarksNothing(t *testing.T) {
+	vault := logged(t, bash("p", "s", "cd /x && go build ./... && go…"), bash("q", "o", "go test ./..."))
+	if r := check(t, vault, "go test ./... passes"); len(r.Unseen) != 0 {
+		t.Errorf("marked a line the cut may have hidden: %q", r.Unseen)
+	}
+}
+
+// A subcommand only counts once the log has seen it, and a project that never
+// ran go test before would let "go test passes" through on any go run. Other
+// projects in the vault teach the log what go's subcommands are.
+func TestSubcommandsAreLearnedFromTheWholeVault(t *testing.T) {
+	vault := logged(t, bash("elsewhere", "o", "go test ./..."), bash("p", "s", "go build ./..."))
+	if r := check(t, vault, "go test ./auth passes"); len(r.Unseen) != 1 {
+		t.Errorf("go test was not read as a command: %+v", r)
+	}
+}
+
+// A Read of a missing file or an Edit that missed its string fails in nearly
+// every session and rules nothing out; only failing shell commands are asked
+// about.
+func TestOnlyFailingShellCommandsAreAskedAbout(t *testing.T) {
+	r1 := activity.Event{Project: "p", Session: "s", Tool: "Read", Summary: "Read gone.go", Failed: true}
+	r2 := activity.Event{Project: "p", Session: "s", Tool: "Edit", Summary: "Edit a.go", Failed: true}
+	vault := logged(t, r1, r2, bash("p", "s", "go build ./..."))
+	if r := check(t, vault); len(r.Failures) != 0 {
+		t.Errorf("tool misses were counted as failures: %q", r.Failures)
 	}
 }

@@ -71,7 +71,7 @@ func TestAnEmptyFailedOnASessionWithFailingCommandsIsQuestionedOnce(t *testing.T
 	hookEvent(t, "PostToolUse", `{"session_id":"s-red","tool_name":"Bash","tool_input":{"command":"go build ./..."}}`)
 
 	first := checkpointOut(t, "--task", "fix the cart", "--next", "ship it")
-	if !strings.Contains(first, "--failed is empty, but this session's activity log shows 1 failing tool call") ||
+	if !strings.Contains(first, "--failed is empty, but this session's activity log shows 1 failing shell command") ||
 		!strings.Contains(first, "go test ./cart") {
 		t.Errorf("an empty --failed after a failing command was not questioned:\n%s", first)
 	}
