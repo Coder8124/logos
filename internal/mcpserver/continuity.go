@@ -461,6 +461,15 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said
 	}
+	// After the checkpoint is on disk, so the decision it just recorded counts.
+	// A failure here leaves the checkpoint saved, and is said as such.
+	promoted, perr := ops.PromoteDecisions(s.DB, s.vault, c.Project)
+	if said := ops.PromotionReceipt(promoted); said != "" {
+		msg += " " + said
+	}
+	if perr != nil {
+		msg += fmt.Sprintf(" The checkpoint is saved, but promoting its decisions failed: %v.", perr)
+	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
 	}

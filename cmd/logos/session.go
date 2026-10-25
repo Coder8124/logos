@@ -237,6 +237,19 @@ func runCheckpoint(args []string) error {
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.CLI) {
 		fmt.Println(said)
 	}
+	// After the checkpoint is on disk, so the decision it just recorded counts.
+	// A failure here leaves the checkpoint saved, and is said as such.
+	if err := memory.Init(ix.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: the checkpoint is saved, but its decisions could not be promoted: %v\n", err)
+	} else {
+		promoted, err := ops.PromoteDecisions(ix.DB, ix.Vault, c.Project)
+		if said := ops.PromotionReceipt(promoted); said != "" {
+			fmt.Println(said)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "logos: the checkpoint is saved, but promoting its decisions failed: %v\n", err)
+		}
+	}
 	// Deliberately not "run `logos index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user
 	// just did: resume reads this file off disk, so the handoff already works.

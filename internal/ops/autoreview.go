@@ -3,6 +3,8 @@ package ops
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -77,7 +79,7 @@ func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
 	var accepted int
 	var failed []string
 	for _, m := range pending {
-		if !autoAcceptable(db, m, turns) {
+		if !autoAcceptable(db, vault, m, turns) {
 			continue
 		}
 		if err := memory.AcceptAuto(db, m.ID, now); err != nil {
@@ -92,11 +94,11 @@ func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
 	return accepted, nil
 }
 
-func autoAcceptable(db *sql.DB, m memory.Memory, turns map[string]int) bool {
+func autoAcceptable(db *sql.DB, vault string, m memory.Memory, turns map[string]int) bool {
 	if m.Contests != 0 || strings.Contains(m.Text, secret.Marker) || !decisionOrTrap(m) {
 		return false
 	}
-	if !turnExists(m.Turn, turns) {
+	if !turnExists(m.Turn, turns) && !checkpointsExist(vault, m.Turn) {
 		return false
 	}
 	_, contested := memory.ContestedNow(db, m.ID, m.Text)
@@ -129,6 +131,22 @@ func turnExists(ref string, turns map[string]int) bool {
 		turns[key] = have
 	}
 	return have >= n
+}
+
+// checkpointsExist is turnExists for a decision promoted from checkpoints
+// (see PromoteDecisions): what it claims is checkable only while every
+// checkpoint it cites is still there to be read.
+func checkpointsExist(vault, ref string) bool {
+	slugs, ok := strings.CutPrefix(ref, checkpointsRef)
+	if !ok || slugs == "" {
+		return false
+	}
+	for _, slug := range strings.Split(slugs, ",") {
+		if _, err := os.Stat(filepath.Join(vault, filepath.FromSlash(slug)+".md")); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // AutoAcceptedSinceReview is how many memories the review switch accepted

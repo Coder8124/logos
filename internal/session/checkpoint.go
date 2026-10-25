@@ -1008,3 +1008,14 @@ func givesReason(d string) bool {
 	}
 	return false
 }
+
+// DecisionKey is what makes two recorded decisions the same one: case,
+// spacing, a closing full stop, and the "Decision:" a promoted memory is
+// worded with all fall away. Mechanical on purpose — a decision restated in
+// other words is a model's call, and two agents copying the line forward is the
+// common case this has to catch without one.
+func DecisionKey(d string) string {
+	k := strings.ToLower(strings.Join(strings.Fields(d), " "))
+	k = strings.TrimPrefix(k, "decision: ")
+	return strings.TrimRight(k, ". ")
+}
