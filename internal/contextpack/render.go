@@ -635,6 +635,9 @@ func (p *Pack) priorDecisions() []string {
 		}
 		out = append(out, fmt.Sprintf("(%s) %s", from, flatten(m.Text)))
 	}
+	if p.PromotedErr != nil {
+		out = append(out, fmt.Sprintf("(could not read the decisions promoted to project memory: %v)", p.PromotedErr))
+	}
 	for _, c := range p.History {
 		var subjects []map[string]bool
 		for _, d := range c.Decisions {

@@ -157,9 +157,13 @@ type Pack struct {
 	// became memory (see ops.PromoteDecisions), and PromotedFrom how many
 	// checkpoints recorded each, by id. They are listed with the decisions,
 	// once, in place of the checkpoint lines they came from.
-	Promoted     []memory.Memory        `json:"promoted,omitempty"`
-	PromotedFrom map[int64]int          `json:"-"`
-	OpenLoops    []secretary.Commitment `json:"open_loops"`
+	Promoted     []memory.Memory `json:"promoted,omitempty"`
+	PromotedFrom map[int64]int   `json:"-"`
+	// PromotedErr is why the promoted decisions, or their counts, could not
+	// be read: said where they would have been, so a missing standing
+	// decision reads as a failure and not as a project that has none.
+	PromotedErr error                  `json:"-"`
+	OpenLoops   []secretary.Commitment `json:"open_loops"`
 
 	// Superseded holds recalled memories a later statement replaced. They are
 	// kept out of the answer but reported, so the agent knows the value moved
@@ -950,6 +954,7 @@ func (p *Pack) loadPromoted(db *sql.DB, vaultDir string) {
 	}
 	mems, err := memory.AllInProject(db, p.scope())
 	if err != nil {
+		p.PromotedErr = err
 		return
 	}
 	ids := map[int64]bool{}
@@ -991,14 +996,20 @@ func (p *Pack) loadPromoted(db *sql.DB, vaultDir string) {
 		}
 		pr.Goals = goals
 	}
-	// Counted over every checkpoint, not the few the pack reads: a decision is
-	// promoted precisely because it outlived that window.
+	// Counted over the window promotion reads, not the few checkpoints the
+	// pack does: a decision is promoted precisely because it outlived those.
+	// Against the memory's own project, which is the one PromoteDecisions
+	// counted it in, whatever continuity this pack fell back to.
 	p.PromotedFrom = map[int64]int{}
-	all, err := session.History(vaultDir, p.Continuity(), 0)
-	if err != nil {
-		return
-	}
+	hist := map[string][]session.Checkpoint{}
 	for _, m := range p.Promoted {
+		all, ok := hist[m.Project]
+		if !ok {
+			if all, err = session.History(vaultDir, m.Project, session.DecisionWindow); err != nil {
+				p.PromotedErr = err
+			}
+			hist[m.Project] = all
+		}
 		k := session.DecisionKey(m.Text)
 		for _, c := range all {
 			for _, d := range c.Decisions {

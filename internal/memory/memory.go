@@ -674,14 +674,14 @@ func insertMemory(db *sql.DB, m *Memory, vec []byte) (int64, error) {
 		oneLine(m.Text), idAttempts)
 }
 
-// defaultConfidence seeds a memory's confidence from how it was learned. A fact
-// the user typed or a tool asserted is near-certain; one inferred from the drift
-// of a conversation is a hypothesis that corroboration must earn up.
 // SourceCheckpoints marks a memory promoted from a decision that held across
 // checkpoints (see ops.PromoteDecisions). Resume lists it with the decisions,
 // not the memories, because that is where its sources were.
 const SourceCheckpoints = "checkpoints"
 
+// defaultConfidence seeds a memory's confidence from how it was learned. A fact
+// the user typed or a tool asserted is near-certain; one inferred from the drift
+// of a conversation is a hypothesis that corroboration must earn up.
 func defaultConfidence(source string) float64 {
 	switch source {
 	case "manual":

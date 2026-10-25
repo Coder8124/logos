@@ -16,10 +16,14 @@ const cookieDecision = "Sessions use signed cookies, not JWTs, because we need s
 // minute apart and all in the past, so a memory stored after them is newer.
 func checkpoints(t *testing.T, db *sql.DB, vault string, decisions ...[]string) {
 	t.Helper()
+	checkpointsFrom(t, db, vault, time.Now().Add(-time.Hour), decisions...)
+}
+
+func checkpointsFrom(t *testing.T, db *sql.DB, vault string, start time.Time, decisions ...[]string) {
+	t.Helper()
 	if err := session.Init(db); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now().Add(-time.Hour)
 	for i, ds := range decisions {
 		c := &session.Checkpoint{Project: "kestrel", Agent: "claude-code", Decisions: ds,
 			TS: start.Add(time.Duration(i) * time.Minute).Unix()}
@@ -131,10 +135,11 @@ func TestARejectedPromotionIsNotProposedAgain(t *testing.T) {
 	if err := memory.Reject(db, onlyPending(t, db).ID); err != nil {
 		t.Fatal(err)
 	}
-	checkpoints(t, db, vault, []string{cookieDecision})
+	checkpointsFrom(t, db, vault, time.Now().Add(-30*time.Minute),
+		[]string{cookieDecision + "."}, []string{cookieDecision + "."}, []string{cookieDecision + "."})
 	got, err := PromoteDecisions(db, vault, "kestrel")
 	if err != nil || got.Proposed != 0 {
-		t.Fatalf("proposed %d (%v) after the user rejected it", got.Proposed, err)
+		t.Fatalf("proposed %d (%v) after the user rejected it, reworded with a full stop", got.Proposed, err)
 	}
 }
 
@@ -149,49 +154,112 @@ func TestTheReviewSwitchAcceptsAPromotionWhileItsCheckpointsAreThere(t *testing.
 		t.Fatalf("the review switch accepted %d (%v), want the promotion", n, err)
 	}
 
-	gone := propose(t, db, "Decision: deploys freeze on Fridays", memory.Context, checkpointsRef+"sessions/kestrel/no-such-checkpoint")
-	if n, _ := AutoReview(db, vault, time.Now()); n != 0 {
-		t.Errorf("accepted a promotion citing a checkpoint that is not there (#%d)", gone)
+	// The queue file is editable, so what a proposal cites is checked, not
+	// trusted: a checkpoint that is not there, a path out of the sessions
+	// directory, and a citation on a proposal checkpoints did not make.
+	slug := strings.Split(strings.TrimPrefix(onlyAccepted(t, db).Turn, checkpointsRef), ",")[0]
+	for _, c := range []struct{ text, source, turn string }{
+		{"Decision: deploys freeze on Fridays", memory.SourceCheckpoints, checkpointsRef + "sessions/kestrel/no-such-checkpoint"},
+		{"Decision: the queue is drained nightly", memory.SourceCheckpoints, checkpointsRef + "../../etc/passwd"},
+		{"Decision: logs rotate weekly", "mcp", checkpointsRef + slug},
+	} {
+		m := memory.Memory{Text: c.text, Kind: memory.Context, Project: "kestrel", Source: c.source, Quarantined: true, Turn: c.turn}
+		if _, err := memory.Store(db, nil, "", &m); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := AutoReview(db, vault, time.Now()); n != 0 {
+			t.Errorf("accepted %q citing %q from source %s", c.text, c.turn, c.source)
+		}
 	}
 }
 
-func TestAPromotedDecisionALaterCheckpointReversesIsSupersededNotEdited(t *testing.T) {
+// onlyAccepted is the one standing checkpoints-sourced memory in kestrel.
+func onlyAccepted(t *testing.T, db *sql.DB) memory.Memory {
+	t.Helper()
+	mems, err := memory.AllInProject(db, "kestrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []memory.Memory
+	for _, m := range mems {
+		if m.Source == memory.SourceCheckpoints && !m.Quarantined {
+			out = append(out, m)
+		}
+	}
+	if len(out) != 1 {
+		t.Fatalf("%d promoted memories standing, want 1: %+v", len(out), out)
+	}
+	return out[0]
+}
+
+const jwtReversal = "Sessions move to JWTs; signed cookies are dropped because revocation is handled by a denylist"
+
+// A reversal goes through review like any decision; only once it is standing
+// memory does it replace the one it reversed, by Correct, which keeps the old
+// memory on record and names it in the new one's supersedes.
+func TestAPromotedDecisionIsSupersededOnlyOnceItsReversalHasHeldAndBeenAccepted(t *testing.T) {
 	db, vault := reviewVault(t, false)
 	checkpoints(t, db, vault, []string{cookieDecision}, []string{cookieDecision}, []string{cookieDecision})
 	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
 		t.Fatal(err)
 	}
-	old := onlyPending(t, db)
-	if err := memory.Accept(db, old.ID); err != nil {
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
+		t.Fatal(err)
+	}
+	old := onlyAccepted(t, db)
+
+	later := time.Now().Add(-30 * time.Minute)
+	checkpointsFrom(t, db, vault, later, []string{jwtReversal})
+	if got, err := PromoteDecisions(db, vault, "kestrel"); err != nil || got.Superseded != 0 || got.Proposed != 0 {
+		t.Fatalf("one reversing checkpoint did %+v (%v), want nothing yet", got, err)
+	}
+	checkpointsFrom(t, db, vault, later.Add(5*time.Minute), []string{jwtReversal}, []string{jwtReversal})
+	got, err := PromoteDecisions(db, vault, "kestrel")
+	if err != nil || got.Proposed != 1 || got.Superseded != 0 {
+		t.Fatalf("a reversal that held did %+v (%v), want it proposed and nothing superseded", got, err)
+	}
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
 		t.Fatal(err)
 	}
 
-	reversal := "Sessions move to JWTs; signed cookies are dropped because revocation is handled by a denylist"
-	if err := session.Commit(db, vault, &session.Checkpoint{Project: "kestrel", Agent: "codex",
-		Decisions: []string{reversal}, TS: time.Now().Add(time.Minute).Unix()}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := PromoteDecisions(db, vault, "kestrel")
+	got, err = PromoteDecisions(db, vault, "kestrel")
 	if err != nil || got.Superseded != 1 {
 		t.Fatalf("superseded %d (%v), want the reversed decision", got.Superseded, err)
 	}
-	mems, err := memory.AllInProject(db, "kestrel")
-	if err != nil {
+	now := onlyAccepted(t, db)
+	var link string
+	if err := db.QueryRow("SELECT supersedes FROM memories WHERE id = ?", now.ID).Scan(&link); err != nil {
 		t.Fatal(err)
 	}
-	var now *memory.Memory
-	for i, m := range mems {
-		if m.ID == old.ID {
-			t.Errorf("the reversed decision is still standing: %q", m.Text)
-		}
-		if strings.Contains(m.Text, "Sessions move to JWTs") {
-			now = &mems[i]
-		}
-	}
-	if now == nil || now.Source != memory.SourceCheckpoints {
-		t.Fatalf("no promoted memory holds the reversal: %+v", mems)
+	if !strings.Contains(now.Text, "Sessions move to JWTs") || link != old.Uid {
+		t.Errorf("standing is %q superseding %q, want the reversal superseding %q", now.Text, link, old.Uid)
 	}
 	if got, _ := PromoteDecisions(db, vault, "kestrel"); got.Superseded != 0 {
 		t.Errorf("a second pass superseded %d more", got.Superseded)
+	}
+}
+
+// Two decisions on one subject that agents copy forward together are both
+// standing; neither is a reversal of the other.
+func TestTwoRelatedDecisionsRecordedTogetherDoNotSupersedeEachOther(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	both := []string{cookieDecision, "Session cookies are signed with a key rotated monthly, because revocation alone does not cover a leaked key"}
+	checkpoints(t, db, vault, both, both, both)
+	got, err := PromoteDecisions(db, vault, "kestrel")
+	if err != nil || got.Proposed != 2 {
+		t.Fatalf("proposed %d (%v), want both", got.Proposed, err)
+	}
+	ms, err := memory.Pending(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if err := memory.Accept(db, m.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkpointsFrom(t, db, vault, time.Now().Add(-30*time.Minute), both)
+	if got, err := PromoteDecisions(db, vault, "kestrel"); err != nil || got.Superseded != 0 {
+		t.Fatalf("superseded %d (%v) between two decisions that stand together", got.Superseded, err)
 	}
 }

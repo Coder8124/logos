@@ -1019,3 +1019,10 @@ func DecisionKey(d string) string {
 	k = strings.TrimPrefix(k, "decision: ")
 	return strings.TrimRight(k, ". ")
 }
+
+// DecisionWindow is how many of a project's newest checkpoints decision
+// promotion reads, and resume counts a promoted decision over. Every
+// checkpoint and every resume reads them, and a year of checkpoints is
+// thousands of files; a decision the last 200 never recorded is not one the
+// project is still holding.
+const DecisionWindow = 200

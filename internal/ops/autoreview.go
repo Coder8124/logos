@@ -13,6 +13,7 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/secret"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
 
@@ -98,7 +99,7 @@ func autoAcceptable(db *sql.DB, vault string, m memory.Memory, turns map[string]
 	if m.Contests != 0 || strings.Contains(m.Text, secret.Marker) || !decisionOrTrap(m) {
 		return false
 	}
-	if !turnExists(m.Turn, turns) && !checkpointsExist(vault, m.Turn) {
+	if !turnExists(m.Turn, turns) && !(m.Source == memory.SourceCheckpoints && checkpointsExist(vault, m.Turn)) {
 		return false
 	}
 	_, contested := memory.ContestedNow(db, m.ID, m.Text)
@@ -142,6 +143,12 @@ func checkpointsExist(vault, ref string) bool {
 		return false
 	}
 	for _, slug := range strings.Split(slugs, ",") {
+		// The ref is read back from the queue file, which anyone can edit:
+		// only a checkpoint under sessions/ counts, never a path that climbs
+		// out of the vault to find some file that happens to exist.
+		if !filepath.IsLocal(filepath.FromSlash(slug)) || !strings.HasPrefix(slug, session.CheckpointDir+"/") {
+			return false
+		}
 		if _, err := os.Stat(filepath.Join(vault, filepath.FromSlash(slug)+".md")); err != nil {
 			return false
 		}
