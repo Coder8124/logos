@@ -12,6 +12,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
@@ -227,6 +228,9 @@ func runCheckpoint(args []string) error {
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
 	// Read before the commit, so the history is what came before this checkpoint.
 	earlier, _ := session.History(ix.Vault, c.Project, session.IntentDepth)
+	// Before the commit, so the mark is in the file and not only on stdout.
+	claimed, claimErr := claims.Check(ix.Vault, c.Project, c.Verified)
+	c.Unseen = claimed.Unseen
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
@@ -236,6 +240,18 @@ func runCheckpoint(args []string) error {
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.CLI) {
 		fmt.Println(said)
+	}
+	said, asked := advice.Claims(*c, claimed, advice.CLI)
+	for _, line := range said {
+		fmt.Println(line)
+	}
+	if claimErr != nil {
+		fmt.Printf("--verified was not checked against the activity log: %v\n", claimErr)
+	}
+	if asked {
+		if err := claims.MarkQuestioned(ix.Vault, c.Project, claimed.Session); err != nil {
+			fmt.Printf("the question was not marked in the activity log, so it may be asked again: %v\n", err)
+		}
 	}
 	// Deliberately not "run `logos index` to make it searchable" any more. That
 	// was true about general retrieval and misleading about the thing the user

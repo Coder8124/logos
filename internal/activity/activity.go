@@ -83,6 +83,11 @@ type Event struct {
 	// from summaries, and a receipt in one became part of its task, a
 	// command and a file name.
 	Private int `json:"private,omitempty"`
+	// Failed marks a tool call the host reported as failing — a command that
+	// exited non-zero, an edit that did not apply. Kept because a checkpoint
+	// whose "didn't work" is empty after a session full of these is the one
+	// the next agent pays for: see package claims.
+	Failed bool `json:"failed,omitempty"`
 	// Extra carries whatever the host sent that we did not model. Kept so the
 	// record stays lossless even where our schema is not.
 	Extra map[string]any `json:"extra,omitempty"`

@@ -126,6 +126,7 @@ func (c Checkpoint) Markdown(follows string) string {
 	bullets(&b, secDecisions, c.Decisions)
 	bullets(&b, secFailed, c.Failed)
 	bullets(&b, secVerified, c.Verified)
+	bullets(&b, secUnseen, c.Unseen)
 	bullets(&b, secBlockers, c.Blockers)
 	bullets(&b, secCommands, c.Commands)
 	bullets(&b, secQuestions, c.Questions)
@@ -150,6 +151,7 @@ const (
 	secDecisions = "Decisions"
 	secFailed    = "Didn't work"
 	secVerified  = "Verified"
+	secUnseen    = "Verified, but not in the activity log"
 	secBlockers  = "Blockers"
 	secCommands  = "Commands run"
 	secQuestions = "Open questions"
@@ -325,6 +327,8 @@ func ParseCheckpoint(raw string) Checkpoint {
 		// skipped and a missing one leaves its field nil.
 		case secVerified:
 			c.Verified = parseBullets(text)
+		case secUnseen:
+			c.Unseen = parseBullets(text)
 		case secBlockers:
 			c.Blockers = parseBullets(text)
 		case secCommands:

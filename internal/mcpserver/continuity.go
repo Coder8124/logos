@@ -10,6 +10,7 @@ import (
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/announce"
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/ingest"
@@ -449,6 +450,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
 	// Read before the commit, so the history is what came before this checkpoint.
 	earlier, _ := session.History(s.vault, c.Project, session.IntentDepth)
+	// Before the commit, so the mark is in the file and not only in this reply.
+	claimed, claimErr := claims.Check(s.vault, c.Project, c.Verified)
+	c.Unseen = claimed.Unseen
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -460,6 +464,18 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said
+	}
+	said, asked := advice.Claims(*c, claimed, advice.MCP)
+	for _, line := range said {
+		msg += " " + line
+	}
+	if claimErr != nil {
+		msg += fmt.Sprintf(" Verified was not checked against the activity log: %v.", claimErr)
+	}
+	if asked {
+		if err := claims.MarkQuestioned(s.vault, c.Project, claimed.Session); err != nil {
+			msg += fmt.Sprintf(" The question was not marked in the activity log, so it may be asked again: %v.", err)
+		}
 	}
 	if handoffTo != "" {
 		msg += fmt.Sprintf(" Handed off to %s — they can call resume(%q).", handoffTo, c.Project)
