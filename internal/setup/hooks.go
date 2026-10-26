@@ -35,14 +35,16 @@ func TierOf(h Host) Tier {
 	}
 }
 
-// hookFile is a host's user-level hooks file, in the shape both Cursor and
-// Codex use: a version, and events naming the commands to run.
+// hookFile is a host's user-level hooks file: an object of events naming the
+// commands to run. Cursor's also carries a version; Codex's does not, and
+// writing one into a file Codex owns is a key it never asked for.
 // It is decoded field by field rather than marshalled back whole, because
 // whatever else the user keeps in that file has to survive the round trip.
 type hookFile struct {
-	Version int
-	Hooks   map[string]json.RawMessage
-	rest    map[string]json.RawMessage // everything in the file, ours included
+	Version   int
+	versioned bool // write Version back: the file had one, or it is Cursor's
+	Hooks     map[string]json.RawMessage
+	rest      map[string]json.RawMessage // everything in the file, ours included
 }
 
 // A session-start entry is kept as the object the file held, not as a struct of
@@ -60,6 +62,25 @@ func (e hookEntry) command() string {
 		json.Unmarshal(raw, &s)
 	}
 	return s
+}
+
+// hookArgv is how the hook runs logos: the server's launch line without its
+// `mcp serve`. Built from the whole launch line, every hook was
+// `logos mcp serve hook cursor session-start` — an MCP server that read the
+// host's JSON as a request, printed nothing and exited 0, so setup reported a
+// hook and no session ever opened with a handoff.
+func hookArgv(s Server) []string {
+	argv := append([]string{s.Bin}, s.Args...)
+	if n := len(argv); n >= 2 && argv[n-2] == "mcp" && argv[n-1] == "serve" {
+		argv = argv[:n-2]
+	}
+	return argv
+}
+
+// isLogosHook reports whether a command is logos's session-start hook for
+// host, under whatever binary or launcher an earlier setup wrote it with.
+func isLogosHook(cmd, host string) bool {
+	return strings.Contains(cmd, " hook "+host+" session-start")
 }
 
 // logosEntryFor builds the entry from the whole command line the server is
@@ -91,30 +112,17 @@ func installHook(path, host string, argv []string) (Outcome, error) {
 	if err != nil {
 		return Failed, err
 	}
-	var entries []hookEntry
-	if raw, ok := f.Hooks["sessionStart"]; ok && len(raw) > 0 {
-		if err := json.Unmarshal(raw, &entries); err != nil {
-			return Failed, fmt.Errorf(
-				"%s has a sessionStart block logos cannot read, so it was left alone; fix or move it and re-run: %w",
-				path, err)
-		}
-	}
 	want := logosEntryFor(host, argv)
-	had := false
-	for i, e := range entries {
-		if strings.Contains(e.command(), " hook "+host+" session-start") {
-			had, entries[i] = true, want
-			break
-		}
+	var had bool
+	if host == "codex" {
+		had, err = installCodexHook(path, &f, want)
+	} else {
+		f.versioned = true
+		had, err = installFlatHook(path, &f, host, want)
 	}
-	if !had {
-		entries = append(entries, want)
-	}
-	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return Failed, err
 	}
-	f.Hooks["sessionStart"] = encoded
 	if err := saveHookFile(path, f); err != nil {
 		return Failed, err
 	}
@@ -122,6 +130,152 @@ func installHook(path, host string, argv []string) (Outcome, error) {
 		return Updated, nil
 	}
 	return Registered, nil
+}
+
+// installFlatHook is Cursor's shape: sessionStart, a list of entries.
+func installFlatHook(path string, f *hookFile, host string, want hookEntry) (bool, error) {
+	entries, err := flatEntries(path, f)
+	if err != nil {
+		return false, err
+	}
+	had := false
+	for i, e := range entries {
+		if isLogosHook(e.command(), host) {
+			had, entries[i] = true, want
+			break
+		}
+	}
+	if !had {
+		entries = append(entries, want)
+	}
+	return had, setFlatEntries(f, entries)
+}
+
+// installCodexHook is Codex's shape, which is Claude Code's: SessionStart, a
+// list of matcher groups, each holding typed handlers. Earlier setups wrote
+// Cursor's shape here, which Codex never read; that entry is moved rather than
+// left beside the working one, and counts as an update, because the user had
+// a hook that setup reported and that never ran.
+func installCodexHook(path string, f *hookFile, want hookEntry) (bool, error) {
+	want["type"] = json.RawMessage(`"command"`)
+	// Codex never reads the flat block, so one logos cannot parse is no reason
+	// to leave Codex without a hook; it is left exactly as it was.
+	had, _ := dropFlatLogosHooks(path, f)
+	groups, err := codexGroups(path, f)
+	if err != nil {
+		return false, err
+	}
+	placed := false
+	for _, g := range groups {
+		handlers, err := groupHandlers(path, g)
+		if err != nil {
+			return false, err
+		}
+		for i, h := range handlers {
+			if isLogosHook(h.command(), "codex") {
+				handlers[i], placed = want, true
+				break
+			}
+		}
+		if placed {
+			if g["hooks"], err = json.Marshal(handlers); err != nil {
+				return false, err
+			}
+			break
+		}
+	}
+	if !placed {
+		// No matcher: Codex runs the group at every session source — startup,
+		// resume, clear and compact — and each of them starts without context.
+		hooks, _ := json.Marshal([]hookEntry{want})
+		groups = append(groups, hookEntry{"hooks": hooks})
+	}
+	return had || placed, setCodexGroups(f, groups)
+}
+
+func flatEntries(path string, f *hookFile) ([]hookEntry, error) {
+	var entries []hookEntry
+	if raw, ok := f.Hooks["sessionStart"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return nil, fmt.Errorf(
+				"%s has a sessionStart block logos cannot read, so it was left alone; fix or move it and re-run: %w",
+				path, err)
+		}
+	}
+	return entries, nil
+}
+
+// setFlatEntries writes sessionStart back, dropping the key once nothing is
+// left in it rather than leaving an empty event the user never had.
+func setFlatEntries(f *hookFile, entries []hookEntry) error {
+	if len(entries) == 0 {
+		delete(f.Hooks, "sessionStart")
+		return nil
+	}
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return err
+	}
+	f.Hooks["sessionStart"] = encoded
+	return nil
+}
+
+// dropFlatLogosHooks takes any logos entry out of the flat sessionStart list
+// and reports whether there was one; the user's own entries stay.
+func dropFlatLogosHooks(path string, f *hookFile) (bool, error) {
+	entries, err := flatEntries(path, f)
+	if err != nil || len(entries) == 0 {
+		return false, err
+	}
+	kept, found := entries[:0], false
+	for _, e := range entries {
+		if isLogosHook(e.command(), "cursor") || isLogosHook(e.command(), "codex") {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if !found {
+		return false, nil
+	}
+	return true, setFlatEntries(f, kept)
+}
+
+func codexGroups(path string, f *hookFile) ([]hookEntry, error) {
+	var groups []hookEntry
+	if raw, ok := f.Hooks["SessionStart"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &groups); err != nil {
+			return nil, fmt.Errorf(
+				"%s has a SessionStart block logos cannot read, so it was left alone; fix or move it and re-run: %w",
+				path, err)
+		}
+	}
+	return groups, nil
+}
+
+func groupHandlers(path string, g hookEntry) ([]hookEntry, error) {
+	var handlers []hookEntry
+	if raw, ok := g["hooks"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &handlers); err != nil {
+			return nil, fmt.Errorf(
+				"%s has a SessionStart group logos cannot read, so it was left alone; fix or move it and re-run: %w",
+				path, err)
+		}
+	}
+	return handlers, nil
+}
+
+func setCodexGroups(f *hookFile, groups []hookEntry) error {
+	if len(groups) == 0 {
+		delete(f.Hooks, "SessionStart")
+		return nil
+	}
+	encoded, err := json.Marshal(groups)
+	if err != nil {
+		return err
+	}
+	f.Hooks["SessionStart"] = encoded
+	return nil
 }
 
 // quoteForShell is enough quoting for a path that goes into a command line a
@@ -152,6 +306,7 @@ func loadHookFile(path string) (hookFile, error) {
 		return f, fmt.Errorf("%s is not valid JSON, so it was left alone; fix or move it and re-run: %w", path, err)
 	}
 	if v, ok := f.rest["version"]; ok {
+		f.versioned = true
 		json.Unmarshal(v, &f.Version)
 	}
 	if h, ok := f.rest["hooks"]; ok && len(h) > 0 {
@@ -167,14 +322,17 @@ func saveHookFile(path string, f hookFile) error {
 	if err != nil {
 		return err
 	}
-	version, err := json.Marshal(f.Version)
-	if err != nil {
-		return err
-	}
 	if f.rest == nil {
 		f.rest = map[string]json.RawMessage{}
 	}
-	f.rest["version"], f.rest["hooks"] = version, hooks
+	f.rest["hooks"] = hooks
+	if f.versioned {
+		version, err := json.Marshal(f.Version)
+		if err != nil {
+			return err
+		}
+		f.rest["version"] = version
+	}
 	out, err := json.MarshalIndent(f.rest, "", "  ")
 	if err != nil {
 		return err
@@ -231,33 +389,52 @@ func removeHook(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	raw, ok := f.Hooks["sessionStart"]
-	if !ok || len(raw) == 0 {
+	// A block in a shape logos did not write is not logos's to change, so an
+	// unreadable one is skipped here rather than failing the uninstall.
+	flat, _ := dropFlatLogosHooks(path, &f)
+	nested := dropCodexLogosHooks(path, &f)
+	if !flat && !nested {
 		return false, nil
 	}
-	var entries []hookEntry
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		return false, nil // not a shape logos wrote, so not logos's to change
-	}
-	kept, found := entries[:0], false
-	for _, e := range entries {
-		if strings.Contains(e.command(), " hook cursor session-start") ||
-			strings.Contains(e.command(), " hook codex session-start") {
-			found = true
-			continue
-		}
-		kept = append(kept, e)
-	}
-	if !found {
-		return false, nil
-	}
-	encoded, err := json.Marshal(kept)
-	if err != nil {
-		return false, err
-	}
-	f.Hooks["sessionStart"] = encoded
 	if err := saveHookFile(path, f); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// dropCodexLogosHooks takes logos's handler out of SessionStart, and with it
+// any group it leaves empty, reporting whether there was one.
+func dropCodexLogosHooks(path string, f *hookFile) bool {
+	groups, err := codexGroups(path, f)
+	if err != nil {
+		return false
+	}
+	kept, found := groups[:0], false
+	for _, g := range groups {
+		handlers, err := groupHandlers(path, g)
+		if err != nil {
+			kept = append(kept, g)
+			continue
+		}
+		left := handlers[:0]
+		for _, h := range handlers {
+			if isLogosHook(h.command(), "codex") {
+				found = true
+				continue
+			}
+			left = append(left, h)
+		}
+		if len(left) == len(handlers) {
+			kept = append(kept, g)
+			continue
+		}
+		if len(left) > 0 {
+			g["hooks"], _ = json.Marshal(left)
+			kept = append(kept, g)
+		}
+	}
+	if found {
+		setCodexGroups(f, kept)
+	}
+	return found
 }

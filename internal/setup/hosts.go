@@ -155,7 +155,7 @@ func codex() Host {
 			if _, err := backupHooks(p); err != nil {
 				return Failed, err
 			}
-			return installHook(p, "codex", append([]string{s.Bin}, s.Args...))
+			return installHook(p, "codex", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) {
 			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
@@ -230,7 +230,7 @@ func cursor() Host {
 			if _, err := backupHooks(p); err != nil {
 				return Failed, err
 			}
-			return installHook(p, "cursor", append([]string{s.Bin}, s.Args...))
+			return installHook(p, "cursor", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) { return removeJSON(path, "mcpServers", name) },
 	}
