@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"database/sql"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -117,6 +119,94 @@ func TestRestoringTheQueueTwiceDoesNotDoubleIt(t *testing.T) {
 	pend, _ := Pending(wiped)
 	if len(pend) != 1 {
 		t.Fatalf("queue holds %d after two imports, want 1", len(pend))
+	}
+}
+
+// A proposal's uid is its name everywhere a numeric id is not: its own file
+// once accepted, the supersedes link, and a merge across machines. The queue
+// file carried every other field and not this one, so a rebuild handed each
+// proposal back with uid "" — and accepting it then wrote no file of its own,
+// leaving an accepted memory that lived only in the cache.
+func TestAProposalKeepsItsUidWhenTheIndexIsDeleted(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "staging resets every Sunday night", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	var uid string
+	if err := db.QueryRow("SELECT uid FROM memories WHERE id = ?", m.ID).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if uid == "" {
+		t.Fatal("a stored proposal has no uid to lose; the test proves nothing")
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ImportPending(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := wiped.QueryRow("SELECT uid FROM memories WHERE id = ?", m.ID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != uid {
+		t.Fatalf("after the rebuild the proposal's uid is %q, want %q", got, uid)
+	}
+
+	if err := Accept(wiped, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(memoryFilePath(dir, Fact, uid)); err != nil {
+		t.Errorf("accepting the restored proposal wrote no file of its own: %v", err)
+	}
+}
+
+// Every queue written before the uid was recorded has no uid= to read back, so
+// restoring the field alone left those proposals as nameless as before.
+func TestAProposalFromAQueueWithNoUidsStillGetsItsOwnFileWhenAccepted(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "the release branch freezes on Thursdays", Kind: Fact, Source: "mcp", Quarantined: true}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(pendingPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := regexp.MustCompile(` uid=[0-9a-f]+`).ReplaceAll(raw, nil)
+	if bytes.Equal(old, raw) {
+		t.Fatal("the queue file carried no uid to strip; the test proves nothing")
+	}
+	if err := os.WriteFile(pendingPath(dir), old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ImportPending(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+	var uid string
+	if err := wiped.QueryRow("SELECT uid FROM memories WHERE id = ?", m.ID).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if uid == "" {
+		t.Fatal("a proposal restored from a queue with no uids has none")
+	}
+	if err := Accept(wiped, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(memoryFilePath(dir, Fact, uid)); err != nil {
+		t.Errorf("accepting the restored proposal wrote no file of its own: %v", err)
 	}
 }
 
