@@ -66,13 +66,13 @@ func TestCursorGetsASessionStartHookAndNotOnlyTheServer(t *testing.T) {
 // A hooks file is the user's own. Overwriting it would take out whatever else
 // they run at session start, and that is not a loss setup gets to cause.
 func TestInstallingTheHookKeepsWhatTheUserAlreadyRunsAtSessionStart(t *testing.T) {
-	home := fakeHome(t, ".codex")
-	path := filepath.Join(home, ".codex", "hooks.json")
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "hooks.json")
 	if err := os.WriteFile(path, []byte(`{"version":1,"hooks":{"sessionStart":[{"command":"theirs.sh"}],"stop":[{"command":"bye.sh"}]},"theirSetting":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := installHook(path, "codex", []string{"/usr/local/bin/logos"}); err != nil {
+	if _, err := installHook(path, "cursor", []string{"/usr/local/bin/logos"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,5 +254,120 @@ func TestAHookRunsTheWholeCommandTheServerRunsNotJustItsFirstWord(t *testing.T) 
 	}
 	if cmd, _ := got[0]["command"].(string); cmd != "npx -y @noeton/logos hook cursor session-start" {
 		t.Errorf("hook command = %q; the package is missing, so the host runs npm's idea of `hook`", cmd)
+	}
+}
+
+// codexHookCommands is every command under Codex's SessionStart event, which
+// nests handlers inside matcher groups the way Claude Code's settings do.
+func codexHookCommands(t *testing.T, path string) []string {
+	t.Helper()
+	hooks, _ := readJSON(t, path)["hooks"].(map[string]any)
+	groups, _ := hooks["SessionStart"].([]any)
+	var out []string
+	for _, g := range groups {
+		m, _ := g.(map[string]any)
+		handlers, _ := m["hooks"].([]any)
+		for _, h := range handlers {
+			e, _ := h.(map[string]any)
+			if e["type"] != "command" {
+				t.Errorf("a Codex handler without type \"command\" is not run: %v", e)
+			}
+			s, _ := e["command"].(string)
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// The hook was built from the whole MCP launch line, so every Cursor and Codex
+// install ran `logos mcp serve hook cursor session-start`: an MCP server that
+// read the host's JSON as a request, printed nothing and exited 0. Setup said
+// "session-start hook registered" and no session ever opened with a handoff.
+func TestTheSessionStartHookRunsTheHookAndNotTheMCPServer(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "hooks.json")
+
+	Install(server(), []Host{hostNamed(t, "Cursor")})
+	if cmds := hookCommands(t, path); len(cmds) != 1 || cmds[0] != "/usr/local/bin/logos hook cursor session-start" {
+		t.Errorf("Cursor's hook = %q, want the binary and `hook cursor session-start` alone", cmds)
+	}
+
+	npx := Server{Bin: "npx", Args: []string{"-y", "@noeton/logos", "mcp", "serve"}}
+	Install(npx, []Host{hostNamed(t, "Cursor")})
+	if cmds := hookCommands(t, path); len(cmds) != 1 || cmds[0] != "npx -y @noeton/logos hook cursor session-start" {
+		t.Errorf("an npx install's hook = %q, want npx's launcher without `mcp serve`", cmds)
+	}
+}
+
+// Codex reads hooks.json in Claude Code's shape — SessionStart, matcher groups,
+// typed handlers — not Cursor's flat sessionStart list, so a hook written in
+// Cursor's shape was never run however correct its command was.
+func TestCodexGetsItsHookInTheShapeCodexReads(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	path := filepath.Join(home, ".codex", "hooks.json")
+
+	r := Install(server(), []Host{hostNamed(t, "Codex")})
+	if r[0].HookErr != nil {
+		t.Fatalf("hook: %v", r[0].HookErr)
+	}
+
+	if cmds := codexHookCommands(t, path); len(cmds) != 1 || cmds[0] != "/usr/local/bin/logos hook codex session-start" {
+		t.Errorf("Codex SessionStart = %q, want one logos handler", cmds)
+	}
+	file := readJSON(t, path)
+	hooks, _ := file["hooks"].(map[string]any)
+	if _, ok := hooks["sessionStart"]; ok {
+		t.Errorf("Codex's file still has Cursor's sessionStart key: %v", hooks)
+	}
+	if _, ok := file["version"]; ok {
+		t.Errorf("a new Codex hooks file got Cursor's version key: %v", file)
+	}
+}
+
+// Every Codex user who ran setup before this has logos's broken entry in the
+// flat shape. Running setup again has to move it, not add a working one beside
+// a dead one, and leave the user's own entries where they were.
+func TestSetupMovesAnEarlierCodexHookIntoCodexsShape(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	path := filepath.Join(home, ".codex", "hooks.json")
+	old := `{"version":1,"hooks":{"sessionStart":[{"command":"/opt/homebrew/opt/logos-mcp/bin/logos mcp serve hook codex session-start"},{"command":"theirs.sh"}],"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"mine.sh"}]}]}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := installHook(path, "codex", []string{"/usr/local/bin/logos"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome != Updated {
+		t.Errorf("outcome = %q, want %q: replacing a hook that never ran is news", outcome, Updated)
+	}
+	if cmds := hookCommands(t, path); len(cmds) != 1 || cmds[0] != "theirs.sh" {
+		t.Errorf("flat sessionStart = %q, want only the user's own entry", cmds)
+	}
+	cmds := codexHookCommands(t, path)
+	if len(cmds) != 2 || cmds[0] != "mine.sh" || cmds[1] != "/usr/local/bin/logos hook codex session-start" {
+		t.Errorf("SessionStart = %q, want the user's handler then logos's", cmds)
+	}
+}
+
+// Uninstall has to find logos in the shape setup now writes, or it leaves a
+// hook that runs a binary the user just removed.
+func TestUninstallTakesLogosOutOfCodexsSessionStart(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	path := filepath.Join(home, ".codex", "hooks.json")
+	if err := os.WriteFile(path, []byte(`{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"mine.sh"}]}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installHook(path, "codex", []string{"/usr/local/bin/logos"}); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := removeHook(path)
+	if err != nil || !removed {
+		t.Fatalf("removeHook = %v, %v; want true", removed, err)
+	}
+	if cmds := codexHookCommands(t, path); len(cmds) != 1 || cmds[0] != "mine.sh" {
+		t.Errorf("SessionStart after uninstall = %q, want only the user's handler", cmds)
 	}
 }

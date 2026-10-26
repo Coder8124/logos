@@ -33,6 +33,7 @@ func TestTheHookHandsEachHostContextInTheFieldThatHostReads(t *testing.T) {
 	out = hookOutput("codex", "## Where we left off\nthe parser")
 	var codex struct {
 		Specific struct {
+			Event      string `json:"hookEventName"`
 			Additional string `json:"additionalContext"`
 		} `json:"hookSpecificOutput"`
 	}
@@ -41,6 +42,10 @@ func TestTheHookHandsEachHostContextInTheFieldThatHostReads(t *testing.T) {
 	}
 	if !strings.Contains(codex.Specific.Additional, "the parser") {
 		t.Errorf("Codex gets nothing it reads: %s", out)
+	}
+	// Codex requires the event name and rejects output without it.
+	if codex.Specific.Event != "SessionStart" {
+		t.Errorf("Codex output has hookEventName %q, want SessionStart: %s", codex.Specific.Event, out)
 	}
 }
 
