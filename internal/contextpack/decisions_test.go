@@ -86,10 +86,15 @@ func TestAnEarlierDecisionALaterOneOvertookIsNotHandedOver(t *testing.T) {
 func TestAPromotedDecisionIsHandedOverOnceWithItsCheckpointCount(t *testing.T) {
 	ix := seedVault(t)
 	now := time.Now()
+	// Checkpoint filenames are the second they were written plus the agent, and
+	// TS does not move them. A second claude in the same second walked forward
+	// to the next one, sorted after cursor, and became the last checkpoint —
+	// whose Decided line then stood in for the memory, about one run in ten.
+	// Distinct agents that sort before cursor keep cursor's the newest.
 	cps := []*session.Checkpoint{
+		{Agent: "aider", Decisions: []string{cookies}},
 		{Agent: "claude", Decisions: []string{cookies}},
 		{Agent: "codex", Decisions: []string{cookies}},
-		{Agent: "claude", Decisions: []string{cookies}},
 		{Agent: "cursor", Task: "fix CSS on the landing page", Next: "check mobile"},
 	}
 	for i, c := range cps {
