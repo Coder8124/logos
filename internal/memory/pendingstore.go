@@ -238,6 +238,10 @@ func renderPending(pend []Memory) string {
 			fmt.Fprintf(&b, " contests=%d", m.Contests)
 		}
 		b.WriteString(commitField(m.Commit))
+		// The uid too, or a rebuild hands the proposal back nameless: accept
+		// then has no file to write it to (see exportMemoryFile) and the
+		// accepted memory lives only in the cache.
+		b.WriteString(uidField(m.Uid))
 		b.WriteString(" -->\n")
 	}
 	return b.String()
@@ -416,11 +420,18 @@ func upsertPending(db *sql.DB, m Memory) (int64, bool, error) {
 	if id <= 0 {
 		id = nextID(db)
 	}
+	// A queue written before uid= was recorded (or a hand-mangled one) has
+	// none to give back. Derive it the way Store does rather than restore the
+	// proposal nameless, or accepting it writes no file and it lives only in
+	// the cache.
+	if m.Uid == "" {
+		m.Uid = computeUID(m.Kind, m.Text, m.Remote)
+	}
 	if _, err := db.Exec(
-		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, fingerprint, quarantined, turn, contests, commit_sha)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
+		`INSERT INTO memories (id, text, kind, salience, confidence, project, source, agent, created, uses, fingerprint, quarantined, turn, contests, commit_sha, uid)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`,
 		id, m.Text, string(m.Kind), m.Salience, m.Confidence, m.Project,
-		m.Source, m.Agent, m.Created, m.Uses, fingerprint(m.Text), m.Turn, m.Contests, m.Commit); err != nil {
+		m.Source, m.Agent, m.Created, m.Uses, fingerprint(m.Text), m.Turn, m.Contests, m.Commit, m.Uid); err != nil {
 		return 0, false, err
 	}
 	// No event. Putting a proposal back is not proposing it, and logging one

@@ -88,17 +88,17 @@ var commandFlags = map[string]flagSpec{
 	"migrate":  {bare: []string{"--dry-run", "--yes", "-y"}},
 	"replay":   {bare: []string{"--peek"}},
 	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report", "--egress"}},
-	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}},
+	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}, bare: []string{"--json"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
-	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects"}},
+	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects", "--json"}},
 	"usage":    {valued: []string{"--usd"}, bare: []string{"--week"}},
 	"show":     {bare: []string{"--all"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
-		"--action", "--instead"}},
+		"--action", "--instead"}, bare: []string{"--json"}},
 	"context": {valued: []string{"--project", "-p", "--since", "--pin", "--exclude", "--unpin"},
-		orDefault: []string{"--budget", "-b"}, bare: []string{"--rules"}},
+		orDefault: []string{"--budget", "-b"}, bare: []string{"--rules", "--json"}},
 }
 
 // checkCommandFlags refuses a flag cmd does not know, or a number it cannot

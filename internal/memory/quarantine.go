@@ -37,7 +37,7 @@ import (
 // which agent proposed it is part of the answer.
 func Pending(db *sql.DB) ([]Memory, error) {
 	rows, err := db.Query(
-		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, turn, contests, commit_sha
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, turn, contests, commit_sha, uid
 		   FROM memories WHERE quarantined = 1 AND superseded = 0 ORDER BY created ASC`)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func Pending(db *sql.DB) ([]Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var kind string
-		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.Turn, &m.Contests, &m.Commit); err != nil {
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.Turn, &m.Contests, &m.Commit, &m.Uid); err != nil {
 			return nil, err
 		}
 		m.Kind = Kind(kind)
