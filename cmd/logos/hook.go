@@ -75,7 +75,9 @@ var hookShapes = map[string]func(string) any{
 		return map[string]string{"additional_context": text}
 	},
 	"codex": func(text string) any {
-		return map[string]any{"hookSpecificOutput": map[string]string{"additionalContext": text}}
+		// Codex rejects SessionStart output that does not name its event.
+		return map[string]any{"hookSpecificOutput": map[string]string{
+			"hookEventName": "SessionStart", "additionalContext": text}}
 	},
 }
 
