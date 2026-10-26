@@ -73,3 +73,57 @@ func TestBeforeYouTryFlagsARulingWhoseFileChangedSince(t *testing.T) {
 		t.Errorf("rulings with nothing to measure were flagged:\n%s", out)
 	}
 }
+
+// What `logos review --stale` decided reaches before_you_try: a ruling a
+// person retired is not a dead end any more, and one they re-confirmed is
+// measured from the commit they confirmed it at, so its warning is answered.
+func TestBeforeYouTryHonoursWhatReviewStaleDecided(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	commitFile(t, repo, "internal/parse/reader.go", "load all\n")
+	_, anchor := gitstate.Head(repo)
+	dir, db := seed(t)
+	retired := "streaming the vendor export — internal/parse/reader.go loads the whole file into memory"
+	confirmed := "mmap the vendor export — internal/parse/reader.go needs a seekable source"
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "kestrel-one", Agent: "claude", Task: "work", Next: "carry on",
+		Git: gitstate.State{Commit: anchor}, Failed: []string{retired, confirmed},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, repo, "internal/parse/reader.go", "read in chunks\n")
+	_, head := gitstate.Head(repo)
+	if err := session.Retire(dir, "kestrel-one", retired); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Reconfirm(dir, "kestrel-one", confirmed, head); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := Collect(dir, db, "kestrel-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range all {
+		if strings.Contains(r.Record.Raw, "loads the whole file") {
+			t.Errorf("a retired ruling is still a dead end: %+v", r)
+		}
+		if strings.Contains(r.Record.Raw, "seekable source") {
+			found = true
+			if r.Commit != head {
+				t.Errorf("a re-confirmed ruling is measured from %q, want %q", r.Commit, head)
+			}
+			hits := []Ruling{r}
+			MarkDrift(hits, repo)
+			if hits[0].Drift != nil {
+				t.Errorf("a ruling re-confirmed at head still drifts: %s", hits[0].Drift.Note())
+			}
+		}
+	}
+	if !found {
+		t.Fatal("a re-confirmed ruling was dropped")
+	}
+}

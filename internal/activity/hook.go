@@ -30,7 +30,7 @@ func hookKind(event string) string {
 	switch event {
 	case "UserPromptSubmit":
 		return KindPrompt
-	case "PostToolUse", "PreToolUse":
+	case "PostToolUse", "PreToolUse", "PostToolUseFailure":
 		return KindTool
 	case "Stop", "SubagentStop":
 		return KindTurnEnd
@@ -83,6 +83,10 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 		}
 	}
 	e.Tool = str(p, "tool_name")
+	// The event's name is the signal, not a field in its payload: Claude Code
+	// sends PostToolUseFailure instead of PostToolUse when a call fails, and
+	// what it puts in that payload is not something we ship or can pin.
+	e.Failed = event == "PostToolUseFailure"
 	// The summary is all that is kept of a tool call. The input used to be
 	// stored whole — every Write's content, every Edit's old and new text,
 	// every shell command — unredacted, in a log nobody chose to write. A shell
@@ -91,7 +95,61 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	// vault in the clear.
 	summary, kept := summarize(kind, e.Tool, p)
 	e.Summary, e.Private = ingest.Redact(summary), kept
+	// The summary is cut at 160 runes, and `cd <long path> && go build ./... &&
+	// go test ./...` loses its go test to the cut. internal/claims reads what a
+	// session ran to check a checkpoint's verified lines against, so the
+	// commands are kept apart from the cut: each one's program and first
+	// argument only, masked like the summary, never the rest of the line.
+	if kind == KindTool {
+		in, _ := p["tool_input"].(map[string]any)
+		if line := str(in, "command"); line != "" {
+			line, _ = secret.StripPrivate("", line)
+			var cmds []any
+			for _, words := range Commands(line) {
+				if len(words) > 2 {
+					words = words[:2]
+				}
+				cmds = append(cmds, ingest.Redact(strings.Join(words, " ")))
+			}
+			if len(cmds) > 0 {
+				if e.Extra == nil {
+					e.Extra = map[string]any{}
+				}
+				e.Extra["commands"] = cmds
+				// The kept commands lose the operators between them, and a
+				// pipe or || makes the call's status its last command's: what
+				// it says about the others is nothing.
+				if strings.Contains(line, "|") {
+					e.Extra["piped"] = true
+				}
+			}
+		}
+	}
 	return e, nil
+}
+
+// Commands splits a shell line into its simple commands, each as words with
+// leading variable assignments dropped: in `cd x && LOGOS_VAULT=/tmp/v go test
+// ./...` the commands are cd and go, and it is go that a verified line names.
+func Commands(line string) [][]string {
+	var out [][]string
+	for _, part := range strings.FieldsFunc(line, func(r rune) bool {
+		return r == '&' || r == '|' || r == ';' || r == '\n' || r == '(' || r == ')'
+	}) {
+		words := strings.Fields(part)
+		for len(words) > 0 && isAssignment(words[0]) {
+			words = words[1:]
+		}
+		if len(words) > 0 {
+			out = append(out, words)
+		}
+	}
+	return out
+}
+
+func isAssignment(w string) bool {
+	i := strings.IndexByte(w, '=')
+	return i > 0 && !strings.ContainsAny(w[:i], "-./")
 }
 
 // summarize writes the one line a person reads without expanding the row.

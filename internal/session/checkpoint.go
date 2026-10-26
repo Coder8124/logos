@@ -23,7 +23,7 @@ import (
 // exactly what gets lost when a session ends. A checkpoint without it saves the
 // next agent a paragraph of reading and costs it an afternoon of rediscovery.
 type Checkpoint struct {
-	Session string
+	Session string `json:"session,omitempty"`
 	// HostSession is the id the *host* uses for this conversation — Claude
 	// Code's hook session_id, or a transcript reader's own s.ID — never
 	// Logos's own Session stem above. Session names the checkpoint file;
@@ -32,19 +32,19 @@ type Checkpoint struct {
 	// how many times it was checkpointed. Empty when nothing told us: an
 	// MCP host that gives no session_id (Cursor, Claude Desktop) leaves this
 	// blank rather than guessing, which is more honest than a wrong id.
-	HostSession string
-	Project     string
-	Agent       string
-	Task        string
+	HostSession string `json:"host_session,omitempty"`
+	Project     string `json:"project,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Task        string `json:"task,omitempty"`
 	// Intent is why the task matters: the outcome it serves and the constraint
 	// that shapes it. Task says what; a resume that only says what leaves the
 	// next agent rereading the transcript to learn which trade-offs are open,
 	// and picking the one the user already refused. It is written once per task
 	// and handed forward to later checkpoints of it — see contextpack.
-	Intent    string
-	State     string
-	Decisions []string
-	Failed    []string
+	Intent    string   `json:"intent,omitempty"`
+	State     string   `json:"state,omitempty"`
+	Decisions []string `json:"decisions,omitempty"`
+	Failed    []string `json:"failed,omitempty"`
 	// The verified half. Failed says what was ruled out; these three say what the
 	// next agent may stand on without checking it again.
 	//
@@ -58,28 +58,33 @@ type Checkpoint struct {
 	// expired tokens — go test ./internal/auth -run TestExpiry"), Commands are
 	// the invocations that produced it, and Blockers are the standing refutation:
 	// what is known broken, and what it stops.
-	Verified  []string
-	Blockers  []string
-	Commands  []string
-	Questions []string
-	Files     []string
-	Next      string
+	Verified []string `json:"verified,omitempty"`
+	// Unseen is the verified lines that name a command the session's activity
+	// log never saw run — see package claims. A copy of those lines, not a
+	// flag on each, so a checkpoint written before this existed reads the same
+	// and a reader of the file sees the doubt under its own heading.
+	Unseen    []string `json:"unseen,omitempty"`
+	Blockers  []string `json:"blockers,omitempty"`
+	Commands  []string `json:"commands,omitempty"`
+	Questions []string `json:"questions,omitempty"`
+	Files     []string `json:"files,omitempty"`
+	Next      string   `json:"next,omitempty"`
 	// Git is the repository as it stood, read rather than reported. The half of
 	// a checkpoint an agent cannot forget to fill in — see the comment in
 	// Commit, and package gitstate.
-	Git gitstate.State
+	Git gitstate.State `json:"git,omitempty"`
 	// HandoffTo names who this was left for. Empty for a plain checkpoint —
 	// the difference is intent, not mechanism.
-	HandoffTo string
+	HandoffTo string `json:"handoff_to,omitempty"`
 	// AutoClosed marks a checkpoint nobody wrote — see CloseAbandoned. It exists
 	// so this is never confused with a real handoff: an agent (or a person)
 	// reading one of these later must be able to tell, from the file itself,
 	// that the work was simply abandoned rather than deliberately wrapped up.
-	AutoClosed bool
+	AutoClosed bool `json:"auto_closed,omitempty"`
 	// Auto marks a checkpoint built from the activity log when a session ended
 	// without one — see WriteAuto. It records what ran, never what was learned,
 	// so a reader must be able to tell it apart from an agent's own.
-	Auto bool
+	Auto bool `json:"auto,omitempty"`
 	// Inferred is what a later agent read out of an auto record's transcript:
 	// what it verified, ruled out and decided, each citing the turn it came from.
 	// Kept apart from Verified, Failed and Decisions on purpose. Those are an
@@ -87,38 +92,38 @@ type Checkpoint struct {
 	// paid-for ruling and will not re-try what it names; a reading of somebody
 	// else's transcript is not that, however good the reader. Nil until an
 	// agent distils the record.
-	Inferred *Inference
+	Inferred *Inference `json:"inferred,omitempty"`
 	// Turns is how many turns the transcript behind an auto record held when
 	// the record was written or last grown, as its harness's reader counts
 	// them. A session can be resumed, and its transcript goes on past the
 	// record: without the count, a reading served "the transcript" would cover
 	// work this record never saw and put conclusions about it into this
 	// record. Zero on a record that could not count, which is then not served.
-	Turns int
+	Turns int `json:"turns,omitempty"`
 	// Redactions is what Commit masked before writing, so the caller can say
 	// so. Not written to the file: the file carries the marker in place.
-	Redactions []secret.Redaction
-	Slug       string // vault slug, set once written
-	TS         int64
+	Redactions []secret.Redaction `json:"-"`
+	Slug       string             `json:"slug,omitempty"` // vault slug, set once written
+	TS         int64              `json:"ts,omitempty"`
 }
 
 // Inference is a distillation of an auto record's transcript. By and At say
 // who read it and when, because an unreviewed claim nobody can attribute is one
 // nobody can weigh.
 type Inference struct {
-	By       string
-	At       int64
-	Verified []string
-	Failed   []string
-	Decided  []string
+	By       string   `json:"by,omitempty"`
+	At       int64    `json:"at,omitempty"`
+	Verified []string `json:"verified,omitempty"`
+	Failed   []string `json:"failed,omitempty"`
+	Decided  []string `json:"decided,omitempty"`
 	// Wanted is what the person asked for or corrected the agent toward, each
 	// citing a turn of theirs: the session's intent, read rather than
 	// summarised, since an agent's account of what it was asked is the guess
 	// the auto record's quoted task line exists to avoid.
-	Wanted []string
+	Wanted []string `json:"wanted,omitempty"`
 	// Turns is the record's Turns when it was read. A record that has grown
 	// past it holds work nobody read, and is offered for reading again.
-	Turns int
+	Turns int `json:"turns,omitempty"`
 }
 
 // Empty reports whether the distillation kept nothing.
@@ -337,6 +342,11 @@ func (c *Checkpoint) maskSecrets() []secret.Redaction {
 	all("Decisions", c.Decisions)
 	all("Didn't work", c.Failed)
 	all("Verified", c.Verified)
+	// Masked alike, so each still equals the verified line it marks, and not
+	// counted: the secret is the one already counted under Verified.
+	for i := range c.Unseen {
+		c.Unseen[i], _ = secret.Mask("", c.Unseen[i])
+	}
 	all("Blockers", c.Blockers)
 	all("Commands", c.Commands)
 	all("Questions", c.Questions)

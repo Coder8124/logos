@@ -35,37 +35,37 @@ import (
 // State is the repository as it stood when a checkpoint was written.
 type State struct {
 	// Branch is the current branch, or "" when detached or unavailable.
-	Branch string
+	Branch string `json:"branch,omitempty"`
 	// Commit is the short HEAD sha. The field that makes everything else
 	// verifiable — a decision recorded against a commit can be checked out.
-	Commit string
+	Commit string `json:"commit,omitempty"`
 	// Subject is HEAD's commit subject, so the sha means something to a reader.
-	Subject string
+	Subject string `json:"subject,omitempty"`
 	// Dirty is the count of files with uncommitted changes. Zero means clean,
 	// which is itself worth recording: "clean at this sha" is a much stronger
 	// handoff than "somewhere near this sha".
-	Dirty int
+	Dirty int `json:"dirty"`
 	// Files are the paths with uncommitted changes, capped. These are what the
 	// session actually touched, observed rather than reported — an agent's own
 	// Files list is a claim, and this is evidence.
-	Files []string
+	Files []string `json:"files,omitempty"`
 	// Insertions and Deletions summarise the uncommitted diff.
-	Insertions int
-	Deletions  int
+	Insertions int `json:"insertions,omitempty"`
+	Deletions  int `json:"deletions,omitempty"`
 	// Worktree is set when this is a linked worktree rather than the main one,
 	// because "same project, divergent parallel state" is exactly where
 	// continuity breaks and the checkpoint should say which one it meant.
-	Worktree string
+	Worktree string `json:"worktree,omitempty"`
 	// Remote and Root say which repository this was, because a project is only
 	// a name and "api" is two unrelated repositories on most machines. Remote
 	// is origin's URL; Root is the main checkout, shared by its worktrees.
-	Remote string
-	Root   string
+	Remote string `json:"remote,omitempty"`
+	Root   string `json:"root,omitempty"`
 	// Unreadable is set when git refused the status or the diff: a corrupt
 	// index, or a partial clone missing the objects a diff needs. Without it
 	// the zero Dirty and zero diffstat such a read leaves behind would be
 	// recorded as "clean", a claim nothing checked (#204).
-	Unreadable bool
+	Unreadable bool `json:"unreadable,omitempty"`
 }
 
 // Empty reports whether anything was learned. Callers use it to decide whether

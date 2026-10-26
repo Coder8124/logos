@@ -26,6 +26,20 @@ func lockFD(f *os.File) error {
 	)
 }
 
+// tryLockFD is lockFD with LOCKFILE_FAIL_IMMEDIATELY; see the unix side.
+func tryLockFD(f *os.File) (busy bool, err error) {
+	err = windows.LockFileEx(
+		windows.Handle(f.Fd()),
+		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
+		0, 1, 0,
+		new(windows.Overlapped),
+	)
+	if err == windows.ERROR_LOCK_VIOLATION {
+		return true, nil
+	}
+	return false, err
+}
+
 func unlockFD(f *os.File) error {
 	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, new(windows.Overlapped))
 }

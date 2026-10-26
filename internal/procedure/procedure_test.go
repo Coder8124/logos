@@ -211,3 +211,27 @@ func fixedSimilarity(t *testing.T, approach string, cos float64) *provider.Provi
 	t.Cleanup(srv.Close)
 	return provider.New("Fake", srv.URL, "")
 }
+
+// Evidence recorded as once is what the procedure's author saw. A verify that
+// has since passed after it was shown is a second run of it, so it reads as
+// verified, with what it was recorded as kept beside it; a reported procedure
+// is not promoted, because nobody ran it to begin with.
+func TestAProcedureRecordedOnceWhoseVerifyHasPassedSinceReadsAsVerified(t *testing.T) {
+	once := ParseRecord("route: run migrations with the lock flag | trap: two deploys corrupt the schema | verify: make migrate-check | evidence: once")
+	out := Render([]Hit{{Text: once.Route, Record: once, Shown: 3, Proven: 2}})
+	if !strings.Contains(out, "verified (recorded once; its verify has passed since)") {
+		t.Errorf("a proven once procedure does not read as verified:\n%s", out)
+	}
+	if !strings.Contains(out, "shown 3 times before · its verify passed after it in 2 sessions") {
+		t.Errorf("the counts behind the evidence are not shown:\n%s", out)
+	}
+
+	if out := Render([]Hit{{Text: once.Route, Record: once, Shown: 1}}); strings.Contains(out, "verified") || !strings.Contains(out, "shown 1 time before\n") {
+		t.Errorf("a procedure shown but never proven read wrong:\n%s", out)
+	}
+
+	reported := ParseRecord("route: pin the toolchain | trap: builds drift | verify: go version | evidence: reported")
+	if out := Render([]Hit{{Text: reported.Route, Record: reported, Shown: 1, Proven: 1}}); strings.Contains(out, "verified (") {
+		t.Errorf("a reported procedure was promoted:\n%s", out)
+	}
+}

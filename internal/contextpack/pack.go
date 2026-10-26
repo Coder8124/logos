@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/graph"
 	"github.com/Coder8124/logos/internal/index"
@@ -32,6 +33,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/textmatch"
 	"github.com/Coder8124/logos/internal/when"
 )
 
@@ -122,6 +124,10 @@ type Pack struct {
 	// still hold, and the reader is the one who can tell — but only if it is
 	// told the file moved.
 	RulingDrift map[string]*gitstate.Drift `json:"ruling_drift,omitempty"`
+	// Retired is how many rulings were left out because a person retired
+	// them with `logos review --stale` — said, so a handoff that is suddenly
+	// shorter does not read as rulings lost.
+	Retired int `json:"retired,omitempty"`
 	// Reader is who asked, when the caller said. See Request.Agent.
 	Reader string `json:"reader,omitempty"`
 	// NoDistilOffer is the distil switch turned off: an auto record still
@@ -280,13 +286,21 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	// marked inherited and the render says so. The moment the worktree writes
 	// its own, this stops looking outside it, which is the whole point: two
 	// parallel trees must not hand each other their stopping places.
+	var reviews map[string]session.Review
 	if scope := p.Continuity(); scope != "" && ix.Vault != "" {
 		all, err := session.History(ix.Vault, scope, checkpointDepth)
 		if (err != nil || len(all) == 0) && p.Worktree != "" {
 			if all, err = session.History(ix.Vault, p.scope(), checkpointDepth); err == nil && len(all) > 0 {
 				p.Inherited = true
+				scope = p.scope()
 			}
 		}
+		// The verdicts are read from the scope the rulings were, so an
+		// inherited ruling a person retired on the project stays retired in
+		// the worktree that inherits it. An unreadable file is no verdicts:
+		// the rulings are then handed over as they were recorded, which is
+		// the state before anyone reviewed them, not a wrong one.
+		reviews, _ = session.Reviews(ix.Vault, scope)
 		if err == nil && len(all) > 0 && req.Dir != "" {
 			all, p.OtherRepo = sameRepository(all, req.Dir)
 		}
@@ -298,7 +312,8 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	}
 	p.Reader = req.Agent
 	p.noteDrift(req.Dir)
-	p.markRulings(req.Dir)
+	p.applyReviews(reviews)
+	p.markRulings(req.Dir, reviews)
 	// Uncommitted notes get no such fallback. A checkpoint is a finished record
 	// of where the codebase was; an open note is another agent's live work in
 	// another tree, and presenting that as this session's own progress is
@@ -888,7 +903,12 @@ func (p *Pack) noteDrift(dir string) {
 // checkpoint recorded. Newest first, so a ruling restated in a later
 // checkpoint is measured from the later commit — the one it was last
 // confirmed at.
-func (p *Pack) markRulings(dir string) {
+//
+// A ruling a person re-confirmed with `logos review --stale` is measured from
+// the commit they confirmed it at instead: they looked at the files that moved
+// and said it still holds, and warning again about the same commits would
+// teach them the warning means nothing.
+func (p *Pack) markRulings(dir string, reviews map[string]session.Review) {
 	if p.Checkpoint == nil {
 		return
 	}
@@ -896,14 +916,24 @@ func (p *Pack) markRulings(dir string) {
 	if a == nil {
 		return
 	}
+	// Seen before it is measured: once the newest copy of a ruling shows no
+	// drift, an older copy measured from an older commit must not warn about
+	// changes the newer one was recorded on top of.
+	seen := map[string]bool{}
 	cps := append([]session.Checkpoint{*p.Checkpoint}, p.History...)
 	for _, c := range cps {
 		for _, f := range c.Failed {
 			k := normalizeKey(f)
-			if _, done := p.RulingDrift[k]; done {
+			if seen[k] {
 				continue
 			}
-			d, ok := a.Since(c.Git.Commit, f)
+			seen[k] = true
+			_, commit := reviews[k].For(c.TS, c.Git.Commit)
+			// Measured the way before_you_try and `logos review --stale`
+			// measure it, structured anchor included, so every warning
+			// here is one --stale offers to settle.
+			rec := deadend.ParseRecord(textmatch.Flatten(f))
+			d, ok := a.SinceAnchor(commit, rec.Anchor, rec.Raw)
 			if !ok {
 				continue
 			}
@@ -911,6 +941,47 @@ func (p *Pack) markRulings(dir string) {
 				p.RulingDrift = map[string]*gitstate.Drift{}
 			}
 			p.RulingDrift[k] = &d
+		}
+	}
+}
+
+// applyReviews drops the rulings a person retired with `logos review --stale`
+// from every checkpoint the pack hands over. The checkpoints on disk keep them
+// — a checkpoint is what was said at the time — but a ruling someone looked at
+// and called obsolete is no longer something the next agent should avoid.
+// Copies, so the checkpoint value the caller passed in is not edited.
+func (p *Pack) applyReviews(reviews map[string]session.Review) {
+	if len(reviews) == 0 || p.Checkpoint == nil {
+		return
+	}
+	left, kept := map[string]bool{}, map[string]bool{}
+	keep := func(c *session.Checkpoint) {
+		var out []string
+		for _, f := range c.Failed {
+			k := session.ReviewKey(f)
+			if retired, _ := reviews[k].For(c.TS, c.Git.Commit); retired {
+				left[k] = true
+				continue
+			}
+			kept[k] = true
+			out = append(out, f)
+		}
+		c.Failed = out
+	}
+	cp := *p.Checkpoint
+	keep(&cp)
+	p.Checkpoint = &cp
+	hist := make([]session.Checkpoint, len(p.History))
+	copy(hist, p.History)
+	for i := range hist {
+		keep(&hist[i])
+	}
+	p.History = hist
+	// A ruling recorded again after it was retired is still handed over, from
+	// the later checkpoint, so it is not one that was left out.
+	for k := range left {
+		if !kept[k] {
+			p.Retired++
 		}
 	}
 }

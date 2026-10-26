@@ -22,6 +22,16 @@ func lockFD(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 }
 
+// tryLockFD is lockFD with LOCK_NB. busy separates "someone holds it" from a
+// filesystem with no working flock, which TryLock degrades on as Lock does.
+func tryLockFD(f *os.File) (busy bool, err error) {
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == syscall.EWOULDBLOCK {
+		return true, nil
+	}
+	return false, err
+}
+
 func unlockFD(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 }

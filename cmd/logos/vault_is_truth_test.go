@@ -15,11 +15,8 @@ import (
 // breaks the promise for a single writer while leaving the others intact would
 // not be caught by any single package's own tests.
 //
-// internal/secretary's open loops are deliberately not exercised here: they are
-// stored only in the commitments table with no vault markdown behind them at
-// all, so they do not survive this sequence — a real vault-is-truth gap, but in
-// a package outside this workstream's scope. Noted in the report, not fixed
-// here.
+// Open loops, which this test predates, are covered by the reindex property
+// test instead, alongside every other table RebuildPaths says is rebuilt.
 func TestVaultIsTruthAcrossEveryWriter(t *testing.T) {
 	vaultDir := t.TempDir()
 	t.Setenv("LOGOS_VAULT", vaultDir)

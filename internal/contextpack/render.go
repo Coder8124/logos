@@ -225,6 +225,7 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	if older := p.priorFailures(); len(older) > 0 {
 		list(&tail, "Ruled out earlier in this project", older)
 	}
+	staleHint(&tail, p)
 	if earlier := p.priorDecisions(); len(earlier) > 0 {
 		list(&tail, "Decided earlier in this project", earlier)
 	}
@@ -318,7 +319,7 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 	if reader != "" && c.Agent != "" && reader != c.Agent {
 		verified = fmt.Sprintf("Verified by **%s**, not by you — safe to continue from", inline(c.Agent))
 	}
-	list(b, verified, c.Verified)
+	verifiedList(b, verified, c)
 	list(b, "Known broken — do not build on it", c.Blockers)
 	// An auto checkpoint's commands are what ran, with no claim they showed
 	// anything; the activity log does not keep their results.
@@ -327,6 +328,30 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 		return
 	}
 	list(b, "Shown by running", c.Commands)
+}
+
+// verifiedList is list for the verified lines, with the ones that name a
+// command the session's activity log never saw run marked as such. Marked on
+// the line, not gathered under a heading of their own: a budget trim can
+// separate a heading from what it qualifies, and it is the line that gets
+// built on.
+func verifiedList(b *strings.Builder, heading string, c *session.Checkpoint) {
+	if len(c.Verified) == 0 {
+		return
+	}
+	unseen := map[string]bool{}
+	for _, u := range c.Unseen {
+		unseen[u] = true
+	}
+	fmt.Fprintf(b, "**%s:**\n", heading)
+	for _, it := range c.Verified {
+		fmt.Fprintf(b, "- %s", inline(it))
+		if unseen[it] {
+			b.WriteString(" — _unverified: the activity log never saw this run_")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 }
 
 // inferredFromTranscript shows what an agent read out of an auto record's
@@ -597,6 +622,43 @@ func (p *Pack) priorFailures() []string {
 	return out
 }
 
+// staleHint names the one command that settles the drift warnings above, and
+// what it already settled. A warning that recurs on every resume with no way
+// to answer it is one the reader learns to skip, and then it is skipped on the
+// day it is right.
+func staleHint(b *strings.Builder, p *Pack) {
+	var rulings, mems int
+	for _, d := range p.RulingDrift {
+		if d != nil {
+			rulings++
+		}
+	}
+	// Memories too, since --stale offers them: a drift note on a procedure
+	// with no hint beside it is the unanswerable warning again. By id, as one
+	// memory can be both pinned and related.
+	seen := map[int64]bool{}
+	for _, m := range p.all() {
+		if m.Drift != nil && !seen[m.ID] {
+			seen[m.ID] = true
+			mems++
+		}
+	}
+	var what []string
+	if rulings > 0 {
+		what = append(what, fmt.Sprintf("%d %s", rulings, plural(rulings, "ruling", "rulings")))
+	}
+	if mems > 0 {
+		what = append(what, fmt.Sprintf("%d %s", mems, plural(mems, "memory", "memories")))
+	}
+	if n := rulings + mems; n > 0 {
+		fmt.Fprintf(b, "_%s may be out of date — `logos review --stale` to keep, retire or re-confirm %s._\n\n",
+			strings.Join(what, " and "), itOrThem(n))
+	}
+	if p.Retired > 0 {
+		fmt.Fprintf(b, "_%d %s retired with `logos review --stale` left out._\n\n", p.Retired, plural(p.Retired, "ruling", "rulings"))
+	}
+}
+
 // priorDecisions is what earlier checkpoints decided, newest first, attributed
 // and dated. Only the latest checkpoint's decisions used to be handed over, so a
 // settled question was forgotten as soon as one more checkpoint landed without
@@ -707,7 +769,9 @@ func (p *Pack) otherOpenWork() []string {
 }
 
 func normalizeKey(s string) string {
-	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+	// The key `logos review --stale` files its verdicts under: were the two
+	// to differ, a retire would quietly stop matching the ruling it named.
+	return session.ReviewKey(s)
 }
 
 // all is every memory the pack is carrying, preferences and pins included.

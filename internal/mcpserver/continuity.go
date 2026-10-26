@@ -10,6 +10,7 @@ import (
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/announce"
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/ingest"
@@ -95,6 +96,24 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 		return "", err
 	}
 	procedure.MarkDrift(procHits, dir)
+	// A ledger that cannot be read leaves every procedure at the evidence its
+	// text claims, which is what it showed before the ledger counted; the
+	// reader is told rather than shown counts that look like none.
+	var tallyNote string
+	if len(procHits) > 0 {
+		events, bad, err := usage.Read(s.vault)
+		switch {
+		case err != nil:
+			tallyNote = fmt.Sprintf("\n_logos could not read its usage ledger, so how often these were shown and proven is left out: %v_\n", err)
+		case bad > 0:
+			tallyNote = fmt.Sprintf("\n_%d unreadable usage ledger line(s) were skipped, so these counts may be low._\n", bad)
+		}
+		tallies := usage.Tallies(events)
+		for i := range procHits {
+			t := tallies[usage.Ref(procHits[i].Memory)]
+			procHits[i].Shown, procHits[i].Proven = t.Shown, t.Proven
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString(untrusted.Boundary)
@@ -104,9 +123,13 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 	if section := procedure.Render(procHits); section != "" {
 		b.WriteString("\n")
 		b.WriteString(section)
+		b.WriteString(tallyNote)
 	}
 	if len(hits) > 0 {
 		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:before_you_try", Project: here, Rulings: len(hits), Refs: usage.RulingRefs(hits)}))
+	}
+	if len(procHits) > 0 {
+		b.WriteString(s.ledger(usage.Event{Kind: usage.KindProcedure, Via: "mcp:before_you_try", Project: here, Refs: usage.ProcedureRefs(procHits)}))
 	}
 	return b.String(), nil
 }
@@ -449,6 +472,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
 	// Read before the commit, so the history is what came before this checkpoint.
 	earlier, _ := session.History(s.vault, c.Project, session.IntentDepth)
+	// Before the commit, so the mark is in the file and not only in this reply.
+	claimed, claimErr := claims.Check(s.vault, c.Project, c.Verified)
+	c.Unseen = claimed.Unseen
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -460,6 +486,18 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said
+	}
+	said, asked := advice.Claims(*c, claimed, advice.MCP)
+	for _, line := range said {
+		msg += " " + line
+	}
+	if claimErr != nil {
+		msg += fmt.Sprintf(" Verified was not checked against the activity log: %v.", claimErr)
+	}
+	if asked {
+		if err := claims.MarkQuestioned(s.vault, c.Project, claimed.Session); err != nil {
+			msg += fmt.Sprintf(" The question was not marked in the activity log, so it may be asked again: %v.", err)
+		}
 	}
 	// After the checkpoint is on disk, so the decision it just recorded counts.
 	// A failure here leaves the checkpoint saved, and is said as such.
