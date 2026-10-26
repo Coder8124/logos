@@ -66,25 +66,25 @@ const (
 // hand-edited or partially-typed entry should still be readable rather than
 // silently losing whatever did not parse.
 type Record struct {
-	Route       string
-	Observation string
-	Layer       Layer
-	Scope       Scope
-	Degree      Degree
-	Action      Action
-	Alternative string
+	Route       string `json:"route,omitempty"`
+	Observation string `json:"observation,omitempty"`
+	Layer       Layer  `json:"layer,omitempty"`
+	Scope       Scope  `json:"scope,omitempty"`
+	Degree      Degree `json:"degree,omitempty"`
+	Action      Action `json:"action,omitempty"`
+	Alternative string `json:"alternative,omitempty"`
 	// Anchor is amp-spec.md §3.6's AND/OR grammar over git:/dep:/doc:/time:
 	// atoms, read straight through from the `anchor:` key with no validation
 	// here — gitstate.Anchors.SinceAnchor is the one place that parses it,
 	// and a record with no key, or one a hand edit broke, falls back there to
 	// the plain single-commit drift check this schema had before the field
 	// existed, rather than failing to parse twice in two different ways.
-	Anchor string
-	Raw    string
+	Anchor string `json:"anchor,omitempty"`
+	Raw    string `json:"raw,omitempty"`
 	// Truncated is set when the source entry ran past recordCap and was cut
 	// to fit. The cut is visible here rather than silent, per the invariant
 	// that a lossy operation says so.
-	Truncated bool
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // recordCap bounds one record at roughly 300 tokens, using the project's own
