@@ -267,3 +267,71 @@ func alternatives(w string) []string {
 	}
 	return append([]string{w}, strings.Split(w, "/")...)
 }
+
+// Passed reports whether a procedure's verify ran without failing in session
+// at or after after, the time the procedure was shown. Every command of the
+// verify must have run, matched as the log keeps commands — program and first
+// argument — so "go test ./internal/auth" is met by any passing go test: the
+// log keeps no more of a command line than that, and a verify the session
+// never ran is what this exists to tell apart. A cd only says where the rest
+// ran, so it is not asked for.
+//
+// It is each command's last run that counts: a verify that passed and then
+// failed is one that fails now.
+func Passed(verify string, events []activity.Event, session string, after int64) bool {
+	if session == "" {
+		return false
+	}
+	// A verify is often written in backticks or quotes, which would otherwise
+	// stay on the program's name and match no run at all.
+	verify = strings.NewReplacer("`", " ", `"`, " ", "'", " ").Replace(verify)
+	var want []invocation
+	for _, words := range activity.Commands(verify) {
+		if words[0] == "cd" {
+			continue
+		}
+		inv := invocation{program: words[0]}
+		if len(words) > 1 {
+			inv.args = []string{words[1]}
+		}
+		want = append(want, inv)
+	}
+	if len(want) == 0 {
+		return false
+	}
+	type outcome struct {
+		ts       int64
+		seen, ok bool
+	}
+	last := make([]outcome, len(want))
+	for _, e := range events {
+		if e.Session != session || e.TS < after || e.Kind != activity.KindTool || e.Tool != "Bash" {
+			continue
+		}
+		cmds, _ := commands(e)
+		for i, inv := range want {
+			if !ran([]invocation{inv}, cmds) || (last[i].seen && e.TS < last[i].ts) {
+				continue
+			}
+			last[i] = outcome{ts: e.TS, seen: true, ok: !e.Failed && !piped(e)}
+		}
+	}
+	for _, o := range last {
+		if !o.seen || !o.ok {
+			return false
+		}
+	}
+	return true
+}
+
+// piped reports whether a shell call ran through a pipe or an ||. Its status
+// is then the last command's, so `make check | tail` and `make check || true`
+// succeed whatever make did, and how the verify inside went is unknown. The
+// hook marks it, since the summary can lose the pipe to its cut; a row from
+// before the mark is read from the summary.
+func piped(e activity.Event) bool {
+	if p, _ := e.Extra["piped"].(bool); p {
+		return true
+	}
+	return strings.Contains(e.Summary, "|")
+}

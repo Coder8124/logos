@@ -43,8 +43,15 @@ func Render(hits []Hit) string {
 			fmt.Fprintf(&b, ", on **%s** rather than the project you are working on", untrusted.Inline(h.Project))
 		}
 		b.WriteString("\n")
-		if tags := recordTags(h.Record); tags != "" {
+		if tags := recordTags(h.Record, h.Proven); tags != "" {
 			fmt.Fprintf(&b, "  %s\n", tags)
+		}
+		if h.Shown > 0 {
+			fmt.Fprintf(&b, "  shown %d time%s before", h.Shown, plural(h.Shown, "", "s"))
+			if h.Proven > 0 {
+				fmt.Fprintf(&b, " · its verify passed after it in %d session%s", h.Proven, plural(h.Proven, "", "s"))
+			}
+			b.WriteString("\n")
 		}
 		if h.Record.Verify != "" {
 			fmt.Fprintf(&b, "  verify: %s\n", untrusted.Inline(h.Record.Verify))
@@ -63,7 +70,12 @@ func Render(hits []Hit) string {
 	return b.String()
 }
 
-func recordTags(r Record) string {
+// recordTags lists layer, scope and evidence. Evidence recorded as once is
+// read as verified when its verify has since passed after the procedure was
+// shown: that is a second, independent run of it, which is what verified
+// means. Reported is not promoted — nobody ran it to begin with, and one
+// passing command after it is not the same claim as the route working.
+func recordTags(r Record, proven int) string {
 	var parts []string
 	if r.Layer != "" {
 		parts = append(parts, string(r.Layer))
@@ -71,7 +83,10 @@ func recordTags(r Record) string {
 	if r.Scope != "" {
 		parts = append(parts, string(r.Scope))
 	}
-	if r.Evidence != "" {
+	switch {
+	case r.Evidence == EvidenceOnce && proven > 0:
+		parts = append(parts, string(EvidenceVerified)+" (recorded once; its verify has passed since)")
+	case r.Evidence != "":
 		parts = append(parts, string(r.Evidence))
 	}
 	if len(parts) == 0 {

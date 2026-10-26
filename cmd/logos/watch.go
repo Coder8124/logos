@@ -210,6 +210,10 @@ func usageLine(raw string) string {
 		msg = fmt.Sprintf("ruling   %d %s naming a file shown as it was edited", e.Rulings, plural(e.Rulings, "ruling"))
 	case usagepkg.KindAvoided:
 		msg = fmt.Sprintf("ruling   a session ended without touching what %d %s it was shown named", e.Rulings, plural(e.Rulings, "ruling"))
+	case usagepkg.KindProcedure:
+		msg = fmt.Sprintf("ruling   %d %s handed back before an attempt", len(e.Refs), plural(len(e.Refs), "procedure"))
+	case usagepkg.KindProven:
+		msg = fmt.Sprintf("ruling   %d %s whose verify passed after it was shown", len(e.Refs), plural(len(e.Refs), "procedure"))
 	case usagepkg.KindPack:
 		msg = fmt.Sprintf("context  %d-token pack handed over", e.Sent)
 		if e.Full > e.Sent {

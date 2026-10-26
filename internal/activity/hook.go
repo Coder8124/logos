@@ -116,6 +116,12 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 					e.Extra = map[string]any{}
 				}
 				e.Extra["commands"] = cmds
+				// The kept commands lose the operators between them, and a
+				// pipe or || makes the call's status its last command's: what
+				// it says about the others is nothing.
+				if strings.Contains(line, "|") {
+					e.Extra["piped"] = true
+				}
 			}
 		}
 	}

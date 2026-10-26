@@ -96,6 +96,24 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 		return "", err
 	}
 	procedure.MarkDrift(procHits, dir)
+	// A ledger that cannot be read leaves every procedure at the evidence its
+	// text claims, which is what it showed before the ledger counted; the
+	// reader is told rather than shown counts that look like none.
+	var tallyNote string
+	if len(procHits) > 0 {
+		events, bad, err := usage.Read(s.vault)
+		switch {
+		case err != nil:
+			tallyNote = fmt.Sprintf("\n_logos could not read its usage ledger, so how often these were shown and proven is left out: %v_\n", err)
+		case bad > 0:
+			tallyNote = fmt.Sprintf("\n_%d unreadable usage ledger line(s) were skipped, so these counts may be low._\n", bad)
+		}
+		tallies := usage.Tallies(events)
+		for i := range procHits {
+			t := tallies[usage.Ref(procHits[i].Memory)]
+			procHits[i].Shown, procHits[i].Proven = t.Shown, t.Proven
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString(untrusted.Boundary)
@@ -105,9 +123,13 @@ func (s *Server) beforeYouTry(approach, project, here, dir string) (string, erro
 	if section := procedure.Render(procHits); section != "" {
 		b.WriteString("\n")
 		b.WriteString(section)
+		b.WriteString(tallyNote)
 	}
 	if len(hits) > 0 {
 		b.WriteString(s.ledger(usage.Event{Kind: usage.KindDeadEnd, Via: "mcp:before_you_try", Project: here, Rulings: len(hits), Refs: usage.RulingRefs(hits)}))
+	}
+	if len(procHits) > 0 {
+		b.WriteString(s.ledger(usage.Event{Kind: usage.KindProcedure, Via: "mcp:before_you_try", Project: here, Refs: usage.ProcedureRefs(procHits)}))
 	}
 	return b.String(), nil
 }

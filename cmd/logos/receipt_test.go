@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
+	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/session"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
@@ -272,5 +274,142 @@ func checkCart(t *testing.T, project string) {
 		Rulings: len(rulings), Refs: usagepkg.RulingRefs(rulings),
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A procedure recorded as working once stayed at once however many sessions
+// then followed it and watched its verify pass. The session-end receipt is
+// where that is seen: a procedure before_you_try handed back whose verify ran
+// and passed afterwards in the same session is proven, once a session, and
+// the receipt says so. One whose verify the session never ran is not, and a
+// cd in a verify only says where the rest ran.
+func TestAProcedureWhoseVerifyPassedAfterItWasShownIsVerified(t *testing.T) {
+	standIn(t, "elsewhere")
+	t.Setenv("LOGOS_EMBED", "off")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	texts := []string{
+		"route: run migrations with the lock flag | trap: two deploys at once corrupt the schema table | verify: cd db && make migrate-check | evidence: once",
+		"route: rebuild the search index after a schema change | trap: queries miss new columns | verify: go vet ./search | evidence: once",
+	}
+	var hits []procedure.Hit
+	for _, text := range texts {
+		if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{Text: text, Kind: memory.Procedure, Source: "mcp", Project: "shop"}); err != nil {
+			t.Fatal(err)
+		}
+		hits = append(hits, procedure.Hit{Memory: text})
+	}
+	ix.Close()
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindProcedure, Via: "mcp:before_you_try", Project: "shop", Refs: usagepkg.ProcedureRefs(hits),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-proven","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"run the migrations"}}`)
+	hookEvent(t, "PostToolUse", `{"session_id":"s-proven","tool_name":"Bash","tool_input":{"command":"cd db && make migrate-check"}}`)
+
+	out := endSession(t, "s-proven")
+	if !strings.Contains(out, "procedure verified: run migrations with the lock flag") || !strings.Contains(out, "once → verified") {
+		t.Errorf("the procedure whose verify passed is not on the receipt:\n%s", out)
+	}
+	if strings.Contains(out, "rebuild the search index") {
+		t.Errorf("a procedure whose verify never ran was claimed as verified:\n%s", out)
+	}
+	if again := endSession(t, "s-proven"); strings.Contains(again, "procedure verified") {
+		t.Errorf("a session ended twice proved the same procedure twice:\n%s", again)
+	}
+	events, _, err := usagepkg.Read(vaultPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tallies := usagepkg.Tallies(events)
+	if got := tallies[usagepkg.Ref(texts[0])]; got.Shown != 1 || got.Proven != 1 {
+		t.Errorf("the ledger holds %+v for the proven procedure, want shown 1 and proven 1", got)
+	}
+	if got := tallies[usagepkg.Ref(texts[1])]; got.Proven != 0 {
+		t.Errorf("the ledger holds %+v for the procedure never verified, want proven 0", got)
+	}
+}
+
+// A verify that failed after the procedure was shown is the opposite of
+// evidence for it.
+func TestAProcedureWhoseVerifyFailedIsNotVerified(t *testing.T) {
+	standIn(t, "elsewhere")
+	t.Setenv("LOGOS_EMBED", "off")
+	ix, err := openEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	text := "route: run migrations with the lock flag | trap: two deploys at once corrupt the schema table | verify: make migrate-check | evidence: once"
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{Text: text, Kind: memory.Procedure, Source: "mcp", Project: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindProcedure, Via: "mcp:before_you_try", Project: "shop", Refs: usagepkg.ProcedureRefs([]procedure.Hit{{Memory: text}}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-red","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"run the migrations"}}`)
+	hookEvent(t, "PostToolUseFailure", `{"session_id":"s-red","tool_name":"Bash","tool_input":{"command":"make migrate-check"}}`)
+
+	if out := endSession(t, "s-red"); strings.Contains(out, "procedure verified") {
+		t.Errorf("a procedure whose verify failed was claimed as verified:\n%s", out)
+	}
+}
+
+// Without the index a shown procedure cannot be resolved to its verify; the
+// receipt said nothing, which reads the same as nothing having been shown.
+func TestAProcedureShownWithoutAnIndexIsSaidToGoUnchecked(t *testing.T) {
+	standIn(t, "elsewhere")
+	hits := []procedure.Hit{{Memory: "route: run migrations with the lock flag | trap: two deploys at once corrupt the schema table | verify: make migrate-check"}}
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindProcedure, Via: "mcp:before_you_try", Project: "shop", Refs: usagepkg.ProcedureRefs(hits),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-noix","tool_name":"mcp__plugin_logos_logos__before_you_try","tool_input":{"approach":"run the migrations"}}`)
+	events, err := sessionEvents(vaultPath(), "shop", "s-noix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, _, err := usagepkg.Read(vaultPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = provenReceipt(vaultPath(), nil, "shop", "s-noix", events, ledger)
+	if err == nil || !strings.Contains(err.Error(), "1 procedure shown this session went unchecked") {
+		t.Errorf("a procedure left unchecked for want of the index was not said: %v", err)
+	}
+}
+
+// A ledger line that cannot be parsed may be the one that showed this session
+// a ruling or a procedure, so the receipt says how many it skipped.
+func TestTheSessionReceiptCountsUnreadableLedgerLines(t *testing.T) {
+	standIn(t, "elsewhere")
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{Kind: usagepkg.KindPack, Via: "mcp:resume", Project: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(vaultPath(), usagepkg.Dir, "*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("want one ledger file, found %v", files)
+	}
+	f, err := os.OpenFile(files[0], os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("{not json\n")
+	f.Close()
+	hookEvent(t, "PostToolUse", `{"session_id":"s-bad","tool_name":"Bash","tool_input":{"command":"go build ./..."}}`)
+	if out := endSession(t, "s-bad"); !strings.Contains(out, "1 unreadable usage ledger line skipped") {
+		t.Errorf("the receipt did not say it skipped an unreadable ledger line:\n%s", out)
 	}
 }

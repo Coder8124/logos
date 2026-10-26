@@ -1,6 +1,7 @@
 package claims
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -137,5 +138,71 @@ func TestOnlyFailingShellCommandsAreAskedAbout(t *testing.T) {
 	vault := logged(t, r1, r2, bash("p", "s", "go build ./..."))
 	if r := check(t, vault); len(r.Failures) != 0 {
 		t.Errorf("tool misses were counted as failures: %q", r.Failures)
+	}
+}
+
+// A procedure's verify is evidence for it only when it ran after the
+// procedure was shown, in the same session, and passed: an earlier run, a
+// failing one, or one in another session says nothing about whether
+// following the procedure worked.
+func TestAVerifyIsPassedOnlyByARunAfterTheProcedureWasShown(t *testing.T) {
+	shown := int64(1000)
+	run := func(session, command string, ts int64, failed bool) activity.Event {
+		e := bash("p", session, command)
+		e.Kind, e.TS, e.Failed = activity.KindTool, ts, failed
+		return e
+	}
+	cases := []struct {
+		name   string
+		events []activity.Event
+		want   bool
+	}{
+		{"passed after", []activity.Event{run("s", "make migrate-check", shown+5, false)}, true},
+		{"passed before", []activity.Event{run("s", "make migrate-check", shown-5, false)}, false},
+		{"failed after", []activity.Event{run("s", "make migrate-check", shown+5, true)}, false},
+		{"another session", []activity.Event{run("t", "make migrate-check", shown+5, false)}, false},
+		{"other subcommand", []activity.Event{run("s", "make build", shown+5, false)}, false},
+	}
+	for _, c := range cases {
+		if got := Passed("cd db && make migrate-check", c.events, "s", shown); got != c.want {
+			t.Errorf("%s: Passed = %v, want %v", c.name, got, c.want)
+		}
+	}
+	both := []activity.Event{run("s", "go vet ./...", shown+1, false), run("s", "go test ./...", shown+2, false)}
+	if !Passed("go vet ./... && go test ./...", both, "s", shown) {
+		t.Error("a verify whose every command passed was not passed")
+	}
+	if Passed("go vet ./... && go test ./...", both[:1], "s", shown) {
+		t.Error("a verify with a command never run was passed")
+	}
+	if Passed("cd db", both, "s", shown) {
+		t.Error("a verify that is only a cd was passed")
+	}
+	if !Passed("`make migrate-check`", []activity.Event{run("s", "make migrate-check", shown+5, false)}, "s", shown) {
+		t.Error("a verify written in backticks was not passed by its run")
+	}
+	passThenFail := []activity.Event{run("s", "make migrate-check", shown+5, false), run("s", "make migrate-check", shown+9, true)}
+	if Passed("make migrate-check", passThenFail, "s", shown) {
+		t.Error("a verify whose last run failed was passed by an earlier one")
+	}
+	for _, line := range []string{"make migrate-check | tail -5", "make migrate-check || true"} {
+		if Passed("make migrate-check", []activity.Event{run("s", line, shown+5, false)}, "s", shown) {
+			t.Errorf("a verify run as %q, whose status is not its own, was passed", line)
+		}
+	}
+}
+
+func TestAPipePastTheSummaryCutStillKeepsAVerifyFromPassing(t *testing.T) {
+	line := "cd " + strings.Repeat("x", 170) + " && make migrate-check | tail -5"
+	e, err := activity.FromHook("PostToolUse", []byte(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"`+line+`"}}`), "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(e.Summary, "|") {
+		t.Fatalf("the summary kept the pipe, so this does not test the cut: %q", e.Summary)
+	}
+	e.TS = 1005
+	if Passed("make migrate-check", []activity.Event{e}, "s", 1000) {
+		t.Error("a verify piped past the summary's cut was passed")
 	}
 }
