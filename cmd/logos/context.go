@@ -32,7 +32,7 @@ import (
 func runContext(args []string) error {
 	var task, hint, since string
 	var pin, exclude, unpin string
-	var listRules bool
+	var listRules, asJSON bool
 	budget := 0
 
 	for i := 0; i < len(args); i++ {
@@ -69,6 +69,8 @@ func runContext(args []string) error {
 			}
 		case "--rules":
 			listRules = true
+		case "--json":
+			asJSON = true
 		default:
 			task = strings.TrimSpace(task + " " + args[i])
 		}
@@ -79,7 +81,7 @@ func runContext(args []string) error {
 	}
 
 	if task == "" && hint == "" {
-		return fmt.Errorf("usage: logos context <task> [--project <name>] [--budget <tokens>]")
+		return fmt.Errorf("usage: logos context <task> [--project <name>] [--budget <tokens>] [--json]")
 	}
 	// Standing inside a project is enough to say which one, exactly as it is for
 	// resume and checkpoint. Without this the brief a user reads to judge
@@ -125,6 +127,11 @@ func runContext(args []string) error {
 		contextpack.Request{Task: task, Hint: hint, Dir: dirFor(hint), Budget: budget, Since: contextpack.Since(since)})
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		out := newPackJSON(&pack, hint, nil)
+		ledgerPack(ix.Vault, "cli:context", hint, pack)
+		return printJSON(out)
 	}
 	fmt.Print(pack.Render())
 	ledgerPack(ix.Vault, "cli:context", hint, pack)

@@ -29,9 +29,10 @@ import (
 // forever if the session ended without a checkpoint, which is how sessions
 // usually end.
 func runTried(args []string) error {
+	asJSON, args := jsonFlag(args)
 	proposed := strings.TrimSpace(strings.Join(firstNonFlags(args), " "))
 	if proposed == "" {
-		return fmt.Errorf("usage: logos tried <the approach you are about to propose> [--project X]\n       logos tried <the approach> --ruled-out <what happened> [--layer L] [--scope S] [--degree D] [--instead X]")
+		return fmt.Errorf("usage: logos tried <the approach you are about to propose> [--project X] [--json]\n       logos tried <the approach> --ruled-out <what happened> [--layer L] [--scope S] [--degree D] [--instead X]")
 	}
 
 	ix, err := openEvents()
@@ -41,6 +42,12 @@ func runTried(args []string) error {
 	defer ix.Close()
 
 	if hasFlag(args, "--ruled-out") {
+		// Refused rather than answered in text: a caller that asked for JSON
+		// parses stdout, and a receipt it cannot read is a write it never
+		// hears about.
+		if asJSON {
+			return fmt.Errorf("--json answers the lookup; record a dead end without it")
+		}
 		return recordRuledOut(ix, args, proposed)
 	}
 
@@ -72,8 +79,12 @@ func runTried(args []string) error {
 	if dir, err := os.Getwd(); err == nil {
 		deadend.MarkDrift(hits, dir)
 	}
-	fmt.Print(deadend.Render(proposed, hits))
-	fmt.Print(deadend.SemanticSkipped(semanticErr))
+	if asJSON {
+		err = printTriedJSON(proposed, hits, semanticErr)
+	} else {
+		fmt.Print(deadend.Render(proposed, hits))
+		fmt.Print(deadend.SemanticSkipped(semanticErr))
+	}
 	if len(hits) > 0 {
 		here := strings.TrimSpace(flagStr(args, "--project", ""))
 		if here == "" {
@@ -81,7 +92,7 @@ func runTried(args []string) error {
 		}
 		ledger(ix.Vault, usagepkg.Event{Kind: usagepkg.KindDeadEnd, Via: "cli:tried", Project: here, Rulings: len(hits), Refs: usagepkg.RulingRefs(hits)})
 	}
-	return nil
+	return err
 }
 
 // recordRuledOut files the proposed approach as a dead end, now, without

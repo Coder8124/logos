@@ -264,9 +264,20 @@ func runCheckpoint(args []string) error {
 
 // runResume prints where the last agent stopped, followed by full context.
 func runResume(args []string) error {
+	asJSON, args := jsonFlag(args)
 	project, rest := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: logos resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all]")
+		return fmt.Errorf("usage: logos resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all] [--json]")
+	}
+	// What resume says besides the pack. In JSON it becomes the block's notes
+	// and errors rather than lines around a document a parser cannot skip.
+	var notes []string
+	say := func(text string) {
+		if !asJSON {
+			fmt.Print(text)
+		} else if t := strings.TrimSpace(text); t != "" {
+			notes = append(notes, t)
+		}
 	}
 	budget := 0
 	since := ""
@@ -318,6 +329,9 @@ func runResume(args []string) error {
 	}
 	if !isProject {
 		if chain, err := session.ByHostSession(ix.Vault, project); err == nil && len(chain) > 0 {
+			if asJSON {
+				return printSessionChainJSON(project, chain)
+			}
 			printSessionChain(project, chain)
 			return nil
 		}
@@ -343,16 +357,32 @@ func runResume(args []string) error {
 	// handoff it is missing from. The SessionStart hook runs this command, so
 	// every Claude Code session start sweeps too.
 	if auto.On(ix.Vault, auto.Checkpoint) {
-		fmt.Print(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
+		say(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
 	}
-	fmt.Print(ops.RunAutoReview(ix.DB, ix.Vault, project))
-	fmt.Print(ops.AutoLead(ix.Vault, project))
+	say(ops.RunAutoReview(ix.DB, ix.Vault, project))
+	say(ops.AutoLead(ix.Vault, project))
 
 	pack, err := contextpack.Build(ix, embed, model, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Dir: dirFor(project), Agent: agentName(), Budget: budget, Since: contextpack.Since(since),
 	})
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		if n := ingestPendingCount(ix.Vault); n > 0 {
+			notes = append(notes, fmt.Sprintf("%d ingested candidate%s pending review — logos review --candidates", n, pluralS(n)))
+		}
+		line, failed := awaitingReview(ix.DB)
+		if line != "" {
+			notes = append(notes, line)
+		}
+		out := newPackJSON(&pack, project, notes)
+		out.Outcome.Errors = failed
+		out.Outcome.Settle()
+		if !pack.Empty() {
+			ledgerPack(ix.Vault, "cli:resume", project, pack)
+		}
+		return printJSON(out)
 	}
 	if pack.Empty() {
 		printNothingToResume(ix.Vault, project)
@@ -400,18 +430,27 @@ func printSessionChain(hostSession string, chain []session.Checkpoint) {
 // works if the user hears there is something to say yes to; otherwise the
 // queue was mentioned by doctor alone, which nobody runs to start work.
 func printAwaitingReview(db *sql.DB) {
+	line, failed := awaitingReview(db)
+	for _, f := range failed {
+		fmt.Printf("\n(%s)\n", f)
+	}
+	if line != "" {
+		fmt.Println("\n" + line)
+	}
+}
+
+// awaitingReview is printAwaitingReview's line, and what stopped it being
+// counted, for a caller that reports the two apart.
+func awaitingReview(db *sql.DB) (line string, failed []string) {
 	n, err := memory.PendingCount(db)
 	if err != nil {
-		fmt.Printf("\n(could not count the memories waiting for review: %v)\n", err)
-		return
+		return "", []string{fmt.Sprintf("could not count the memories waiting for review: %v", err)}
 	}
 	done, err := ops.AutoAcceptedSinceReview(db)
 	if err != nil {
-		fmt.Printf("\n(could not count the memories accepted automatically: %v)\n", err)
+		failed = append(failed, fmt.Sprintf("could not count the memories accepted automatically: %v", err))
 	}
-	if line := ops.QueueLine(n, done, "logos", ops.Plain); line != "" {
-		fmt.Println("\n" + line)
-	}
+	return ops.QueueLine(n, done, "logos", ops.Plain), failed
 }
 
 // printNothingToResume replaces the empty context pack for the one caller that
