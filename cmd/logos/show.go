@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
@@ -95,6 +96,7 @@ func runShow(args []string) error {
 	showRulingList(shown, len(rulings))
 
 	showMemories(pinned, own)
+	showFading(memory.Fading(own, time.Now().Unix()), all)
 
 	waiting, err := memory.PendingCount(ix.DB)
 	if err != nil {
@@ -282,6 +284,29 @@ func showMemories(pinned, own []memory.Memory) {
 		}
 		fmt.Printf("  · %s\n", memoryLine(m))
 	}
+}
+
+// showFading lists what decay is quietly ranking out of the packs, so the
+// person makes the call instead: pin what still matters, forget what does
+// not. The ids are printed because both commands take one.
+func showFading(fading []memory.Memory, all bool) {
+	if len(fading) == 0 {
+		return
+	}
+	fmt.Printf("\nFading — %d memor%s not recalled in %d days, ranking lower in every pack\n",
+		len(fading), pluralY(len(fading)), memory.FadingDays)
+	for i, m := range fading {
+		if !all && i == showRecent {
+			fmt.Printf("  … %d more — logos show --all lists them\n", len(fading)-showRecent)
+			break
+		}
+		when := "never recalled, written " + humanizeAgo(m.Created)
+		if m.LastUsed > 0 {
+			when = "last recalled " + humanizeAgo(m.LastUsed)
+		}
+		fmt.Printf("  · #%d %s: %s (%s)\n", m.ID, m.Kind, terminalSafe(oneLineText(m.Text), showLineRune), when)
+	}
+	fmt.Println("  keep one: logos memory pin <id> · let one go: logos memory forget <id>")
 }
 
 func memoryLine(m memory.Memory) string {

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/textmatch"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Kind categorises a memory so it can be weighted and surfaced appropriately.
@@ -895,11 +897,158 @@ func Recall(db *sql.DB, p *provider.Provider, embedModel, query string, k int) (
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
+}
+
+// touchRecalled counts each memory a recall returned as used, and carries the
+// new recall time into that memory's own file once a day.
+//
+// It used to update the row and nothing else. used= and uses= are in the vault
+// line so a rebuild keeps them, but the line was rewritten only when the memory
+// changed for some other reason — so deleting the index and running `logos
+// index` restarted the clock of every memory recalled since, and a fact used
+// yesterday came back as one nobody had needed since it was written. Decay
+// ranks by that clock and `logos show` offers what it says has faded for
+// forgetting.
+//
+// The vault is written before the row, so a crash between them leaves a row
+// behind the file, which the next recall or index fixes. Once a day, measured
+// from the used= the file holds and not from the row: the row moves on every
+// recall, so a throttle read from it never let a memory recalled daily reach
+// its file again. A rebuild can still lose the uses since the file was last
+// written — at most a day's — which a clock read in weeks does not feel.
+//
+// A file write that fails is reported on stderr, not returned: the recall's
+// answer is still right, and failing the read over its bookkeeping would cost
+// the agent the memories it asked for.
+func touchRecalled(db *sql.DB, mems []Memory, now int64) {
+	byKind := map[Kind][]Memory{}
+	for _, m := range mems {
+		byKind[m.Kind] = append(byKind[m.Kind], m)
+	}
+	for kind, ms := range byKind {
+		if err := carryRecallTimes(db, kind, ms, now); err != nil {
+			// stderr, never stdout: stdout is the MCP JSON-RPC transport.
+			fmt.Fprintf(os.Stderr, "logos: a recall time did not reach the vault, so a rebuild of the index will lose it: %v\n", err)
+		}
+		for _, m := range ms {
+			_, _ = db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
+		}
+	}
+}
+
+// carryRecallTimes rewrites uses= and used= in the files of the memories
+// whose file is a day or more behind, and nothing else in them.
+//
+// Not exportMemoryFile: that renders the whole line from the row, and a
+// recall is a read — right after a rebuild there is no file stamp, so the
+// hand-edit guard has nothing to compare and a correction typed into the file
+// since would be written over with the row's old text. Patching the two
+// fields leaves any edit standing, and the stamp is moved on only when the
+// file was the one logos last wrote, so an edit the guard should catch is
+// never laundered into one it accepts.
+//
+// One lock per kind, taken without waiting. A busy lock skips the write; the
+// file is unchanged, so the next recall finds it still due and tries again.
+func carryRecallTimes(db *sql.DB, kind Kind, ms []Memory, now int64) error {
+	dir := vaultFor(db)
+	if dir == "" {
+		return nil
+	}
+	var due []Memory
+	for _, m := range ms {
+		if m.Uid == "" {
+			continue
+		}
+		raw, err := os.ReadFile(memoryFilePath(dir, kind, m.Uid))
+		if err != nil {
+			// No file yet — a row the migration has not reached — is not this
+			// path's to create.
+			continue
+		}
+		if used, ok := fileUsage(string(raw)); ok && now-used < 86400 {
+			continue
+		}
+		due = append(due, m)
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	g, held, err := vault.TryLock(dir, "memory-"+string(kind))
+	if err != nil || !held {
+		return err
+	}
+	defer g.Unlock()
+	var errs []error
+	for _, m := range due {
+		path := memoryFilePath(dir, kind, m.Uid)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		patched, ok := patchUsage(string(raw), m.Uses+1, now)
+		if !ok {
+			errs = append(errs, fmt.Errorf("memories/%s/%s.md has no uses= to update", kind, m.Uid))
+			continue
+		}
+		last, stamped := fileStampSeen(db, m.Uid)
+		ours := stamped && sha256.Sum256(raw) == last
+		if err := vault.WriteAtomic(path, []byte(patched)); err != nil {
+			errs = append(errs, fmt.Errorf("memory #%d: %w", m.ID, err))
+			continue
+		}
+		if ours {
+			fileStamp(db, m.Uid, sha256.Sum256([]byte(patched)))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// fileUsage is the used= time on a memory file's bookkeeping comment, and
+// whether it had one — a never-recalled memory's line carries none.
+func fileUsage(raw string) (int64, bool) {
+	var m Memory
+	for _, line := range strings.Split(raw, "\n") {
+		if i := strings.Index(line, "<!--"); strings.HasPrefix(line, "- ") && i >= 0 {
+			applyMeta(&m, line[i:])
+			return m.LastUsed, m.LastUsed > 0
+		}
+	}
+	return 0, false
+}
+
+// patchUsage sets uses= and used= in the comment of a memory file's bullet,
+// adding used= after uses= where renderLine would put it. Only the comment is
+// touched: the memory's text sits before it and may itself contain "uses=".
+func patchUsage(raw string, uses int, now int64) (string, bool) {
+	lines := strings.Split(raw, "\n")
+	for li, line := range lines {
+		from := strings.Index(line, "<!--")
+		to := strings.LastIndex(line, "-->")
+		if !strings.HasPrefix(line, "- ") || from < 0 || to < from {
+			continue
+		}
+		used := "used=" + time.Unix(now, 0).UTC().Format(time.RFC3339)
+		var out []string
+		found := false
+		for _, f := range strings.Fields(line[from+len("<!--") : to]) {
+			switch {
+			case strings.HasPrefix(f, "uses="):
+				out = append(out, fmt.Sprintf("uses=%d", uses), used)
+				found = true
+			case strings.HasPrefix(f, "used="):
+			default:
+				out = append(out, f)
+			}
+		}
+		if !found {
+			return raw, false
+		}
+		lines[li] = line[:from] + "<!-- " + strings.Join(out, " ") + " " + line[to:]
+		return strings.Join(lines, "\n"), true
+	}
+	return raw, false
 }
 
 // recallByVec ranks stored memories using hybrid retrieval (vector + BM25 fused)
@@ -1049,10 +1198,7 @@ func RecallInProject(db *sql.DB, p *provider.Provider, embedModel, query, projec
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
 }
 
@@ -1077,10 +1223,7 @@ func RecallProcedures(db *sql.DB, p *provider.Provider, embedModel, query string
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().Unix()
-	for _, m := range mems {
-		db.Exec("UPDATE memories SET last_used = ?, uses = uses + 1 WHERE id = ?", now, m.ID)
-	}
+	touchRecalled(db, mems, time.Now().Unix())
 	return mems, nil
 }
 

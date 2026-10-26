@@ -98,6 +98,49 @@ func Lock(vaultDir, name string) (*Guard, error) {
 	return g, nil
 }
 
+// TryLock is Lock for a caller that would rather skip its write than wait:
+// held is false, with no error, when another goroutine or process has the
+// lock. Recall carrying its recall time into the vault is the one such
+// caller — it is a read, and an agent's recall must not hang for as long as
+// `logos index` holds a kind's lock re-embedding a large vault.
+func TryLock(vaultDir, name string) (g *Guard, held bool, err error) {
+	dir := filepath.Join(vaultDir, ".logos", lockSubdir)
+	if err := MkdirPrivate(dir); err != nil {
+		return nil, false, fmt.Errorf("creating the lock directory %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, name+".lock")
+
+	inProcMu.Lock()
+	mu, ok := inProc[path]
+	if !ok {
+		mu = &sync.Mutex{}
+		inProc[path] = mu
+	}
+	inProcMu.Unlock()
+
+	if !mu.TryLock() {
+		return nil, false, nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, FileMode)
+	if err != nil {
+		mu.Unlock()
+		return nil, false, fmt.Errorf("opening the lock file %s: %w", path, err)
+	}
+	g = &Guard{mu: mu, f: f}
+	busy, err := tryLockFD(f)
+	if busy {
+		f.Close()
+		mu.Unlock()
+		return nil, false, nil
+	}
+	if err != nil {
+		warnOnce(path, err)
+		return g, true, nil // in-process only, as Lock degrades
+	}
+	g.locked = true
+	return g, true, nil
+}
+
 // Unlock releases both halves, in the reverse order they were taken.
 func (g *Guard) Unlock() {
 	if g == nil {
