@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -76,5 +77,46 @@ func TestAnEarlierDecisionALaterOneOvertookIsNotHandedOver(t *testing.T) {
 	}
 	if !strings.Contains(out, "Sessions move to JWTs") {
 		t.Errorf("the decision that overtook it is missing:\n%s", out)
+	}
+}
+
+// A decision promoted to project memory is the same decision the checkpoints
+// recorded: resume hands it over once, as project memory with its count, not
+// again from each checkpoint and again among the memories.
+func TestAPromotedDecisionIsHandedOverOnceWithItsCheckpointCount(t *testing.T) {
+	ix := seedVault(t)
+	now := time.Now()
+	// Checkpoint filenames are the second they were written plus the agent, and
+	// TS does not move them. A second claude in the same second walked forward
+	// to the next one, sorted after cursor, and became the last checkpoint —
+	// whose Decided line then stood in for the memory, about one run in ten.
+	// Distinct agents that sort before cursor keep cursor's the newest.
+	cps := []*session.Checkpoint{
+		{Agent: "aider", Decisions: []string{cookies}},
+		{Agent: "claude", Decisions: []string{cookies}},
+		{Agent: "codex", Decisions: []string{cookies}},
+		{Agent: "cursor", Task: "fix CSS on the landing page", Next: "check mobile"},
+	}
+	for i, c := range cps {
+		c.Project = "kestrel-one"
+		c.TS = now.Add(time.Duration(i-len(cps)) * time.Minute).Unix()
+		if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{Text: "Decision: " + cookies, Kind: memory.Context,
+		Project: "kestrel-one", Source: memory.SourceCheckpoints}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Build(ix, nil, "", Request{Task: "should we switch sessions to JWT tokens", Hint: "kestrel-one", Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := p.Render()
+	if !strings.Contains(out, "(project memory, from 3 checkpoints) Decision: "+cookies) {
+		t.Errorf("the promoted decision is not handed over with its count:\n%s", out)
+	}
+	if n := strings.Count(out, "signed cookies, not JWTs"); n != 1 {
+		t.Errorf("the decision is handed over %d times, want once:\n%s", n, out)
 	}
 }

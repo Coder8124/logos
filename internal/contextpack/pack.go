@@ -158,8 +158,18 @@ type Pack struct {
 	// Pinned holds memories the user marked always-include (see memory.Pin).
 	// They bypass ranking entirely — see spendMemories — which is the whole
 	// difference between a pin and simply having high salience.
-	Pinned    []memory.Memory        `json:"pinned,omitempty"`
-	OpenLoops []secretary.Commitment `json:"open_loops"`
+	Pinned []memory.Memory `json:"pinned,omitempty"`
+	// Promoted holds the project's decisions that held across checkpoints and
+	// became memory (see ops.PromoteDecisions), and PromotedFrom how many
+	// checkpoints recorded each, by id. They are listed with the decisions,
+	// once, in place of the checkpoint lines they came from.
+	Promoted     []memory.Memory `json:"promoted,omitempty"`
+	PromotedFrom map[int64]int   `json:"-"`
+	// PromotedErr is why the promoted decisions, or their counts, could not
+	// be read: said where they would have been, so a missing standing
+	// decision reads as a failure and not as a project that has none.
+	PromotedErr error                  `json:"-"`
+	OpenLoops   []secretary.Commitment `json:"open_loops"`
 
 	// Superseded holds recalled memories a later statement replaced. They are
 	// kept out of the answer but reported, so the agent knows the value moved
@@ -380,6 +390,9 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	memory.MarkDrift(p.Pinned, req.Dir)
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
+	// After the window: a decision that held is standing, like a pin, and a
+	// date filter does not make it any less decided.
+	p.loadPromoted(db, ix.Vault)
 	// After the window, not the other way: a path the tree view pinned is
 	// asserted the same way a pinned memory is (see the comment on Pinned
 	// above) — it must survive a date filter it was never asked to pass, the
@@ -1001,5 +1014,81 @@ func (p *Pack) resolveIntent(vault, scope string) {
 	p.Intent = why
 	if from != nil {
 		p.IntentFrom = &IntentFrom{Agent: from.Agent, TS: from.TS}
+	}
+}
+
+// loadPromoted fills Promoted and takes those memories out of Related, so a
+// promoted decision is said once, where the decisions are.
+func (p *Pack) loadPromoted(db *sql.DB, vaultDir string) {
+	if p.scope() == "" {
+		return
+	}
+	mems, err := memory.AllInProject(db, p.scope())
+	if err != nil {
+		p.PromotedErr = err
+		return
+	}
+	ids := map[int64]bool{}
+	for _, m := range mems {
+		if m.Source == memory.SourceCheckpoints && (m.Project == p.scope() || m.Project == p.Continuity()) {
+			p.Promoted = append(p.Promoted, m)
+			ids[m.ID] = true
+		}
+	}
+	if len(p.Promoted) == 0 {
+		return
+	}
+	related := p.Related[:0:0]
+	for _, m := range p.Related {
+		if !ids[m.ID] {
+			related = append(related, m)
+		}
+	}
+	p.Related = related
+	// The project profile reads every context memory as a goal, so a promoted
+	// decision was printed there twice more: once as a goal, once as known.
+	if pr := p.Project; pr != nil {
+		texts := map[string]bool{}
+		for _, m := range p.Promoted {
+			texts[strings.TrimSpace(m.Text)] = true
+		}
+		kept := pr.Memories[:0:0]
+		for _, m := range pr.Memories {
+			if !ids[m.ID] {
+				kept = append(kept, m)
+			}
+		}
+		pr.Memories = kept
+		goals := pr.Goals[:0:0]
+		for _, g := range pr.Goals {
+			if !texts[strings.TrimSpace(g)] {
+				goals = append(goals, g)
+			}
+		}
+		pr.Goals = goals
+	}
+	// Counted over the window promotion reads, not the few checkpoints the
+	// pack does: a decision is promoted precisely because it outlived those.
+	// Against the memory's own project, which is the one PromoteDecisions
+	// counted it in, whatever continuity this pack fell back to.
+	p.PromotedFrom = map[int64]int{}
+	hist := map[string][]session.Checkpoint{}
+	for _, m := range p.Promoted {
+		all, ok := hist[m.Project]
+		if !ok {
+			if all, err = session.History(vaultDir, m.Project, session.DecisionWindow); err != nil {
+				p.PromotedErr = err
+			}
+			hist[m.Project] = all
+		}
+		k := session.DecisionKey(m.Text)
+		for _, c := range all {
+			for _, d := range c.Decisions {
+				if session.DecisionKey(d) == k {
+					p.PromotedFrom[m.ID]++
+					break
+				}
+			}
+		}
 	}
 }

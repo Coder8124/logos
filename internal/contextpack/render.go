@@ -669,20 +669,41 @@ func staleHint(b *strings.Builder, p *Pack) {
 // checkpoint decided the same question again, or when a newer memory calls it
 // off (see overtaken). Handing over both sides is handing over a choice that
 // was already made the other way.
+//
+// A decision that held long enough to become project memory is listed first,
+// once, as that memory, and the checkpoint lines it came from are not.
 func (p *Pack) priorDecisions() []string {
 	seen := map[string]bool{}
 	var later []map[string]bool
 	if p.Checkpoint != nil {
 		for _, d := range p.Checkpoint.Decisions {
-			seen[normalizeKey(d)] = true
+			seen[session.DecisionKey(d)] = true
 			later = append(later, textmatch.Subject(d))
 		}
 	}
 	var out []string
+	for _, m := range p.Promoted {
+		k := session.DecisionKey(m.Text)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if decidedAgain(textmatch.Subject(m.Text), later) {
+			continue
+		}
+		from := "project memory"
+		if n := p.PromotedFrom[m.ID]; n > 0 {
+			from = fmt.Sprintf("project memory, from %d checkpoints", n)
+		}
+		out = append(out, fmt.Sprintf("(%s) %s", from, flatten(m.Text)))
+	}
+	if p.PromotedErr != nil {
+		out = append(out, fmt.Sprintf("(could not read the decisions promoted to project memory: %v)", p.PromotedErr))
+	}
 	for _, c := range p.History {
 		var subjects []map[string]bool
 		for _, d := range c.Decisions {
-			k := normalizeKey(d)
+			k := session.DecisionKey(d)
 			if k == "" || seen[k] {
 				continue
 			}
