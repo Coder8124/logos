@@ -26,6 +26,7 @@ package gitstate
 
 import (
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -250,8 +251,15 @@ func linkedGitDir(dir string) string {
 	if err != nil {
 		return ""
 	}
-	b, err := filepath.EvalSymlinks(common)
-	if err != nil || a == b {
+	// Compared as files, not strings: on a disk that ignores case, git spells
+	// the absolute dir in the disk's case and the common dir in whatever case
+	// dir was given, and the strings differ for one directory.
+	ai, err := os.Stat(a)
+	if err != nil {
+		return ""
+	}
+	bi, err := os.Stat(common)
+	if err != nil || os.SameFile(ai, bi) {
 		return ""
 	}
 	return a

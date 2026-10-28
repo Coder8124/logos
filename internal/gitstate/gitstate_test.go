@@ -229,6 +229,31 @@ func TestWorktreeNameIsGitsOwnName(t *testing.T) {
 	}
 }
 
+// macOS and Windows disks ignore case, so a shell can stand in the main
+// checkout under a spelling that differs from the one git reports. git answers
+// --absolute-git-dir in the disk's own case and --git-common-dir relative to
+// the spelling it was given, and comparing the two as strings named the main
+// checkout a worktree called ".git" — every session filed under a scope that
+// no other session shared.
+func TestAMainCheckoutReachedUnderAnotherCaseIsNotAWorktree(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "first")
+	sub := filepath.Join(dir, "internal", "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := strings.ToUpper(sub)
+	if other == sub {
+		t.Skip("the path has no letters to change the case of")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Skip("this filesystem is case-sensitive")
+	}
+	if n := WorktreeName(other); n != "" {
+		t.Errorf("the main checkout reached as %s was named as a worktree: %q", other, n)
+	}
+}
+
 // Same rule as everything else here: not knowing is a normal condition.
 func TestWorktreeNameDegradesToNothing(t *testing.T) {
 	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "nope"), ""} {
