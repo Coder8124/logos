@@ -299,6 +299,18 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 			len(copies), word, strings.Join(copies, ", "))
 	}
 
+	// A killed write leaves its temp file behind for good, since the deferred
+	// remove dies with the process. Swept here because index is the command
+	// that already promises to repair what an interrupted write left; said
+	// here because files vanishing from a synced folder unannounced reads as
+	// the tool deleting things.
+	if swept, err := vault.SweepTempLitter(ix.Vault, vault.StaleTempAge); err != nil {
+		fmt.Fprintln(os.Stderr, "· could not remove temp files left by an interrupted write:", err)
+	} else if len(swept) > 0 {
+		fmt.Fprintf(w, "removed %d temp file%s left by an interrupted write: %s\n",
+			len(swept), plural(len(swept), ""), strings.Join(swept, ", "))
+	}
+
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
