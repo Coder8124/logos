@@ -473,7 +473,11 @@ func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
 	}
 	var out []CheckpointEntry
 	for _, e := range top {
-		if !e.IsDir() && IsCheckpointFile(e.Name()) {
+		// A sync client's conflict copy is the same checkpoint again; read
+		// as its own, it listed one session several times over in History
+		// and cited one dead end once per copy. vault.ConflictCopies is what
+		// tells the person it was left out.
+		if !e.IsDir() && IsCheckpointFile(e.Name()) && !vault.IsConflictCopy(dir, e.Name()) {
 			out = append(out, CheckpointEntry{Name: e.Name(), Rel: e.Name()})
 		}
 	}
@@ -490,7 +494,8 @@ func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
 			continue // one unreadable conversation must not hide the others
 		}
 		for _, f := range inner {
-			if !f.IsDir() && IsCheckpointFile(f.Name()) {
+			if !f.IsDir() && IsCheckpointFile(f.Name()) &&
+				!vault.IsConflictCopy(filepath.Join(dir, ConvosDir, convo.Name()), f.Name()) {
 				out = append(out, CheckpointEntry{
 					Name: f.Name(),
 					Rel:  filepath.ToSlash(filepath.Join(ConvosDir, convo.Name(), f.Name())),

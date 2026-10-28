@@ -287,6 +287,18 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintf(w, "re-filed %d checkpoint%s to match host_session, 0 lost\n", refiled, plural(refiled, ""))
 	}
 
+	// Conflict copies were left out of every count above, so the counts alone
+	// would make a copy look either read or lost. It is neither — it is on
+	// disk, waiting for someone to compare it with its original.
+	if copies := vault.ConflictCopies(ix.Vault); len(copies) > 0 {
+		word := "copies"
+		if len(copies) == 1 {
+			word = "copy"
+		}
+		fmt.Fprintf(w, "set aside %d sync conflict %s, read the original instead — compare and delete: %s\n",
+			len(copies), word, strings.Join(copies, ", "))
+	}
+
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)

@@ -1220,6 +1220,13 @@ func readKindFiles(db *sql.DB, dir string, kind Kind) (raw string, existed bool,
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 				continue
 			}
+			// "<uid> 2.md" beside "<uid>.md" is a sync client keeping both
+			// sides of a conflict, not a second memory: read too, whichever
+			// sorted last silently won the uid. The original is read, and
+			// `logos index` names the copy so the person can merge it.
+			if vault.IsConflictCopy(kindDir, e.Name()) {
+				continue
+			}
 			content, rerr := os.ReadFile(filepath.Join(kindDir, e.Name()))
 			if rerr != nil {
 				// Unreadable, not missing — treated the same as linesElsewhere

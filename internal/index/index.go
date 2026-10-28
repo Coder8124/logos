@@ -395,6 +395,14 @@ func (ix *Index) Sync() (SyncReport, error) {
 		if filepath.Ext(path) != ".md" {
 			return nil
 		}
+		// A sync client's conflict copy of a checkpoint is that checkpoint
+		// again, and indexed it ranked against the original in every search.
+		// Only under sessions/, where names are generated: a person's own
+		// "Plan 2.md" is a note. indexPass names what was left out.
+		if strings.HasPrefix(path, filepath.Join(ix.Vault, session.CheckpointDir)+string(filepath.Separator)) &&
+			vault.IsConflictCopy(filepath.Dir(path), d.Name()) {
+			return nil
+		}
 		// loops.md is the commitment list written down, not a note. Indexing it
 		// would put every open loop into vault search as a document, so closing
 		// one changes a note the user never wrote. secretary.Import reconciles

@@ -1038,3 +1038,37 @@ func TestAHandEditIsCaughtAcrossSeparateProcesses(t *testing.T) {
 		t.Errorf("the refusal from a second process does not name the digest: %v", err)
 	}
 }
+
+// A sync client keeping both sides of a conflict leaves a copy beside
+// "<uid>.md". Both carry the same uid, so both were read and whichever sorted
+// last silently decided what the memory says. Syncthing's
+// "<uid>.sync-conflict-….md" sorts after the original, so the copy — the
+// other machine's edit — won. The original is what is read; `logos index` names
+// the copy so the person can merge it by hand.
+func TestASyncConflictCopyOfAMemoryFileDoesNotOverrideItsOriginal(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the waveguide costs 4.20 dollars", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, err := os.ReadDir(kindDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("want one memory file, got %v (%v)", entries, err)
+	}
+	orig := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(orig)
+	edited := strings.Replace(string(raw), "4.20 dollars", "9.99 dollars", 1)
+	if err := os.WriteFile(strings.TrimSuffix(orig, ".md")+".sync-conflict-20261028-101500-ABC1234.md", []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Import(db, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := All(db)
+	if len(all) != 1 || !strings.Contains(all[0].Text, "4.20") {
+		t.Fatalf("the conflict copy decided the memory: %+v", all)
+	}
+}
