@@ -150,6 +150,9 @@ type Pack struct {
 	Revived          []Revived `json:"revived,omitempty"`
 	ReviveConsidered int       `json:"-"`
 	ReviveLexical    bool      `json:"-"`
+	// Cost is what the checkpoint's ruled-out approaches took to learn, nil
+	// when the record holds no number for it; see loadRulingCost.
+	Cost *RulingCost `json:"-"`
 	// historyScope is the scope History was read from, which an inherited
 	// worktree pack does not share with p.Continuity.
 	historyScope string
@@ -404,6 +407,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	p.applyWindow(req)
 	// After the window, because what it brings back is defined by the window.
 	p.reviveOutOfWindow(ix, embed, embedModel, query, req, reviews)
+	p.loadRulingCost(ix.Vault)
 	// After the window: a decision that held is standing, like a pin, and a
 	// date filter does not make it any less decided.
 	p.loadPromoted(db, ix.Vault)

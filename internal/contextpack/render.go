@@ -246,6 +246,9 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift)
+	if line := p.costLine(); line != "" {
+		fmt.Fprintf(&tail, "_%s_\n\n", line)
+	}
 	list(&tail, "Still open", c.Questions)
 	list(&tail, "Files touched", c.Files)
 	// Predecessors' dead ends, attributed. Cheap — a line each — and the only

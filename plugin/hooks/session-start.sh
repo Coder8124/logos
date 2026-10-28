@@ -166,13 +166,24 @@ when=$(printf '%s\n' "$handoff" \
   | sed -e 's/\*\*//g' -e 's/, handed off to .*//' \
   | head -1) || when=""
 
+# What the ruled-out approaches saved, lifted verbatim like the line above:
+# contextpack writes it, from the activity log and earlier checkpoints, only
+# when they hold a number. Read only from the line directly under the ruled-out
+# bullets, where every line is one the renderer wrote — anywhere else, a
+# checkpoint quoting the sentence would put a cost on the banner nobody counted.
+cost=$(printf '%s\n' "$handoff" | awk '
+/^\*\*Already tried, didn.t work:\*\*/ { a = 1; next }
+a && (/^- / || /^  / || /^$/)        { next }
+a { if (sub(/^_Re-deriving /, "Re-deriving ") && sub(/_$/, "")) print; exit }
+' 2>/dev/null) || cost=""
+
 cat <<EOF
 Continuity from Logos for "$project". This is this session's resume: read the
 ruled-out approaches before proposing anything, and call context only for a
 narrower task.
 
 FIRST, tell the user in one short line (they cannot see this block) that Logos
-restored context for "$project"${when:+ $when}, carrying $carried.${updated:+ Also: $updated}${recording:+ $recording}
+restored context for "$project"${when:+ $when}, carrying $carried.${cost:+ $cost}${updated:+ Also: $updated}${recording:+ $recording}
 
 $handoff
 EOF
