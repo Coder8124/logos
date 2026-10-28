@@ -270,44 +270,134 @@ func TestAVersionWrittenWithAVIsRankedByItsNumber(t *testing.T) {
 	}
 }
 
+// skewNotice resolves on path with the plugin stated as 0.5.6, whatever this
+// checkout's manifest says, and returns what was picked, the line meant for
+// the agent to relay (stdout) and the detail kept on stderr. setup runs first,
+// in the same shell, for an exported LOGOS_BIN.
+func skewNotice(t *testing.T, path, setup string) (picked, relay, detail string) {
+	t.Helper()
+	got, err := runResolver(t, path, setup+`
+logos_plugin_version() { echo 0.5.6; }
+logos_resolve 2>/dev/null || exit 3
+printf '%s\n' "${LOGOS[*]}"
+logos_skew_notice 2>/dev/null
+echo ---detail---
+logos_skew_notice 2>&1 >/dev/null`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	picked, rest, _ := strings.Cut(got, "\n")
+	relay, detail, _ = strings.Cut(rest, "---detail---")
+	return picked, strings.TrimSpace(relay), strings.TrimSpace(detail)
+}
+
 // #342: a dev build beside an older numbered release lost the ranking, and
 // the only word of it was a stderr line Claude Code never shows — so a
 // developer ran the old copy and took its bugs for their own. The resolver
 // still picks the release (a dev build cannot say how old it is), but the
-// notice now names what ran, what was passed over, and how to choose it, and
-// says the release is older than the plugin too.
+// relayed line now says a dev build was passed over and gives the command
+// that runs it.
 func TestADevBuildPassedOverForAnOlderReleaseIsAnnounced(t *testing.T) {
 	dev, release := t.TempDir(), t.TempDir()
 	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
 	fakeProgram(t, release, "logos", `echo "logos 0.5.1 darwin/arm64 go1.26"`)
 	devBin, releaseBin := filepath.Join(dev, "logos"), filepath.Join(release, "logos")
 
-	got, err := runResolver(t, dev+":"+release+":/usr/bin:/bin",
-		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}" && logos_skew_notice`)
-	if err != nil {
-		t.Fatalf("resolver failed: %v\n%s", err, got)
-	}
-	picked, notice, _ := strings.Cut(got, "\n")
+	picked, relay, detail := skewNotice(t, dev+":"+release+":/usr/bin:/bin", "")
 	if picked != releaseBin {
 		t.Errorf("picked %q, want the numbered release %q", picked, releaseBin)
 	}
-	for _, want := range []string{
-		"runs " + releaseBin + " (0.5.1), not the dev build at " + devBin,
-		"LOGOS_BIN=" + devBin,
-		"(" + releaseBin + ") is 0.5.1", "brew upgrade logos-mcp",
-	} {
-		if !strings.Contains(notice, want) {
-			t.Errorf("the notice never said %q:\n%s", want, notice)
+	for _, want := range []string{"dev build", "Logos 0.5.1", "LOGOS_BIN=" + devBin} {
+		if !strings.Contains(relay, want) {
+			t.Errorf("the relayed line never said %q:\n%s", want, relay)
 		}
+	}
+	if !strings.Contains(detail, releaseBin) {
+		t.Errorf("stderr never named the binary that runs:\n%s", detail)
 	}
 
 	// Chosen on purpose, the dev build is neither passed over nor "older".
-	got, err = runResolver(t, release+":/usr/bin:/bin",
-		`LOGOS_BIN=`+devBin+` logos_resolve 2>/dev/null && logos_skew_notice`)
-	if err != nil {
-		t.Fatalf("resolver failed: %v\n%s", err, got)
+	_, relay, _ = skewNotice(t, release+":/usr/bin:/bin", "export LOGOS_BIN="+devBin)
+	if relay != "" {
+		t.Errorf("an explicit LOGOS_BIN dev build was still announced:\n%s", relay)
 	}
-	if got != "" {
-		t.Errorf("an explicit LOGOS_BIN dev build was still announced:\n%s", got)
+}
+
+// `logos plugin autoupdate` moves the plugin ahead of brew on every patch
+// release, and hook flags change only with a minor one, so a patch gap told
+// the user every session that features were off and to run a brew upgrade that
+// had nothing to give them yet. It is not relayed; stderr keeps a soft line.
+func TestAPatchReleaseBehindItsPluginIsNotCalledOutOfDate(t *testing.T) {
+	release := t.TempDir()
+	fakeProgram(t, release, "logos", `echo "logos 0.5.5 darwin/arm64 go1.26"`)
+	_, relay, detail := skewNotice(t, release+":/usr/bin:/bin", "")
+	if relay != "" {
+		t.Errorf("a patch release behind the plugin was relayed:\n%s", relay)
+	}
+	if strings.Contains(detail, "features are off") || !strings.Contains(detail, "0.5.5") {
+		t.Errorf("stderr should say softly that 0.5.5 is a patch behind 0.5.6:\n%s", detail)
+	}
+}
+
+// A LOGOS_BIN the user set is not fixed by `brew upgrade`: that upgrades a copy
+// LOGOS_BIN tells the plugin to ignore.
+func TestAnOldLogosBinIsToldToUpdateOrUnsetIt(t *testing.T) {
+	mine := t.TempDir()
+	fakeProgram(t, mine, "logos", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+	_, relay, _ := skewNotice(t, "/usr/bin:/bin", "export LOGOS_BIN="+filepath.Join(mine, "logos"))
+	if !strings.Contains(relay, "0.4.9") || !strings.Contains(relay, "unset LOGOS_BIN") {
+		t.Errorf("an old LOGOS_BIN was not told to update or unset LOGOS_BIN:\n%s", relay)
+	}
+	if strings.Contains(relay, "brew upgrade") {
+		t.Errorf("an old LOGOS_BIN was told to upgrade a copy LOGOS_BIN overrides:\n%s", relay)
+	}
+}
+
+// When the old copy won because the install beside it does not run — an npm
+// shim with no node on Claude Code's PATH — upgrading changes nothing: the
+// upgraded copy fails the same way. The one that does not run is what to fix.
+func TestAnOldLogosChosenBecauseAnotherDidNotRunNamesTheOneThatDidNot(t *testing.T) {
+	broken, old := t.TempDir(), t.TempDir()
+	fakeProgram(t, broken, "logos", `echo "env: node: No such file or directory" >&2; exit 127`)
+	fakeProgram(t, old, "logos", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+	_, relay, _ := skewNotice(t, broken+":"+old+":/usr/bin:/bin", "")
+	if !strings.Contains(relay, filepath.Join(broken, "logos")) || !strings.Contains(relay, "does not run") {
+		t.Errorf("the install that does not run was not named:\n%s", relay)
+	}
+	if strings.Contains(relay, "brew upgrade") {
+		t.Errorf("an upgrade was advised for a copy that cannot run here:\n%s", relay)
+	}
+}
+
+// A LOGOS_BIN that does not run fell through to the ranking with nothing said,
+// and the dev-build notice then told the user to set the LOGOS_BIN they had
+// already set.
+func TestALogosBinThatDoesNotRunIsAnnounced(t *testing.T) {
+	dev, release := t.TempDir(), t.TempDir()
+	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.5.6 darwin/arm64 go1.26"`)
+	_, relay, detail := skewNotice(t, dev+":"+release+":/usr/bin:/bin", "export LOGOS_BIN=/nowhere/logos")
+	if !strings.Contains(relay, "LOGOS_BIN does not run") {
+		t.Errorf("a LOGOS_BIN that does not run was passed over in silence:\n%s", relay)
+	}
+	if strings.Contains(relay, "set LOGOS_BIN") {
+		t.Errorf("the user was told to set the LOGOS_BIN they already set:\n%s", relay)
+	}
+	if !strings.Contains(detail, "/nowhere/logos") {
+		t.Errorf("stderr never named the LOGOS_BIN that was rejected:\n%s", detail)
+	}
+}
+
+// The npx fallback ran whatever npx had cached, and set nothing the notice
+// reads, so a months-old cached package was never announced.
+func TestACachedNpxLogosOlderThanItsPluginIsAnnounced(t *testing.T) {
+	tools := t.TempDir()
+	fakeProgram(t, tools, "npx", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+	picked, relay, _ := skewNotice(t, tools+":/usr/bin:/bin", "")
+	if !strings.HasPrefix(picked, "npx") {
+		t.Fatalf("picked %q, want the npx fallback", picked)
+	}
+	if !strings.Contains(relay, "0.4.9") || !strings.Contains(relay, "npx") || !strings.Contains(relay, "npm i -g @noeton/logos@latest") {
+		t.Errorf("an old cached npx copy was not announced with its fix:\n%s", relay)
 	}
 }

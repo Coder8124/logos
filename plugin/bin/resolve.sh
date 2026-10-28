@@ -101,18 +101,30 @@ logos_resolve() {
   LOGOS_REJECTED=""
   # What won and what it reported, for logos_skew_notice. Kept apart from
   # LOGOS_VERSION, which is whatever candidate was probed last.
+  # LOGOS_BIN_REJECTED and LOGOS_PASSED_BROKEN are the two ways the copy that
+  # runs is not the one the user meant: the advice for an old binary depends on
+  # which, because `brew upgrade` fixes neither.
   LOGOS_RESOLVED="" LOGOS_RESOLVED_VERSION="" LOGOS_PASSED_DEV=""
+  LOGOS_BIN_REJECTED="" LOGOS_PASSED_BROKEN=""
 
   # An explicit choice is not a candidate to be ranked against others.
-  if [ -n "${LOGOS_BIN:-}" ] && logos_runs "$LOGOS_BIN"; then
-    LOGOS=("$LOGOS_BIN")
-    LOGOS_RESOLVED="$LOGOS_BIN" LOGOS_RESOLVED_VERSION="$LOGOS_VERSION"
-    return 0
+  if [ -n "${LOGOS_BIN:-}" ]; then
+    if logos_runs "$LOGOS_BIN"; then
+      LOGOS=("$LOGOS_BIN")
+      LOGOS_RESOLVED="$LOGOS_BIN" LOGOS_RESOLVED_VERSION="$LOGOS_VERSION"
+      return 0
+    fi
+    # Falling through is right — a session with some logos beats one with
+    # none — but in silence it read as LOGOS_BIN being obeyed.
+    LOGOS_BIN_REJECTED="$LOGOS_BIN"
   fi
 
   logos_consider() {
     local runner="$1" desc="$2"
-    logos_runs "$runner" || return 1
+    if ! logos_runs "$runner"; then
+      [ -n "$LOGOS_PASSED_BROKEN" ] || LOGOS_PASSED_BROKEN="$desc"
+      return 1
+    fi
     [ -n "$first_desc" ] || first_desc="$desc ($LOGOS_VERSION)"
     case "${LOGOS_VERSION#v}" in
       [0-9]*) ;;
@@ -174,11 +186,33 @@ logos_resolve() {
   # --prefer-offline because npx asks the registry before running even a cached
   # package: behind a proxy or offline that was 70 s per call, and Claude Code
   # gave up on the server long before. A cold cache still fetches.
-  if command -v npx >/dev/null 2>&1 && npx --prefer-offline -y @noeton/logos --version >/dev/null 2>&1; then
-    LOGOS=(npx --prefer-offline -y @noeton/logos)
-    return 0
+  #
+  # The version is kept like any other winner's: npx runs whatever it cached,
+  # however old, and with nothing recorded the skew notice never saw it. Not
+  # through logos_runs, whose LOGOS_REJECTED would then name npx to mcp.sh in
+  # place of the installed copy that really failed.
+  local out
+  if command -v npx >/dev/null 2>&1 && out=$(npx --prefer-offline -y @noeton/logos --version 2>/dev/null); then
+    case "$out" in
+      "logos "*)
+        LOGOS=(npx --prefer-offline -y @noeton/logos)
+        LOGOS_RESOLVED="npx" LOGOS_RESOLVED_VERSION=${out#* }
+        LOGOS_RESOLVED_VERSION=${LOGOS_RESOLVED_VERSION%% *}
+        return 0
+        ;;
+    esac
   fi
   return 1
+}
+
+# logos_minor_of echoes the major.minor of a version, without its v.
+logos_minor_of() {
+  local v="${1#v}" major
+  major=${v%%.*}
+  case "$v" in
+    *.*) v=${v#*.}; printf '%s.%s\n' "$major" "${v%%.*}" ;;
+    *) printf '%s\n' "$major" ;;
+  esac
 }
 
 # logos_plugin_version echoes the version this plugin was released as, read
@@ -192,32 +226,64 @@ logos_plugin_version() {
   sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" 2>/dev/null | head -1
 }
 
-# logos_skew_notice echoes what the user needs to hear about the binary
-# logos_resolve chose, one sentence per problem, or nothing. Called once, from
-# the SessionStart hook, whose output is the only hook output the user is ever
-# told about; record.sh runs on every tool call and must not pay for it.
+# logos_skew_notice echoes, on stdout, what the user needs to hear about the
+# binary logos_resolve chose — one short sentence per problem, with the command
+# that fixes it — or nothing; the paths and reasons behind it go to stderr,
+# where a debug log or doctor shows them. Called once, from the SessionStart
+# hook, which relays stdout as "one short line"; record.sh runs on every tool
+# call and must not pay for it.
 #
-# The direction that matters is a logos older than its plugin. Every guard the
-# hooks rely on is an argument or a variable, and "a logos too old for the flag"
-# ignores it — so the plugin's newer features switched off one by one with the
-# hooks' own comments the only place that said so. A logos newer than its plugin
-# is the ordinary state between an upgrade and the next session, which `plugin
-# autoupdate` closes on its own and doctor reports, so it is not said here.
+# The direction that matters is a logos a minor release older than its plugin.
+# Every guard the hooks rely on is an argument or a variable, and "a logos too
+# old for the flag" ignores it — so the plugin's newer features switched off one
+# by one with the hooks' own comments the only place that said so. Those flags
+# change only with a minor release, and `logos plugin autoupdate` moves the
+# plugin ahead of brew on every patch, so a patch gap gets a soft stderr line
+# and no relay: said every session, it would teach the user to skip the line.
+# A logos newer than its plugin is the ordinary state between an upgrade and
+# the next session, which autoupdate closes and doctor reports.
+#
+# The advice follows what chose the binary, because `brew upgrade` fixes only
+# the ranking's own pick: a LOGOS_BIN overrides the upgraded copy, a broken
+# install beside an old one fails the same way upgraded, and an npx cache is
+# replaced by installing.
 #
 # Versions only, compared on this machine: asking a registry what is current
 # would be a network call on every session start.
 logos_skew_notice() {
-  local plugin
+  local plugin have
   plugin=$(logos_plugin_version)
-  if [ -n "$plugin" ] && [ -n "$LOGOS_RESOLVED_VERSION" ] && logos_newer "$plugin" "$LOGOS_RESOLVED_VERSION"; then
-    # An unversioned build is not "older": logos_newer ranks it below
-    # everything, and a developer's own checkout is the newest code there is.
-    case "${LOGOS_RESOLVED_VERSION#v}" in
-      [0-9]*) printf '%s\n' "This Claude Code plugin is Logos $plugin but the logos it runs ($LOGOS_RESOLVED) is ${LOGOS_RESOLVED_VERSION#v}, which ignores what newer hooks ask of it, so some of the plugin's features are off; upgrade with \`brew upgrade logos-mcp\` or \`npm i -g @noeton/logos@latest\`." ;;
-    esac
+  have=${LOGOS_RESOLVED_VERSION#v}
+  if [ -n "$LOGOS_BIN_REJECTED" ]; then
+    printf '%s\n' "LOGOS_BIN does not run as Logos, so the plugin uses another copy: fix that path or remove it from Claude Code's environment."
+    printf 'logos: LOGOS_BIN=%s does not run as Logos; running %s (%s) instead\n' "$LOGOS_BIN_REJECTED" "${LOGOS_RESOLVED:-nothing}" "${have:-no version}" >&2
+  fi
+  # An unversioned build is not "older": logos_newer ranks it below
+  # everything, and a developer's own checkout is the newest code there is.
+  case "$have" in [0-9]*) ;; *) have="" ;; esac
+  if [ -n "$plugin" ] && [ -n "$have" ] && logos_newer "$plugin" "$have"; then
+    if logos_newer "$(logos_minor_of "$plugin")" "$(logos_minor_of "$have")"; then
+      if [ -n "${LOGOS_BIN:-}" ] && [ "$LOGOS_RESOLVED" = "$LOGOS_BIN" ]; then
+        printf '%s\n' "Logos $have from LOGOS_BIN is older than its $plugin plugin, so some plugin features are off: update that build or unset LOGOS_BIN."
+      elif [ -n "$LOGOS_PASSED_BROKEN" ]; then
+        printf '%s\n' "Logos $have is older than its $plugin plugin, so some plugin features are off: $LOGOS_PASSED_BROKEN does not run here — an npm install with no node on Claude Code's PATH?"
+      elif [ "$LOGOS_RESOLVED" = "npx" ]; then
+        printf '%s\n' "Logos $have, cached by npx, is older than its $plugin plugin, so some plugin features are off: \`npm i -g @noeton/logos@latest\`."
+      else
+        printf '%s\n' "Logos $have is older than its $plugin plugin, so some plugin features are off: \`brew upgrade logos-mcp\` or \`npm i -g @noeton/logos@latest\`."
+      fi
+      printf 'logos: the plugin is %s and the logos it runs, %s, is %s\n' "$plugin" "$LOGOS_RESOLVED" "$have" >&2
+    else
+      printf 'logos: the plugin is %s and %s is %s, a patch apart; nothing the hooks ask needs the newer one, and `brew upgrade logos-mcp` closes it once brew has the release\n' "$plugin" "$LOGOS_RESOLVED" "$have" >&2
+    fi
+  fi
+  # Never told to set a LOGOS_BIN they already set: the rejection above is
+  # the thing to fix first.
+  if [ -n "$LOGOS_PASSED_DEV" ] && [ -z "$LOGOS_BIN_REJECTED" ]; then
+    printf '%s\n' "The plugin passed over your dev build for Logos ${LOGOS_RESOLVED_VERSION#v}; set LOGOS_BIN=$LOGOS_PASSED_DEV to run it."
   fi
   if [ -n "$LOGOS_PASSED_DEV" ]; then
-    printf '%s\n' "The plugin runs $LOGOS_RESOLVED (${LOGOS_RESOLVED_VERSION#v}), not the dev build at $LOGOS_PASSED_DEV, because a dev build cannot say how old it is; set LOGOS_BIN=$LOGOS_PASSED_DEV in Claude Code's environment to run that one instead."
+    printf 'logos: running %s (%s), not the dev build at %s, because a dev build cannot say how old it is\n' "$LOGOS_RESOLVED" "${LOGOS_RESOLVED_VERSION#v}" "$LOGOS_PASSED_DEV" >&2
   fi
 }
 
