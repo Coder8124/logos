@@ -51,6 +51,11 @@ func setupInFakeHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", tmp)
+	// Setup previews resume for the repository it is run in. Run from the
+	// package directory, that was this checkout, so whatever the developer had
+	// uncommitted — a folder named .github/hooks, say — ended up in output the
+	// tests search for words.
+	t.Chdir(home)
 	return dir
 }
 
