@@ -142,6 +142,17 @@ type Pack struct {
 	// History is earlier checkpoints on the same project. Only their ruled-out
 	// approaches are used — see Build.
 	History []session.Checkpoint `json:"history,omitempty"`
+	// Revived is what reviveOutOfWindow brought back from checkpoints older
+	// than the window because the task reaches them; ReviveConsidered counts
+	// the older rulings it weighed, and ReviveLexical says the weighing was by
+	// keyword alone, which the render states rather than leaving a reader to
+	// assume an embedding model looked.
+	Revived          []Revived `json:"revived,omitempty"`
+	ReviveConsidered int       `json:"-"`
+	ReviveLexical    bool      `json:"-"`
+	// historyScope is the scope History was read from, which an inherited
+	// worktree pack does not share with p.Continuity.
+	historyScope string
 	// Intent is why Checkpoint's task matters, and IntentFrom the earlier
 	// checkpoint that said so when Checkpoint itself did not. Resolved in Build
 	// rather than from History because History stops at checkpointDepth, and a
@@ -307,6 +318,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		if err == nil && len(all) > 0 {
 			p.Checkpoint = &all[0]
 			p.History = all[1:]
+			p.historyScope = scope
 			p.resolveIntent(ix.Vault, scope)
 		}
 	}
@@ -390,6 +402,8 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	memory.MarkDrift(p.Pinned, req.Dir)
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
+	// After the window, because what it brings back is defined by the window.
+	p.reviveOutOfWindow(ix, embed, embedModel, query, req, reviews)
 	// After the window: a decision that held is standing, like a pin, and a
 	// date filter does not make it any less decided.
 	p.loadPromoted(db, ix.Vault)

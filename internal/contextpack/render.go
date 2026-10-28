@@ -149,12 +149,40 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered._\n",
 			p.Window)
 	case p.OutOfWindow > 0:
-		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
+		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s.%s_\n",
 			p.Window, p.inferredNote(), p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
-			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"))
+			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"), p.revivedNote())
+	case len(p.Revived) > 0:
+		// Not "everything falls inside it": the revived rulings are from
+		// outside it, and are the reason this line exists.
+		fmt.Fprintf(b, "\n_Filtered to %s%s.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
 	default:
-		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
 	}
+}
+
+// revivedNote accounts for the older rulings weighed against the task. The
+// set-aside count above never included them — they were outside History's
+// reach, not removed by the window — so they are stated apart from it, and a
+// reader can tell "hidden by the filter" from "brought back past it". How
+// they were weighed is said too: matching by keyword alone misses the same
+// idea in other words, and a reader who assumes a model looked trusts a "none
+// matched" it cannot back.
+func (p *Pack) revivedNote() string {
+	n := len(p.Revived)
+	if p.ReviveConsidered == 0 {
+		return ""
+	}
+	how := ""
+	if p.ReviveLexical {
+		how = " by keyword only (no embedding model)"
+	}
+	if n == 0 {
+		return fmt.Sprintf(" %d older ruled-out %s from before it %s checked against this task%s; none matched.",
+			p.ReviveConsidered, plural(p.ReviveConsidered, "approach", "approaches"), plural(p.ReviveConsidered, "was", "were"), how)
+	}
+	return fmt.Sprintf(" %d older ruled-out %s from outside it %s listed because %s this task%s.",
+		n, plural(n, "approach", "approaches"), plural(n, "is", "are"), plural(n, "it matches", "they match"), how)
 }
 
 // renderOtherRepo says why a checkpoint under this name was not handed over.
@@ -224,6 +252,9 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// thing in an old checkpoint that is still true.
 	if older := p.priorFailures(); len(older) > 0 {
 		list(&tail, "Ruled out earlier in this project", older)
+	}
+	if revived := p.revivedLines(); len(revived) > 0 {
+		list(&tail, "Ruled out before this window, and matching this task", revived)
 	}
 	staleHint(&tail, p)
 	if earlier := p.priorDecisions(); len(earlier) > 0 {
@@ -618,6 +649,21 @@ func (p *Pack) priorFailures() []string {
 			}
 			out = append(out, line)
 		}
+	}
+	return out
+}
+
+// revivedLines renders the rulings brought back past the window, each with
+// its age and the words "outside the window", so none of them can be read as
+// a ruling from the period the pack is about.
+func (p *Pack) revivedLines() []string {
+	out := make([]string, 0, len(p.Revived))
+	for _, r := range p.Revived {
+		who := r.Agent
+		if who == "" {
+			who = "an earlier agent"
+		}
+		out = append(out, fmt.Sprintf("(%s, %s, outside the window) %s", who, project.Age(r.TS), flatten(r.Text)))
 	}
 	return out
 }
