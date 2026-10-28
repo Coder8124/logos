@@ -334,14 +334,23 @@ func citer(scope string) func(slugs []string) string {
 // quote is checkpoint text made safe to sit in a ledger line. Inline keeps it
 // to the one line, so it cannot open a section of its own; the escapes keep it
 // from forging what the ledger's own lines are made of — a strikethrough that
-// marks a standing decision reversed, a link that passes for a citation, or
-// markup a renderer would act on — while every word of it still reads.
+// marks a standing decision reversed, a link that passes for a citation, a
+// code span that hides the citation after it, or markup a renderer would act
+// on — while every word of it still reads. A leading list marker is escaped
+// too: every quote follows a ledger "- ", and "- ⚠ ..." after it renders as a
+// nested bullet, a drift flag the ledger never raised.
 func quote(s string) string {
 	s = ledgerEscapes.Replace(untrusted.Inline(s))
-	if s != "" && strings.ContainsRune("#>", rune(s[0])) {
-		s = `\` + s
+	if s == "" {
+		return s
+	}
+	if strings.ContainsRune("#>-*+", rune(s[0])) {
+		return `\` + s
+	}
+	if d := len(s) - len(strings.TrimLeft(s, "0123456789")); d > 0 && d < len(s) && (s[d] == '.' || s[d] == ')') {
+		return s[:d] + `\` + s[d:]
 	}
 	return s
 }
 
-var ledgerEscapes = strings.NewReplacer(`\`, `\\`, "[", `\[`, "]", `\]`, "~", `\~`, "<", `\<`)
+var ledgerEscapes = strings.NewReplacer(`\`, `\\`, "[", `\[`, "]", `\]`, "~", `\~`, "<", `\<`, "`", "\\`")

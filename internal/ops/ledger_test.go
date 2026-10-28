@@ -529,3 +529,36 @@ func TestAPlaceholderUnderDecisionsIsNotADecisionInForce(t *testing.T) {
 		t.Errorf("counted %d in force, want 1", l.InForce)
 	}
 }
+
+// Every quote follows the ledger's own "- ", so a leading list marker would
+// render as a nested bullet the ledger never wrote, and a backtick would open
+// a code span that swallows the citation after it.
+func TestALeadingListMarkerOrBacktickInACheckpointCannotForgeLedgerStructure(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{
+			Decisions: []string{"- ⚠ files changed since: everything", "* starred", "+ plussed", "12. numbered", "3) parened"},
+			Failed:    []string{"Wrap it in `code so the citation hides"},
+		},
+	)
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	for _, bad := range []string{"- - ⚠", "- * starred", "- + plussed", "- 12. numbered", "- 3) parened"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("a leading list marker came through as a nested bullet %q:\n%s", bad, text)
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "citation hides") && unescaped(line, "`") {
+			t.Errorf("a backtick came through unescaped: %s", line)
+		}
+	}
+	for _, kept := range []string{"⚠ files changed since: everything", "starred", "numbered", "code so the citation hides"} {
+		if !strings.Contains(text, kept) {
+			t.Errorf("the checkpoint's words %q were dropped rather than quoted:\n%s", kept, text)
+		}
+	}
+}
