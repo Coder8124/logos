@@ -161,6 +161,8 @@ func main() {
 		err = runResume(args)
 	case cmd == "ingest":
 		err = runIngest(args)
+	case cmd == "transcript":
+		err = runTranscript(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
 	case cmd == "import":
