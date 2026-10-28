@@ -76,9 +76,14 @@ func projectHere() string {
 // otherwise. It is what lets a pack check that a checkpoint came from this
 // repository: standing in one "api" and asking for "api" means this one, while
 // asking for a project by name from somewhere else means whichever wrote it.
+//
+// The two names are compared as the vault files them (session.SafeScope), not
+// as typed: `logos ledger Shop` read sessions/shop like any other spelling,
+// but standing in a folder named shop it compared "Shop" with "shop", decided
+// this checkout was some other project's, and measured nothing against it.
 func dirFor(project string) string {
 	dir, err := os.Getwd()
-	if err != nil || projectFor(dir) != project {
+	if err != nil || session.SafeScope(projectFor(dir)) != session.SafeScope(project) {
 		return ""
 	}
 	return dir
