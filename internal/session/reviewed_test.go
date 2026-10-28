@@ -65,3 +65,25 @@ func TestAMissingReviewFileIsNoVerdicts(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+func TestOnlyALedgerTypedFileInAProjectFolderIsDerived(t *testing.T) {
+	ledger := []byte("---\ntype: ledger\nproject: shop\n---\n\n# Ledger: shop\n")
+	for _, c := range []struct {
+		rel  string
+		head []byte
+		want bool
+	}{
+		{"sessions/shop/ledger.md", ledger, true},
+		{"sessions/shop/ledger (conflicted copy).md", ledger, true},
+		{"sessions/shop/wt/ledger-2.md", ledger, true},
+		{"sessions/ledger.md", ledger, false},
+		{"notes/ledger.md", ledger, false},
+		{"sessions/shop/20261028-101010-claude-code.md", ledger, false},
+		{"sessions/shop/ledger.md", []byte("# Household ledger\n"), false},
+		{"sessions/shop/notes.md", []byte("---\ntype: note\n---\ntype: ledger\n"), false},
+	} {
+		if got := IsDerivedFile(c.rel, c.head); got != c.want {
+			t.Errorf("IsDerivedFile(%q) = %v, want %v", c.rel, got, c.want)
+		}
+	}
+}

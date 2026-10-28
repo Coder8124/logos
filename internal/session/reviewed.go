@@ -27,6 +27,62 @@ const ReviewedFile = "reviewed.md"
 // reads the ledger back as a checkpoint it was built from.
 const LedgerFile = "ledger.md"
 
+// LedgerType is the frontmatter type a ledger is written under. Derived files
+// are told apart by it, not by their name: a sync client's conflict copy,
+// "ledger (conflicted copy).md", is the same view under another name, and
+// keying on "ledger.md" let it into the index and through a rename as if
+// someone had written it.
+const LedgerType = "ledger"
+
+// IsDerivedFile is whether the vault file at rel (slash-separated, from the
+// vault root), starting with head, is a view Logos rebuilds from checkpoints
+// rather than a record: inside a project's checkpoint folder, not named as a
+// checkpoint, and typed as a ledger in its frontmatter. Only there — a note
+// of the user's at sessions/ledger.md, or anywhere else in the vault, is
+// theirs whatever it says it is.
+func IsDerivedFile(rel string, head []byte) bool {
+	parts := strings.Split(rel, "/")
+	if len(parts) < 3 || parts[0] != CheckpointDir || IsCheckpointFile(parts[len(parts)-1]) {
+		return false
+	}
+	sc := bufio.NewScanner(strings.NewReader(string(head)))
+	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
+		return false
+	}
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "---" {
+			return false
+		}
+		if k, v, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(k) == "type" {
+			return strings.Trim(strings.TrimSpace(v), `"'`) == LedgerType
+		}
+	}
+	return false
+}
+
+// DerivedFileAt is IsDerivedFile for the file at path inside vaultDir, read
+// only as far as its frontmatter. A file it cannot read is not derived: the
+// caller's own read reports the failure.
+func DerivedFileAt(vaultDir, path string) bool {
+	rel, err := filepath.Rel(vaultDir, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	if parts := strings.Split(rel, "/"); len(parts) < 3 || parts[0] != CheckpointDir || IsCheckpointFile(parts[len(parts)-1]) {
+		return false // decided by the name alone, without opening the file
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	return IsDerivedFile(rel, head[:n])
+}
+
 // Review is the latest verdict on one ruling. Retired drops it from what is
 // handed over; otherwise Commit is where a person last confirmed it, and the
 // drift is measured from there instead of from the checkpoint's commit.

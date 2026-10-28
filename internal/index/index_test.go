@@ -273,3 +273,45 @@ func TestAProjectLedgerIsNotIndexedAsANote(t *testing.T) {
 		t.Errorf("indexed %v, want only the user's own ledger.md", paths)
 	}
 }
+
+// A ledger is told by its frontmatter, not its name: a sync client's
+// conflict copy is the same view and stays out of search, while a note the
+// user keeps at sessions/ledger.md, outside any project's folder, is theirs.
+func TestALedgerUnderAnotherNameIsNotIndexedButAUsersOwnSessionsLedgerIs(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "shop")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ledger := []byte("---\ntype: ledger\nproject: shop\n---\n\n# Ledger: shop\n\n- Use signed cookies\n")
+	if err := os.WriteFile(filepath.Join(dir, "ledger (conflicted copy 2026-10-28).md"), ledger, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v, "sessions", "ledger.md"), []byte("# What I owe\n\nRent.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	rows, err := ix.DB.Query(`SELECT path FROM notes`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, filepath.ToSlash(p))
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "sessions/ledger.md") {
+		t.Errorf("indexed %v, want only the user's own sessions/ledger.md", paths)
+	}
+}
