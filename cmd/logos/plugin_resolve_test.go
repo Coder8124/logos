@@ -269,3 +269,45 @@ func TestAVersionWrittenWithAVIsRankedByItsNumber(t *testing.T) {
 		}
 	}
 }
+
+// #342: a dev build beside an older numbered release lost the ranking, and
+// the only word of it was a stderr line Claude Code never shows — so a
+// developer ran the old copy and took its bugs for their own. The resolver
+// still picks the release (a dev build cannot say how old it is), but the
+// notice now names what ran, what was passed over, and how to choose it, and
+// says the release is older than the plugin too.
+func TestADevBuildPassedOverForAnOlderReleaseIsAnnounced(t *testing.T) {
+	dev, release := t.TempDir(), t.TempDir()
+	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.5.1 darwin/arm64 go1.26"`)
+	devBin, releaseBin := filepath.Join(dev, "logos"), filepath.Join(release, "logos")
+
+	got, err := runResolver(t, dev+":"+release+":/usr/bin:/bin",
+		`logos_resolve 2>/dev/null && printf '%s\n' "${LOGOS[@]}" && logos_skew_notice`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	picked, notice, _ := strings.Cut(got, "\n")
+	if picked != releaseBin {
+		t.Errorf("picked %q, want the numbered release %q", picked, releaseBin)
+	}
+	for _, want := range []string{
+		"runs " + releaseBin + " (0.5.1), not the dev build at " + devBin,
+		"LOGOS_BIN=" + devBin,
+		"(" + releaseBin + ") is 0.5.1", "brew upgrade logos-mcp",
+	} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("the notice never said %q:\n%s", want, notice)
+		}
+	}
+
+	// Chosen on purpose, the dev build is neither passed over nor "older".
+	got, err = runResolver(t, release+":/usr/bin:/bin",
+		`LOGOS_BIN=`+devBin+` logos_resolve 2>/dev/null && logos_skew_notice`)
+	if err != nil {
+		t.Fatalf("resolver failed: %v\n%s", err, got)
+	}
+	if got != "" {
+		t.Errorf("an explicit LOGOS_BIN dev build was still announced:\n%s", got)
+	}
+}

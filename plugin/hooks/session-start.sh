@@ -55,13 +55,19 @@ updated=$("${LOGOS[@]}" plugin autoupdate --notice 2>/dev/null) || updated=""
 # once, with the way out (`logos config deny`), and a denied one gets nothing.
 recording=$("${LOGOS[@]}" activity notice "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null) || recording=""
 
+# A logos older than this plugin, or a dev build passed over for a numbered
+# release, said where the user hears it. The resolver's own stderr line never
+# reached anyone: Claude Code shows a hook's stdout to the agent and drops the
+# rest. Said every session until it is fixed, because each one runs on it.
+skew=$(logos_skew_notice 2>/dev/null | tr '\n' ' ' | sed 's/ $//') || skew=""
+
 # A plugin that updated itself in silence is indistinguishable from one that
 # did nothing, so the notice is said even in the sessions that have no handoff
 # to fold it into — an empty vault, a project with no checkpoints.
 announce_update() {
-  if [ -n "$updated$recording" ]; then
+  if [ -n "$updated$recording$skew" ]; then
     cat <<EOF
-FIRST, tell the user in one short line (they cannot see this block):${updated:+ $updated}${recording:+ $recording}
+FIRST, tell the user in one short line (they cannot see this block):${updated:+ $updated}${recording:+ $recording}${skew:+ $skew}
 EOF
   fi
   exit 0
@@ -172,7 +178,7 @@ ruled-out approaches before proposing anything, and call context only for a
 narrower task.
 
 FIRST, tell the user in one short line (they cannot see this block) that Logos
-restored context for "$project"${when:+ $when}, carrying $carried.${updated:+ Also: $updated}${recording:+ $recording}
+restored context for "$project"${when:+ $when}, carrying $carried.${updated:+ Also: $updated}${recording:+ $recording}${skew:+ $skew}
 
 $handoff
 EOF

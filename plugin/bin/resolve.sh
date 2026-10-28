@@ -97,12 +97,16 @@ logos_newer() {
 }
 
 logos_resolve() {
-  local name dir cand best_ver="" best_desc="" first_desc=""
+  local name dir cand best_ver="" best_desc="" first_desc="" dev_desc=""
   LOGOS_REJECTED=""
+  # What won and what it reported, for logos_skew_notice. Kept apart from
+  # LOGOS_VERSION, which is whatever candidate was probed last.
+  LOGOS_RESOLVED="" LOGOS_RESOLVED_VERSION="" LOGOS_PASSED_DEV=""
 
   # An explicit choice is not a candidate to be ranked against others.
   if [ -n "${LOGOS_BIN:-}" ] && logos_runs "$LOGOS_BIN"; then
     LOGOS=("$LOGOS_BIN")
+    LOGOS_RESOLVED="$LOGOS_BIN" LOGOS_RESOLVED_VERSION="$LOGOS_VERSION"
     return 0
   fi
 
@@ -110,10 +114,15 @@ logos_resolve() {
     local runner="$1" desc="$2"
     logos_runs "$runner" || return 1
     [ -n "$first_desc" ] || first_desc="$desc ($LOGOS_VERSION)"
+    case "${LOGOS_VERSION#v}" in
+      [0-9]*) ;;
+      *) [ -n "$dev_desc" ] || dev_desc="$desc" ;;
+    esac
     if [ -z "$best_ver" ] || logos_newer "$LOGOS_VERSION" "$best_ver"; then
       best_ver="$LOGOS_VERSION"
       best_desc="$desc ($LOGOS_VERSION)"
       LOGOS=("$runner")
+      LOGOS_RESOLVED="$desc"
     fi
     return 0
   }
@@ -143,6 +152,13 @@ logos_resolve() {
     [ -x "$cand" ] && logos_consider "$cand" "$cand"
   done
   if [ -n "$best_desc" ]; then
+    LOGOS_RESOLVED_VERSION="$best_ver"
+    # #342: the ranking passes over a dev build for any numbered release, and a
+    # developer whose `go install` sits beside an old brew copy got the old one
+    # with nothing they would see — its fixed bugs then reported as current.
+    # Kept whatever the PATH order, unlike the stderr line below: the dev build
+    # being second on PATH does not make passing it over any more expected.
+    [ "$LOGOS_RESOLVED" != "$dev_desc" ] && LOGOS_PASSED_DEV="$dev_desc"
     # Invariant 3: a choice the user cannot see is the whole of this bug. Said
     # only when the winner is not the copy they would get by typing `logos`,
     # because that is the case where the plugin and the shell disagree.
@@ -163,6 +179,46 @@ logos_resolve() {
     return 0
   fi
   return 1
+}
+
+# logos_plugin_version echoes the version this plugin was released as, read
+# from its own manifest. That manifest is bumped with every release and held
+# level with the binary's version by TestEveryFileThatStatesAVersionStatesTheSameOne,
+# so it is the minimum logos these hooks were written against without being a
+# second number someone has to remember to raise.
+logos_plugin_version() {
+  local manifest
+  manifest="$(dirname "${BASH_SOURCE[0]}")/../.claude-plugin/plugin.json"
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" 2>/dev/null | head -1
+}
+
+# logos_skew_notice echoes what the user needs to hear about the binary
+# logos_resolve chose, one sentence per problem, or nothing. Called once, from
+# the SessionStart hook, whose output is the only hook output the user is ever
+# told about; record.sh runs on every tool call and must not pay for it.
+#
+# The direction that matters is a logos older than its plugin. Every guard the
+# hooks rely on is an argument or a variable, and "a logos too old for the flag"
+# ignores it — so the plugin's newer features switched off one by one with the
+# hooks' own comments the only place that said so. A logos newer than its plugin
+# is the ordinary state between an upgrade and the next session, which `plugin
+# autoupdate` closes on its own and doctor reports, so it is not said here.
+#
+# Versions only, compared on this machine: asking a registry what is current
+# would be a network call on every session start.
+logos_skew_notice() {
+  local plugin
+  plugin=$(logos_plugin_version)
+  if [ -n "$plugin" ] && [ -n "$LOGOS_RESOLVED_VERSION" ] && logos_newer "$plugin" "$LOGOS_RESOLVED_VERSION"; then
+    # An unversioned build is not "older": logos_newer ranks it below
+    # everything, and a developer's own checkout is the newest code there is.
+    case "${LOGOS_RESOLVED_VERSION#v}" in
+      [0-9]*) printf '%s\n' "This Claude Code plugin is Logos $plugin but the logos it runs ($LOGOS_RESOLVED) is ${LOGOS_RESOLVED_VERSION#v}, which ignores what newer hooks ask of it, so some of the plugin's features are off; upgrade with \`brew upgrade logos-mcp\` or \`npm i -g @noeton/logos@latest\`." ;;
+    esac
+  fi
+  if [ -n "$LOGOS_PASSED_DEV" ]; then
+    printf '%s\n' "The plugin runs $LOGOS_RESOLVED (${LOGOS_RESOLVED_VERSION#v}), not the dev build at $LOGOS_PASSED_DEV, because a dev build cannot say how old it is; set LOGOS_BIN=$LOGOS_PASSED_DEV in Claude Code's environment to run that one instead."
+  fi
 }
 
 # logos_project echoes the project name for a directory, asking the binary
