@@ -232,3 +232,44 @@ func TestTheAutoSwitchesAreNotIndexedAsANote(t *testing.T) {
 		t.Errorf("auto.md or its log was indexed as %d note(s)", n)
 	}
 }
+
+// The ledger quotes the checkpoints beside it line for line. Indexed, a search
+// for a decision returned it twice, from the checkpoint and from the ledger.
+func TestAProjectLedgerIsNotIndexedAsANote(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "shop")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ledger.md"), []byte("---\ntype: ledger\n---\n\n# Ledger: shop\n\n- Use signed cookies\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A note of the user's that happens to be called ledger.md is still theirs.
+	if err := os.WriteFile(filepath.Join(v, "ledger.md"), []byte("# Household ledger\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	rows, err := ix.DB.Query(`SELECT path FROM notes`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	if len(paths) != 1 || strings.Contains(paths[0], "sessions") {
+		t.Errorf("indexed %v, want only the user's own ledger.md", paths)
+	}
+}

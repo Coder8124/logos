@@ -75,22 +75,7 @@ func PromoteDecisions(db *sql.DB, vaultDir, project string) (Promotion, error) {
 		met[session.DecisionKey(t)] = true
 	}
 
-	per := make([][]decided, len(hist))
-	var order []string
-	byKey := map[string]*held{}
-	for i, c := range hist { // newest first
-		per[i] = decisionsOf(c)
-		for _, d := range per[i] {
-			h := byKey[d.key]
-			if h == nil {
-				h = &held{decided: d, last: c.TS}
-				byKey[d.key] = h
-				order = append(order, d.key)
-			}
-			h.slugs = append(h.slugs, c.Slug)
-			h.first = c.TS
-		}
-	}
+	per, order, byKey := heldIn(hist)
 
 	var failed []error
 	for _, k := range order {
@@ -115,6 +100,37 @@ func PromoteDecisions(db *sql.DB, vaultDir, project string) (Promotion, error) {
 	n, err := supersedeReversed(db, project, byKey)
 	done.Superseded = n
 	return done, errors.Join(append(failed, err)...)
+}
+
+// heldIn groups a history's decisions by key: each checkpoint's decisions, the
+// keys in the order they were first met newest first, and each key's held.
+// Shared with the ledger, so what it strikes through as reversed and what this
+// pass supersedes are one reading of the same checkpoints.
+func heldIn(hist []session.Checkpoint) (per [][]decided, order []string, byKey map[string]*held) {
+	per = make([][]decided, len(hist))
+	byKey = map[string]*held{}
+	for i, c := range hist { // newest first
+		per[i] = decisionsOf(c)
+		for _, d := range per[i] {
+			h := byKey[d.key]
+			if h == nil {
+				h = &held{decided: d, last: c.TS}
+				byKey[d.key] = h
+				order = append(order, d.key)
+			}
+			h.slugs = append(h.slugs, c.Slug)
+			h.first = c.TS
+		}
+	}
+	return per, order, byKey
+}
+
+// replaces is whether r reversed old: the same question, which the
+// checkpoints took up only after they stopped recording old. "Only after" is
+// what tells a reversal from a neighbour — two decisions on one subject that
+// agents copy forward together are both standing.
+func replaces(old, r *held) bool {
+	return r.first > old.last && textmatch.Overlap(old.subject, r.subject) >= textmatch.Related
 }
 
 // decisionsOf is a checkpoint's decisions, once each by key.
@@ -193,8 +209,7 @@ func supersedeReversed(db *sql.DB, project string, byKey map[string]*held) (int,
 	for _, old := range ps {
 		var by *promoted
 		for i, r := range ps {
-			if r.m.ID == old.m.ID || gone[r.m.ID] || r.h.first <= old.h.last ||
-				textmatch.Overlap(old.h.subject, r.h.subject) < textmatch.Related {
+			if r.m.ID == old.m.ID || gone[r.m.ID] || !replaces(old.h, r.h) {
 				continue
 			}
 			if by == nil || r.h.first > by.h.first {

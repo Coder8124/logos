@@ -91,6 +91,7 @@ var commandFlags = map[string]flagSpec{
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}, bare: []string{"--json"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
+	"ledger":   {},
 	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects", "--json"}},
 	"usage":    {valued: []string{"--usd"}, bare: []string{"--week"}},
 	"show":     {bare: []string{"--all"}},

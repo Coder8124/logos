@@ -415,6 +415,15 @@ func (ix *Index) Sync() (SyncReport, error) {
 		if path == auto.Path(ix.Vault) || path == auto.LogPath(ix.Vault) {
 			return nil
 		}
+		// A project's ledger is its checkpoints restated, every line quoting
+		// one: indexed, each decision and dead end would come back from a
+		// search twice, once from the record and once from the view of it.
+		if d.Name() == session.LedgerFile {
+			if rel, err := filepath.Rel(ix.Vault, path); err == nil &&
+				strings.HasPrefix(filepath.ToSlash(rel), session.CheckpointDir+"/") {
+				return nil
+			}
+		}
 		// Symlinks are skipped rather than followed. A link in the vault
 		// pointing at ~/Documents would pull that file's contents into the
 		// index and into retrieval results, which is not what "the vault is

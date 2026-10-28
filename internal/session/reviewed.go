@@ -21,6 +21,12 @@ import (
 // IsCheckpointFile already tells apart from a checkpoint by its name.
 const ReviewedFile = "reviewed.md"
 
+// LedgerFile is the project's long-term history derived from its
+// checkpoints (internal/ops/ledger.go). It sits beside reviewed.md for the
+// same reason: IsCheckpointFile tells it apart by its name, so History never
+// reads the ledger back as a checkpoint it was built from.
+const LedgerFile = "ledger.md"
+
 // Review is the latest verdict on one ruling. Retired drops it from what is
 // handed over; otherwise Commit is where a person last confirmed it, and the
 // drift is measured from there instead of from the checkpoint's commit.
