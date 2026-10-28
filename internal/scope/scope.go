@@ -51,6 +51,9 @@ const maxWalk = 24
 // precedence order stays written down in one place
 // (internal/mcpserver/scope.go) rather than half here and half there.
 func Name(dir string) string {
+	if strings.TrimSpace(dir) != "" {
+		dir = OnDisk(strings.TrimSpace(dir))
+	}
 	if n := FromMarker(dir); n != "" {
 		return n
 	}
@@ -74,9 +77,15 @@ func gitRoot(dir string) string {
 		return ""
 	}
 	dir = filepath.Clean(dir)
+	// Both sides as the disk spells them, or a differently cased path walks
+	// straight past home into its dotfiles repo.
+	dir = OnDisk(dir)
 	home, _ := os.UserHomeDir()
+	if home != "" {
+		home = OnDisk(home)
+	}
 	for i := 0; i < maxWalk; i++ {
-		if home != "" && dir == filepath.Clean(home) {
+		if home != "" && dir == home {
 			return ""
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
@@ -231,4 +240,76 @@ func nameOfPath(p string) string {
 		return Name(abs)
 	}
 	return ""
+}
+
+// OnDisk is p spelled the way the disk spells it, with each part that exists
+// read back from its parent directory.
+//
+// macOS and Windows disks ignore case by default, so ~/ideaprojects/brain and
+// ~/IdeaProjects/brain are one folder, and a shell keeps whichever the user
+// typed (Go's os.Getwd trusts $PWD). git answers in the disk's spelling. Every
+// comparison of the two then split one checkout in two: a project named
+// "BRAIN" beside "brain", a main checkout taken for a worktree named ".git",
+// a ruling's file "outside" its own repository. Canonicalising where a path
+// becomes a name or a root ends that for every caller at once, rather than
+// fixing each comparison as it is found.
+//
+// The part of p that does not exist is kept as given: there is no other
+// spelling of it to find. Symlinks are not resolved — that is EvalSymlinks'
+// job, and callers that want both call both.
+func OnDisk(p string) string {
+	p = filepath.Clean(p)
+	if !filepath.IsAbs(p) {
+		return p
+	}
+	vol := filepath.VolumeName(p)
+	sep := string(filepath.Separator)
+	cur := vol + sep
+	parts := strings.Split(strings.Trim(p[len(vol):], sep), sep)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		name, ok := spelledIn(cur, part)
+		if !ok {
+			return filepath.Join(append([]string{cur}, parts[i:]...)...)
+		}
+		cur = filepath.Join(cur, name)
+	}
+	return cur
+}
+
+// spelledIn is the entry of dir that part names, as dir lists it. An exact
+// match wins, so a disk that honours case — where "a" and "A" can both exist —
+// never has one swapped for the other; otherwise the entry equal but for case
+// that is the same file as dir/part. false when dir cannot be listed or holds
+// no such entry.
+func spelledIn(dir, part string) (string, bool) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return "", false
+	}
+	names, err := f.Readdirnames(-1)
+	f.Close()
+	if err != nil {
+		return "", false
+	}
+	for _, n := range names {
+		if n == part {
+			return n, true
+		}
+	}
+	want, err := os.Stat(filepath.Join(dir, part))
+	if err != nil {
+		return "", false
+	}
+	for _, n := range names {
+		if !strings.EqualFold(n, part) {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(dir, n)); err == nil && os.SameFile(fi, want) {
+			return n, true
+		}
+	}
+	return "", false
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/text"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
@@ -159,6 +160,10 @@ func repoRelative(file, dir string) (root, rel string) {
 	if real, err := filepath.EvalSymlinks(parent); err == nil {
 		parent = real
 	}
+	// git names the root in the disk's spelling, so the file must be in it
+	// too, or a host whose cwd was typed in another case edits a file that
+	// Rel puts outside its own repository and the ruling is never shown.
+	parent = scope.OnDisk(parent)
 	file = filepath.Join(parent, filepath.Base(file))
 
 	root = dir
@@ -168,6 +173,7 @@ func repoRelative(file, dir string) (root, rel string) {
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		root = real
 	}
+	root = scope.OnDisk(root)
 	r, err := filepath.Rel(root, file)
 	if err != nil || r == "." || strings.HasPrefix(r, "..") {
 		return "", ""

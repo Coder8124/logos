@@ -31,6 +31,7 @@ import (
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/project"
 	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secretary"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/textmatch"
@@ -868,7 +869,11 @@ func sameRepository(all []session.Checkpoint, dir string) ([]session.Checkpoint,
 		case remote != "" && c.Git.Remote != "":
 			differs = remote != c.Git.Remote
 		case root != "" && c.Git.Root != "":
-			differs = root != c.Git.Root
+			// A checkpoint written before roots were spelled as the disk
+			// spells them may carry the case its shell was typed in. Read
+			// back only when the strings differ: the disk is touched for a
+			// mismatch, not for every checkpoint.
+			differs = root != c.Git.Root && root != scope.OnDisk(c.Git.Root)
 		}
 		if !differs {
 			kept = append(kept, c)

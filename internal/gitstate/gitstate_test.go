@@ -254,6 +254,26 @@ func TestAMainCheckoutReachedUnderAnotherCaseIsNotAWorktree(t *testing.T) {
 	}
 }
 
+// The root is written into every checkpoint and compared on resume to tell
+// one checkout from another. Spelled as the caller typed it, the same checkout
+// reached as ~/ideaprojects/brain was "another repository" to a checkpoint
+// written from ~/IdeaProjects/brain.
+func TestIdentityGivesOneRootHoweverTheCheckoutWasSpelled(t *testing.T) {
+	dir := repo(t)
+	commit(t, dir, "a.txt", "one\n", "first")
+	other := strings.ToUpper(dir)
+	if other == dir {
+		t.Skip("the path has no letters to change the case of")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Skip("this filesystem is case-sensitive")
+	}
+	_, want := Identity(dir)
+	if _, got := Identity(other); got != want {
+		t.Errorf("Identity(%s) root = %q, want %q", other, got, want)
+	}
+}
+
 // Same rule as everything else here: not knowing is a normal condition.
 func TestWorktreeNameDegradesToNothing(t *testing.T) {
 	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "nope"), ""} {

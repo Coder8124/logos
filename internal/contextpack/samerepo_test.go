@@ -1,6 +1,7 @@
 package contextpack
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -205,5 +206,37 @@ func TestARuledOutApproachReachesThePackWithTheScopeItWasRecordedWith(t *testing
 	}
 	if !strings.Contains(out, "- tried caching the index in SQLite, it went stale") {
 		t.Errorf("a free-prose dead end stopped reading as it did:\n%s", out)
+	}
+}
+
+// A checkpoint written before the root was spelled as the disk spells it may
+// carry the case the shell happened to use. On a disk that ignores case that
+// is still this checkout, and its handoff must not be withheld as another
+// repository's.
+func TestACheckpointRecordedUnderAnotherCaseOfTheSameCheckoutIsHandedOver(t *testing.T) {
+	work := gitRepo(t)
+	_, root := gitstate.Identity(work)
+	recorded := strings.ToUpper(root)
+	if recorded == root {
+		t.Skip("the path has no letters to change the case of")
+	}
+	if _, err := os.Stat(recorded); err != nil {
+		t.Skip("this filesystem is case-sensitive")
+	}
+	ix := seedVault(t)
+	now := time.Now()
+	if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+		Project: "api", Agent: "claude", Task: "rotate the payments API keys",
+		Next: "revoke old key in prod", TS: now.Add(-time.Minute).Unix(),
+		Git: gitstate.State{Branch: "main", Commit: "abc1234", Root: recorded},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "api", Dir: work, Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := p.Render(); !strings.Contains(out, "revoke old key in prod") {
+		t.Errorf("the checkout's own handoff was withheld as another repository's:\n%s", out)
 	}
 }
