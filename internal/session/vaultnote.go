@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -108,9 +109,9 @@ func (c Checkpoint) Markdown(follows string) string {
 		}
 	}
 	b.WriteString("relations:\n")
-	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", c.Project)
+	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: %s, conf: 1.0, src: stated }\n", linkStr(c.Project))
 	if follows != "" {
-		fmt.Fprintf(&b, "  - { pred: follows, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", follows)
+		fmt.Fprintf(&b, "  - { pred: follows, obj: %s, conf: 1.0, src: stated }\n", linkStr(follows))
 	}
 	// first_seen is what the indexer and the graph's time scrubber read, and it
 	// is day-resolution. checkpointed carries the real instant, because "how
@@ -433,6 +434,22 @@ func yamlStr(s string) string {
 		return `""`
 	}
 	return strings.TrimRight(string(b), "\n")
+}
+
+// linkStr is a "[[target]]" wikilink as a double-quoted YAML scalar. Written
+// bare inside the quotes, a quote or backslash in the target — a hand-edited
+// project, rendered again by InferAuto or GrowAuto — ended the string or began
+// an escape, and yaml.v3 then refused the whole frontmatter. JSON's escaping is
+// a subset of YAML's double-quoted form and leaves an ordinary name exactly as
+// it was always written, which followsLink and every existing file rely on.
+func linkStr(target string) string {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode("[[" + target + "]]"); err != nil {
+		return `""`
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func oneLine(s string) string {

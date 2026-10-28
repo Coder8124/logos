@@ -298,6 +298,35 @@ func TestACheckpointSavedByAWindowsEditorKeepsItsFrontmatter(t *testing.T) {
 	}
 }
 
+// The relations line wrote the project bare inside a double-quoted YAML string.
+// The CLI sanitises a project name before it gets there, but a parsed
+// checkpoint is rendered again — InferAuto and GrowAuto rewrite a record in
+// place from what they read — and a hand-edited project carrying a quote or a
+// backslash then closed the string early or started an escape. yaml.v3 refused
+// the whole frontmatter, so the rewritten record lost its project, session,
+// time and its auto flag, and read back as a stranger's checkpoint.
+func TestACheckpointWhoseProjectCarriesAQuoteKeepsItsFrontmatter(t *testing.T) {
+	for _, project := range []string{`ke"strel`, `ke\strel`, `ke\qstrel`, "ke\"strel: x"} {
+		c := Checkpoint{Project: project, Agent: "claude", Session: "20261028-101500-ab12",
+			Next: "ship", TS: 1761646500, Auto: true}
+		got := ParseCheckpoint(c.Markdown("20261027-090000-cd34"))
+		if got.Project != project || got.Session != c.Session || got.TS != c.TS || !got.Auto {
+			t.Errorf("project %q: read back as %+v", project, got)
+		}
+	}
+	// And the ordinary case is written byte for byte as it always was, so the
+	// followsLink pattern and every existing file keep matching.
+	md := Checkpoint{Project: "kestrel", Next: "x"}.Markdown("20261027-090000-cd34")
+	for _, line := range []string{
+		`  - { pred: checkpoint_of, obj: "[[kestrel]]", conf: 1.0, src: stated }`,
+		`  - { pred: follows, obj: "[[20261027-090000-cd34]]", conf: 1.0, src: stated }`,
+	} {
+		if !strings.Contains(md, line+"\n") {
+			t.Errorf("the relations line changed shape; want %s in:\n%s", line, md)
+		}
+	}
+}
+
 func TestSafeRejectsPathEscapes(t *testing.T) {
 	// Project names arrive from agents; a traversal must not reach the vault.
 	for _, in := range []string{"../../etc/passwd", "Kestrel One", "projects/kestrel-one"} {
