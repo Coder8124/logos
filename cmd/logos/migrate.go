@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -29,6 +30,9 @@ var symlink = os.Symlink
 // link, so a host that could not be re-pinned is a thing to fix, not a vault
 // gone missing.
 func migrateCmd(args []string) error {
+	if len(args) > 0 && args[0] == "sessions" {
+		return migrateSessionsCmd(args[1:])
+	}
 	dryRun, yes := hasFlag(args, "--dry-run"), hasFlag(args, "--yes") || hasFlag(args, "-y")
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -401,4 +405,55 @@ func migrateHint(stderr io.Writer) {
 func isBrainBinary(bin string) bool {
 	name := strings.TrimSuffix(filepath.Base(bin), ".exe")
 	return name == setup.OldName
+}
+
+// migrateSessionsCmd moves a vault's flat checkpoints — every one written
+// before conversations had folders — into the folder their own host_session
+// names, and says how many it moved, skipped and could not move.
+//
+// Explicit, never implied by reading: an unmigrated project resumes by the
+// same ids it will have afterwards (see session.Conversations), so nothing
+// forces this, and a vault is somebody's notes. `logos index` does still
+// re-file anything misplaced as part of a rebuild (session.Refile); this is
+// the run that is asked for, counted, and carries on past one bad file.
+func migrateSessionsCmd(args []string) error {
+	dryRun := hasFlag(args, "--dry-run")
+	for _, a := range args {
+		if a != "--dry-run" {
+			return fmt.Errorf("usage: logos migrate sessions [--dry-run] — %q is not understood; nothing was moved", a)
+		}
+	}
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return missingVaultError(v)
+	}
+	rep, err := session.MigrateFlat(v, dryRun)
+	if err != nil {
+		return err
+	}
+	verb := "moved"
+	if dryRun {
+		verb = "would move"
+	}
+	fmt.Printf("%s %d checkpoint%s into conversation folders, skipped %d, failed %d — in %s\n",
+		verb, rep.Moved, pluralS(rep.Moved), len(rep.Skipped), len(rep.Failed), v)
+	for _, s := range rep.Skipped {
+		fmt.Println("  skipped " + s)
+	}
+	for _, f := range rep.Failed {
+		fmt.Println("  failed  " + f)
+	}
+	if rep.Moved > 0 && !dryRun {
+		// The vault moved under the cache, which still lists the old paths
+		// until it is rebuilt. Said rather than done: an index run on a large
+		// vault is minutes, and the user should choose when to spend them.
+		fmt.Println("the index still lists the old paths — `logos index` brings it up to date")
+	}
+	if len(rep.Failed) > 0 {
+		// Each one is still readable where it was; a nonzero exit is so a
+		// script that runs this does not read a partial move as a finished one.
+		return fmt.Errorf("%d checkpoint%s could not be moved and stayed in the old layout — run `logos migrate sessions` again once the cause is fixed",
+			len(rep.Failed), pluralS(len(rep.Failed)))
+	}
+	return nil
 }
