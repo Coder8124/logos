@@ -275,6 +275,29 @@ func TestRoundTripSurvivesAColonInTheTask(t *testing.T) {
 	}
 }
 
+// splitFM was written to mirror internal/vault's splitter, and vault's learned
+// CRLF in f17452c while this copy did not. A checkpoint opened and saved by a
+// Windows editor, or checked out under core.autocrlf, then read as one with no
+// frontmatter: its sections survived, so it was not Empty and nothing skipped
+// it, but its project, session, agent and time were gone — resume dated it to
+// 1970 and filed nothing under its host session. A byte-order mark, which
+// Notepad adds, did the same.
+func TestACheckpointSavedByAWindowsEditorKeepsItsFrontmatter(t *testing.T) {
+	c := Checkpoint{Project: "kestrel", Agent: "claude", Session: "20261028-101500-ab12",
+		Task: "wire the parser", Next: "ship", TS: 1761646500}
+	md := c.Markdown("")
+	want := ParseCheckpoint(md)
+	for name, raw := range map[string]string{
+		"CRLF line endings": strings.ReplaceAll(md, "\n", "\r\n"),
+		"a byte-order mark": "\ufeff" + md,
+		"both":              "\ufeff" + strings.ReplaceAll(md, "\n", "\r\n"),
+	} {
+		if got := ParseCheckpoint(raw); !reflect.DeepEqual(got, want) {
+			t.Errorf("saved with %s:\n got %+v\nwant %+v", name, got, want)
+		}
+	}
+}
+
 func TestSafeRejectsPathEscapes(t *testing.T) {
 	// Project names arrive from agents; a traversal must not reach the vault.
 	for _, in := range []string{"../../etc/passwd", "Kestrel One", "projects/kestrel-one"} {
