@@ -39,6 +39,9 @@ func fakeHosts(t *testing.T, registered ...string) {
 
 func setupInFakeHome(t *testing.T) string {
 	t.Helper()
+	// Made before TMPDIR moves into the fake home, so it is outside this
+	// checkout: the fake home itself sits under the checkout's testdata.
+	cwd := t.TempDir()
 	home := lastingDir(t)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -54,8 +57,9 @@ func setupInFakeHome(t *testing.T) string {
 	// Setup previews resume for the repository it is run in. Run from the
 	// package directory, that was this checkout, so whatever the developer had
 	// uncommitted — a folder named .github/hooks, say — ended up in output the
-	// tests search for words.
-	t.Chdir(home)
+	// tests search for words. The fake home is no way out: it is under this
+	// checkout's testdata, and git finds the repository from there.
+	t.Chdir(cwd)
 	return dir
 }
 
