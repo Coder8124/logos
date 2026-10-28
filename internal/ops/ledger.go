@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/deadend"
@@ -24,6 +25,7 @@ type Ledger struct {
 	MayNotHold  int    // of those, the ones whose named files changed since
 	Retired     int    // dead ends a person retired with `logos review --stale`
 	Questions   int    // open questions
+	Worktrees   int    // linked worktree scopes read alongside the project's own
 	// Measured is whether the dead ends were measured against a repository.
 	// Without one "may no longer hold" was not asked, which is not the same
 	// answer as "none changed".
@@ -52,22 +54,45 @@ func WriteLedger(vaultDir, project, repoDir string) (Ledger, error) {
 	if scope == "" {
 		return Ledger{}, fmt.Errorf("project name %q has no letters or digits to find its checkpoints by", project)
 	}
-	hist, err := session.History(vaultDir, scope, 0)
+	// The project's own checkpoints and those of every linked worktree under
+	// it ("p/wt", as session.Scopes lists them and deadend.Collect reads
+	// them): an agent working in a worktree checkpoints there, and a ledger of
+	// the main folder alone left out every decision and dead end it recorded.
+	names := []string{scope}
+	all, err := session.Scopes(vaultDir)
 	if err != nil {
-		return Ledger{}, fmt.Errorf("reading %s's checkpoints: %w", scope, err)
+		return Ledger{}, fmt.Errorf("listing %s's worktree checkpoints: %w", scope, err)
 	}
-	if len(hist) == 0 {
+	for _, s := range all {
+		if strings.HasPrefix(s, scope+"/") {
+			names = append(names, s)
+		}
+	}
+	var scopes []scoped
+	total := 0
+	for _, s := range names {
+		hist, err := session.History(vaultDir, s, 0)
+		if err != nil {
+			return Ledger{}, fmt.Errorf("reading %s's checkpoints: %w", s, err)
+		}
+		if len(hist) == 0 {
+			continue
+		}
+		reviews, err := session.Reviews(vaultDir, s)
+		if err != nil {
+			// Not skipped: without it a ruling a person retired would come
+			// back as standing, which is the review undone without saying so.
+			return Ledger{}, fmt.Errorf("reading %s's review verdicts: %w", s, err)
+		}
+		scopes = append(scopes, scoped{name: s, hist: hist, reviews: reviews})
+		total += len(hist)
+	}
+	if total == 0 {
 		// Not an empty ledger: a file saying "nothing was decided" about a
 		// project whose name was mistyped is a wrong answer, not no answer.
 		return Ledger{}, fmt.Errorf("no checkpoints for %q, so there is no history to derive a ledger from", scope)
 	}
-	reviews, err := session.Reviews(vaultDir, scope)
-	if err != nil {
-		// Not skipped: without it a ruling a person retired would come back
-		// as standing, which is the review undone without saying so.
-		return Ledger{}, fmt.Errorf("reading %s's review verdicts: %w", scope, err)
-	}
-	text, l := renderLedger(scope, hist, reviews, gitstate.NewAnchors(repoDir))
+	text, l := renderLedger(scope, scopes, gitstate.NewAnchors(repoDir))
 	l.Path = path.Join(session.CheckpointDir, scope, session.LedgerFile)
 	// No lock: the content is a function of the checkpoints, and the write is
 	// an atomic rename, so two passes racing leave one whole ledger either way.
@@ -87,10 +112,14 @@ func LedgerReceipt(l Ledger) string {
 	if l.Retired > 0 {
 		retired = fmt.Sprintf(", %d retired in review", l.Retired)
 	}
-	return fmt.Sprintf("ledger: %d %s in force, %d superseded, %d ruled out (%s)%s, %d open %s — %s",
+	wts := ""
+	if l.Worktrees > 0 {
+		wts = fmt.Sprintf(" (read with %d linked %s)", l.Worktrees, plural(l.Worktrees, "worktree", "worktrees"))
+	}
+	return fmt.Sprintf("ledger: %d %s in force, %d superseded, %d ruled out (%s)%s, %d open %s — %s%s",
 		l.InForce, plural(l.InForce, "decision", "decisions"), l.Superseded,
 		l.RuledOut, measured, retired,
-		l.Questions, plural(l.Questions, "question", "questions"), l.Path)
+		l.Questions, plural(l.Questions, "question", "questions"), l.Path, wts)
 }
 
 // ruling is one dead end across every checkpoint that recorded it.
@@ -107,10 +136,45 @@ type asked struct {
 	slugs []string
 }
 
+// scoped is one checkpoint folder the ledger reads: the project's own, or a
+// linked worktree's under it, with that folder's own review verdicts.
+type scoped struct {
+	name    string
+	hist    []session.Checkpoint // newest first
+	reviews map[string]session.Review
+}
+
 // renderLedger is the ledger's text, a function of its arguments only — no
 // clock, no map order — so the same checkpoints rebuild it byte for byte.
-func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]session.Review, a *gitstate.Anchors) (string, Ledger) {
+// scopes is the project's own folder first, when it has checkpoints, then its
+// worktrees in name order.
+func renderLedger(scope string, scopes []scoped, a *gitstate.Anchors) (string, Ledger) {
+	// One history for the dead ends and questions, newest first across every
+	// folder, each checkpoint ruled on by its own folder's review verdicts.
+	var hist []session.Checkpoint
+	reviewsOf := map[string]map[string]session.Review{}
+	for _, sc := range scopes {
+		hist = append(hist, sc.hist...)
+		for _, c := range sc.hist {
+			reviewsOf[c.Slug] = sc.reviews
+		}
+	}
+	if len(scopes) > 1 {
+		sort.SliceStable(hist, func(i, j int) bool {
+			if hist[i].TS != hist[j].TS {
+				return hist[i].TS > hist[j].TS
+			}
+			return hist[i].Slug > hist[j].Slug
+		})
+	}
 	l := Ledger{Checkpoints: len(hist), Measured: a != nil}
+	var wts []string
+	for _, sc := range scopes {
+		if sc.name != scope {
+			wts = append(wts, strings.TrimPrefix(sc.name, scope+"/"))
+		}
+	}
+	l.Worktrees = len(wts)
 	cite := citer(scope)
 	var b strings.Builder
 
@@ -121,9 +185,13 @@ func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]se
 		span = cite([]string{hist[len(hist)-1].Slug}) + " to " + span
 	}
 	fmt.Fprintf(&b, "---\ntype: ledger\nproject: %s\n---\n\n# Ledger: %s\n\n", scope, scope)
-	fmt.Fprintf(&b, "_Derived by `logos ledger %s` from %d %s, %s. The checkpoints are the record: "+
+	from := ""
+	if len(wts) > 0 {
+		from = fmt.Sprintf(" (with linked %s %s)", plural(len(wts), "worktree", "worktrees"), quote(strings.Join(wts, ", ")))
+	}
+	fmt.Fprintf(&b, "_Derived by `logos ledger %s` from %d %s%s, %s. The checkpoints are the record: "+
 		"this file is rebuilt from them whole, and deleting it loses nothing. Each entry quotes the checkpoints it cites._\n\n",
-		scope, len(hist), plural(len(hist), "checkpoint", "checkpoints"), span)
+		scope, len(hist), plural(len(hist), "checkpoint", "checkpoints"), from, span)
 	b.WriteString(untrusted.Boundary + "\n\n")
 
 	// Decisions: grouped and matched exactly as PromoteDecisions groups and
@@ -133,39 +201,16 @@ func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]se
 	// the window reads as a neighbour here and a reversal there, and the ledger
 	// struck what memory still held. Only a decision promote cannot see, one
 	// with no checkpoint in the window, is judged on the whole history.
-	win := hist
-	if len(win) > session.DecisionWindow {
-		win = win[:session.DecisionWindow]
-	}
-	_, winOrder, winKey := heldIn(win)
-	_, order, byKey := heldIn(hist)
-	var older []string
-	for _, k := range order {
-		if winKey[k] == nil {
-			older = append(older, k)
-		}
-	}
-	winBy, oldBy := supersessions(winOrder, winKey), supersessions(older, byKey)
+	//
+	// Per folder, as promotion runs per folder: a worktree's decisions are
+	// judged among its own checkpoints, so the ledger agrees with what each
+	// pass promoted, and one already listed from an earlier folder is not
+	// listed twice.
 	var standing, struck []string
-	for _, k := range order {
-		h, by := byKey[k], winBy[k]
-		if winKey[k] == nil {
-			by = oldBy[k]
-		}
-		if by == nil {
-			standing = append(standing, fmt.Sprintf("- %s — %s\n", quote(h.text), cite(h.slugs)))
-			continue
-		}
-		// The replacement is cited where it took the question up again: its
-		// oldest checkpoint after the last that recorded this one.
-		r, took := byKey[by.key], ""
-		for i := range r.slugs {
-			if r.when[i] > h.last {
-				took = r.slugs[i]
-			}
-		}
-		struck = append(struck, fmt.Sprintf("- ~~%s~~ — superseded by %s (%s) — recorded in %s\n",
-			quote(h.text), quote(r.text), cite([]string{took}), cite(h.slugs)))
+	listed := map[string]bool{}
+	for _, sc := range scopes {
+		s, x := decisionLines(sc.hist, cite, listed)
+		standing, struck = append(standing, s...), append(struck, x...)
 	}
 	l.InForce, l.Superseded = len(standing), len(struck)
 	b.WriteString("## Decisions in force\n\n")
@@ -173,7 +218,7 @@ func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]se
 		"after the checkpoints stopped recording it._\n\n")
 	section(&b, append(standing, struck...))
 
-	rulings, ruleOrder := rulingsIn(hist, reviews, a)
+	rulings, ruleOrder := rulingsIn(hist, reviewsOf, a)
 	var live, retired []string
 	for _, k := range ruleOrder {
 		r := rulings[k]
@@ -211,6 +256,49 @@ func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]se
 	return strings.TrimRight(b.String(), "\n") + "\n", l
 }
 
+// decisionLines is one folder's decisions as ledger lines, standing and
+// struck, skipping and then marking those already listed.
+func decisionLines(hist []session.Checkpoint, cite func([]string) string, listed map[string]bool) (standing, struck []string) {
+	win := hist
+	if len(win) > session.DecisionWindow {
+		win = win[:session.DecisionWindow]
+	}
+	_, winOrder, winKey := heldIn(win)
+	_, order, byKey := heldIn(hist)
+	var older []string
+	for _, k := range order {
+		if winKey[k] == nil {
+			older = append(older, k)
+		}
+	}
+	winBy, oldBy := supersessions(winOrder, winKey), supersessions(older, byKey)
+	for _, k := range order {
+		if listed[k] {
+			continue
+		}
+		listed[k] = true
+		h, by := byKey[k], winBy[k]
+		if winKey[k] == nil {
+			by = oldBy[k]
+		}
+		if by == nil {
+			standing = append(standing, fmt.Sprintf("- %s — %s\n", quote(h.text), cite(h.slugs)))
+			continue
+		}
+		// The replacement is cited where it took the question up again: its
+		// oldest checkpoint after the last that recorded this one.
+		r, took := byKey[by.key], ""
+		for i := range r.slugs {
+			if r.when[i] > h.last {
+				took = r.slugs[i]
+			}
+		}
+		struck = append(struck, fmt.Sprintf("- ~~%s~~ — superseded by %s (%s) — recorded in %s\n",
+			quote(h.text), quote(r.text), cite([]string{took}), cite(h.slugs)))
+	}
+	return standing, struck
+}
+
 func section(b *strings.Builder, lines []string) {
 	if len(lines) == 0 {
 		b.WriteString("_None recorded._\n\n")
@@ -229,7 +317,7 @@ func section(b *strings.Builder, lines []string) {
 // newest copy a person has not retired, at the commit a re-confirm moved it
 // to, structured anchor included. So the ledger flags exactly what --stale
 // would offer to settle, and settling it there clears it here.
-func rulingsIn(hist []session.Checkpoint, reviews map[string]session.Review, a *gitstate.Anchors) (map[string]*ruling, []string) {
+func rulingsIn(hist []session.Checkpoint, reviewsOf map[string]map[string]session.Review, a *gitstate.Anchors) (map[string]*ruling, []string) {
 	out := map[string]*ruling{}
 	var order []string
 	measured := map[string]bool{}
@@ -249,7 +337,7 @@ func rulingsIn(hist []session.Checkpoint, reviews map[string]session.Review, a *
 				continue // said twice in one checkpoint is still one source
 			}
 			r.slugs = append(r.slugs, c.Slug)
-			gone, commit := reviews[k].For(c.TS, c.Git.Commit)
+			gone, commit := reviewsOf[c.Slug][k].For(c.TS, c.Git.Commit)
 			if gone {
 				continue
 			}

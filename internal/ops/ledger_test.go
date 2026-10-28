@@ -562,3 +562,44 @@ func TestALeadingListMarkerOrBacktickInACheckpointCannotForgeLedgerStructure(t *
 		}
 	}
 }
+
+// An agent working in a linked worktree checkpoints to sessions/<p>/<wt>/;
+// the project's ledger reads those too, as deadend.Collect does, and links
+// them by the path below the ledger's own folder.
+func TestTheLedgerReadsTheCheckpointsOfTheProjectsLinkedWorktrees(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{Decisions: []string{"Deploys go through staging first"}})
+	at := time.Now().Add(-30 * time.Minute)
+	for i, c := range []session.Checkpoint{
+		{Decisions: []string{jwtDecision}, Failed: []string{"Redis session store: the edge cannot reach it"}},
+		{Questions: []string{"Do we need refresh tokens?"}, Next: "ask"},
+	} {
+		c.Project, c.Agent = "kestrel/fix-auth", "claude-code"
+		c.TS, c.Git = at.Add(time.Duration(i)*time.Minute).Unix(), gitstate.State{Commit: "0000000"}
+		if err := session.Commit(db, vault, &c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	for _, want := range []string{jwtDecision, "Redis session store", "Do we need refresh tokens?", "](fix-auth/"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the ledger left out %q from the linked worktree:\n%s", want, text)
+		}
+	}
+	for _, m := range ledgerLink.FindAllStringSubmatch(text, -1) {
+		if _, err := os.Stat(filepath.Join(vault, "sessions", "kestrel", filepath.FromSlash(m[1]))); err != nil {
+			t.Errorf("a citation does not resolve from the ledger's folder: %s", m[1])
+		}
+	}
+	if l.Checkpoints != 3 || l.Worktrees != 1 || l.InForce != 2 || l.RuledOut != 1 || l.Questions != 1 {
+		t.Errorf("counted %+v, want 3 checkpoints from 1 worktree, 2 decisions, 1 dead end, 1 question", l)
+	}
+	if say := LedgerReceipt(l); !strings.Contains(say, "1 linked worktree") {
+		t.Errorf("the receipt does not say the worktree was read: %q", say)
+	}
+}
