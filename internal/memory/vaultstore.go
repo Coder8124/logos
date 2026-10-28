@@ -1155,7 +1155,12 @@ func upsert(db *sql.DB, p *provider.Provider, embedModel string, m Memory) (id i
 func parseKind(kind Kind, raw string) []Memory {
 	var out []Memory
 	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
+		// A byte-order mark is stripped per line, not once at the top: raw is
+		// every per-memory file concatenated, so a file Notepad saved puts its
+		// mark at the start of a line in the middle. TrimSpace does not count
+		// U+FEFF as space, and a line starting with it is not "- ", so the
+		// first memory of a hand-typed file was silently never read.
+		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
 		if !strings.HasPrefix(line, "- ") {
 			continue
 		}

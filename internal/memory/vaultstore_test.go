@@ -217,6 +217,34 @@ func TestHandWrittenLinesAreAccepted(t *testing.T) {
 	}
 }
 
+// Notepad saves a file with a byte-order mark, and TrimSpace does not count
+// U+FEFF as space, so the first line of a kind file typed with no frontmatter
+// began with an invisible rune instead of "- " and was never read: the memory
+// typed first was the one that silently never became a memory.
+func TestAMemoryFileSavedWithAByteOrderMarkKeepsItsFirstLine(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	os.MkdirAll(filepath.Join(dir, Dir), 0o755)
+	os.WriteFile(filepath.Join(dir, Dir, "preference.md"),
+		[]byte("\ufeff- I like my coffee before any meeting\r\n- standups are at 09:15\r\n"), 0o644)
+
+	n, _, err := Import(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("want both typed lines imported, got %d", n)
+	}
+	all, _ := All(db)
+	var texts []string
+	for _, m := range all {
+		texts = append(texts, m.Text)
+	}
+	if !strings.Contains(strings.Join(texts, "|"), "coffee") {
+		t.Errorf("the line after the byte-order mark is missing: %q", texts)
+	}
+}
+
 // A vault that has never exported must not be read as "the user deleted
 // everything". This is the dangerous direction: importing an empty vault over a
 // full database would destroy exactly what the feature protects.
