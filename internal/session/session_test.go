@@ -327,6 +327,32 @@ func TestACheckpointWhoseProjectCarriesAQuoteKeepsItsFrontmatter(t *testing.T) {
 	}
 }
 
+// Found by FuzzParseCheckpoint. A zone's local mean time, before it adopted
+// standard time, has an offset in seconds — Los Angeles's is -07:52:58 — and
+// RFC3339 writes minutes, so a hand-typed date that old came back 58 seconds
+// off, and again on every rewrite. Pinned to that zone so the test means the
+// same on a machine set to UTC, where there is nothing to round.
+func TestACheckpointDatedBeforeStandardTimeKeepsItsInstantWhenRewritten(t *testing.T) {
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Skipf("no zoneinfo here: %v", err)
+	}
+	saved := time.Local
+	time.Local = la
+	defer func() { time.Local = saved }()
+
+	ts := time.Date(1850, 3, 1, 12, 0, 0, 0, time.UTC).Unix()
+	c := Checkpoint{Project: "kestrel", Next: "x", TS: ts,
+		Inferred: &Inference{By: "claude", At: ts, Wanted: []string{"y"}}}
+	got := ParseCheckpoint(c.Markdown(""))
+	if got.TS != ts {
+		t.Errorf("checkpointed moved by %ds", got.TS-ts)
+	}
+	if got.Inferred == nil || got.Inferred.At != ts {
+		t.Errorf("inferred_at did not survive: %+v", got.Inferred)
+	}
+}
+
 func TestSafeRejectsPathEscapes(t *testing.T) {
 	// Project names arrive from agents; a traversal must not reach the vault.
 	for _, in := range []string{"../../etc/passwd", "Kestrel One", "projects/kestrel-one"} {
