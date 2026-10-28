@@ -3,6 +3,7 @@ package ops
 import (
 	"bytes"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -427,5 +428,104 @@ func TestAProjectWithNoCheckpointsGetsNoLedger(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(vault, session.CheckpointDir, "kestrel", session.LedgerFile)); err == nil {
 		t.Error("an empty ledger file was left behind")
+	}
+}
+
+// struckLine is the ledger line striking text through, "" when none does.
+func struckLine(text, decision string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "~~"+decision+"~~") {
+			return line
+		}
+	}
+	return ""
+}
+
+// PromoteDecisions reads the newest DecisionWindow checkpoints. Over the
+// whole history two decisions once recorded together are neighbours; inside
+// the window they never were, and the later one replaced the first. The
+// ledger has to give promote's verdict, or it strikes what memory holds.
+func TestTheLedgerJudgesAReversalOverTheSameCheckpointsPromoteReads(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	cps := []session.Checkpoint{{Decisions: []string{cookieDecision, jwtDecision}}}
+	for i := 0; i < 3; i++ {
+		cps = append(cps, session.Checkpoint{Decisions: []string{cookieDecision}})
+	}
+	for len(cps) < session.DecisionWindow-2 {
+		cps = append(cps, session.Checkpoint{Decisions: []string{"Deploys go through staging first"}})
+	}
+	for i := 0; i < 3; i++ {
+		cps = append(cps, session.Checkpoint{Decisions: []string{jwtDecision}})
+	}
+	// One agent name per checkpoint: a session id is its agent and the
+	// second it was committed, and one agent gets 60 a second. Zero-padded,
+	// so the ids still sort in the order they were committed.
+	if err := session.Init(db); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().Add(-10 * time.Hour)
+	for i := range cps {
+		c := cps[i]
+		c.Project, c.Agent = "kestrel", fmt.Sprintf("agent-%03d", i)
+		c.TS, c.Git = start.Add(time.Duration(i)*time.Minute).Unix(), gitstate.State{Commit: "0000000"}
+		if err := session.Commit(db, vault, &c); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	if line := struckLine(text, cookieDecision); !strings.Contains(line, "superseded by "+jwtDecision) {
+		t.Errorf("the decision promote supersedes inside its window stands in the ledger:\n%s", text)
+	}
+}
+
+// A, reversed by B, and then A again: the wording said last stands. Neither
+// began after the other last ended, so both used to read as in force.
+func TestADecisionReinstatedAfterItsReversalStandsAndTheReversalIsStruck(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{Decisions: []string{cookieDecision}},
+		session.Checkpoint{Decisions: []string{jwtDecision}},
+		session.Checkpoint{Decisions: []string{jwtDecision}},
+		session.Checkpoint{Decisions: []string{cookieDecision}},
+	)
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	if line := struckLine(text, jwtDecision); !strings.Contains(line, "superseded by "+cookieDecision) {
+		t.Errorf("the reversal is not struck by the reinstated decision:\n%s", text)
+	}
+	if struckLine(text, cookieDecision) != "" {
+		t.Errorf("the reinstated decision is struck:\n%s", text)
+	}
+	if l.InForce != 1 || l.Superseded != 1 {
+		t.Errorf("counted %d in force and %d superseded, want 1 and 1", l.InForce, l.Superseded)
+	}
+}
+
+// A checkpoint written before placeholders were dropped still says "None this
+// session" under Decisions; nobody decided it.
+func TestAPlaceholderUnderDecisionsIsNotADecisionInForce(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{Decisions: []string{"None this session"}, Failed: []string{"Redis session store: the edge cannot reach it"}},
+		session.Checkpoint{Decisions: []string{"None this session", jwtDecision}},
+	)
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	if strings.Contains(strings.ToLower(text), "none this session") {
+		t.Errorf("a placeholder is listed as a decision:\n%s", text)
+	}
+	if l.InForce != 1 {
+		t.Errorf("counted %d in force, want 1", l.InForce)
 	}
 }

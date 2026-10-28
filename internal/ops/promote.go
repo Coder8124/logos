@@ -40,6 +40,8 @@ type decided struct {
 type held struct {
 	decided
 	slugs       []string
+	when        []int64         // each slug's checkpoint time
+	in          map[string]bool // slugs as a set: were two ever recorded together
 	first, last int64
 }
 
@@ -114,23 +116,104 @@ func heldIn(hist []session.Checkpoint) (per [][]decided, order []string, byKey m
 		for _, d := range per[i] {
 			h := byKey[d.key]
 			if h == nil {
-				h = &held{decided: d, last: c.TS}
+				h = &held{decided: d, in: map[string]bool{}, last: c.TS}
 				byKey[d.key] = h
 				order = append(order, d.key)
 			}
 			h.slugs = append(h.slugs, c.Slug)
+			h.when = append(h.when, c.TS)
+			h.in[c.Slug] = true
 			h.first = c.TS
 		}
 	}
 	return per, order, byKey
 }
 
-// replaces is whether r reversed old: the same question, which the
-// checkpoints took up only after they stopped recording old. "Only after" is
-// what tells a reversal from a neighbour — two decisions on one subject that
-// agents copy forward together are both standing.
+// replaces is whether r reversed old: the same question, never recorded in
+// one checkpoint together, and r the one said last. Never together is what
+// tells a reversal from a neighbour — two decisions on one subject that agents
+// copy forward together are both standing. Said last, not first said after
+// old's last: that missed a reinstatement, A reversed by B and then A again,
+// where neither began after the other ended and both read as in force.
 func replaces(old, r *held) bool {
-	return r.first > old.last && textmatch.Overlap(old.subject, r.subject) >= textmatch.Related
+	if r.last <= old.last || textmatch.Overlap(old.subject, r.subject) < textmatch.Related {
+		return false
+	}
+	a, b := old.in, r.in
+	if len(b) < len(a) {
+		a, b = b, a
+	}
+	for s := range a {
+		if b[s] {
+			return false
+		}
+	}
+	return true
+}
+
+// saidLater is which of two replacements of one decision stands: the one said
+// last, ties to the one first said later and then to the key, so the choice
+// never depends on map order.
+func saidLater(r, by *held) bool {
+	if r.last != by.last {
+		return r.last > by.last
+	}
+	if r.first != by.first {
+		return r.first > by.first
+	}
+	return r.key > by.key
+}
+
+// supersessions is, for each of keys that a later decision replaced, the one
+// that replaced it last.
+func supersessions(keys []string, byKey map[string]*held) map[string]*held {
+	akin := newAkinIndex(byKey)
+	out := map[string]*held{}
+	for _, k := range keys {
+		h := byKey[k]
+		var by *held
+		for _, r := range akin.candidates(h) {
+			if replaces(h, r) && (by == nil || saidLater(r, by)) {
+				by = r
+			}
+		}
+		if by != nil {
+			out[k] = by
+		}
+	}
+	return out
+}
+
+// akinIndex files each decision under the stems of its subject's words
+// (textmatch.AkinStem). A decision with no akin word in common with another
+// overlaps it by nothing, so only decisions sharing a stem are ever compared:
+// comparing every pair was quadratic in a history that only grows.
+type akinIndex map[string][]*held
+
+func newAkinIndex(byKey map[string]*held) akinIndex {
+	ix := akinIndex{}
+	for _, h := range byKey {
+		for w := range h.subject {
+			st := textmatch.AkinStem(w)
+			ix[st] = append(ix[st], h)
+		}
+	}
+	return ix
+}
+
+// candidates is every other decision sharing a stem with h, once each.
+func (ix akinIndex) candidates(h *held) []*held {
+	var out []*held
+	seen := map[*held]bool{h: true}
+	for w := range h.subject {
+		for _, r := range ix[textmatch.AkinStem(w)] {
+			if !seen[r] {
+				seen[r] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // decisionsOf is a checkpoint's decisions, once each by key.
@@ -139,7 +222,9 @@ func decisionsOf(c session.Checkpoint) []decided {
 	in := map[string]bool{}
 	for _, d := range c.Decisions {
 		k := session.DecisionKey(d)
-		if k == "" || in[k] {
+		// A checkpoint written before placeholders were dropped still says
+		// "None this session" on disk, and it is not a decision anybody made.
+		if k == "" || in[k] || session.IsPlaceholder(d) {
 			continue
 		}
 		in[k] = true
@@ -212,7 +297,7 @@ func supersedeReversed(db *sql.DB, project string, byKey map[string]*held) (int,
 			if r.m.ID == old.m.ID || gone[r.m.ID] || !replaces(old.h, r.h) {
 				continue
 			}
-			if by == nil || r.h.first > by.h.first {
+			if by == nil || saidLater(r.h, by.h) {
 				by = &ps[i]
 			}
 		}

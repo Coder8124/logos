@@ -2,6 +2,7 @@ package ops
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -261,5 +262,75 @@ func TestTwoRelatedDecisionsRecordedTogetherDoNotSupersedeEachOther(t *testing.T
 	checkpointsFrom(t, db, vault, time.Now().Add(-30*time.Minute), both)
 	if got, err := PromoteDecisions(db, vault, "kestrel"); err != nil || got.Superseded != 0 {
 		t.Fatalf("superseded %d (%v) between two decisions that stand together", got.Superseded, err)
+	}
+}
+
+// A promoted decision reversed and then reinstated: both are standing memory,
+// and the one the checkpoints said last replaces the other.
+func TestAReinstatedDecisionSupersedesTheReversalThatReplacedIt(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	start := time.Now().Add(-2 * time.Hour)
+	checkpointsFrom(t, db, vault, start, []string{cookieDecision}, []string{cookieDecision}, []string{cookieDecision})
+	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
+		t.Fatal(err)
+	}
+	checkpointsFrom(t, db, vault, start.Add(30*time.Minute), []string{jwtReversal}, []string{jwtReversal}, []string{jwtReversal})
+	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
+		t.Fatal(err)
+	}
+	checkpointsFrom(t, db, vault, start.Add(60*time.Minute), []string{cookieDecision}, []string{cookieDecision}, []string{cookieDecision})
+	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
+		t.Fatal(err)
+	}
+	mems, err := memory.AllInProject(db, "kestrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range mems {
+		if m.Source == memory.SourceCheckpoints && !m.Quarantined && strings.Contains(m.Text, "Sessions move to JWTs") {
+			t.Errorf("the reversal still stands after the decision it replaced was reinstated: %q", m.Text)
+		}
+	}
+}
+
+// "None this session" copied forward under Decisions is not proposed as one.
+func TestAPlaceholderDecisionIsNeverProposed(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	none := []string{"None this session"}
+	checkpoints(t, db, vault, none, none, none)
+	if got, err := PromoteDecisions(db, vault, "kestrel"); err != nil || got.Proposed != 0 {
+		t.Errorf("proposed %d (%v) from a placeholder", got.Proposed, err)
+	}
+}
+
+// Superseding compares a decision only with those sharing a word stem with
+// it, so a long history of unrelated decisions costs nothing per pair.
+func TestOnlyDecisionsSharingAWordAreComparedForAReversal(t *testing.T) {
+	var hist []session.Checkpoint
+	words := []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"}
+	for i, a := range words {
+		for j, b := range words {
+			hist = append(hist, session.Checkpoint{Slug: fmt.Sprintf("s/%d-%d", i, j), TS: int64(i*100 + j),
+				Decisions: []string{fmt.Sprintf("Use %s%d with %s%d", a, i, b, j)}})
+		}
+	}
+	hist = append(hist,
+		session.Checkpoint{Slug: "s/cookie", TS: 2000, Decisions: []string{cookieDecision}},
+		session.Checkpoint{Slug: "s/jwt", TS: 2001, Decisions: []string{jwtReversal}})
+	_, _, byKey := heldIn(hist)
+	ix := newAkinIndex(byKey)
+	got := ix.candidates(byKey[session.DecisionKey(cookieDecision)])
+	if len(got) != 1 || got[0].key != session.DecisionKey(jwtReversal) {
+		var texts []string
+		for _, h := range got {
+			texts = append(texts, h.text)
+		}
+		t.Errorf("a decision is compared with %d others, want only the one sharing its words: %q", len(got), texts)
 	}
 }

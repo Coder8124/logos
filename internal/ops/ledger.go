@@ -127,26 +127,45 @@ func renderLedger(scope string, hist []session.Checkpoint, reviews map[string]se
 	b.WriteString(untrusted.Boundary + "\n\n")
 
 	// Decisions: grouped and matched exactly as PromoteDecisions groups and
-	// supersedes them, so the ledger never strikes through a decision the
-	// memory promoted from the same checkpoints still holds, or the reverse.
+	// supersedes them, over the same newest DecisionWindow checkpoints it
+	// reads. The whole history gives a decision different first and last
+	// times, and so a different verdict: a replacement once said long before
+	// the window reads as a neighbour here and a reversal there, and the ledger
+	// struck what memory still held. Only a decision promote cannot see, one
+	// with no checkpoint in the window, is judged on the whole history.
+	win := hist
+	if len(win) > session.DecisionWindow {
+		win = win[:session.DecisionWindow]
+	}
+	_, winOrder, winKey := heldIn(win)
 	_, order, byKey := heldIn(hist)
+	var older []string
+	for _, k := range order {
+		if winKey[k] == nil {
+			older = append(older, k)
+		}
+	}
+	winBy, oldBy := supersessions(winOrder, winKey), supersessions(older, byKey)
 	var standing, struck []string
 	for _, k := range order {
-		h := byKey[k]
-		var by *held
-		for _, rk := range order {
-			if r := byKey[rk]; replaces(h, r) && (by == nil || r.first > by.first) {
-				by = r
-			}
+		h, by := byKey[k], winBy[k]
+		if winKey[k] == nil {
+			by = oldBy[k]
 		}
 		if by == nil {
 			standing = append(standing, fmt.Sprintf("- %s — %s\n", quote(h.text), cite(h.slugs)))
 			continue
 		}
-		// The replacement is cited where it was first recorded: that is the
-		// checkpoint which took the question up again.
+		// The replacement is cited where it took the question up again: its
+		// oldest checkpoint after the last that recorded this one.
+		r, took := byKey[by.key], ""
+		for i := range r.slugs {
+			if r.when[i] > h.last {
+				took = r.slugs[i]
+			}
+		}
 		struck = append(struck, fmt.Sprintf("- ~~%s~~ — superseded by %s (%s) — recorded in %s\n",
-			quote(h.text), quote(by.text), cite(by.slugs[len(by.slugs)-1:]), cite(h.slugs)))
+			quote(h.text), quote(r.text), cite([]string{took}), cite(h.slugs)))
 	}
 	l.InForce, l.Superseded = len(standing), len(struck)
 	b.WriteString("## Decisions in force\n\n")
