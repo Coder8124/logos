@@ -32,11 +32,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -59,6 +61,13 @@ type Result struct {
 	// and were renamed rather than overwriting it.
 	Merged     int
 	Collisions int
+
+	// Derived is how many ledgers (session.IsDerivedFile) the rename dropped
+	// rather than moved: each is its checkpoints restated under the old name,
+	// stale the moment the project is renamed or merged, and `logos ledger
+	// <to>` rebuilds it whole. Moved, a merge filed the old one as ledger-2.md
+	// beside the target's, and both were counted as checkpoints that moved.
+	Derived int
 }
 
 // Empty reports whether the rename found nothing at all under the old name —
@@ -124,7 +133,25 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun, merge bool) (Result, err
 		return res, fmt.Errorf("sessions/%s already exists — rename it or pick another name, or pass --merge to combine both histories", to)
 	}
 
-	n, err := rewriteCheckpoints(res.Dir, from, to, dryRun)
+	// Before anything moves, so neither the frontmatter rewrite nor the merge
+	// counts a ledger as a checkpoint. The target's too, on a merge: it
+	// restates half the history the merged project now has.
+	dirs := []string{res.Dir}
+	if merge {
+		dirs = append(dirs, res.NewDir)
+	}
+	// A dry run leaves them in place, so what follows passes over the same
+	// paths and its counts are the real run's.
+	derived := map[string]bool{}
+	for _, d := range dirs {
+		if err := dropDerived(vaultDir, d, dryRun, derived); err != nil {
+			res.Derived = len(derived)
+			return res, err
+		}
+	}
+	res.Derived = len(derived)
+
+	n, err := rewriteCheckpoints(res.Dir, from, to, dryRun, derived)
 	if err != nil {
 		return res, err
 	}
@@ -143,7 +170,7 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun, merge bool) (Result, err
 		// merge at all — it has to move entry by entry, which is also what
 		// makes filename collisions visible and handleable one at a time
 		// instead of the whole rename failing on the first one.
-		moved, collisions, err := mergeDirInto(res.Dir, res.NewDir, dryRun)
+		moved, collisions, err := mergeDirInto(res.Dir, res.NewDir, dryRun, derived)
 		res.Merged, res.Collisions = moved, collisions
 		if err != nil {
 			// Reported, not swallowed: whatever moved before the failure stays
@@ -188,7 +215,7 @@ func Run(db *sql.DB, vaultDir, from, to string, dryRun, merge bool) (Result, err
 //
 // dryRun still walks and counts, but writes nothing, matching Run's existing
 // contract that a dry run's numbers are the real ones.
-func mergeDirInto(src, dst string, dryRun bool) (moved, collisions int, err error) {
+func mergeDirInto(src, dst string, dryRun bool, derived map[string]bool) (moved, collisions int, err error) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -205,7 +232,7 @@ func mergeDirInto(src, dst string, dryRun bool) (moved, collisions int, err erro
 		sp := filepath.Join(src, e.Name())
 		dp := filepath.Join(dst, e.Name())
 		if e.IsDir() {
-			m, c, err := mergeDirInto(sp, dp, dryRun)
+			m, c, err := mergeDirInto(sp, dp, dryRun, derived)
 			moved += m
 			collisions += c
 			if err != nil {
@@ -219,6 +246,9 @@ func mergeDirInto(src, dst string, dryRun bool) (moved, collisions int, err erro
 				// that rather than losing the leftover files.
 				os.Remove(sp)
 			}
+			continue
+		}
+		if derived[sp] {
 			continue
 		}
 		if _, statErr := os.Stat(dp); statErr == nil {
@@ -237,6 +267,32 @@ func mergeDirInto(src, dst string, dryRun bool) (moved, collisions int, err erro
 		os.Remove(src) // best-effort: only empties, never errors the merge
 	}
 	return moved, collisions, nil
+}
+
+// dropDerived removes every derived file under dir, worktree folders
+// included, and adds each to dropped; a dry run only records them. Deleting
+// one loses nothing — that is the promise a derived file is written under —
+// and a removal that fails is returned, never passed over.
+func dropDerived(vaultDir, dir string, dryRun bool, dropped map[string]bool) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) && path == dir {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if d.IsDir() || d.Type()&fs.ModeSymlink != 0 || !session.DerivedFileAt(vaultDir, path) {
+			return nil
+		}
+		dropped[path] = true
+		if dryRun {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("dropping the derived %s: %w", path, err)
+		}
+		return nil
+	})
 }
 
 // disambiguate finds a filename beside path that nothing already occupies, by
@@ -299,7 +355,7 @@ func checkName(name string) error {
 // place and then moving means a failure partway leaves files under the old
 // name with the new name inside them, which `logos index` reconciles. Moving
 // first would leave the reverse.
-func rewriteCheckpoints(dir, from, to string, dryRun bool) (int, error) {
+func rewriteCheckpoints(dir, from, to string, dryRun bool, derived map[string]bool) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -313,14 +369,14 @@ func rewriteCheckpoints(dir, from, to string, dryRun bool) (int, error) {
 		if e.IsDir() {
 			// A linked worktree is a sub-scope of the project, not a project of
 			// its own, so it is renamed with its parent rather than separately.
-			n, err := rewriteCheckpoints(path, from, to, dryRun)
+			n, err := rewriteCheckpoints(path, from, to, dryRun, derived)
 			if err != nil {
 				return count, err
 			}
 			count += n
 			continue
 		}
-		if !strings.HasSuffix(e.Name(), ".md") {
+		if !strings.HasSuffix(e.Name(), ".md") || derived[path] {
 			continue
 		}
 		raw, err := os.ReadFile(path)

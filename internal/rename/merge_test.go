@@ -166,3 +166,62 @@ history from the logos name, after the checkout renamed itself
 `)
 	return v
 }
+
+// A ledger restates its checkpoints and is rebuilt from them. Moved by a
+// merge, the old one was filed as ledger-2.md beside the target's, indexed as
+// a note, and counted as a checkpoint that moved and a collision.
+func TestAMergeDropsBothLedgersInsteadOfFilingOneAsACollision(t *testing.T) {
+	v := seedSplitVault(t)
+	for _, p := range []string{"brain", "logos"} {
+		body := "---\ntype: ledger\nproject: " + p + "\n---\n\n# Ledger: " + p + "\n"
+		if err := os.WriteFile(filepath.Join(v, "sessions", p, "ledger.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dry, err := Run(seedDB(t), v, "logos", "brain", true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Derived != 2 || dry.Merged != 1 || dry.Collisions != 0 {
+		t.Errorf("a dry run counted %+v, want 2 ledgers to drop, 1 checkpoint to move, no collision", dry)
+	}
+	res, err := Run(seedDB(t), v, "logos", "brain", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Derived != 2 || res.Merged != 1 || res.Collisions != 0 || res.Checkpoints != 1 {
+		t.Errorf("merge counted %+v, want 2 ledgers dropped, 1 checkpoint rewritten and moved, no collision", res)
+	}
+	entries, err := os.ReadDir(filepath.Join(v, "sessions", "brain"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "ledger") {
+			t.Errorf("a stale ledger survived the merge: %s", e.Name())
+		}
+	}
+}
+
+// A plain rename drops the old ledger too: moved, it still says "Ledger:
+// <old name>" over a project that no longer has that name.
+func TestARenameDropsTheLedgerWrittenUnderTheOldName(t *testing.T) {
+	v := seedSplitVault(t)
+	if err := os.RemoveAll(filepath.Join(v, "sessions", "brain")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v, "sessions", "logos", "ledger.md"),
+		[]byte("---\ntype: ledger\nproject: logos\n---\n\n# Ledger: logos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(seedDB(t), v, "logos", "brain", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Derived != 1 || res.Checkpoints != 1 {
+		t.Errorf("rename counted %+v, want 1 ledger dropped and 1 checkpoint", res)
+	}
+	if _, err := os.Stat(filepath.Join(v, "sessions", "brain", "ledger.md")); !os.IsNotExist(err) {
+		t.Errorf("the old ledger moved with the rename (%v)", err)
+	}
+}

@@ -170,6 +170,15 @@ func runProjectRename(args []string) error {
 		}
 		fmt.Println()
 	}
+	if res.Derived > 0 {
+		// Said, not done quietly: a ledger the user opened yesterday is gone
+		// until they rebuild it, and the rebuild is one command.
+		would := "dropped"
+		if dryRun {
+			would = "would drop"
+		}
+		fmt.Printf("  %s %d ledger(s) derived from the old checkpoints — run `logos ledger %s` to rebuild it\n", would, res.Derived, to)
+	}
 	if dryRun {
 		fmt.Println("\nnothing was written. run again without --dry-run to apply.")
 		return nil

@@ -87,3 +87,37 @@ func TestProjectRenameMergeDryRunWritesNothing(t *testing.T) {
 		t.Error("a dry-run merge moved a file")
 	}
 }
+
+// A merge that drops the old ledgers says so, with the number and the
+// command that rebuilds them, rather than leaving a ledger a user opened
+// yesterday quietly gone.
+func TestProjectRenameMergeSaysItDroppedTheLedgersAndHowToRebuildThem(t *testing.T) {
+	vaultDir := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vaultDir)
+	t.Setenv("LOGOS_PROJECT", "")
+	write := func(rel, body string) {
+		p := filepath.Join(vaultDir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sessions/brain/20260101-000000-claude.md", "---\ntype: checkpoint\nproject: brain\nagent: claude\n---\n\nold-name era\n")
+	write("sessions/logos/20260201-000000-claude.md", "---\ntype: checkpoint\nproject: logos\nagent: claude\n---\n\nnew-name era\n")
+	write("sessions/brain/ledger.md", "---\ntype: ledger\nproject: brain\n---\n\n# Ledger: brain\n")
+	write("sessions/logos/ledger.md", "---\ntype: ledger\nproject: logos\n---\n\n# Ledger: logos\n")
+
+	out := captureStdout(t, func() {
+		if err := runProjectRename([]string{"logos", "brain", "--merge"}); err != nil {
+			t.Fatalf("project rename --merge: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dropped 2 ledger(s)") || !strings.Contains(out, "logos ledger brain") {
+		t.Errorf("the run did not say it dropped the ledgers and how to rebuild them:\n%s", out)
+	}
+	if !strings.Contains(out, "1 checkpoint file(s) moved") || strings.Contains(out, "collision") {
+		t.Errorf("a ledger was counted as a moved checkpoint or a collision:\n%s", out)
+	}
+}
