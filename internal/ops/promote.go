@@ -41,6 +41,7 @@ type held struct {
 	decided
 	slugs       []string
 	when        []int64         // each slug's checkpoint time
+	conv        []string        // each slug's host conversation, "" when the host named none
 	in          map[string]bool // slugs as a set: were two ever recorded together
 	first, last int64
 }
@@ -122,6 +123,7 @@ func heldIn(hist []session.Checkpoint) (per [][]decided, order []string, byKey m
 			}
 			h.slugs = append(h.slugs, c.Slug)
 			h.when = append(h.when, c.TS)
+			h.conv = append(h.conv, c.HostSession)
 			h.in[c.Slug] = true
 			h.first = c.TS
 		}
@@ -130,14 +132,34 @@ func heldIn(hist []session.Checkpoint) (per [][]decided, order []string, byKey m
 }
 
 // replaces is whether r reversed old: the same question, never recorded in
-// one checkpoint together, and r the one said last. Never together is what
-// tells a reversal from a neighbour — two decisions on one subject that agents
-// copy forward together are both standing. Said last, not first said after
-// old's last: that missed a reinstatement, A reversed by B and then A again,
-// where neither began after the other ended and both read as in force.
-func replaces(old, r *held) bool {
+// one checkpoint together, said last, and taken up again after old was last
+// said (takenUp).
+func replaces(old, r *held) bool { return takenUp(old, r) >= 0 }
+
+// takenUp is the index in r.slugs of the oldest checkpoint at which r took
+// the question up after old was last recorded, and -1 when r never did — when
+// r is not a reversal of old at all.
+//
+// Never together is what tells a reversal from a neighbour: two decisions on
+// one subject that agents copy forward together are both standing. Beyond
+// that, a recording of r after old's last counts only when it is a take-up,
+// not r carrying on beside old:
+//
+//   - r was first said after old's last: nothing recorded r while old stood.
+//   - its conversation recorded old earlier: that sitting held old, then
+//     moved to r. A reinstatement in one sitting, Redis, Postgres, Redis.
+//   - its conversation never recorded r while old stood: a later sitting
+//     took r up again after old was said, a reinstatement across sittings.
+//
+// Timestamps alone cannot tell a reinstatement from two conversations running
+// side by side — A at t1..t5 in one, B at t3 in another has the same shape as
+// Redis t1, Postgres t2, Redis t3 — and reading the parallel case as a
+// reversal had promotion Correct one standing decision into the other. So
+// the last two need the host's conversation id; a checkpoint whose host named
+// none is only ever a take-up by the first.
+func takenUp(old, r *held) int {
 	if r.last <= old.last || textmatch.Overlap(old.subject, r.subject) < textmatch.Related {
-		return false
+		return -1
 	}
 	a, b := old.in, r.in
 	if len(b) < len(a) {
@@ -145,10 +167,30 @@ func replaces(old, r *held) bool {
 	}
 	for s := range a {
 		if b[s] {
-			return false
+			return -1
 		}
 	}
-	return true
+	fresh := r.first > old.last
+	sawOld := map[string]bool{}
+	for _, c := range old.conv {
+		sawOld[c] = true
+	}
+	heldR := map[string]bool{} // conversations recording r while old stood
+	for i, t := range r.when {
+		if t <= old.last {
+			heldR[r.conv[i]] = true
+		}
+	}
+	at := -1
+	for i, t := range r.when { // newest first, so the last match is the oldest
+		if t <= old.last {
+			continue
+		}
+		if c := r.conv[i]; fresh || (c != "" && (sawOld[c] || !heldR[c])) {
+			at = i
+		}
+	}
+	return at
 }
 
 // saidLater is which of two replacements of one decision stands: the one said
@@ -260,12 +302,12 @@ func reversedAfter(hist []session.Checkpoint, per [][]decided, h *held) bool {
 }
 
 // supersedeReversed replaces a promoted decision with a later promoted one on
-// the same question that the checkpoints took up only after they stopped
-// recording the first. Both have to be standing memory, so the reversal went
-// through review like the decision it replaces. And "after they stopped" is
-// what tells a reversal from a neighbour: two decisions on one subject that
-// agents copy forward together are both standing, and neither replaces the
-// other at every checkpoint.
+// the same question that the checkpoints took up again after they last
+// recorded the first (replaces). Both have to be standing memory, so the
+// reversal went through review like the decision it replaces. And "took up"
+// is what tells a reversal from a neighbour or a parallel conversation: two
+// decisions agents copy forward together, or two sittings each carrying their
+// own, are both standing, and neither replaces the other.
 //
 // Through Correct, which folds the old memory into the reversal with its uid
 // named, never edited in place: what the project used to hold stays on record

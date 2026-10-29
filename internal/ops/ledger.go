@@ -215,7 +215,7 @@ func renderLedger(scope string, scopes []scoped, a *gitstate.Anchors) (string, L
 	l.InForce, l.Superseded = len(standing), len(struck)
 	b.WriteString("## Decisions in force\n\n")
 	b.WriteString("_Each as last worded. Struck through: a later checkpoint took the same question up differently " +
-		"after the checkpoints stopped recording it._\n\n")
+		"after the struck answer was last recorded — not one carried beside it in a parallel conversation._\n\n")
 	section(&b, append(standing, struck...))
 
 	rulings, ruleOrder := rulingsIn(hist, reviewsOf, a)
@@ -259,18 +259,8 @@ func renderLedger(scope string, scopes []scoped, a *gitstate.Anchors) (string, L
 // decisionLines is one folder's decisions as ledger lines, standing and
 // struck, skipping and then marking those already listed.
 func decisionLines(hist []session.Checkpoint, cite func([]string) string, listed map[string]bool) (standing, struck []string) {
-	win := hist
-	if len(win) > session.DecisionWindow {
-		win = win[:session.DecisionWindow]
-	}
-	_, winOrder, winKey := heldIn(win)
 	_, order, byKey := heldIn(hist)
-	var older []string
-	for _, k := range order {
-		if winKey[k] == nil {
-			older = append(older, k)
-		}
-	}
+	winOrder, winKey, older := inWindow(hist, order, byKey)
 	winBy, oldBy := supersessions(winOrder, winKey), supersessions(older, byKey)
 	for _, k := range order {
 		if listed[k] {
@@ -285,18 +275,60 @@ func decisionLines(hist []session.Checkpoint, cite func([]string) string, listed
 			standing = append(standing, fmt.Sprintf("- %s — %s\n", quote(h.text), cite(h.slugs)))
 			continue
 		}
-		// The replacement is cited where it took the question up again: its
-		// oldest checkpoint after the last that recorded this one.
-		r, took := byKey[by.key], ""
-		for i := range r.slugs {
-			if r.when[i] > h.last {
-				took = r.slugs[i]
-			}
-		}
+		// The replacement is cited where it took the question up again, as
+		// judged where it was judged — in the window or on the whole history.
+		r := byKey[by.key]
+		took := by.slugs[takenUp(byKeyFor(winKey, k, byKey), by)]
 		struck = append(struck, fmt.Sprintf("- ~~%s~~ — superseded by %s (%s) — recorded in %s\n",
 			quote(h.text), quote(r.text), cite([]string{took}), cite(h.slugs)))
 	}
 	return standing, struck
+}
+
+// byKeyFor is k's held as its supersession was judged: in the window when it
+// has a checkpoint there, on the whole history otherwise.
+func byKeyFor(winKey map[string]*held, k string, byKey map[string]*held) *held {
+	if h := winKey[k]; h != nil {
+		return h
+	}
+	return byKey[k]
+}
+
+// inWindow cuts the whole history's helds down to the newest DecisionWindow
+// checkpoints, the ones promotion reads: winKey and winOrder are what heldIn
+// over that window would give, and older lists the keys with no checkpoint in
+// it. Derived from the one full pass rather than a second heldIn over the
+// window, which read and keyed every windowed checkpoint's decisions twice.
+func inWindow(hist []session.Checkpoint, order []string, byKey map[string]*held) (winOrder []string, winKey map[string]*held, older []string) {
+	if len(hist) <= session.DecisionWindow {
+		return order, byKey, nil
+	}
+	win := make(map[string]bool, session.DecisionWindow)
+	for _, c := range hist[:session.DecisionWindow] {
+		win[c.Slug] = true
+	}
+	winKey = map[string]*held{}
+	for _, k := range order {
+		h := byKey[k]
+		n := 0 // slugs are newest first, so the window's are a prefix
+		for n < len(h.slugs) && win[h.slugs[n]] {
+			n++
+		}
+		if n == 0 {
+			older = append(older, k)
+			continue
+		}
+		w := *h
+		w.slugs, w.when, w.conv = h.slugs[:n], h.when[:n], h.conv[:n]
+		w.in = make(map[string]bool, n)
+		for _, sl := range w.slugs {
+			w.in[sl] = true
+		}
+		w.first = w.when[n-1]
+		winKey[k] = &w
+		winOrder = append(winOrder, k)
+	}
+	return winOrder, winKey, older
 }
 
 func section(b *strings.Builder, lines []string) {

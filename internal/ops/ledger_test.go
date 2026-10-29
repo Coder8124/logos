@@ -488,10 +488,10 @@ func TestTheLedgerJudgesAReversalOverTheSameCheckpointsPromoteReads(t *testing.T
 func TestADecisionReinstatedAfterItsReversalStandsAndTheReversalIsStruck(t *testing.T) {
 	db, vault := reviewVault(t, false)
 	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
-		session.Checkpoint{Decisions: []string{cookieDecision}},
-		session.Checkpoint{Decisions: []string{jwtDecision}},
-		session.Checkpoint{Decisions: []string{jwtDecision}},
-		session.Checkpoint{Decisions: []string{cookieDecision}},
+		session.Checkpoint{HostSession: "conv-1", Decisions: []string{cookieDecision}},
+		session.Checkpoint{HostSession: "conv-2", Decisions: []string{jwtDecision}},
+		session.Checkpoint{HostSession: "conv-2", Decisions: []string{jwtDecision}},
+		session.Checkpoint{HostSession: "conv-3", Decisions: []string{cookieDecision}},
 	)
 	l, err := WriteLedger(vault, "kestrel", "")
 	if err != nil {
@@ -601,5 +601,27 @@ func TestTheLedgerReadsTheCheckpointsOfTheProjectsLinkedWorktrees(t *testing.T) 
 	}
 	if say := LedgerReceipt(l); !strings.Contains(say, "1 linked worktree") {
 		t.Errorf("the receipt does not say the worktree was read: %q", say)
+	}
+}
+
+// The ledger reads interleaved conversations as promotion does: one that kept
+// recording its own decision while another recorded a different one never
+// reversed it, so both stand and neither is struck.
+func TestTheLedgerStrikesNeitherDecisionOfTwoInterleavedConversations(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{HostSession: "conv-1", Decisions: []string{cookieDecision}},
+		session.Checkpoint{HostSession: "conv-1", Decisions: []string{cookieDecision}},
+		session.Checkpoint{HostSession: "conv-2", Decisions: []string{jwtDecision}},
+		session.Checkpoint{HostSession: "conv-1", Decisions: []string{cookieDecision}},
+		session.Checkpoint{HostSession: "conv-1", Decisions: []string{cookieDecision}},
+	)
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	if l.InForce != 2 || l.Superseded != 0 {
+		t.Errorf("counted %d in force and %d superseded, want 2 and 0:\n%s", l.InForce, l.Superseded, text)
 	}
 }

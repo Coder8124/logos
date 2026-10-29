@@ -270,21 +270,27 @@ func TestTwoRelatedDecisionsRecordedTogetherDoNotSupersedeEachOther(t *testing.T
 func TestAReinstatedDecisionSupersedesTheReversalThatReplacedIt(t *testing.T) {
 	db, vault := reviewVault(t, false)
 	start := time.Now().Add(-2 * time.Hour)
-	checkpointsFrom(t, db, vault, start, []string{cookieDecision}, []string{cookieDecision}, []string{cookieDecision})
+	for _, m := range []int{0, 1, 2} {
+		sittingAt(t, db, vault, start, "conv-1", m, cookieDecision)
+	}
 	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
 		t.Fatal(err)
 	}
 	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
 		t.Fatal(err)
 	}
-	checkpointsFrom(t, db, vault, start.Add(30*time.Minute), []string{jwtReversal}, []string{jwtReversal}, []string{jwtReversal})
+	for _, m := range []int{30, 31, 32} {
+		sittingAt(t, db, vault, start, "conv-2", m, jwtReversal)
+	}
 	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
 		t.Fatal(err)
 	}
 	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
 		t.Fatal(err)
 	}
-	checkpointsFrom(t, db, vault, start.Add(60*time.Minute), []string{cookieDecision}, []string{cookieDecision}, []string{cookieDecision})
+	for _, m := range []int{60, 61, 62} {
+		sittingAt(t, db, vault, start, "conv-3", m, cookieDecision)
+	}
 	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
 		t.Fatal(err)
 	}
@@ -332,5 +338,63 @@ func TestOnlyDecisionsSharingAWordAreComparedForAReversal(t *testing.T) {
 			texts = append(texts, h.text)
 		}
 		t.Errorf("a decision is compared with %d others, want only the one sharing its words: %q", len(got), texts)
+	}
+}
+
+// sittingAt files one checkpoint of decision at start+minute, in the host
+// conversation host.
+func sittingAt(t *testing.T, db *sql.DB, vault string, start time.Time, host string, minute int, decision string) {
+	t.Helper()
+	if err := session.Init(db); err != nil {
+		t.Fatal(err)
+	}
+	c := &session.Checkpoint{Project: "kestrel", Agent: "claude-code", HostSession: host, Decisions: []string{decision},
+		TS: start.Add(time.Duration(minute) * time.Minute).Unix()}
+	if err := session.Commit(db, vault, c); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two conversations running side by side each copy their own decision
+// forward, and their checkpoints interleave in time. Neither saw the other's
+// decision, so neither reversed it: correcting one into the other folded a
+// standing decision away because its last checkpoint happened to land first.
+func TestDecisionsFromTwoInterleavedConversationsNeverCorrectEachOther(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	start := time.Now().Add(-2 * time.Hour)
+	for _, m := range []int{0, 1, 2} {
+		sittingAt(t, db, vault, start, "conv-1", m, cookieDecision)
+	}
+	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
+		t.Fatal(err)
+	}
+	sittingAt(t, db, vault, start, "conv-2", 3, jwtReversal)
+	sittingAt(t, db, vault, start, "conv-1", 4, cookieDecision)
+	sittingAt(t, db, vault, start, "conv-2", 5, jwtReversal)
+	sittingAt(t, db, vault, start, "conv-2", 6, jwtReversal)
+	if _, err := PromoteDecisions(db, vault, "kestrel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Accept(db, onlyPending(t, db).ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := PromoteDecisions(db, vault, "kestrel"); err != nil || got.Superseded != 0 {
+		t.Errorf("superseded %d (%v) between two conversations that never saw each other's decision", got.Superseded, err)
+	}
+	mems, err := memory.AllInProject(db, "kestrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	standing := 0
+	for _, m := range mems {
+		if m.Source == memory.SourceCheckpoints && !m.Quarantined {
+			standing++
+		}
+	}
+	if standing != 2 {
+		t.Errorf("%d promoted decisions stand, want both: %+v", standing, mems)
 	}
 }
