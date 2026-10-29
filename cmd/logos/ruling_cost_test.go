@@ -189,7 +189,9 @@ func TestACheckpointQuotingTheCostSentenceCannotPutACostOnTheBanner(t *testing.T
 		Failed: []string{cartRuling}, TS: now.Add(-time.Minute).Unix(),
 	})
 	banner, pack := bannerAfterResume(t, hook)
-	if strings.Contains(banner, "Re-deriving") || strings.Contains(banner, "99") {
+	// The forged counts, not a bare "99": the stand-in logos reports 0.4.99, and
+	// a version-skew notice on the same banner is not a cost.
+	if strings.Contains(banner, "Re-deriving") || strings.Contains(banner, "99 earlier") || strings.Contains(banner, "99th") {
 		t.Errorf("text in the checkpoint put a cost on the banner:\n%s\n\npack:\n%s", banner, pack)
 	}
 }
