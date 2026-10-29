@@ -152,23 +152,23 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 	}
 	switch {
 	case p.WindowEmpty:
-		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered._\n",
-			p.Window)
+		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered.%s_\n",
+			p.Window, p.revivedNote())
 	case p.OutOfWindow > 0:
 		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s.%s_\n",
 			p.Window, p.inferredNote(), p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
 			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"), p.revivedNote())
-	case len(p.Revived) > 0:
-		// Not "everything falls inside it": the revived rulings are from
-		// outside it, and are the reason this line exists.
-		fmt.Fprintf(b, "\n_Filtered to %s%s.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
+	case p.revivedNote() != "":
+		// Not "everything recorded falls inside it": older checkpoints were
+		// weighed against the task, and some may be from before the window.
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
 	default:
-		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
 }
 
 // revivedNote accounts for the older rulings weighed against the task. The
-// set-aside count above never included them — they were outside History's
+// set-aside count above never included them — they were past History's
 // reach, not removed by the window — so they are stated apart from it, and a
 // reader can tell "hidden by the filter" from "brought back past it". How
 // they were weighed is said too: matching by keyword alone misses the same
@@ -183,14 +183,17 @@ func (p *Pack) revivedNote() string {
 		return ""
 	}
 	how := ""
-	if p.ReviveLexical {
+	switch {
+	case p.ReviveEmbedErr != nil:
+		how = fmt.Sprintf(" by keyword only (the embedding model failed: %s)", inline(p.ReviveEmbedErr.Error()))
+	case p.ReviveLexical:
 		how = " by keyword only (no embedding model)"
 	}
 	if n == 0 {
-		return fmt.Sprintf(" %d older ruled-out %s from before it %s checked against this task%s; none matched.",
+		return fmt.Sprintf(" %d ruled-out %s in older checkpoints %s checked against this task%s; none matched.",
 			p.ReviveConsidered, plural(p.ReviveConsidered, "approach", "approaches"), plural(p.ReviveConsidered, "was", "were"), how)
 	}
-	return fmt.Sprintf(" %d older ruled-out %s from outside it %s listed because %s this task%s.",
+	return fmt.Sprintf(" %d ruled-out %s from older checkpoints %s listed because %s this task%s.",
 		n, plural(n, "approach", "approaches"), plural(n, "is", "are"), plural(n, "it matches", "they match"), how)
 }
 
@@ -263,7 +266,12 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 		list(&tail, "Ruled out earlier in this project", older)
 	}
 	if revived := p.revivedLines(); len(revived) > 0 {
-		list(&tail, "Ruled out before this window, and matching this task", revived)
+		list(&tail, "Ruled out earlier, and matching this task", revived)
+	}
+	// With no window line to carry it, the account of what was weighed sits
+	// under what came back, so a since: all resume still says it looked.
+	if note := p.revivedNote(); note != "" && p.Window == nil {
+		fmt.Fprintf(&tail, "_%s_\n\n", strings.TrimSpace(note))
 	}
 	staleHint(&tail, p)
 	if earlier := p.priorDecisions(); len(earlier) > 0 {
@@ -662,9 +670,11 @@ func (p *Pack) priorFailures() []string {
 	return out
 }
 
-// revivedLines renders the rulings brought back past the window, each with
-// its age and the words "outside the window", so none of them can be read as
-// a ruling from the period the pack is about.
+// revivedLines renders the rulings brought back past History, each with its
+// age, and "outside the window" on any from before it, so none of them can be
+// read as a ruling from the period the pack is about. Each carries its drift
+// like the rest: these are the oldest rulings in the pack, the likeliest to
+// have been overtaken by the code.
 func (p *Pack) revivedLines() []string {
 	out := make([]string, 0, len(p.Revived))
 	for _, r := range p.Revived {
@@ -672,7 +682,15 @@ func (p *Pack) revivedLines() []string {
 		if who == "" {
 			who = "an earlier agent"
 		}
-		out = append(out, fmt.Sprintf("(%s, %s, outside the window) %s", who, project.Age(r.TS), flatten(r.Text)))
+		where := ""
+		if p.Window != nil && !p.WindowEmpty && !p.Window.Contains(r.TS) {
+			where = ", outside the window"
+		}
+		line := fmt.Sprintf("(%s, %s%s) %s", who, project.Age(r.TS), where, flatten(r.Text))
+		if d := p.RulingDrift[normalizeKey(r.Text)]; d != nil {
+			line += " — ⚠ " + d.Note()
+		}
+		out = append(out, line)
 	}
 	return out
 }

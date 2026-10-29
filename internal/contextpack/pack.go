@@ -142,17 +142,19 @@ type Pack struct {
 	// History is earlier checkpoints on the same project. Only their ruled-out
 	// approaches are used — see Build.
 	History []session.Checkpoint `json:"history,omitempty"`
-	// Revived is what reviveOutOfWindow brought back from checkpoints older
-	// than the window because the task reaches them; ReviveConsidered counts
-	// the older rulings it weighed, and ReviveLexical says the weighing was by
-	// keyword alone, which the render states rather than leaving a reader to
-	// assume an embedding model looked.
+	// Revived is what reviveRelevant brought back from checkpoints past
+	// History's reach because the task reaches them; ReviveConsidered counts
+	// the distinct older rulings it weighed, and ReviveLexical says the
+	// weighing was by keyword alone, which the render states rather than
+	// leaving a reader to assume an embedding model looked. ReviveEmbedErr is
+	// why the model was not used when one was configured, ReviveErr why
+	// nothing was weighed at all: both are said, since a search that failed
+	// and one that found nothing must not read alike.
 	Revived          []Revived `json:"revived,omitempty"`
 	ReviveConsidered int       `json:"-"`
 	ReviveLexical    bool      `json:"-"`
-	// ReviveErr is why the older checkpoints could not be read: said, since
-	// a read that failed and one that found nothing must not read alike.
-	ReviveErr error `json:"-"`
+	ReviveEmbedErr   error     `json:"-"`
+	ReviveErr        error     `json:"-"`
 	// Cost is what the checkpoint's ruled-out approaches took to learn, nil
 	// when the record holds no number for it; see loadRulingCost.
 	Cost *RulingCost `json:"-"`
@@ -408,11 +410,11 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	memory.MarkDrift(p.Pinned, req.Dir)
 	p.OpenLoops = openLoops(db, p.Project)
 	p.applyWindow(req)
-	// After the window, because what it brings back is defined by the window.
-	p.reviveOutOfWindow(ix, embed, embedModel, query, req, reviews)
-	// Filtered to this repository the way the checkpoint was: another
-	// repository under the same name is not a session that hit this one's
-	// dead ends. DecisionWindow is the depth "Decided earlier" already reads.
+	// One read of the deeper history for both of its uses, filtered to this
+	// repository the way the checkpoint was: another repository under the
+	// same name neither hands over its rulings nor counts as a session that
+	// hit this one's dead ends. DecisionWindow is the depth "Decided earlier"
+	// already reads, so neither reaches further back than the pack does.
 	var earlier []session.Checkpoint
 	if p.historyScope != "" && ix.Vault != "" {
 		all, err := session.History(ix.Vault, p.historyScope, session.DecisionWindow)
@@ -423,6 +425,9 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		}
 		earlier = all
 	}
+	// After the window, so the render can say which revived rulings are from
+	// outside it.
+	p.reviveRelevant(ix, embed, embedModel, query, req, reviews, earlier)
 	p.loadRulingCost(earlier)
 	// After the window: a decision that held is standing, like a pin, and a
 	// date filter does not make it any less decided.
@@ -962,21 +967,28 @@ func (p *Pack) markRulings(dir string, reviews map[string]session.Review) {
 				continue
 			}
 			seen[k] = true
-			_, commit := reviews[k].For(c.TS, c.Git.Commit)
-			// Measured the way before_you_try and `logos review --stale`
-			// measure it, structured anchor included, so every warning
-			// here is one --stale offers to settle.
-			rec := deadend.ParseRecord(textmatch.Flatten(f))
-			d, ok := a.SinceAnchor(commit, rec.Anchor, rec.Raw)
-			if !ok {
-				continue
-			}
-			if p.RulingDrift == nil {
-				p.RulingDrift = map[string]*gitstate.Drift{}
-			}
-			p.RulingDrift[k] = &d
+			p.measureRuling(a, f, c.TS, c.Git.Commit, reviews)
 		}
 	}
+}
+
+// measureRuling records in RulingDrift whether the files ruling f names have
+// changed since the commit it was recorded on, or last reviewed at.
+func (p *Pack) measureRuling(a *gitstate.Anchors, f string, ts int64, recorded string, reviews map[string]session.Review) {
+	k := normalizeKey(f)
+	_, commit := reviews[k].For(ts, recorded)
+	// Measured the way before_you_try and `logos review --stale` measure it,
+	// structured anchor included, so every warning here is one --stale offers
+	// to settle.
+	rec := deadend.ParseRecord(textmatch.Flatten(f))
+	d, ok := a.SinceAnchor(commit, rec.Anchor, rec.Raw)
+	if !ok {
+		return
+	}
+	if p.RulingDrift == nil {
+		p.RulingDrift = map[string]*gitstate.Drift{}
+	}
+	p.RulingDrift[k] = &d
 }
 
 // applyReviews drops the rulings a person retired with `logos review --stale`
