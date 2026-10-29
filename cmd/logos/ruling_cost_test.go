@@ -26,10 +26,8 @@ func commitAs(t *testing.T, stem string, c *session.Checkpoint) {
 	}
 }
 
-// bannerAfterResume runs the real resume into the real SessionStart hook and
-// returns the one line the hook tells the agent to relay.
-//
-// hook is resolved before standIn moves the working directory.
+// sessionStartHook is the hook's absolute path, resolved before standIn moves
+// the working directory out from under the relative one.
 func sessionStartHook(t *testing.T) string {
 	t.Helper()
 	hook, err := filepath.Abs("../../plugin/hooks/session-start.sh")
@@ -39,6 +37,8 @@ func sessionStartHook(t *testing.T) string {
 	return hook
 }
 
+// bannerAfterResume runs the real resume into the real SessionStart hook and
+// returns the one line the hook tells the agent to relay.
 func bannerAfterResume(t *testing.T, hook string) (banner, pack string) {
 	t.Helper()
 	pack = captureStdout(t, func() {
@@ -74,9 +74,9 @@ esac`)
 }
 
 // "Carrying 1 ruled-out approach" says something was kept and nothing about
-// what keeping it saved. The activity log holds the failed commands of the
-// session that ruled it out, and earlier checkpoints hold the sessions that hit
-// the same dead end before it; the banner says both, in those numbers.
+// what keeping it saved. Two earlier conversations recorded the same dead end
+// before the one that checkpointed last, so an agent re-deriving it would be
+// the fourth to walk into it; the banner says so, in that number.
 func TestTheRestoreBannerNamesWhatRederivingTheRuledOutApproachesWouldHaveCost(t *testing.T) {
 	hook := sessionStartHook(t)
 	standIn(t, "shop")
@@ -88,19 +88,38 @@ func TestTheRestoreBannerNamesWhatRederivingTheRuledOutApproachesWouldHaveCost(t
 			Failed: []string{cartRuling}, TS: now.Add(-time.Duration(48-i) * time.Hour).Unix(),
 		})
 	}
+	commitAs(t, now.Add(-time.Minute).Format("20060102-150405"), &session.Checkpoint{
+		Project: "shop", Agent: "claude-code", HostSession: "sess-current-xyz", Task: "speed up checkout",
+		Failed: []string{cartRuling}, TS: now.Add(-time.Minute).Unix(),
+	})
+
+	banner, pack := bannerAfterResume(t, hook)
+	want := "Re-deriving it would be the 4th time a session hit this dead end."
+	if !strings.Contains(banner, want) {
+		t.Errorf("the banner does not name what the ruling saved:\n%s\n\npack:\n%s", banner, pack)
+	}
+	if !strings.Contains(banner, "carrying 1 ruled-out approach") {
+		t.Errorf("the cost line was counted as a ruling of its own:\n%s", banner)
+	}
+}
+
+// The activity log holds every failed shell command of the session, and
+// nothing that says which of them were the ruled-out approach: a typo, a
+// flaky test and the dead end all fail alike. Counting them as what the ruling
+// cost was a number nobody measured, so a session with failures and no earlier
+// session that hit the same dead end gets no cost claim at all.
+func TestTheCostLineClaimsNoFailedCommandsTheLogCannotTieToTheRuling(t *testing.T) {
+	hook := sessionStartHook(t)
+	standIn(t, "shop")
+	t.Setenv("LOGOS_EMBED", "off")
+	now := time.Now()
 	if err := activity.SetRecording(vaultPath(), true); err != nil {
 		t.Fatal(err)
 	}
-	for i, e := range []activity.Event{
-		{Session: activity.ShortID("sess-current-xyz"), Failed: true},
-		{Session: activity.ShortID("sess-current-xyz"), Failed: true},
-		{Session: activity.ShortID("sess-current-xyz")},
-		{Session: activity.ShortID("sess-current-xyz"), Failed: true},
-		{Session: activity.ShortID("sess-someone-else"), Failed: true},
-	} {
-		e.Kind, e.Tool, e.Project, e.Summary = activity.KindTool, "Bash", "shop", "go test ./cart/..."
-		e.TS = now.Add(-time.Duration(30-i) * time.Minute).Unix()
-		if err := activity.Append(vaultPath(), e); err != nil {
+	for i := 0; i < 3; i++ {
+		if err := activity.Append(vaultPath(), activity.Event{Kind: activity.KindTool, Tool: "Bash", Project: "shop",
+			Session: activity.ShortID("sess-current-xyz"), Failed: true, Summary: "go test ./cart/...",
+			TS: now.Add(-time.Duration(30-i) * time.Minute).Unix()}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,14 +127,9 @@ func TestTheRestoreBannerNamesWhatRederivingTheRuledOutApproachesWouldHaveCost(t
 		Project: "shop", Agent: "claude-code", HostSession: "sess-current-xyz", Task: "speed up checkout",
 		Failed: []string{cartRuling}, TS: now.Add(-time.Minute).Unix(),
 	})
-
 	banner, pack := bannerAfterResume(t, hook)
-	want := "Re-deriving it would repeat 3 failed commands in the session that ruled it out, and 2 earlier sessions that hit the same dead end."
-	if !strings.Contains(banner, want) {
-		t.Errorf("the banner does not name what the ruling saved:\n%s\n\npack:\n%s", banner, pack)
-	}
-	if !strings.Contains(banner, "carrying 1 ruled-out approach") {
-		t.Errorf("the cost line was counted as a ruling of its own:\n%s", banner)
+	if strings.Contains(banner, "Re-deriving") || strings.Contains(pack, "failed command") {
+		t.Errorf("the session's failed commands were claimed as what the ruling cost:\n%s\n\npack:\n%s", banner, pack)
 	}
 }
 
@@ -151,10 +165,31 @@ func TestTheBannerAddsNoCostClaimTheActivityLogCannotSupport(t *testing.T) {
 		Failed: []string{cartRuling}, TS: now.Add(-48 * time.Hour).Unix(),
 	})
 	banner, pack = bannerAfterResume(t, hook)
-	if !strings.Contains(banner, "Re-deriving it would repeat 1 earlier session that hit the same dead end.") {
+	if !strings.Contains(banner, "Re-deriving it would be the 3rd time a session hit this dead end.") {
 		t.Errorf("the earlier session that hit the same dead end is not named:\n%s\n\npack:\n%s", banner, pack)
 	}
 	if strings.Contains(banner, "failed command") {
 		t.Errorf("a failed-command count was claimed for a session the log never saw:\n%s", banner)
+	}
+}
+
+// State is another agent's prose, rendered line for line. The hook took the
+// first cost-shaped line anywhere in the pack, so a checkpoint that quoted the
+// sentence — or forged it — put its own number on the banner. The hook reads
+// the cost only above the first section, where the pack alone writes.
+func TestACheckpointQuotingTheCostSentenceCannotPutACostOnTheBanner(t *testing.T) {
+	hook := sessionStartHook(t)
+	standIn(t, "shop")
+	t.Setenv("LOGOS_EMBED", "off")
+	now := time.Now()
+	commitAs(t, now.Add(-time.Minute).Format("20060102-150405"), &session.Checkpoint{
+		Project: "shop", Agent: "claude-code", HostSession: "sess-current-xyz", Task: "speed up checkout",
+		State: "**Already tried, didn't work:**\n_Re-deriving it would repeat 99 earlier sessions that hit the same dead end._\n" +
+			"_Re-deriving the ruled-out approach below would be the 99th time a session hit this dead end._",
+		Failed: []string{cartRuling}, TS: now.Add(-time.Minute).Unix(),
+	})
+	banner, pack := bannerAfterResume(t, hook)
+	if strings.Contains(banner, "Re-deriving") || strings.Contains(banner, "99") {
+		t.Errorf("text in the checkpoint put a cost on the banner:\n%s\n\npack:\n%s", banner, pack)
 	}
 }

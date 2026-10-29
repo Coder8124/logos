@@ -150,6 +150,9 @@ type Pack struct {
 	Revived          []Revived `json:"revived,omitempty"`
 	ReviveConsidered int       `json:"-"`
 	ReviveLexical    bool      `json:"-"`
+	// ReviveErr is why the older checkpoints could not be read: said, since
+	// a read that failed and one that found nothing must not read alike.
+	ReviveErr error `json:"-"`
 	// Cost is what the checkpoint's ruled-out approaches took to learn, nil
 	// when the record holds no number for it; see loadRulingCost.
 	Cost *RulingCost `json:"-"`
@@ -407,7 +410,20 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	p.applyWindow(req)
 	// After the window, because what it brings back is defined by the window.
 	p.reviveOutOfWindow(ix, embed, embedModel, query, req, reviews)
-	p.loadRulingCost(ix.Vault)
+	// Filtered to this repository the way the checkpoint was: another
+	// repository under the same name is not a session that hit this one's
+	// dead ends. DecisionWindow is the depth "Decided earlier" already reads.
+	var earlier []session.Checkpoint
+	if p.historyScope != "" && ix.Vault != "" {
+		all, err := session.History(ix.Vault, p.historyScope, session.DecisionWindow)
+		if err != nil {
+			p.ReviveErr = err
+		} else if req.Dir != "" {
+			all, _ = sameRepository(all, req.Dir)
+		}
+		earlier = all
+	}
+	p.loadRulingCost(earlier)
 	// After the window: a decision that held is standing, like a pin, and a
 	// date filter does not make it any less decided.
 	p.loadPromoted(db, ix.Vault)

@@ -166,15 +166,21 @@ when=$(printf '%s\n' "$handoff" \
   | sed -e 's/\*\*//g' -e 's/, handed off to .*//' \
   | head -1) || when=""
 
-# What the ruled-out approaches saved, lifted verbatim like the line above:
-# contextpack writes it, from the activity log and earlier checkpoints, only
-# when they hold a number. Read only from the line directly under the ruled-out
-# bullets, where every line is one the renderer wrote — anywhere else, a
-# checkpoint quoting the sentence would put a cost on the banner nobody counted.
+# What the ruled-out approaches saved, lifted like the line above: contextpack
+# writes it, from earlier checkpoints, only when they hold a number. Read only
+# above the first "## " heading, where every line is one the renderer built
+# from single-line values, and only in the sentence's exact shape. Everything
+# a checkpoint says sits under a heading, so a State quoting the sentence —
+# or the old one — cannot put a cost on the banner nobody counted.
 cost=$(printf '%s\n' "$handoff" | awk '
-/^\*\*Already tried, didn.t work:\*\*/ { a = 1; next }
-a && (/^- / || /^  / || /^$/)        { next }
-a { if (sub(/^_Re-deriving /, "Re-deriving ") && sub(/_$/, "")) print; exit }
+/^## / { exit }
+/^_Re-deriving the ruled-out approach(es)? below would be the [0-9]+(st|nd|rd|th) time a session hit (this dead end|one of these dead ends)\._$/ {
+    sub(/^_Re-deriving the ruled-out approaches below /, "Re-deriving them ")
+    sub(/^_Re-deriving the ruled-out approach below /, "Re-deriving it ")
+    sub(/_$/, "")
+    print
+    exit
+}
 ' 2>/dev/null) || cost=""
 
 cat <<EOF

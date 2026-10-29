@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/gitstate"
 	"github.com/Coder8124/logos/internal/session"
 )
 
@@ -118,5 +119,39 @@ func TestWithEmbeddingsOffResumeSaysRelevanceIsLexicalOrOff(t *testing.T) {
 	}
 	if !strings.Contains(out, "by keyword only (no embedding model)") {
 		t.Errorf("the pack does not say relevance was keyword-only:\n%s", out)
+	}
+}
+
+// Build filters the checkpoint it hands over to this repository, and the cost
+// count read the project's history again without that filter, so another
+// repository under the same name counted as a session that hit this one's
+// dead end.
+func TestAnEarlierSessionInAnotherRepositoryIsNotCountedAsHittingTheDeadEnd(t *testing.T) {
+	work, personal := gitRepo(t), gitRepo(t)
+	ix := seedVault(t)
+	now := time.Now()
+	ruling := "caching the cart — the cache evicts on every write, so it never hits"
+	for _, c := range []struct {
+		dir, host string
+		age       time.Duration
+	}{{personal, "sess-personal", 48 * time.Hour}, {work, "sess-work", time.Hour}} {
+		remote, root := gitstate.Identity(c.dir)
+		if err := session.Commit(ix.DB, ix.Vault, &session.Checkpoint{
+			Project: "shop", Agent: "claude", HostSession: c.host, Task: "speed up checkout",
+			Failed: []string{ruling}, TS: now.Add(-c.age).Unix(),
+			Git: gitstate.State{Branch: "main", Commit: "abc1234", Remote: remote, Root: root},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := Build(ix, nil, "", Request{Task: "continue", Hint: "shop", Dir: work, Now: now.Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Checkpoint == nil || p.Checkpoint.HostSession != "sess-work" {
+		t.Fatalf("checkpoint = %+v, want this repository's", p.Checkpoint)
+	}
+	if p.Cost != nil {
+		t.Errorf("another repository's session was counted as hitting this dead end: %+v\n%s", *p.Cost, p.Render())
 	}
 }

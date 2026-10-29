@@ -57,6 +57,9 @@ func (p *Pack) Render() string {
 	p.renderHeader(&b)
 	p.renderWindow(&b)
 	p.renderOtherRepo(&b)
+	if line := p.costLine(); line != "" {
+		fmt.Fprintf(&b, "\n_%s_\n", line)
+	}
 	p.renderCheckpoint(&b, checkpoint)
 	p.renderWorking(&b, keptWorking)
 	section(&b, "The project", keptProj, "\n")
@@ -100,14 +103,17 @@ func (p *Pack) renderHeader(b *strings.Builder) {
 	}
 	switch {
 	case p.Project != nil:
+		// oneLine, as everything above the first heading is: the SessionStart
+		// hook trusts that region to hold only lines the renderer wrote, and
+		// a name with a newline in it would be a line it did not.
 		fmt.Fprintf(b, "\nProject **%s** — last active %s.\n",
-			p.Project.Name, project.Age(p.Project.LastActive))
+			oneLine(p.Project.Name), project.Age(p.Project.LastActive))
 	case p.Checkpoint != nil:
 		// No project note, but there is a record of work. Saying "no project
 		// matched" here would tell the agent to disregard the very thing it is
 		// about to be handed; saying the note is missing promised one nothing
 		// in the product writes (#133).
-		fmt.Fprintf(b, "\nProject **%s** — its work history is below.\n", p.scope())
+		fmt.Fprintf(b, "\nProject **%s** — its work history is below.\n", oneLine(p.scope()))
 	default:
 		hint := p.Hint
 		if hint == "" {
@@ -169,6 +175,9 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 // idea in other words, and a reader who assumes a model looked trusts a "none
 // matched" it cannot back.
 func (p *Pack) revivedNote() string {
+	if p.ReviveErr != nil {
+		return fmt.Sprintf(" Older checkpoints could not be checked against this task: %s.", inline(p.ReviveErr.Error()))
+	}
 	n := len(p.Revived)
 	if p.ReviveConsidered == 0 {
 		return ""
@@ -246,9 +255,6 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
 	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift)
-	if line := p.costLine(); line != "" {
-		fmt.Fprintf(&tail, "_%s_\n\n", line)
-	}
 	list(&tail, "Still open", c.Questions)
 	list(&tail, "Files touched", c.Files)
 	// Predecessors' dead ends, attributed. Cheap — a line each — and the only
