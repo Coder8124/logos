@@ -42,7 +42,7 @@ const recordHookLogLines = 10_000
 // anyone seeing it. The one part of it that grows is the read of the activity
 // log the Stop hook does to decide whether to ask for a checkpoint, so this
 // drives the real hook, the real resolver and the real binary against a log of
-// that size, and holds the slowest of several runs under the budget.
+// that size, and holds each event's median over several runs under the budget.
 //
 // A fast hook that recorded nothing would pass a timing check, so the test also
 // requires every run to have landed in the log and the first Stop to have
