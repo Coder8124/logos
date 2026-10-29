@@ -72,9 +72,10 @@ type Result struct {
 
 // Empty reports whether the rename found nothing at all under the old name —
 // almost always a typo in the name, and worth saying so instead of printing a
-// row of zeroes that reads like success.
+// row of zeroes that reads like success. A dropped ledger counts: a folder
+// holding only one is deleted from, and "nothing filed" would hide that.
 func (r Result) Empty() bool {
-	return r.Checkpoints == 0 && r.Memories == 0 && r.Events == 0 && r.Rows == 0
+	return r.Checkpoints == 0 && r.Memories == 0 && r.Events == 0 && r.Rows == 0 && r.Derived == 0
 }
 
 // Run renames project `from` to `to` across the vault and then the index.

@@ -225,3 +225,25 @@ func TestARenameDropsTheLedgerWrittenUnderTheOldName(t *testing.T) {
 		t.Errorf("the old ledger moved with the rename (%v)", err)
 	}
 }
+
+// A folder holding nothing but a ledger is not "nothing filed": the rename
+// deletes that ledger, and a result that reads as a typo'd name would hide
+// the deletion it just made.
+func TestARenameThatOnlyDropsALedgerIsNotEmpty(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "logos")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ledger.md"),
+		[]byte("---\ntype: ledger\nproject: logos\n---\n\n# Ledger: logos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(seedDB(t), v, "logos", "brain", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Derived != 1 || res.Empty() {
+		t.Errorf("rename of a ledger-only folder gave %+v (Empty %v), want 1 ledger dropped and not empty", res, res.Empty())
+	}
+}

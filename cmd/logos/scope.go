@@ -145,6 +145,12 @@ func runProjectRename(args []string) error {
 
 	res, err := rename.Run(ix.DB, ix.Vault, from, to, dryRun, merge)
 	if err != nil {
+		// The ledgers go first, before anything moves, so a step that fails
+		// after them has already deleted them. Rebuildable, but deleted, and a
+		// bare error would leave that unsaid.
+		if res.Derived > 0 && !dryRun {
+			fmt.Printf("dropped %d ledger(s) derived from the old checkpoints before the rename failed — `logos ledger` rebuilds one once the rename is finished\n", res.Derived)
+		}
 		return err
 	}
 	if res.Empty() && res.Merged == 0 {

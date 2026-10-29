@@ -121,3 +121,63 @@ func TestProjectRenameMergeSaysItDroppedTheLedgersAndHowToRebuildThem(t *testing
 		t.Errorf("a ledger was counted as a moved checkpoint or a collision:\n%s", out)
 	}
 }
+
+// The ledgers go before anything moves, so a rename that fails later has
+// already deleted them; saying only the error would leave a ledger the user
+// opened yesterday gone without a word.
+func TestARenameThatFailsAfterDroppingTheLedgerStillSaysItDroppedIt(t *testing.T) {
+	vaultDir := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vaultDir)
+	t.Setenv("LOGOS_PROJECT", "")
+	write := func(rel, body string) {
+		p := filepath.Join(vaultDir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sessions/logos/20260201-000000-claude.md", "---\ntype: checkpoint\nproject: logos\nagent: claude\n---\n\nnew-name era\n")
+	write("sessions/logos/ledger.md", "---\ntype: ledger\nproject: logos\n---\n\n# Ledger: logos\n")
+	// A file where the memories folder belongs fails the memory rewrite, a
+	// step that runs after the ledgers are gone.
+	write("memories", "not a folder\n")
+
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runProjectRename([]string{"logos", "brain"})
+	})
+	if runErr == nil {
+		t.Fatal("the rename succeeded over a memories file; the test needs a later step to fail")
+	}
+	if _, err := os.Stat(filepath.Join(vaultDir, "sessions", "logos", "ledger.md")); !os.IsNotExist(err) {
+		t.Fatalf("the ledger was not dropped (%v); the test needs it gone before the failure", err)
+	}
+	if !strings.Contains(out, "dropped 1 ledger(s)") {
+		t.Errorf("a rename that failed after deleting the ledger did not say so:\n%s", out)
+	}
+}
+
+// A folder holding only a ledger is not a typo'd name: the rename deleted
+// something, and says what.
+func TestRenamingALedgerOnlyFolderSaysItDroppedTheLedger(t *testing.T) {
+	vaultDir := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vaultDir)
+	t.Setenv("LOGOS_PROJECT", "")
+	p := filepath.Join(vaultDir, "sessions", "logos", "ledger.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("---\ntype: ledger\nproject: logos\n---\n\n# Ledger: logos\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := runProjectRename([]string{"logos", "brain"}); err != nil {
+			t.Fatalf("project rename: %v", err)
+		}
+	})
+	if strings.Contains(out, "nothing filed") || !strings.Contains(out, "dropped 1 ledger(s)") {
+		t.Errorf("a ledger-only rename read as nothing filed, or did not report the drop:\n%s", out)
+	}
+}
