@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The indexer walks a directory the user controls and that other tools write
@@ -242,5 +244,63 @@ func TestDanglingSymlinkDoesNotAbortTheIndex(t *testing.T) {
 	}
 	if hits, err := ix.LexicalSearch("findable", 5); err != nil || len(hits) == 0 {
 		t.Error("the real note went unindexed because of a dangling symlink")
+	}
+}
+
+// Conflict copies and a killed write's temp files used to be found by two
+// more walks of the whole vault after Sync's own, tripling the cost of every
+// index on a large vault. The one walk collects both, in every directory a
+// writer uses — memories/ and ingest/ included, though their notes are not
+// indexed.
+func TestTheIndexWalkCollectsConflictCopiesAndStaleTempsInOnePass(t *testing.T) {
+	ix, dir := openVault(t)
+	write(t, dir, "sessions/kestrel/20261028-101500-claude.md", "---\ntype: checkpoint\n---\nwork\n")
+	write(t, dir, "sessions/kestrel/20261028-101500-claude 2.md", "---\ntype: checkpoint\n---\nwork, other side\n")
+	write(t, dir, "Plan 2.md", "---\ntype: topic\n---\na person's own note\n")
+	old := time.Now().Add(-2 * time.Hour)
+	var wantTemps []string
+	for _, rel := range []string{"sessions/kestrel/.logos-11.tmp", "memories/fact/.logos-22.tmp", "ingest/.logos-33.tmp", ".logos/.logos-44.tmp"} {
+		write(t, dir, rel, "half")
+		os.Chtimes(filepath.Join(dir, rel), old, old)
+		wantTemps = append(wantTemps, rel)
+	}
+	write(t, dir, "sessions/kestrel/.logos-55.tmp", "a live write")
+	write(t, dir, "memories/fact/abc.md", "- a memory, not a note\n")
+
+	rep, err := ix.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.ConflictCopies) != 1 || rep.ConflictCopies[0] != "sessions/kestrel/20261028-101500-claude 2.md" {
+		t.Errorf("ConflictCopies = %v, want only the checkpoint's copy", rep.ConflictCopies)
+	}
+	sort.Strings(rep.StaleTemps)
+	sort.Strings(wantTemps)
+	if strings.Join(rep.StaleTemps, ",") != strings.Join(wantTemps, ",") {
+		t.Errorf("StaleTemps = %v, want %v", rep.StaleTemps, wantTemps)
+	}
+	if rep.Added != 2 {
+		t.Errorf("Added = %d, want the checkpoint and the person's Plan 2 — a memory file is not a note", rep.Added)
+	}
+}
+
+// One unreadable folder must not stop the index, and it used to make a whole
+// folder of notes silently absent: the walk returned nil on its error and the
+// counts looked complete.
+func TestAFolderTheWalkCannotEnterIsReportedNotSilentlySkipped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root")
+	}
+	ix, dir := openVault(t)
+	write(t, dir, "locked/secret.md", "---\ntype: topic\n---\nunseen\n")
+	os.Chmod(filepath.Join(dir, "locked"), 0o000)
+	defer os.Chmod(filepath.Join(dir, "locked"), 0o755)
+
+	rep, err := ix.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Unreadable) != 1 || !strings.HasPrefix(rep.Unreadable[0], "locked: ") {
+		t.Errorf("Unreadable = %v, want the locked folder named", rep.Unreadable)
 	}
 }

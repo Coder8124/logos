@@ -72,6 +72,20 @@ type SyncReport struct {
 	// files that could not be read. They are reported rather than silently
 	// dropped, because "the index is missing a note" is otherwise invisible.
 	Skipped int
+	// ConflictCopies are the sync clients' conflict copies under sessions/
+	// that the walk left out, vault-relative. Collected here rather than by a
+	// walk of their own: every index already walks the whole vault once, and
+	// a second and third walk for two lists doubled the cost of a large one.
+	ConflictCopies []string
+	// StaleTemps are WriteAtomic temp files old enough to belong to no live
+	// write (vault.StaleTempAge), vault-relative, for the caller to remove
+	// and announce. Sync itself removes nothing: it is also the walk behind
+	// setup and the MCP server, where a deletion would go unsaid.
+	StaleTemps []string
+	// Unreadable is every path the walk could not enter or stat, with why.
+	// Skipping it is right — one bad directory must not stop the index — but
+	// silently skipping it made a missing folder of notes look indexed.
+	Unreadable []string
 }
 
 func Open(vaultDir string) (*Index, error) {
@@ -360,6 +374,14 @@ func (ix *Index) Close() error {
 	return ix.DB.Close()
 }
 
+// rel is path relative to the vault, slash-separated, for saying which file.
+func (ix *Index) rel(path string) string {
+	if r, err := filepath.Rel(ix.Vault, path); err == nil {
+		return filepath.ToSlash(r)
+	}
+	return path
+}
+
 // Sync reads every note in the vault and reconciles it against the cache. Only
 // notes whose content hash changed are re-parsed and marked for re-embedding.
 func (ix *Index) Sync() (SyncReport, error) {
@@ -368,28 +390,45 @@ func (ix *Index) Sync() (SyncReport, error) {
 	var files []string
 	err := filepath.WalkDir(ix.Vault, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // unreadable entries must not abort the whole walk
+			// Unreadable entries must not abort the whole walk, and must not
+			// vanish from it either.
+			rep.Unreadable = append(rep.Unreadable, fmt.Sprintf("%s: %v", ix.rel(path), err))
+			return nil
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") {
+			top := filepath.Dir(path) == ix.Vault
+			// .logos/ holds state written with WriteAtomic (the ingest
+			// consent, the cache's sidecars), so it is walked for temp files
+			// a killed write left and for nothing else. Every other dot
+			// directory is someone else's — .git, .obsidian — and skipped.
+			if strings.HasPrefix(d.Name(), ".") && !(top && d.Name() == ".logos") {
 				return filepath.SkipDir
 			}
 			// memories/ is the memory store written down, not a set of notes.
 			// Indexing it would put every remembered fact into vault search a
 			// second time, so the same preference comes back as a memory and as
-			// a note that happens to quote it. It is reconciled below instead.
-			if d.Name() == memory.Dir && filepath.Dir(path) == ix.Vault {
-				return filepath.SkipDir
-			}
+			// a note that happens to quote it. It is reconciled by the memory
+			// import instead, and walked here only for temp files.
+			//
 			// ingest/ is the review queue, not the record. A candidate there is
 			// an unreviewed distillate of someone else's transcript: nobody has
 			// checked its claims, and indexing it put another project's raw
 			// harvest into this project's `resume` and `search` results — 97
 			// chunks of unverified text quoted as if they were history. It
 			// becomes searchable when a human promotes it to a checkpoint.
-			if d.Name() == ingest.Dir && filepath.Dir(path) == ix.Vault {
-				return filepath.SkipDir
+			//
+			// Both are still descended into, not skipped: their writers use
+			// WriteAtomic too, and a separate walk to find their temp litter
+			// doubled the cost of every index on a large vault.
+			return nil
+		}
+		if vault.IsTempName(d.Name()) {
+			if info, err := d.Info(); err == nil && vault.IsStaleTemp(info.ModTime()) {
+				rep.StaleTemps = append(rep.StaleTemps, ix.rel(path))
 			}
+			return nil
+		}
+		if r := ix.rel(path); strings.HasPrefix(r, ".logos/") || strings.HasPrefix(r, memory.Dir+"/") || strings.HasPrefix(r, ingest.Dir+"/") {
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {
@@ -401,6 +440,7 @@ func (ix *Index) Sync() (SyncReport, error) {
 		// "Plan 2.md" is a note. indexPass names what was left out.
 		if strings.HasPrefix(path, filepath.Join(ix.Vault, session.CheckpointDir)+string(filepath.Separator)) &&
 			vault.IsConflictCopy(filepath.Dir(path), d.Name()) {
+			rep.ConflictCopies = append(rep.ConflictCopies, ix.rel(path))
 			return nil
 		}
 		// loops.md is the commitment list written down, not a note. Indexing it

@@ -880,7 +880,7 @@ func TestAnInterruptedMigrationLeavesTheOldVaultReadable(t *testing.T) {
 	// after it returns would leave things, proves the file this test is
 	// about has had nothing done to it — the caller (importInto) never
 	// reached the ExportKind call that would replace it.
-	if _, _, migrated, err := readKindFiles(db, dir, Fact); err != nil {
+	if _, _, migrated, err := readKindFiles(db, dir, Fact, nil); err != nil {
 		t.Fatal(err)
 	} else if migrated != 2 {
 		t.Fatalf("want 2 lines migrated, got %d", migrated)
@@ -1070,5 +1070,76 @@ func TestASyncConflictCopyOfAMemoryFileDoesNotOverrideItsOriginal(t *testing.T) 
 	all, _ := All(db)
 	if len(all) != 1 || !strings.Contains(all[0].Text, "4.20") {
 		t.Fatalf("the conflict copy decided the memory: %+v", all)
+	}
+}
+
+// Forget removes "<uid>.md" and cannot know a sync client made "<uid> 2.md".
+// The copy was set aside only while its original existed, so once the forget
+// removed the original the next import read the copy as live, and the
+// forgotten memory came back with nothing said. Every import path is told.
+func TestAForgottenMemoryStaysForgottenWhenASyncCopyOfItsFileOutlivesIt(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the staging password rotates on mondays", Kind: Fact, Source: "manual"}
+	id, err := Store(db, nil, "", &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	if len(entries) != 1 {
+		t.Fatalf("want one memory file, got %v", entries)
+	}
+	orig := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(orig)
+	copyName := strings.TrimSuffix(entries[0].Name(), ".md") + " 2.md"
+	if err := os.WriteFile(filepath.Join(kindDir, copyName), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Forget(db, id.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orig); !os.IsNotExist(err) {
+		t.Fatalf("forget left the original memory file: %v", err)
+	}
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := All(db)
+	for _, got := range all {
+		if strings.Contains(got.Text, "staging password") {
+			t.Fatalf("the forgotten memory came back from its sync copy: %+v", got)
+		}
+	}
+	want := "memories/fact/" + copyName
+	if len(e.Orphaned) != 1 || e.Orphaned[0] != want {
+		t.Errorf("Orphaned = %v, want [%s] so the import can say it", e.Orphaned, want)
+	}
+	if len(e.SetAside) != 0 {
+		t.Errorf("SetAside = %v, want the orphan reported apart from copies beside a live original", e.SetAside)
+	}
+}
+
+func TestEveryImportReturnsTheMemoryCopiesItSetAside(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	raw, _ := os.ReadFile(filepath.Join(kindDir, entries[0].Name()))
+	copyName := strings.TrimSuffix(entries[0].Name(), ".md") + " (1).md"
+	os.WriteFile(filepath.Join(kindDir, copyName), raw, 0o644)
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.SetAside) != 1 || e.SetAside[0] != "memories/fact/"+copyName {
+		t.Errorf("SetAside = %v, want the Drive copy named", e.SetAside)
 	}
 }

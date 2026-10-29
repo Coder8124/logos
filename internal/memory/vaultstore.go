@@ -738,6 +738,15 @@ type Edits struct {
 	// per-memory files already exist, not off a flag that could get stuck if
 	// a run is interrupted.
 	Migrated int
+	// SetAside and Orphaned are sync conflict copies under memories/<kind>/,
+	// vault-relative, left out of memory. Returned rather than printed so
+	// every caller of an import can say them — a copy announced only by
+	// `logos index` was invisible to setup, which imports the same files.
+	// Orphaned are copies whose original is gone: a memory forgotten,
+	// corrected or quarantined removes its own file and cannot know a sync
+	// client made a second one, and reading that copy as live brought the
+	// forgotten memory back on the next import without a word.
+	SetAside, Orphaned []string
 }
 
 // ImportEdits is Import, also saying which memories a hand edit made or
@@ -781,7 +790,7 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 	var damaged []string
 
 	for _, kind := range kinds {
-		raw, existed, n, err := readKindFiles(db, dir, kind)
+		raw, existed, n, err := readKindFiles(db, dir, kind, edits)
 		var dmg kindDamaged
 		if errors.As(err, &dmg) {
 			damaged = append(damaged, string(dmg))
@@ -1207,7 +1216,9 @@ func parseKind(kind Kind, raw string) []Memory {
 // ExportKind pass overwrites the digest back to truth instead). Migrating
 // never deletes or truncates the flat file, only reads it, so a crash mid-
 // migration leaves it exactly as readable as it was before the run started.
-func readKindFiles(db *sql.DB, dir string, kind Kind) (raw string, existed bool, migrated int, err error) {
+//
+// Sync conflict copies are recorded in e, when it is not nil, and never read.
+func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, existed bool, migrated int, err error) {
 	kindDir := filepath.Join(dir, Dir, string(kind))
 	have := map[string]bool{}
 	var b strings.Builder
@@ -1216,25 +1227,36 @@ func readKindFiles(db *sql.DB, dir string, kind Kind) (raw string, existed bool,
 	switch {
 	case derr == nil:
 		existed = true
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		for _, en := range entries {
+			if en.IsDir() || !strings.HasSuffix(en.Name(), ".md") {
 				continue
 			}
 			// "<uid> 2.md" beside "<uid>.md" is a sync client keeping both
 			// sides of a conflict, not a second memory: read too, whichever
-			// sorted last silently won the uid. The original is read, and
-			// `logos index` names the copy so the person can merge it.
-			if vault.IsConflictCopy(kindDir, e.Name()) {
+			// sorted last silently won the uid. Set aside whether or not the
+			// original is still there, unlike a copy anywhere else in the
+			// vault: a uid never contains a space or a parenthesis, so the
+			// shape alone is proof, and an original that is gone was removed
+			// on purpose — reading its copy then undid a forget.
+			if orig := vault.ConflictOriginal(en.Name()); orig != "" {
+				if e != nil {
+					rel := filepath.ToSlash(filepath.Join(Dir, string(kind), en.Name()))
+					if _, serr := os.Stat(filepath.Join(kindDir, orig)); serr == nil {
+						e.SetAside = append(e.SetAside, rel)
+					} else {
+						e.Orphaned = append(e.Orphaned, rel)
+					}
+				}
 				continue
 			}
-			content, rerr := os.ReadFile(filepath.Join(kindDir, e.Name()))
+			content, rerr := os.ReadFile(filepath.Join(kindDir, en.Name()))
 			if rerr != nil {
 				// Unreadable, not missing — treated the same as linesElsewhere
 				// treats one: costs this memory its place in the digest, never
 				// a reason to call the whole kind damaged over one bad file.
 				continue
 			}
-			have[strings.TrimSuffix(e.Name(), ".md")] = true
+			have[strings.TrimSuffix(en.Name(), ".md")] = true
 			b.Write(content)
 			if len(content) > 0 && content[len(content)-1] != '\n' {
 				b.WriteByte('\n')

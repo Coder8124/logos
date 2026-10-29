@@ -471,7 +471,7 @@ func TestAKilledWriteOnAnyPathIsRecoveredByTheNextIndex(t *testing.T) {
 			// ones old enough that no live write can own them, so they are aged
 			// here to stand for a crash from an earlier day.
 			litter := tempLitter(t, vault)
-			long := time.Now().Add(-time.Hour)
+			long := time.Now().Add(-2 * time.Hour) // past vault.StaleTempAge
 			for _, p := range litter {
 				os.Chtimes(p, long, long)
 			}
