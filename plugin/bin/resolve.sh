@@ -56,6 +56,7 @@ export LOGOS_HOST="${LOGOS_HOST:-claude-code}"
 logos_runs() {
   local out
   out=$("$@" --version 2>/dev/null)
+  LOGOS_RUN_STATUS=$?
   case "$out" in
     "logos "*)
       LOGOS_VERSION=${out#* }
@@ -75,10 +76,18 @@ logos_runs() {
 # a `go install …@v0.4.9` build reports its module version, both with the v, so
 # without this every real release ranked as "dev": two of them never displaced
 # each other, and v0.4.9 lost to a bare 0.4.8 (#173).
+#
+# A pre-release ranks below its release, and build metadata (+…) not at all.
+# The suffix used to be stripped field by field, so "0.5.6-rc.1" read its ".1"
+# as a fourth number and outranked 0.5.6 — an old release candidate winning
+# over the release that replaced it.
 logos_newer() {
-  local a="${1#v}" b="${2#v}" x y
+  local a="${1#v}" b="${2#v}" x y apre="" bpre=""
   case "$a" in [0-9]*) ;; *) return 1 ;; esac
   case "$b" in [0-9]*) ;; *) return 0 ;; esac
+  a=${a%%+*}; b=${b%%+*}
+  case "$a" in *-*) apre=1; a=${a%%-*} ;; esac
+  case "$b" in *-*) bpre=1; b=${b%%-*} ;; esac
   while [ -n "$a" ] || [ -n "$b" ]; do
     x=${a%%.*}; y=${b%%.*}
     [ -n "$x" ] || x=0
@@ -93,7 +102,8 @@ logos_newer() {
     case "$a" in *.*) a=${a#*.} ;; *) a="" ;; esac
     case "$b" in *.*) b=${b#*.} ;; *) b="" ;; esac
   done
-  return 1
+  # The same release: the final one is newer than any of its candidates.
+  [ -z "$apre" ] && [ -n "$bpre" ]
 }
 
 logos_resolve() {
@@ -122,7 +132,11 @@ logos_resolve() {
   logos_consider() {
     local runner="$1" desc="$2"
     if ! logos_runs "$runner"; then
-      [ -n "$LOGOS_PASSED_BROKEN" ] || LOGOS_PASSED_BROKEN="$desc"
+      # Only a copy that could not start: 127 is what env and the kernel give
+      # an npm shim whose node is missing. Someone else's `logos` (see the top
+      # of this file) also fails logos_runs, but naming it as our install with
+      # no node replaced the upgrade advice that would have fixed things.
+      [ "$LOGOS_RUN_STATUS" = 127 ] && [ -z "$LOGOS_PASSED_BROKEN" ] && LOGOS_PASSED_BROKEN="$desc"
       return 1
     fi
     [ -n "$first_desc" ] || first_desc="$desc ($LOGOS_VERSION)"
@@ -226,11 +240,19 @@ logos_plugin_version() {
   sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$manifest" 2>/dev/null | head -1
 }
 
+# logos_quote echoes a path in single quotes, so a suggested command pastes
+# into a shell intact even when the path has a space or a quote in it.
+logos_quote() {
+  local q="'\\''"
+  printf "'%s'" "${1//\'/$q}"
+}
+
 # logos_skew_notice echoes, on stdout, what the user needs to hear about the
 # binary logos_resolve chose — one short sentence per problem, with the command
-# that fixes it — or nothing; the paths and reasons behind it go to stderr,
-# where a debug log or doctor shows them. Called once, from the SessionStart
-# hook, which relays stdout as "one short line"; record.sh runs on every tool
+# that fixes it — or nothing. The paths and reasons behind it go to stderr,
+# which Claude Code drops for a hook that exits 0: they are for whoever runs
+# the hook or the resolver by hand to see why. Called once, from the
+# SessionStart hook, which relays stdout as "one short line"; record.sh runs on every tool
 # call and must not pay for it.
 #
 # The direction that matters is a logos a minor release older than its plugin.
@@ -266,7 +288,7 @@ logos_skew_notice() {
       if [ -n "${LOGOS_BIN:-}" ] && [ "$LOGOS_RESOLVED" = "$LOGOS_BIN" ]; then
         printf '%s\n' "Logos $have from LOGOS_BIN is older than its $plugin plugin, so some plugin features are off: update that build or unset LOGOS_BIN."
       elif [ -n "$LOGOS_PASSED_BROKEN" ]; then
-        printf '%s\n' "Logos $have is older than its $plugin plugin, so some plugin features are off: $LOGOS_PASSED_BROKEN does not run here — an npm install with no node on Claude Code's PATH?"
+        printf '%s\n' "Logos $have is older than its $plugin plugin, so some plugin features are off: $(logos_quote "$LOGOS_PASSED_BROKEN") does not run here — an npm install with no node on Claude Code's PATH?"
       elif [ "$LOGOS_RESOLVED" = "npx" ]; then
         printf '%s\n' "Logos $have, cached by npx, is older than its $plugin plugin, so some plugin features are off: \`npm i -g @noeton/logos@latest\`."
       else
@@ -280,7 +302,10 @@ logos_skew_notice() {
   # Never told to set a LOGOS_BIN they already set: the rejection above is
   # the thing to fix first.
   if [ -n "$LOGOS_PASSED_DEV" ] && [ -z "$LOGOS_BIN_REJECTED" ]; then
-    printf '%s\n' "The plugin passed over your dev build for Logos ${LOGOS_RESOLVED_VERSION#v}; set LOGOS_BIN=$LOGOS_PASSED_DEV to run it."
+    # Both ways out, because the resolver cannot tell the newest code on the
+    # machine from a months-old `go install`: telling everyone to switch sent
+    # the stale copy's owner to it every session.
+    printf '%s\n' "The plugin runs Logos ${LOGOS_RESOLVED_VERSION#v}, not your dev build: set LOGOS_BIN=$(logos_quote "$LOGOS_PASSED_DEV") to run it, or delete it if it is stale."
   fi
   if [ -n "$LOGOS_PASSED_DEV" ]; then
     printf 'logos: running %s (%s), not the dev build at %s, because a dev build cannot say how old it is\n' "$LOGOS_RESOLVED" "${LOGOS_RESOLVED_VERSION#v}" "$LOGOS_PASSED_DEV" >&2

@@ -27,7 +27,17 @@ set -uo pipefail
 # that all of them talk to the same vault; see bin/resolve.sh for why PATH on
 # its own is not enough.
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
-logos_resolve || exit 0
+# Nothing resolving is silent unless the user pointed somewhere: a LOGOS_BIN
+# with a typo, alone on the machine, is the likeliest way to get it wrong, and
+# the notice that names it lives past this line.
+if ! logos_resolve; then
+  if [ -n "${LOGOS_BIN_REJECTED:-}" ]; then
+    echo "FIRST, tell the user in one short line (they cannot see this block): LOGOS_BIN does not run as Logos and no other copy was found, so Logos is off this session: fix that path or remove it from Claude Code's environment."
+  elif [ -n "${LOGOS_REJECTED:-}" ]; then
+    echo "FIRST, tell the user in one short line (they cannot see this block): Logos is off this session: $(logos_quote "$LOGOS_REJECTED") was found but does not run as Logos — an npm install with no node on Claude Code's PATH, or another program named logos."
+  fi
+  exit 0
+fi
 # Tells logos it has a hook's few seconds: the index switch waits for a command
 # nobody is about to kill.
 export LOGOS_HOOK=1
@@ -59,7 +69,8 @@ recording=$("${LOGOS[@]}" activity notice "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/n
 # release, said where the user hears it. The resolver's own stderr line never
 # reached anyone: Claude Code shows a hook's stdout to the agent and drops the
 # rest. Said every session until it is fixed, because each one runs on it.
-# Only stdout is the relay; the paths behind it stay on stderr for a debug log.
+# Only stdout is the relay. The paths behind it go to stderr, which Claude
+# Code drops for a hook that exits 0 — there for anyone running the hook by hand.
 skew=$(logos_skew_notice | tr '\n' ' ' | sed 's/ $//') || skew=""
 
 # A plugin that updated itself in silence is indistinguishable from one that

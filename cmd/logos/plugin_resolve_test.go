@@ -307,7 +307,7 @@ func TestADevBuildPassedOverForAnOlderReleaseIsAnnounced(t *testing.T) {
 	if picked != releaseBin {
 		t.Errorf("picked %q, want the numbered release %q", picked, releaseBin)
 	}
-	for _, want := range []string{"dev build", "Logos 0.5.1", "LOGOS_BIN=" + devBin} {
+	for _, want := range []string{"dev build", "Logos 0.5.1", "LOGOS_BIN='" + devBin + "'"} {
 		if !strings.Contains(relay, want) {
 			t.Errorf("the relayed line never said %q:\n%s", want, relay)
 		}
@@ -399,5 +399,88 @@ func TestACachedNpxLogosOlderThanItsPluginIsAnnounced(t *testing.T) {
 	}
 	if !strings.Contains(relay, "0.4.9") || !strings.Contains(relay, "npx") || !strings.Contains(relay, "npm i -g @noeton/logos@latest") {
 		t.Errorf("an old cached npx copy was not announced with its fix:\n%s", relay)
+	}
+}
+
+// Only a shim that cannot start — exit 127, `env: node: No such file` — is an
+// install of ours that does not run. Someone else's `logos` (the npm "Logos
+// module manager") also fails logos_runs, and was diagnosed every session as
+// "an npm install with no node", in place of the upgrade that fixes it.
+func TestSomeoneElsesLogosBesideAnOldReleaseKeepsTheUpgradeAdvice(t *testing.T) {
+	other, brew := t.TempDir(), t.TempDir()
+	fakeProgram(t, other, "logos", `echo "Logos module manager 1.0.4"`)
+	fakeProgram(t, brew, "logos", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+	_, relay, _ := skewNotice(t, other+":"+brew+":/usr/bin:/bin", "")
+	if !strings.Contains(relay, "brew upgrade logos-mcp") {
+		t.Errorf("an old release beside someone else's logos lost its upgrade advice:\n%s", relay)
+	}
+	if strings.Contains(relay, other) || strings.Contains(relay, "does not run") {
+		t.Errorf("someone else's logos was diagnosed as a broken install of ours:\n%s", relay)
+	}
+}
+
+// The suggested commands are pasted into a shell or a settings file, and a
+// path with a space in it was printed bare, so the pasted line split in two.
+func TestASuggestedPathWithASpaceIsQuotedToPaste(t *testing.T) {
+	root := t.TempDir()
+	dev, release, broken, old := filepath.Join(root, "dev dir"), filepath.Join(root, "rel"), filepath.Join(root, "npm dir"), filepath.Join(root, "old")
+	for _, d := range []string{dev, release, broken, old} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.5.6 darwin/arm64 go1.26"`)
+	fakeProgram(t, broken, "logos", `echo "env: node: No such file or directory" >&2; exit 127`)
+	fakeProgram(t, old, "logos", `echo "logos 0.4.9 darwin/arm64 go1.26"`)
+
+	_, relay, _ := skewNotice(t, dev+":"+release+":/usr/bin:/bin", "")
+	if want := "LOGOS_BIN='" + filepath.Join(dev, "logos") + "'"; !strings.Contains(relay, want) {
+		t.Errorf("the dev build's path was not quoted to paste, want %s in:\n%s", want, relay)
+	}
+	_, relay, _ = skewNotice(t, broken+":"+old+":/usr/bin:/bin", "")
+	if want := "'" + filepath.Join(broken, "logos") + "'"; !strings.Contains(relay, want) {
+		t.Errorf("the install that does not run was not quoted, want %s in:\n%s", want, relay)
+	}
+}
+
+// A dev build passed over may be the newest code on the machine or a
+// months-old `go install` nobody remembers, and the resolver cannot tell
+// which. The line told everyone to switch to it — the stale copy too — and
+// read "passed over your dev build for Logos 0.4.9" as if 0.4.9 were its
+// version. It now offers both ways out and says which copy runs.
+func TestADevBuildPassedOverIsOfferedEitherWayOut(t *testing.T) {
+	dev, release := t.TempDir(), t.TempDir()
+	fakeProgram(t, dev, "logos", `echo "logos dev darwin/arm64 go1.26.5"`)
+	fakeProgram(t, release, "logos", `echo "logos 0.5.6 darwin/arm64 go1.26"`)
+	_, relay, _ := skewNotice(t, dev+":"+release+":/usr/bin:/bin", "")
+	for _, want := range []string{"runs Logos 0.5.6", "LOGOS_BIN=", "delete"} {
+		if !strings.Contains(relay, want) {
+			t.Errorf("the dev-build line never said %q:\n%s", want, relay)
+		}
+	}
+	if strings.Contains(relay, "for Logos") {
+		t.Errorf("the dev-build line still reads as if the release were its version:\n%s", relay)
+	}
+}
+
+// "0.5.6-rc.1" ranked above 0.5.6: the suffix was stripped field by field, so
+// rc.1's ".1" was read as a fourth number. A pre-release is below its release.
+func TestAPreReleaseRanksBelowItsRelease(t *testing.T) {
+	for _, c := range []struct {
+		a, b  string
+		newer bool
+	}{
+		{"0.5.6", "0.5.6-rc.1", true},
+		{"0.5.6-rc.1", "0.5.6", false},
+		{"v0.5.6-rc.1", "0.5.6", false},
+		{"0.5.6-rc.1", "0.5.5", true},
+		{"0.5.6-rc.1", "0.5.6-rc.1", false},
+		{"0.5.6+build.7", "0.5.6", false},
+	} {
+		got, _ := runResolver(t, "/usr/bin:/bin", `logos_newer "`+c.a+`" "`+c.b+`" && echo yes || echo no`)
+		if (got == "yes") != c.newer {
+			t.Errorf("logos_newer %s %s = %s, want newer=%v", c.a, c.b, got, c.newer)
+		}
 	}
 }

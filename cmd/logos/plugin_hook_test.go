@@ -116,14 +116,14 @@ esac`)
 // sessionStartStreams runs the SessionStart hook and keeps its two streams
 // apart: stdout is what Claude Code hands the agent to relay, stderr is the
 // detail only a debug log shows, and the review of #80 was about which is which.
-func sessionStartStreams(t *testing.T, bin string) (stdout, stderr string) {
+func sessionStartStreams(t *testing.T, bin string, env ...string) (stdout, stderr string) {
 	t.Helper()
 	hook, err := filepath.Abs("../../plugin/hooks/session-start.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/bash", hook)
-	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}
+	cmd.Env = append([]string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CLAUDE_PROJECT_DIR=" + t.TempDir(), noFixedInstallDirs}, env...)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -188,5 +188,22 @@ func TestALogosAtOrAboveItsPluginsVersionIsNotAnnounced(t *testing.T) {
 		if strings.TrimSpace(out) != "" {
 			t.Errorf("logos %s against a %s plugin, with nothing else to say, printed:\n%s", version, plugin, out)
 		}
+	}
+}
+
+// A LOGOS_BIN with a typo and no other copy installed is the likeliest way to
+// get it wrong, and the hook exited the moment nothing resolved — before the
+// notice that names LOGOS_BIN — so the session simply had no Logos and said
+// nothing about why.
+func TestALogosBinThatDoesNotRunIsAnnouncedEvenWhenNothingElseRuns(t *testing.T) {
+	out, _ := sessionStartStreams(t, t.TempDir(), "LOGOS_BIN=/nowhere/logos")
+	if !strings.Contains(out, "FIRST, tell the user") || !strings.Contains(out, "LOGOS_BIN") {
+		t.Errorf("a LOGOS_BIN that does not run, with nothing else to run, was silent:\n%q", out)
+	}
+	if strings.Contains(out, "another copy") {
+		t.Errorf("the notice claimed another copy runs when none does:\n%s", out)
+	}
+	if n := strings.Count(strings.TrimSpace(out), "\n"); n != 0 {
+		t.Errorf("want one line, got %d:\n%s", n+1, out)
 	}
 }
