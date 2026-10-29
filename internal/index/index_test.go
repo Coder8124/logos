@@ -295,8 +295,14 @@ func TestALedgerUnderAnotherNameIsNotIndexedButAUsersOwnSessionsLedgerIs(t *test
 		t.Fatal(err)
 	}
 	defer ix.Close()
-	if _, err := ix.Sync(); err != nil {
+	rep, err := ix.Sync()
+	if err != nil {
 		t.Fatal(err)
+	}
+	// The ledger the walk passed over is counted, the way a symlink is, so
+	// "found 2 files, indexed 1" is never an unexplained gap.
+	if rep.Skipped != 1 {
+		t.Errorf("skipped %d, want 1 (the ledger)", rep.Skipped)
 	}
 	var paths []string
 	rows, err := ix.DB.Query(`SELECT path FROM notes`)
