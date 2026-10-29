@@ -625,3 +625,35 @@ func TestTheLedgerStrikesNeitherDecisionOfTwoInterleavedConversations(t *testing
 		t.Errorf("counted %d in force and %d superseded, want 2 and 0:\n%s", l.InForce, l.Superseded, text)
 	}
 }
+
+// Emphasis, a table pipe and an entity are markup too: "**do not**" in a
+// checkpoint would turn bold in the ledger, a "|" would start a table cell in
+// a renderer that reads one, and "&lt;" would render as a "<" the checkpoint
+// never wrote.
+func TestEmphasisPipesAndEntitiesInACheckpointRenderAsTheirOwnCharacters(t *testing.T) {
+	db, vault := reviewVault(t, false)
+	ledgerCheckpoints(t, db, vault, time.Now().Add(-time.Hour),
+		session.Checkpoint{Decisions: []string{"Keep **bold** and _snake_case_ | a pipe &lt;tag&gt;"}},
+	)
+	l, err := WriteLedger(vault, "kestrel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := readLedger(t, vault, l)
+	var line string
+	for _, ln := range strings.Split(text, "\n") {
+		if strings.Contains(ln, "bold") {
+			// Only the quote: the citation after it is the ledger's own link,
+			// whose path has underscores of its own.
+			line, _, _ = strings.Cut(ln, " — [")
+		}
+	}
+	if line == "" {
+		t.Fatalf("the decision was dropped rather than quoted:\n%s", text)
+	}
+	for _, c := range []string{"*", "_", "|", "&"} {
+		if unescaped(line, c) {
+			t.Errorf("%q came through unescaped: %s", c, line)
+		}
+	}
+}

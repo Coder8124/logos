@@ -456,7 +456,8 @@ func citer(scope string) func(slugs []string) string {
 // from forging what the ledger's own lines are made of — a strikethrough that
 // marks a standing decision reversed, a link that passes for a citation, a
 // code span that hides the citation after it, or markup a renderer would act
-// on — while every word of it still reads. A leading list marker is escaped
+// on (emphasis, a table pipe, an entity that renders as another character) —
+// while every word of it still reads. A leading list marker is escaped
 // too: every quote follows a ledger "- ", and "- ⚠ ..." after it renders as a
 // nested bullet, a drift flag the ledger never raised.
 func quote(s string) string {
@@ -464,7 +465,7 @@ func quote(s string) string {
 	if s == "" {
 		return s
 	}
-	if strings.ContainsRune("#>-*+", rune(s[0])) {
+	if strings.ContainsRune("#>-+", rune(s[0])) {
 		return `\` + s
 	}
 	if d := len(s) - len(strings.TrimLeft(s, "0123456789")); d > 0 && d < len(s) && (s[d] == '.' || s[d] == ')') {
@@ -473,4 +474,5 @@ func quote(s string) string {
 	return s
 }
 
-var ledgerEscapes = strings.NewReplacer(`\`, `\\`, "[", `\[`, "]", `\]`, "~", `\~`, "<", `\<`, "`", "\\`")
+var ledgerEscapes = strings.NewReplacer(`\`, `\\`, "[", `\[`, "]", `\]`, "~", `\~`, "<", `\<`, "`", "\\`",
+	"*", `\*`, "_", `\_`, "|", `\|`, "&", `\&`)
