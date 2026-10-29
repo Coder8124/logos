@@ -274,12 +274,6 @@ type checkpointFM struct {
 // did not write should still yield whatever is recognisable, because the
 // alternative is silently losing the record.
 func ParseCheckpoint(raw string) Checkpoint {
-	// A Windows editor's save — CRLF, a byte-order mark — is the same file. Left
-	// in, either one hid the frontmatter fence, and the checkpoint read back
-	// with its sections but no project, session or time: not Empty, so nothing
-	// skipped it, just quietly wrong. Normalised over the whole file, not only
-	// the frontmatter, so a body line does not carry a stray \r into a field.
-	raw = strings.ReplaceAll(strings.TrimPrefix(raw, "\ufeff"), "\r\n", "\n")
 	fmStr, body := splitFM(raw)
 
 	var fm checkpointFM
@@ -414,7 +408,17 @@ func parseBullets(text string) []string {
 
 // splitFM peels a leading --- fenced block. Mirrors internal/vault's splitter;
 // kept local because the checkpoint has its own frontmatter shape.
+//
+// A Windows editor's save — CRLF, a byte-order mark — is the same file, and is
+// normalised here, where every parser of a session note passes. Left in,
+// either one hid the frontmatter fence, and the note read back with its body
+// but no project, session or time: not Empty, so nothing skipped it, just
+// quietly wrong. Done in ParseCheckpoint alone, it left ParsePlan still
+// reading a Windows-saved plan as one with no project. The whole file is
+// normalised, not only the frontmatter, so a body line does not carry a stray
+// \r into a field.
 func splitFM(raw string) (string, string) {
+	raw = strings.ReplaceAll(strings.TrimPrefix(raw, "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(raw, "---\n") {
 		return "", raw
 	}
@@ -455,7 +459,16 @@ func rfc3339(ts int64) string {
 // an escape, and yaml.v3 then refused the whole frontmatter. JSON's escaping is
 // a subset of YAML's double-quoted form and leaves an ordinary name exactly as
 // it was always written, which followsLink and every existing file rely on.
+//
+// A target that is not valid UTF-8 — a directory name on a filesystem that
+// allows any bytes — is written as YAML's !!binary instead, the form yamlStr
+// already gives the project field beside it. JSON replaced each invalid byte
+// with U+FFFD, so the link named a project that does not exist and the note
+// was reachable from nothing.
 func linkStr(target string) string {
+	if !utf8.ValidString(target) {
+		return yamlStr("[[" + target + "]]")
+	}
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)

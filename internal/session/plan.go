@@ -123,7 +123,10 @@ func (p Plan) Markdown() string {
 	fmt.Fprintf(&b, "project: %s\n", yamlStr(p.Project))
 	fmt.Fprintf(&b, "agent: %s\n", yamlStr(p.Agent))
 	b.WriteString("relations:\n")
-	fmt.Fprintf(&b, "  - { pred: plan_of, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", p.Project)
+	// Escaped as checkpoint_of is: written bare inside the quotes, a quote or
+	// backslash in the project ended the string and the whole frontmatter
+	// failed to parse.
+	fmt.Fprintf(&b, "  - { pred: plan_of, obj: %s, conf: 1.0, src: stated }\n", linkStr(p.Project))
 	fmt.Fprintf(&b, "first_seen: %s\n", time.Unix(p.TS, 0).Format("2006-01-02"))
 	fmt.Fprintf(&b, "planned: %s\n", time.Unix(p.TS, 0).Format(time.RFC3339))
 	b.WriteString("---\n\n")
