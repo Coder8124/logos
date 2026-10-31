@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -341,6 +342,31 @@ func saveHookFile(path string, f hookFile) error {
 		return err
 	}
 	return writeHostFile(path, append(out, '\n'))
+}
+
+// installHookBackedUp merges the hook with a backup of the file taken first,
+// and takes the backup back out when the merge wrote the same bytes, as
+// Install does for an MCP config: every re-run of setup otherwise dropped one
+// beside a hooks file it had not changed. The same bytes are also reported as
+// unchanged: installHook says updated whenever a logos hook was there, and a
+// second setup printed "hook updated" under "already connected".
+func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
+	backup, err := backupHooks(path)
+	if err != nil {
+		return Failed, err
+	}
+	outcome, err := installHook(path, host, argv)
+	if backup != "" {
+		before, berr := os.ReadFile(backup)
+		after, aerr := os.ReadFile(path)
+		if berr == nil && aerr == nil && bytes.Equal(before, after) {
+			os.Remove(backup)
+			if err == nil {
+				outcome = Unchanged
+			}
+		}
+	}
+	return outcome, err
 }
 
 // backupHooks copies a hooks file aside before it is merged, for the same

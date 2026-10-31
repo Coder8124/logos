@@ -35,6 +35,8 @@ on:
   # in the toolchain or a dependency.
   schedule:
     - cron: "17 6 * * 1"
+  # To check the published npm package by hand, after a release (first-run-npm).
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -211,6 +213,70 @@ jobs:
         working-directory: npm
         run: node scripts/test.js
 
+  # A new user's first ten commands, in a home directory with nothing in it.
+  # Every first-run defect shipped so far was invisible from a developer's
+  # laptop, which already has a vault and connected hosts; a runner has neither.
+  # The script fails on a wrong exit code or a backup left by a second setup.
+  first-run:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      LOGOS_RUNTIME: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: First run, from source
+        run: scripts/first-run.sh
+
+  # The same walk from what a user actually installs, plus the bare
+  # `npx @noeton/logos` in a clean home that plan0-5-0's A3 asked for and never
+  # got. Only on the weekly run or by hand: it tests the package already on npm,
+  # so on a PR, or on the release about to replace that package, it would fail
+  # for bugs the change itself fixes. The workflow name is checked too, because
+  # a called workflow sees its caller's event, and release.yml run by hand is a
+  # workflow_dispatch. For the same reason `ci ok` does not wait on it: the
+  # weekly run is red until a fix on main reaches npm, and that must not hide a
+  # new advisory from govulncheck behind an already-red check.
+  first-run-npm:
+    if: github.workflow == 'ci' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      LOGOS_RUNTIME: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # A fresh npm cache and prefix too: an install that only works because the
+      # runner's cache already held a platform package is not a clean install.
+      - name: npx in a clean home
+        shell: bash
+        run: |
+          home="$RUNNER_TEMP/npx-home"
+          mkdir -p "$home"
+          HOME="$home" USERPROFILE="$home" npm_config_cache="$home/.npm" \
+            npm_config_prefix="$home/.npm-global" npx -y @noeton/logos version
+      # Windows has no env -i or /usr/bin to cut PATH down to; npx above is its
+      # install check.
+      - name: First run, from the published package
+        if: runner.os != 'Windows'
+        run: |
+          prefix="$RUNNER_TEMP/npm-prefix"
+          npm_config_cache="$RUNNER_TEMP/npm-cache" npm install -g --prefix "$prefix" @noeton/logos
+          LOGOS_BIN="$prefix/bin/logos" scripts/first-run.sh
+
   # The rules in CONTRIBUTING.md that a diff can be checked against, for each
   # commit the PR adds. Each script runs the same way locally against
   # origin/main.
@@ -240,7 +306,7 @@ jobs:
   ci-ok:
     name: ci ok
     if: always()
-    needs: [lint, test-linux, test-macos, chaos, package, wrapper, commits]
+    needs: [lint, test-linux, test-macos, chaos, package, wrapper, first-run, commits]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

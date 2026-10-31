@@ -61,3 +61,5 @@ plans/
 # Scratch homes the cmd/logos setup tests build, so they can show setup a vault
 # it cannot tell is temporary. Removed per test; a crashed run can leave one.
 /cmd/logos/testdata/
+# The same, for scripts/first-run.sh.
+/.first-run/
