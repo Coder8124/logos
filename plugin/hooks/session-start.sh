@@ -184,13 +184,30 @@ when=$(printf '%s\n' "$handoff" \
   | sed -e 's/\*\*//g' -e 's/, handed off to .*//' \
   | head -1) || when=""
 
+# What the ruled-out approaches saved, lifted like the line above: contextpack
+# writes it, from earlier checkpoints, only when they hold a number. Read only
+# above the first "## " heading, where every line is one the renderer built
+# from single-line values, and only in the sentence's exact shape. Everything
+# a checkpoint says sits under a heading, so a State quoting the sentence —
+# or the old one — cannot put a cost on the banner nobody counted.
+cost=$(printf '%s\n' "$handoff" | awk '
+/^## / { exit }
+/^_Re-deriving the ruled-out approach(es)? below would be the [0-9]+(st|nd|rd|th) time a session hit (this dead end|one of these dead ends)\._$/ {
+    sub(/^_Re-deriving the ruled-out approaches below /, "Re-deriving them ")
+    sub(/^_Re-deriving the ruled-out approach below /, "Re-deriving it ")
+    sub(/_$/, "")
+    print
+    exit
+}
+' 2>/dev/null) || cost=""
+
 cat <<EOF
 Continuity from Logos for "$project". This is this session's resume: read the
 ruled-out approaches before proposing anything, and call context only for a
 narrower task.
 
 FIRST, tell the user in one short line (they cannot see this block) that Logos
-restored context for "$project"${when:+ $when}, carrying $carried.${updated:+ Also: $updated}${recording:+ $recording}${skew:+ $skew}
+restored context for "$project"${when:+ $when}, carrying $carried.${cost:+ $cost}${updated:+ Also: $updated}${recording:+ $recording}${skew:+ $skew}
 
 $handoff
 EOF

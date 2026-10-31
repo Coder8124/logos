@@ -75,7 +75,10 @@ THE HANDOFF
                                       repeat --decided, --verified, --failed, --blocker,
                                       --ran, --question and --file to add more than one
     logos resume [project]            pick up where the last agent left off
-                                      the project defaults to the directory you are in
+                                      the project defaults to the directory you are in;
+                                      at a terminal, asks which conversation first
+    logos resume <project> <id|name>  just one conversation: its folder id, a checkpoint,
+                                      or part of its intent (several matches are listed)
     logos context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     logos tried <approach> [--project X]
@@ -83,6 +86,8 @@ THE HANDOFF
     logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
                                       record one now, without waiting for a checkpoint
     logos why <file> [--limit N]      what was being decided when this file was touched
+    logos ledger [project]            write the project's long-term history, derived from every
+                                      checkpoint, to sessions/<project>/ledger.md
 
 LOOKING
     logos search <query…>             retrieve only, no generation
@@ -136,9 +141,14 @@ BRINGING IT IN
                                       queue CLAUDE.md / AGENTS.md, Cursor rules or Claude Code's auto memory for review
     logos import --from transcripts [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
+                                      --keep-transcripts also keeps a raw copy of each in its
+                                      conversation's vault folder from now on (off by default);
+                                      --no-keep-transcripts stops it
                                       --path is a file, or for a txcript harness a session id
     logos import --from transcripts status | archive <dir>
                                       candidates by tier; copy the cited transcripts somewhere you keep
+    logos transcript <session-id>     print the raw copy a --keep-transcripts harvest kept in the vault
+                                      (the exact host session id; the host's own file is never read)
     logos import --from git [project] [--dir DIR] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
     logos project <name>              a project's dossier
@@ -202,6 +212,8 @@ PLUMBING — run by hooks, hosts and scripts rather than typed
                                       binary, at most once a day; --notice prints what it did, once
     logos migrate [--dry-run] [--yes] move a 0.4 vault from ~/brain to ~/logos, leaving a link behind,
                                       and re-pin the hosts that named the old path
+    logos migrate sessions [--dry-run]
+                                      move flat checkpoints into their conversation folders
     logos demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     logos bench memory <file> [--qa] | bench pipeline
                                       LongMemEval retrieval recall / QA accuracy; the extract→recall loop

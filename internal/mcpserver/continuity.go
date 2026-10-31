@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -331,6 +332,52 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		session.AddNote(s.DB, scope, agent, "resumed the project")
 	}
 	return out, nil
+}
+
+// resumeConversation is resume narrowed to one conversation of a project —
+// the MCP half of `logos resume <project> <id|name>`. A name that matches
+// more than one is an error listing them, never the first: the agent would
+// carry on someone else's next step without knowing it had been handed the
+// wrong one.
+func (s *Session) resumeConversation(projectArg, query string) (string, error) {
+	project, _ := s.resolveContinuity(projectArg)
+	if strings.TrimSpace(project) == "" {
+		return "", fmt.Errorf("resume with a conversation needs a project%s", s.knownProjects())
+	}
+	// Swept first, as the whole-project resume is: a conversation whose host
+	// was killed before it could checkpoint is exactly the one someone names
+	// here, and it exists only once the sweep has recorded it.
+	swept := ""
+	if auto.On(s.vault, auto.Checkpoint) {
+		swept = ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
+	}
+	// A misspelt project has no conversations either, and "nothing matches"
+	// would send the agent looking for the wrong thing.
+	if !s.projectExists(project) {
+		return "", fmt.Errorf("there is no project %s in this vault%s", untrusted.Inline(project), s.knownProjects())
+	}
+	convs, err := session.Conversations(s.vault, project)
+	if err != nil {
+		return "", err
+	}
+	c, candidates, err := session.FindConversation(convs, query)
+	if err != nil {
+		if len(candidates) == 0 {
+			return "", fmt.Errorf("%v in %s — call resume without conversation to see the whole project", err, untrusted.Inline(project))
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "%v. Nothing was resumed; the candidates in %s:\n", err, untrusted.Inline(project))
+		for _, cand := range candidates {
+			fmt.Fprintf(&b, "- %s\n", session.ConversationLine(cand))
+		}
+		b.WriteString("Call resume again with one id as conversation.")
+		return "", errors.New(b.String())
+	}
+	out := s.receipt("resumed conversation "+untrusted.Inline(c.ID)+" in "+untrusted.Inline(project)) + "\n\n"
+	if t := strings.TrimSpace(swept); t != "" {
+		out += t + "\n\n"
+	}
+	return out + session.RenderConversation(project, *c), nil
 }
 
 func (s *Server) noteProgress(project, agent, text string) (string, error) {

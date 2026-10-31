@@ -232,3 +232,92 @@ func TestTheAutoSwitchesAreNotIndexedAsANote(t *testing.T) {
 		t.Errorf("auto.md or its log was indexed as %d note(s)", n)
 	}
 }
+
+// The ledger quotes the checkpoints beside it line for line. Indexed, a search
+// for a decision returned it twice, from the checkpoint and from the ledger.
+func TestAProjectLedgerIsNotIndexedAsANote(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "shop")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ledger.md"), []byte("---\ntype: ledger\n---\n\n# Ledger: shop\n\n- Use signed cookies\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A note of the user's that happens to be called ledger.md is still theirs.
+	if err := os.WriteFile(filepath.Join(v, "ledger.md"), []byte("# Household ledger\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	rows, err := ix.DB.Query(`SELECT path FROM notes`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	if len(paths) != 1 || strings.Contains(paths[0], "sessions") {
+		t.Errorf("indexed %v, want only the user's own ledger.md", paths)
+	}
+}
+
+// A ledger is told by its frontmatter, not its name: a sync client's
+// conflict copy is the same view and stays out of search, while a note the
+// user keeps at sessions/ledger.md, outside any project's folder, is theirs.
+func TestALedgerUnderAnotherNameIsNotIndexedButAUsersOwnSessionsLedgerIs(t *testing.T) {
+	v := t.TempDir()
+	dir := filepath.Join(v, "sessions", "shop")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ledger := []byte("---\ntype: ledger\nproject: shop\n---\n\n# Ledger: shop\n\n- Use signed cookies\n")
+	if err := os.WriteFile(filepath.Join(dir, "ledger (conflicted copy 2026-10-28).md"), ledger, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v, "sessions", "ledger.md"), []byte("# What I owe\n\nRent.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	rep, err := ix.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The ledger the walk passed over is counted, the way a symlink is, so
+	// "found 2 files, indexed 1" is never an unexplained gap.
+	if rep.Skipped != 1 {
+		t.Errorf("skipped %d, want 1 (the ledger)", rep.Skipped)
+	}
+	var paths []string
+	rows, err := ix.DB.Query(`SELECT path FROM notes`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, filepath.ToSlash(p))
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "sessions/ledger.md") {
+		t.Errorf("indexed %v, want only the user's own sessions/ledger.md", paths)
+	}
+}

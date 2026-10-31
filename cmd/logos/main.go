@@ -161,6 +161,8 @@ func main() {
 		err = runResume(args)
 	case cmd == "ingest":
 		err = runIngest(args)
+	case cmd == "transcript":
+		err = runTranscript(args)
 	case cmd == "bootstrap":
 		err = runBootstrap(args)
 	case cmd == "import":
@@ -173,6 +175,8 @@ func main() {
 		err = runShow(args)
 	case cmd == "why":
 		err = runWhy(args)
+	case cmd == "ledger":
+		err = runLedger(args)
 	case cmd == "tried":
 		err = runTried(args)
 	case cmd == "sessions":

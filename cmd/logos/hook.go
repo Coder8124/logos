@@ -110,7 +110,13 @@ func handoffFrom(self, dir string) string {
 	// LOGOS_EMBED=off: the handoff is markdown and needs no vectors, but resume
 	// embeds its query on the way, and a model runtime that is slow to load has
 	// taken this past a host's hook timeout before.
-	cmd.Env = append(os.Environ(), "LOGOS_EMBED=off")
+	//
+	// LOGOS_HOOK=1 is what plugin/hooks/session-start.sh already exports, and
+	// this path had gone without it: the child is a separate process, so the
+	// parent's inHook never reached it. It is how resume knows not to stop for
+	// the conversation picker, and how checkIndex knows not to start a rebuild
+	// the 8-second bound below would kill halfway.
+	cmd.Env = append(os.Environ(), "LOGOS_EMBED=off", "LOGOS_HOOK=1")
 	out, err := runBounded(cmd, 8*time.Second)
 	if err != nil {
 		return ""

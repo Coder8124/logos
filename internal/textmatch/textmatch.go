@@ -90,6 +90,17 @@ func Akin(a, b string) bool {
 	return n >= 5 && a[:n] == b[:n]
 }
 
+// AkinStem is a bucket that any two Akin words share: the word itself below
+// five characters, where only an exact match is akin, and its first five
+// otherwise, which a prefix of five or more cannot differ in. So a caller can
+// find a word's akin candidates by bucket instead of trying every word.
+func AkinStem(w string) string {
+	if len(w) < 5 {
+		return w
+	}
+	return w[:5]
+}
+
 // Overlap measures containment, not Jaccard.
 //
 // Jaccard asks how much two statements share as a proportion of everything
