@@ -68,8 +68,8 @@ type Index struct {
 
 type SyncReport struct {
 	Added, Updated, Removed, Unchanged int
-	// Skipped counts files the walk found but did not index: symlinks, and
-	// files that could not be read. They are reported rather than silently
+	// Skipped counts files the walk found but did not index: symlinks,
+	// derived ledgers, and files that could not be read. They are reported rather than silently
 	// dropped, because "the index is missing a note" is otherwise invisible.
 	Skipped int
 }
@@ -421,6 +421,14 @@ func (ix *Index) Sync() (SyncReport, error) {
 		// what it knows" means; and a dangling link — what a half-finished sync
 		// client leaves behind — would fail the read below.
 		if d.Type()&fs.ModeSymlink != 0 {
+			rep.Skipped++
+			return nil
+		}
+		// A project's ledger is its checkpoints restated, every line quoting
+		// one: indexed, each decision and dead end would come back from a
+		// search twice, once from the record and once from the view of it.
+		// By its frontmatter, so a sync client's renamed copy is caught too.
+		if session.DerivedFileAt(ix.Vault, path) {
 			rep.Skipped++
 			return nil
 		}

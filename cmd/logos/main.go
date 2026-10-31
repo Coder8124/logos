@@ -175,6 +175,8 @@ func main() {
 		err = runShow(args)
 	case cmd == "why":
 		err = runWhy(args)
+	case cmd == "ledger":
+		err = runLedger(args)
 	case cmd == "tried":
 		err = runTried(args)
 	case cmd == "sessions":

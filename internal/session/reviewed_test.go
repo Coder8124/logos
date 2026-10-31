@@ -65,3 +65,54 @@ func TestAMissingReviewFileIsNoVerdicts(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+func TestOnlyALedgerTypedFileInAProjectFolderIsDerived(t *testing.T) {
+	ledger := []byte("---\ntype: ledger\nproject: shop\n---\n\n# Ledger: shop\n")
+	for _, c := range []struct {
+		rel  string
+		head []byte
+		want bool
+	}{
+		{"sessions/shop/ledger.md", ledger, true},
+		{"sessions/shop/ledger (conflicted copy).md", ledger, true},
+		{"sessions/shop/wt/ledger-2.md", ledger, true},
+		{"sessions/ledger.md", ledger, false},
+		{"notes/ledger.md", ledger, false},
+		{"sessions/shop/20261028-101010-claude-code.md", ledger, false},
+		{"sessions/shop/ledger.md", []byte("# Household ledger\n"), false},
+		{"sessions/shop/notes.md", []byte("---\ntype: note\n---\ntype: ledger\n"), false},
+	} {
+		if got := IsDerivedFile(c.rel, c.head); got != c.want {
+			t.Errorf("IsDerivedFile(%q) = %v, want %v", c.rel, got, c.want)
+		}
+	}
+}
+
+// A rename deletes what this calls derived, so a guess is not enough: the
+// type has to be the frontmatter's own top-level key, and the file has to be
+// the ledger by name or a sync client's copy of it. A user's note that nests
+// "type: ledger" under another key, or is simply typed ledger under its own
+// name, is theirs.
+func TestAFileIsDerivedOnlyByATopLevelLedgerTypeUnderTheLedgersOwnName(t *testing.T) {
+	ledger := []byte("---\ntype: ledger\nproject: shop\n---\n\n# Ledger: shop\n")
+	nested := []byte("---\nbudget:\n  type: ledger\n---\n\n# March\n")
+	for _, c := range []struct {
+		rel  string
+		head []byte
+		want bool
+	}{
+		{"sessions/shop/ledger.md", nested, false},
+		{"sessions/shop/ledger.md", []byte("---\ntitle: x\n  type: ledger\n---\n"), false},
+		{"sessions/shop/accounts.md", ledger, false},
+		{"sessions/shop/ledger-notes.md", ledger, false},
+		{"sessions/shop/ledger (Pragun's conflicted copy 2026-10-28).md", ledger, true},
+		{"sessions/shop/ledger.sync-conflict-20261028-101010-ABCDEFG.md", ledger, true},
+		{"sessions/shop/ledger (1).md", ledger, true},
+		{"sessions/shop/ledger 2.md", ledger, true},
+		{"sessions/shop/ledger (draft).md", ledger, false},
+	} {
+		if got := IsDerivedFile(c.rel, c.head); got != c.want {
+			t.Errorf("IsDerivedFile(%q, %q) = %v, want %v", c.rel, c.head, got, c.want)
+		}
+	}
+}

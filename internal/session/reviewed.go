@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,80 @@ import (
 // send the drift warnings back. It sits beside uncommitted.md, which
 // IsCheckpointFile already tells apart from a checkpoint by its name.
 const ReviewedFile = "reviewed.md"
+
+// LedgerFile is the project's long-term history derived from its
+// checkpoints (internal/ops/ledger.go). It sits beside reviewed.md for the
+// same reason: IsCheckpointFile tells it apart by its name, so History never
+// reads the ledger back as a checkpoint it was built from.
+const LedgerFile = "ledger.md"
+
+// LedgerType is the frontmatter type a ledger is written under. Derived files
+// are told apart by it, not by their name: a sync client's conflict copy,
+// "ledger (conflicted copy).md", is the same view under another name, and
+// keying on "ledger.md" let it into the index and through a rename as if
+// someone had written it.
+const LedgerType = "ledger"
+
+// IsDerivedFile is whether the vault file at rel (slash-separated, from the
+// vault root), starting with head, is a view Logos rebuilds from checkpoints
+// rather than a record: where a ledger is written (derivedPlace), and typed
+// ledger by its frontmatter's own top-level key. A rename deletes what this
+// says yes to, so both have to hold: a note of the user's at
+// sessions/ledger.md, one under another name, or one nesting "type: ledger"
+// under some other key is theirs whatever it says it is.
+func IsDerivedFile(rel string, head []byte) bool {
+	return derivedPlace(rel) && ledgerTyped(rel, head)
+}
+
+// DerivedFileAt is IsDerivedFile for the file at path inside vaultDir, read
+// only as far as its frontmatter, and only once its place says it could be a
+// ledger. A file it cannot read is not derived: the caller's own read reports
+// the failure.
+func DerivedFileAt(vaultDir, path string) bool {
+	rel, err := filepath.Rel(vaultDir, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	if !derivedPlace(rel) {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, _ := f.Read(head)
+	return ledgerTyped(rel, head[:n])
+}
+
+// derivedPlace is where a ledger can be: inside a project's (or worktree's)
+// checkpoint folder, named ledger.md or as a sync client names its copy of
+// it. The one copy of the location rule, so the index and a rename cannot
+// disagree about which files are Logos's to rebuild.
+func derivedPlace(rel string) bool {
+	parts := strings.Split(rel, "/")
+	if len(parts) < 3 || parts[0] != CheckpointDir {
+		return false
+	}
+	name := parts[len(parts)-1]
+	return name == LedgerFile || ledgerCopy.MatchString(name)
+}
+
+// ledgerCopy is ledger.md as a sync client renames a second copy of it:
+// Dropbox's "ledger (… conflicted copy …)", Google Drive's "ledger (1)",
+// iCloud's "ledger 2", Syncthing's "ledger.sync-conflict-<date>-<time>-<id>",
+// and a merge's "ledger-2". Nothing looser: "ledger (draft).md" or
+// "ledger-notes.md" is a person's file, and a rename would delete it.
+var ledgerCopy = regexp.MustCompile(`^ledger(?: \([^()]*conflict[^()]*\)| \(\d+\)| \d+|-\d+|\.sync-conflict-\d{8}-\d{6}-[A-Za-z0-9]+)\.md$`)
+
+// ledgerTyped is whether head opens with frontmatter whose top-level type is
+// ledger, parsed as YAML the way the index parses every note: a line-by-line
+// scan matched an indented "type:" belonging to another key.
+func ledgerTyped(rel string, head []byte) bool {
+	return vault.Parse("", rel, string(head)).Kind == LedgerType
+}
 
 // Review is the latest verdict on one ruling. Retired drops it from what is
 // handed over; otherwise Commit is where a person last confirmed it, and the

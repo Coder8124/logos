@@ -86,6 +86,8 @@ THE HANDOFF
     logos tried <approach> --ruled-out <what happened> [--layer L] [--scope S]
                                       record one now, without waiting for a checkpoint
     logos why <file> [--limit N]      what was being decided when this file was touched
+    logos ledger [project]            write the project's long-term history, derived from every
+                                      checkpoint, to sessions/<project>/ledger.md
 
 LOOKING
     logos search <query…>             retrieve only, no generation

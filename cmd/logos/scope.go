@@ -76,9 +76,14 @@ func projectHere() string {
 // otherwise. It is what lets a pack check that a checkpoint came from this
 // repository: standing in one "api" and asking for "api" means this one, while
 // asking for a project by name from somewhere else means whichever wrote it.
+//
+// The two names are compared as the vault files them (session.SafeScope), not
+// as typed: `logos ledger Shop` read sessions/shop like any other spelling,
+// but standing in a folder named shop it compared "Shop" with "shop", decided
+// this checkout was some other project's, and measured nothing against it.
 func dirFor(project string) string {
 	dir, err := os.Getwd()
-	if err != nil || projectFor(dir) != project {
+	if err != nil || session.SafeScope(projectFor(dir)) != session.SafeScope(project) {
 		return ""
 	}
 	return dir
@@ -140,6 +145,12 @@ func runProjectRename(args []string) error {
 
 	res, err := rename.Run(ix.DB, ix.Vault, from, to, dryRun, merge)
 	if err != nil {
+		// The ledgers go first, before anything moves, so a step that fails
+		// after them has already deleted them. Rebuildable, but deleted, and a
+		// bare error would leave that unsaid.
+		if res.Derived > 0 && !dryRun {
+			fmt.Printf("dropped %d ledger(s) derived from the old checkpoints before the rename failed — `logos ledger` rebuilds one once the rename is finished\n", res.Derived)
+		}
 		return err
 	}
 	if res.Empty() && res.Merged == 0 {
@@ -169,6 +180,15 @@ func runProjectRename(args []string) error {
 			fmt.Printf(" (%d filename collision(s) kept as separate files)", res.Collisions)
 		}
 		fmt.Println()
+	}
+	if res.Derived > 0 {
+		// Said, not done quietly: a ledger the user opened yesterday is gone
+		// until they rebuild it, and the rebuild is one command.
+		would := "dropped"
+		if dryRun {
+			would = "would drop"
+		}
+		fmt.Printf("  %s %d ledger(s) derived from the old checkpoints — run `logos ledger %s` to rebuild it\n", would, res.Derived, to)
 	}
 	if dryRun {
 		fmt.Println("\nnothing was written. run again without --dry-run to apply.")
