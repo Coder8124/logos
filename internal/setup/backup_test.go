@@ -186,3 +186,58 @@ func TestASecondSetupLeavesNoBackupBesideTheConfigsItDidNotChange(t *testing.T) 
 		}
 	}
 }
+
+// The backup is worth keeping because it is the user's config from before
+// logos touched it. Every run wrote a fresh one, so a second setup — which an
+// update or a moved vault makes routine — overwrote it with the first run's
+// output; and since a second run changes nothing, it then deleted that as
+// litter. Either way the only copy of the user's original was gone. A backup an
+// earlier run left is never overwritten or taken back, whether this run
+// changed the file or not; what a changing run found goes beside it, so the
+// run before the last can still be undone too.
+func TestASecondSetupKeepsTheBackupOfTheUsersOriginalConfig(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	cursor := hostNamed(t, "Cursor")
+	const (
+		mcp   = "{\"mcpServers\":{\"theirs\":{\"command\":\"their-server\"}}}\n"
+		hooks = "{\"version\":1,\"hooks\":{\"stop\":[{\"command\":\"their-hook\"}]}}\n"
+	)
+	originals := map[string]string{"mcp.json": mcp, "hooks.json": hooks}
+	for f, body := range originals {
+		if err := os.WriteFile(filepath.Join(home, ".cursor", f), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	moved := server()
+	moved.Env = map[string]string{"LOGOS_VAULT": "/Users/someone/elsewhere"}
+	mcpPath := filepath.Join(home, ".cursor", "mcp.json")
+	var connected []byte
+	for i, s := range []Server{server(), server(), moved} {
+		r := Install(s, []Host{cursor})
+		if r[0].Outcome == Failed || r[0].HookErr != nil {
+			t.Fatalf("setup %d: %v %v", i+1, r[0].Err, r[0].HookErr)
+		}
+		if i == 1 {
+			connected, _ = os.ReadFile(mcpPath)
+		}
+		if i == 2 {
+			// The move: what it replaced is kept, and both copies are named.
+			if got, _ := os.ReadFile(mcpPath + ".logos-backup.previous"); string(got) != string(connected) {
+				t.Errorf("the config the move replaced was not kept beside the original: %q", got)
+			}
+			if r[0].Backup != mcpPath+".logos-backup.previous" || r[0].Original != mcpPath+".logos-backup" {
+				t.Errorf("backup = %q, original = %q", r[0].Backup, r[0].Original)
+			}
+		}
+		for f, body := range originals {
+			got, err := os.ReadFile(filepath.Join(home, ".cursor", f+".logos-backup"))
+			if err != nil {
+				t.Fatalf("after setup %d there is no backup of the original %s: %v", i+1, f, err)
+			}
+			if string(got) != body {
+				t.Errorf("after setup %d the backup of %s holds %q, not the user's original", i+1, f, got)
+			}
+		}
+	}
+}

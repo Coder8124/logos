@@ -350,39 +350,25 @@ func saveHookFile(path string, f hookFile) error {
 // beside a hooks file it had not changed. The same bytes are also reported as
 // unchanged: installHook says updated whenever a logos hook was there, and a
 // second setup printed "hook updated" under "already connected".
+//
+// The backup is taken for the same reason backupConfig takes one of an MCP
+// config: it is the only way back. One an earlier run left is kept as it is
+// (fileBackup).
 func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
-	backup, err := backupHooks(path)
+	backup, err := backupFile(path)
 	if err != nil {
 		return Failed, err
 	}
 	outcome, err := installHook(path, host, argv)
-	if backup != "" {
-		before, berr := os.ReadFile(backup)
+	if backup.path != "" {
 		after, aerr := os.ReadFile(path)
-		if berr == nil && aerr == nil && bytes.Equal(before, after) {
-			os.Remove(backup)
-			if err == nil {
-				outcome = Unchanged
-			}
+		same := aerr == nil && bytes.Equal(backup.before, after)
+		backup.settle(!same)
+		if same && err == nil {
+			outcome = Unchanged
 		}
 	}
 	return outcome, err
-}
-
-// backupHooks copies a hooks file aside before it is merged, for the same
-// reason backupConfig does it for an MCP config: it is the only way back.
-func backupHooks(path string) (string, error) {
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
-	}
-	if err := os.WriteFile(path+".logos-backup", raw, 0o600); err != nil {
-		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
-	}
-	return path + ".logos-backup", nil
 }
 
 // The two hosts with a user-level hooks file.

@@ -583,6 +583,9 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 					fmt.Printf("    %-*s    its comments were not carried over; they are kept in that copy\n", hostColumn, "")
 				}
 			}
+			if r.Original != "" {
+				fmt.Printf("    %-*s    the config from before logos first changed it is still at %s\n", hostColumn, "", r.Original)
+			}
 			// The entry 0.4 setup wrote under the old name.
 			if r.Replaced {
 				fmt.Printf("    %-*s    replaced the brain entry an earlier setup wrote\n", hostColumn, "")
