@@ -3,6 +3,7 @@ package scope
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -247,5 +248,63 @@ func TestDenyInAPlainDirectoryCoversItsSubfolders(t *testing.T) {
 	}
 	if removed, err := Undeny(sub); err != nil || len(removed) != 1 || Denied(sub) {
 		t.Errorf("undo from the subfolder: removed %v, err %v, still denied %v", removed, err, Denied(sub))
+	}
+}
+
+// otherCase is p spelled in capitals, for a disk that ignores case (macOS and
+// Windows by default) to answer as the same directory. A disk that honours
+// case has no such second spelling, so there is nothing to test.
+func otherCase(t *testing.T, p string) string {
+	t.Helper()
+	up := strings.ToUpper(p)
+	if up == p {
+		t.Skip("the path has no letters to change the case of")
+	}
+	if _, err := os.Stat(up); err != nil {
+		t.Skip("this disk honours case, so the path has only one spelling")
+	}
+	return up
+}
+
+// A shell standing in ~/ideaprojects/brain on macOS is in the same folder as
+// one in ~/IdeaProjects/brain. Named as typed, the one project split into
+// "brain" and "BRAIN", and neither session saw the other's checkpoints.
+func TestAFolderReachedUnderAnotherCaseIsNamedAsTheDiskSpellsIt(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Kestrel")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := Name(otherCase(t, dir)); got != "Kestrel" {
+		t.Errorf("Name = %q, want %q", got, "Kestrel")
+	}
+}
+
+// The walk for a repository stops at the home directory so a dotfiles repo
+// there is never a project. Comparing the walk's spelling with $HOME's let a
+// differently cased path walk straight past it and name the session after the
+// user.
+func TestTheRepositoryWalkStopsAtHomeHoweverThePathWasSpelled(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "Home")
+	notes := filepath.Join(home, "notes")
+	if err := os.MkdirAll(filepath.Join(home, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(notes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	if got := Name(otherCase(t, notes)); got != "notes" {
+		t.Errorf("Name = %q, want %q: the home directory's dotfiles repo was taken for the project", got, "notes")
+	}
+}
+
+// A path the disk does not have yet — a project folder about to be created —
+// has no other spelling to find, and must come back as given rather than
+// emptied or truncated.
+func TestOnDiskKeepsTheMissingPartOfAPathAsGiven(t *testing.T) {
+	base := t.TempDir()
+	want := filepath.Join(OnDisk(base), "not", "made", "Yet")
+	if got := OnDisk(filepath.Join(base, "not", "made", "Yet")); got != want {
+		t.Errorf("OnDisk = %q, want %q", got, want)
 	}
 }

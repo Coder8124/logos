@@ -26,10 +26,13 @@ package gitstate
 
 import (
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Coder8124/logos/internal/scope"
 )
 
 // State is the repository as it stood when a checkpoint was written.
@@ -141,8 +144,11 @@ func Identity(dir string) (remote, root string) {
 		if !filepath.IsAbs(common) {
 			common = filepath.Join(dir, common)
 		}
+		// EvalSymlinks keeps the case dir was given in; resume compares this
+		// root with the one a checkpoint recorded, and on a disk that ignores
+		// case the two spellings are one checkout.
 		if resolved, err := filepath.EvalSymlinks(common); err == nil {
-			root = filepath.Dir(resolved)
+			root = scope.OnDisk(filepath.Dir(resolved))
 		}
 	}
 	return remote, root
@@ -231,10 +237,12 @@ func WorktreeName(dir string) string {
 // A linked worktree's git dir sits inside the main repo's common dir, so the
 // two differ; in the main tree they are the same directory.
 //
-// Both paths must be resolved before comparing: in the main tree
+// The two are compared as files, not as strings. In the main tree
 // --git-common-dir answers with a *relative* ".git" while --absolute-git-dir
-// answers absolutely, so a naive comparison reports every ordinary repository
-// as a worktree.
+// answers absolutely, and on a disk that ignores case the absolute one is in
+// the disk's spelling while the common dir keeps dir's: either way a string
+// comparison reports an ordinary repository as a worktree. EvalSymlinks on
+// gitDir is only so the path returned is canonical.
 func linkedGitDir(dir string) string {
 	if dir == "" {
 		return ""
@@ -250,8 +258,12 @@ func linkedGitDir(dir string) string {
 	if err != nil {
 		return ""
 	}
-	b, err := filepath.EvalSymlinks(common)
-	if err != nil || a == b {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return ""
+	}
+	bi, err := os.Stat(common)
+	if err != nil || os.SameFile(ai, bi) {
 		return ""
 	}
 	return a

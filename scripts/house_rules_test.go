@@ -170,6 +170,25 @@ func TestABugfixWhoseTestSkipsHereIsReportedAsUnproved(t *testing.T) {
 	}
 }
 
+// A diff hunk is labelled with the function above it, so a test appended after
+// another one named that neighbour too. The neighbour passed, the new test
+// skipped, and a case-insensitive-disk fix proved on macOS was rejected on
+// Linux as passing without the fix instead of reported as unproved.
+func TestATestAddedBelowAnotherIsNotJudgedByItsNeighbour(t *testing.T) {
+	r := newScratchRepo(t)
+	r.write("add.go", buggyAdd)
+	r.write("add_test.go", "package scratch\n\nimport \"testing\"\n\nfunc TestAddOfZeroAndZeroIsZero(t *testing.T) {\n\tif Add(0, 0) != 0 {\n\t\tt.Fatal(Add(0, 0))\n\t}\n}\n")
+	r.commit("Add adds")
+	r.write("add.go", fixedAdd)
+	r.write("add_test.go", "package scratch\n\nimport \"testing\"\n\nfunc TestAddOfZeroAndZeroIsZero(t *testing.T) {\n\tif Add(0, 0) != 0 {\n\t\tt.Fatal(Add(0, 0))\n\t}\n}\n\nfunc TestAddSumsItsArguments(t *testing.T) {\n\tt.Skip(\"the wrong OS\")\n}\n")
+	r.commit("BUG: Add sums its arguments")
+
+	ok, out := r.check("check-bug-tests.sh")
+	if !ok || !strings.Contains(out, "unproved") || strings.Contains(out, "TestAddOfZeroAndZeroIsZero") {
+		t.Errorf("a new test was judged by the passing test above it:\n%s", out)
+	}
+}
+
 // Only the chaos tag was passed, so a test behind any other — race_on_test.go
 // is behind `race` — never ran, and its fix was rejected.
 func TestABugfixWhoseTestIsBehindABuildTagIsRun(t *testing.T) {

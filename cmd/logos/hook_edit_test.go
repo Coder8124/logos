@@ -131,6 +131,25 @@ func TestEditingAFileARulingNamesShowsTheRulingOnce(t *testing.T) {
 	}
 }
 
+// git names the repository root as the disk spells it, and the edited file
+// kept the case the host's working directory was typed in. On macOS the two
+// never shared a prefix, the file looked outside the repository, and the
+// ruling about it was silently not shown.
+func TestEditingAFileFromACheckoutSpelledInAnotherCaseStillShowsTheRuling(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, readerRuling)
+	other := strings.ToUpper(repo)
+	if other == repo {
+		t.Skip("the path has no letters to change the case of")
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Skip("this filesystem is case-sensitive")
+	}
+	if got := edit(t, vault, other, "s1", "internal/parse/reader.go"); !strings.Contains(got, "streaming the vendor export") {
+		t.Fatalf("editing the file from %s showed nothing about its ruling:\n%q", other, got)
+	}
+}
+
 func TestEditingAFileNoRulingNamesSaysNothing(t *testing.T) {
 	repo, vault, db := editRepo(t)
 	ruleOut(t, db, vault, repo, readerRuling)
