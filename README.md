@@ -24,7 +24,7 @@ the markdown. If this project dies, you keep a vault.
 **Nothing is observed.** Logos does not watch your screen, your browser
 history, your files or your calendar. The only things in your vault are things
 an agent explicitly wrote there — a checkpoint, a note, a memory it asked to
-remember and you approved. The one exception is the Claude Code plugin's
+remember and you approved. One exception is the Claude Code plugin's
 activity log, in `activity/`, which records the first 160 characters of each
 prompt and of each tool call's path or shell command, with anything
 secret-shaped masked — it is what a session that never checkpointed is
@@ -34,7 +34,11 @@ config deny`, run in a repository, keeps Logos out of it entirely (`logos config
 deny --undo` lets it back in). Setup asks once about the log, `logos config
 activity on` and `off` are the switch for the whole vault, an answer you gave is
 never overridden, `logos watch --log` shows it, `logos index` keeps it out of the vault's
-git, and a month's entries are deleted 30 days after that month ends. Logos itself contacts your local model runtime and, only
+git, and a month's entries are deleted 30 days after that month ends. The other
+is a raw copy of a harvested transcript, which Logos keeps only after you run
+`logos import --from transcripts --keep-transcripts` — off by default, unredacted
+when on, so store the vault as you would the originals; `--no-keep-transcripts`
+stops it. Logos itself contacts your local model runtime and, only
 when you type `logos update`, GitHub for a new release. Two things it runs reach further
 on their own: once a day the session-start hook has Claude Code update the Logos plugin
 (`logos plugin autoupdate off` stops it), and `logos doctor`, `logos setup` and the commands
@@ -48,13 +52,16 @@ give you, makes no such call.
 
 **Logos is built for continuity:**
 
-- `resume` / `context` — where the last agent stopped, what it verified, what it ruled out
+- `resume` / `context` — where the last agent stopped, what it verified, what it ruled out; an older ruled-out approach that matches the task comes back even from outside the time window
+- `logos resume <project> <id|name>` — just one conversation, by its folder id or its intent; at a terminal, a picker
 - `before_you_try` — whether an approach was already attempted and abandoned, here or elsewhere
 - `why` — what was being decided when a given file was last worked on
-- `checkpoint` / `handoff` — the durable record, with `verified` and `failed` kept deliberately separate
+- `checkpoint` / `handoff` — the durable record, with `verified` and `failed` kept deliberately separate; a `verified` line naming a command the activity log never saw run is marked unverified
+- `logos ledger` — a project's decisions in force, dead ends and open questions in one file, rebuilt from its checkpoints and citing each one
+- A decision three checkpoints recorded is proposed as project memory, and `logos review --stale` asks about each ruling and memory whose files changed since
 - `ingest_harvest` / `ingest_distil` — read what another coding agent's session did and distil it yourself, into a candidate a person still has to promote
 - Receipts on every write, so you can see the memory layer working instead of taking it on faith
-- A SessionStart hook that puts the last handoff in front of the model before it does anything
+- A SessionStart hook that puts the last handoff in front of the model before it does anything, says what re-deriving its dead ends would repeat, and says when your logos is older than the plugin
 
 **Logos is local and durable:**
 
@@ -62,14 +69,15 @@ give you, makes no such call.
 - Runs with no model runtime at all — semantic search degrades to lexical, nothing breaks
 - Hybrid retrieval: FTS5 plus local embeddings through Ollama, when one is available
 - Vault files are written 0600, and `logos doctor` reports what the rest of the machine can read
-- Survives SIGKILL mid-write, a full disk, and two processes racing on one vault ([`chaos/`](chaos/))
+- Survives SIGKILL mid-write, a full disk, a read-only vault, a sync client's conflict copies and two worktrees racing on one vault ([`chaos/`](chaos/)), and its checkpoint and memory parsers are fuzzed against hand-edited files
 - Project- and worktree-scoped, so one repository's facts do not surface in another
 
 **Logos works where you already work:**
 
 - MCP server for Claude Code, Claude Desktop, Cursor, Codex, Cline, Devin, GitHub Copilot, opencode, Amp, Grok Build and anything else that speaks the protocol
 - Read-only tools annotated as such, so they stay available in read-only chat modes
-- A CLI equivalent for every tool, for agents that only have a shell
+- A CLI equivalent for every tool, for agents that only have a shell; `recall`, `context`, `resume` and `tried` answer `--json`
+- `logos import` brings in CLAUDE.md and AGENTS.md, Cursor rules, claude-mem, Claude Code's auto memory, transcripts or git history; the instruction files and transcripts wait for your yes in `logos review`
 - A Go package to embed the engine directly — `import "github.com/Coder8124/logos"`
 
 ## Does it work?
