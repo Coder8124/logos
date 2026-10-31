@@ -287,6 +287,31 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintf(w, "re-filed %d checkpoint%s to match host_session, 0 lost\n", refiled, plural(refiled, ""))
 	}
 
+	printConflictCopies(w, "", rep.ConflictCopies, edits)
+
+	// A killed write leaves its temp file behind for good, since the deferred
+	// remove dies with the process. Removed here because index is the command
+	// that already promises to repair what an interrupted write left; said
+	// here because files vanishing from a synced folder unannounced reads as
+	// the tool deleting things. The count is said even when a removal failed:
+	// the files already gone are gone either way, and an error alone hid them.
+	removed, rmErr := vault.RemoveTemps(ix.Vault, rep.StaleTemps)
+	if len(removed) > 0 {
+		fmt.Fprintf(w, "removed %d temp file%s left by an interrupted write: %s\n",
+			len(removed), plural(len(removed), ""), strings.Join(removed, ", "))
+	}
+	if rmErr != nil {
+		fmt.Fprintf(os.Stderr, "· could not remove %d temp file%s left by an interrupted write: %v\n",
+			len(rep.StaleTemps)-len(removed), plural(len(rep.StaleTemps)-len(removed), ""), rmErr)
+	}
+
+	// A folder the walk could not enter is a folder of notes missing from
+	// every count above; skipped, so one bad directory cannot stop the index,
+	// but never silently.
+	for _, u := range rep.Unreadable {
+		fmt.Fprintf(os.Stderr, "· could not read %s — its notes are not indexed\n", terminalSafe(u, 400))
+	}
+
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)
@@ -352,6 +377,31 @@ func printMemoryEdits(w io.Writer, e memory.Edits) {
 	for _, h := range e.Held {
 		fmt.Fprintf(w, "left out of memory: %s\n", terminalSafe(h, 400))
 	}
+}
+
+// printConflictCopies says the sync conflict copies an index left out of
+// every count. A copy is neither read nor lost — it is on disk, waiting for
+// someone to compare it with its original — so the counts alone would make it
+// look like one or the other. An orphan, whose original memory is gone, is
+// said apart: it is what a forget looks like after a sync client kept a copy,
+// and the person decides whether that memory comes back.
+func printConflictCopies(w io.Writer, prefix string, walked []string, e memory.Edits) {
+	copies := append(append([]string{}, walked...), e.SetAside...)
+	if n := len(copies); n > 0 {
+		fmt.Fprintf(w, "%sset aside %d sync conflict %s, read the original instead — compare and delete: %s\n",
+			prefix, n, plural2(n, "copy", "copies"), terminalSafe(strings.Join(copies, ", "), 2000))
+	}
+	if n := len(e.Orphaned); n > 0 {
+		fmt.Fprintf(w, "%sset aside %d sync conflict %s of a memory that is no longer current — delete %s, or rename one to its original name to bring the memory back: %s\n",
+			prefix, n, plural2(n, "copy", "copies"), plural2(n, "it", "them"), terminalSafe(strings.Join(e.Orphaned, ", "), 2000))
+	}
+}
+
+func plural2(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // memoryIDs writes "#3, #4" — the handles `logos memory history` takes — and

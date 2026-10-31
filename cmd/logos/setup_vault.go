@@ -7,6 +7,7 @@ import (
 
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/vault"
@@ -313,7 +314,13 @@ func indexVault(dir string) error {
 		if _, err := ix.EmbedPending(found[0].Provider, embedModel, 32); err != nil {
 			fmt.Printf("  index      embedding failed: %v — search is lexical until `logos index` succeeds\n", err)
 		}
-		ix.SyncMemories(found[0].Provider, embedModel)
+		// Not dropped: setup imports the same memory files `logos index` does,
+		// so a conflict copy it set aside, or a failed import, is said here too.
+		if _, _, edits, err := ix.SyncMemoryEdits(found[0].Provider, embedModel); err != nil {
+			fmt.Printf("  index      could not import memories: %v — run `logos index`\n", err)
+		} else {
+			printConflictCopies(os.Stdout, "  index      ", nil, edits)
+		}
 	}
 	notes, _ := ix.NoteCount()
 	edges, _ := ix.EdgeCount()
@@ -322,5 +329,8 @@ func indexVault(dir string) error {
 		fmt.Printf(" (%d skipped)", rep.Skipped)
 	}
 	fmt.Println()
+	// The walk's own conflict copies, said after the count they were left out
+	// of; the memory import's were said above, with the import.
+	printConflictCopies(os.Stdout, "  index      ", rep.ConflictCopies, memory.Edits{})
 	return nil
 }

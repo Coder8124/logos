@@ -34,6 +34,11 @@ func (b *Logos) Index() (SyncReport, error) {
 			return rep, err
 		}
 	}
-	_, _, err = b.ix.SyncMemories(b.embed, b.embedModel)
+	// The memory import's conflict copies join the walk's in the report, so
+	// an embedder sees every file set aside: SyncMemories dropped them, and a
+	// copy nobody is told about is a sync conflict nobody resolves.
+	_, _, edits, err := b.ix.SyncMemoryEdits(b.embed, b.embedModel)
+	rep.ConflictCopies = append(rep.ConflictCopies, edits.SetAside...)
+	rep.ConflictCopies = append(rep.ConflictCopies, edits.Orphaned...)
 	return rep, err
 }

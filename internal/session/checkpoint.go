@@ -473,7 +473,11 @@ func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
 	}
 	var out []CheckpointEntry
 	for _, e := range top {
-		if !e.IsDir() && IsCheckpointFile(e.Name()) {
+		// A sync client's conflict copy is the same checkpoint again; read
+		// as its own, it listed one session several times over in History
+		// and cited one dead end once per copy. vault.ConflictCopies is what
+		// tells the person it was left out.
+		if !e.IsDir() && IsCheckpointFile(e.Name()) && !vault.IsConflictCopy(dir, e.Name()) {
 			out = append(out, CheckpointEntry{Name: e.Name(), Rel: e.Name()})
 		}
 	}
@@ -490,7 +494,8 @@ func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
 			continue // one unreadable conversation must not hide the others
 		}
 		for _, f := range inner {
-			if !f.IsDir() && IsCheckpointFile(f.Name()) {
+			if !f.IsDir() && IsCheckpointFile(f.Name()) &&
+				!vault.IsConflictCopy(filepath.Join(dir, ConvosDir, convo.Name()), f.Name()) {
 				out = append(out, CheckpointEntry{
 					Name: f.Name(),
 					Rel:  filepath.ToSlash(filepath.Join(ConvosDir, convo.Name(), f.Name())),
@@ -620,8 +625,29 @@ func Refile(vaultDir string) (int, error) {
 				continue // already filed where its own frontmatter says it belongs
 			}
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
+			// Its sync copies go too, before the original leaves. A copy is
+			// set aside only while its original is beside it, so one left
+			// behind here stopped being a copy and became a second
+			// checkpoint in every listing. Checked before anything is
+			// written, and never over a file already there: that would be
+			// one copy destroying another, and stopping halfway would leave
+			// the checkpoint in both folders.
+			copies, err := vault.CopiesOf(filepath.Dir(oldPath), en.Name)
+			if err != nil {
+				return refiled, fmt.Errorf("re-filing %s: listing its sync copies: %w", en.Rel, err)
+			}
+			for _, cp := range copies {
+				if _, err := os.Lstat(filepath.Join(filepath.Dir(newPath), cp)); err == nil {
+					return refiled, fmt.Errorf("re-filing %s: its sync copy %s is already in %s, so neither was moved", en.Rel, cp, filepath.ToSlash(filepath.Dir(wantRel)))
+				}
+			}
 			if err := vault.WriteAtomic(newPath, raw); err != nil {
 				return refiled, fmt.Errorf("re-filing %s: %w", en.Rel, err)
+			}
+			for _, cp := range copies {
+				if err := os.Rename(filepath.Join(filepath.Dir(oldPath), cp), filepath.Join(filepath.Dir(newPath), cp)); err != nil {
+					return refiled, fmt.Errorf("re-filing %s: moving its sync copy %s: %w", en.Rel, cp, err)
+				}
 			}
 			if err := os.Remove(oldPath); err != nil {
 				return refiled, fmt.Errorf("re-filing %s: removing the old copy: %w", en.Rel, err)

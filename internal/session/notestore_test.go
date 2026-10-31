@@ -382,3 +382,49 @@ func TestAMarkerOnlyNoteInTheVaultDoesNotStopTheRebuildRestoringTheRest(t *testi
 		t.Fatalf("the note after the marker was not restored: %+v", got)
 	}
 }
+
+// iCloud and Dropbox keep both sides of a write two machines made before a
+// sync, naming the loser "x 2.md" or "x (conflicted copy).md" beside the
+// original. Read as checkpoints of their own, one session came back three
+// times in History and its ruled-out approaches were cited once per copy. A
+// copy whose original is gone is the only record left, and still counts.
+func TestASyncConflictCopyOfACheckpointIsNotCountedAgain(t *testing.T) {
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	c := Checkpoint{Project: "kestrel", Agent: "claude", Next: "monitor", Failed: []string{"a regex parser"}}
+	if err := Commit(db, v, &c); err != nil {
+		t.Fatal(err)
+	}
+	orig := filepath.Join(v, filepath.FromSlash(c.Slug)+".md")
+	raw, err := os.ReadFile(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stem := strings.TrimSuffix(orig, ".md")
+	for _, copy := range []string{stem + " 2.md", stem + " (conflicted copy).md",
+		stem + " (Sam's conflicted copy 2026-10-28).md", stem + ".sync-conflict-20261028-101500-ABC1234.md"} {
+		if err := os.WriteFile(copy, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := History(v, "kestrel", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("one checkpoint and four sync conflict copies of it read as %d checkpoints", len(all))
+	}
+
+	// With the original deleted, the copy is all there is.
+	if err := os.Remove(orig); err != nil {
+		t.Fatal(err)
+	}
+	all, err = History(v, "kestrel", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) == 0 {
+		t.Fatal("the copies of a deleted checkpoint were set aside, leaving no record of it at all")
+	}
+}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (c Checkpoint) Markdown(follows string) string {
 	}
 	if in := c.Inferred; in != nil {
 		fmt.Fprintf(&b, "inferred_by: %s\n", yamlStr(in.By))
-		fmt.Fprintf(&b, "inferred_at: %s\n", time.Unix(in.At, 0).Format(time.RFC3339))
+		fmt.Fprintf(&b, "inferred_at: %s\n", rfc3339(in.At))
 		if in.Turns > 0 {
 			fmt.Fprintf(&b, "inferred_turns: %d\n", in.Turns)
 		}
@@ -108,16 +109,16 @@ func (c Checkpoint) Markdown(follows string) string {
 		}
 	}
 	b.WriteString("relations:\n")
-	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", c.Project)
+	fmt.Fprintf(&b, "  - { pred: checkpoint_of, obj: %s, conf: 1.0, src: stated }\n", linkStr(c.Project))
 	if follows != "" {
-		fmt.Fprintf(&b, "  - { pred: follows, obj: \"[[%s]]\", conf: 1.0, src: stated }\n", follows)
+		fmt.Fprintf(&b, "  - { pred: follows, obj: %s, conf: 1.0, src: stated }\n", linkStr(follows))
 	}
 	// first_seen is what the indexer and the graph's time scrubber read, and it
 	// is day-resolution. checkpointed carries the real instant, because "how
 	// long ago did the last agent stop" is a question an agent will reason about
 	// and rounding it to a date turns seconds into hours.
 	fmt.Fprintf(&b, "first_seen: %s\n", time.Unix(c.TS, 0).Format("2006-01-02"))
-	fmt.Fprintf(&b, "checkpointed: %s\n", time.Unix(c.TS, 0).Format(time.RFC3339))
+	fmt.Fprintf(&b, "checkpointed: %s\n", rfc3339(c.TS))
 	b.WriteString("---\n")
 
 	section(&b, secTask, c.Task)
@@ -407,7 +408,17 @@ func parseBullets(text string) []string {
 
 // splitFM peels a leading --- fenced block. Mirrors internal/vault's splitter;
 // kept local because the checkpoint has its own frontmatter shape.
+//
+// A Windows editor's save — CRLF, a byte-order mark — is the same file, and is
+// normalised here, where every parser of a session note passes. Left in,
+// either one hid the frontmatter fence, and the note read back with its body
+// but no project, session or time: not Empty, so nothing skipped it, just
+// quietly wrong. Done in ParseCheckpoint alone, it left ParsePlan still
+// reading a Windows-saved plan as one with no project. The whole file is
+// normalised, not only the frontmatter, so a body line does not carry a stray
+// \r into a field.
 func splitFM(raw string) (string, string) {
+	raw = strings.ReplaceAll(strings.TrimPrefix(raw, "\ufeff"), "\r\n", "\n")
 	if !strings.HasPrefix(raw, "---\n") {
 		return "", raw
 	}
@@ -427,6 +438,44 @@ func yamlStr(s string) string {
 		return `""`
 	}
 	return strings.TrimRight(string(b), "\n")
+}
+
+// rfc3339 is the instant in local time, unless the local offset is not a whole
+// minute — a zone's local mean time before standard time, Los Angeles's
+// -07:52:58 — which RFC3339 cannot write. Formatted anyway it rounded the
+// offset and moved the instant by up to a minute on every rewrite. UTC holds
+// the instant exactly, and only a hand-typed date before 1900 ever needs it.
+func rfc3339(ts int64) string {
+	t := time.Unix(ts, 0)
+	if _, off := t.Zone(); off%60 != 0 {
+		t = t.UTC()
+	}
+	return t.Format(time.RFC3339)
+}
+
+// linkStr is a "[[target]]" wikilink as a double-quoted YAML scalar. Written
+// bare inside the quotes, a quote or backslash in the target — a hand-edited
+// project, rendered again by InferAuto or GrowAuto — ended the string or began
+// an escape, and yaml.v3 then refused the whole frontmatter. JSON's escaping is
+// a subset of YAML's double-quoted form and leaves an ordinary name exactly as
+// it was always written, which followsLink and every existing file rely on.
+//
+// A target that is not valid UTF-8 — a directory name on a filesystem that
+// allows any bytes — is written as YAML's !!binary instead, the form yamlStr
+// already gives the project field beside it. JSON replaced each invalid byte
+// with U+FFFD, so the link named a project that does not exist and the note
+// was reachable from nothing.
+func linkStr(target string) string {
+	if !utf8.ValidString(target) {
+		return yamlStr("[[" + target + "]]")
+	}
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode("[[" + target + "]]"); err != nil {
+		return `""`
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func oneLine(s string) string {

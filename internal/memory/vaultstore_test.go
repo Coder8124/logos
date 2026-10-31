@@ -217,6 +217,34 @@ func TestHandWrittenLinesAreAccepted(t *testing.T) {
 	}
 }
 
+// Notepad saves a file with a byte-order mark, and TrimSpace does not count
+// U+FEFF as space, so the first line of a kind file typed with no frontmatter
+// began with an invisible rune instead of "- " and was never read: the memory
+// typed first was the one that silently never became a memory.
+func TestAMemoryFileSavedWithAByteOrderMarkKeepsItsFirstLine(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	os.MkdirAll(filepath.Join(dir, Dir), 0o755)
+	os.WriteFile(filepath.Join(dir, Dir, "preference.md"),
+		[]byte("\ufeff- I like my coffee before any meeting\r\n- standups are at 09:15\r\n"), 0o644)
+
+	n, _, err := Import(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("want both typed lines imported, got %d", n)
+	}
+	all, _ := All(db)
+	var texts []string
+	for _, m := range all {
+		texts = append(texts, m.Text)
+	}
+	if !strings.Contains(strings.Join(texts, "|"), "coffee") {
+		t.Errorf("the line after the byte-order mark is missing: %q", texts)
+	}
+}
+
 // A vault that has never exported must not be read as "the user deleted
 // everything". This is the dangerous direction: importing an empty vault over a
 // full database would destroy exactly what the feature protects.
@@ -852,7 +880,7 @@ func TestAnInterruptedMigrationLeavesTheOldVaultReadable(t *testing.T) {
 	// after it returns would leave things, proves the file this test is
 	// about has had nothing done to it — the caller (importInto) never
 	// reached the ExportKind call that would replace it.
-	if _, _, migrated, err := readKindFiles(db, dir, Fact); err != nil {
+	if _, _, migrated, err := readKindFiles(db, dir, Fact, nil); err != nil {
 		t.Fatal(err)
 	} else if migrated != 2 {
 		t.Fatalf("want 2 lines migrated, got %d", migrated)
@@ -1008,5 +1036,110 @@ func TestAHandEditIsCaughtAcrossSeparateProcesses(t *testing.T) {
 		t.Fatal("a second process did not catch a hand edit the first process's stamp should have revealed")
 	} else if !strings.Contains(err.Error(), "fact.md") {
 		t.Errorf("the refusal from a second process does not name the digest: %v", err)
+	}
+}
+
+// A sync client keeping both sides of a conflict leaves a copy beside
+// "<uid>.md". Both carry the same uid, so both were read and whichever sorted
+// last silently decided what the memory says. Syncthing's
+// "<uid>.sync-conflict-….md" sorts after the original, so the copy — the
+// other machine's edit — won. The original is what is read; `logos index` names
+// the copy so the person can merge it by hand.
+func TestASyncConflictCopyOfAMemoryFileDoesNotOverrideItsOriginal(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the waveguide costs 4.20 dollars", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, err := os.ReadDir(kindDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("want one memory file, got %v (%v)", entries, err)
+	}
+	orig := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(orig)
+	edited := strings.Replace(string(raw), "4.20 dollars", "9.99 dollars", 1)
+	if err := os.WriteFile(strings.TrimSuffix(orig, ".md")+".sync-conflict-20261028-101500-ABC1234.md", []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Import(db, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := All(db)
+	if len(all) != 1 || !strings.Contains(all[0].Text, "4.20") {
+		t.Fatalf("the conflict copy decided the memory: %+v", all)
+	}
+}
+
+// Forget removes "<uid>.md" and cannot know a sync client made "<uid> 2.md".
+// The copy was set aside only while its original existed, so once the forget
+// removed the original the next import read the copy as live, and the
+// forgotten memory came back with nothing said. Every import path is told.
+func TestAForgottenMemoryStaysForgottenWhenASyncCopyOfItsFileOutlivesIt(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "the staging password rotates on mondays", Kind: Fact, Source: "manual"}
+	id, err := Store(db, nil, "", &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	if len(entries) != 1 {
+		t.Fatalf("want one memory file, got %v", entries)
+	}
+	orig := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(orig)
+	copyName := strings.TrimSuffix(entries[0].Name(), ".md") + " 2.md"
+	if err := os.WriteFile(filepath.Join(kindDir, copyName), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Forget(db, id.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orig); !os.IsNotExist(err) {
+		t.Fatalf("forget left the original memory file: %v", err)
+	}
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _ := All(db)
+	for _, got := range all {
+		if strings.Contains(got.Text, "staging password") {
+			t.Fatalf("the forgotten memory came back from its sync copy: %+v", got)
+		}
+	}
+	want := "memories/fact/" + copyName
+	if len(e.Orphaned) != 1 || e.Orphaned[0] != want {
+		t.Errorf("Orphaned = %v, want [%s] so the import can say it", e.Orphaned, want)
+	}
+	if len(e.SetAside) != 0 {
+		t.Errorf("SetAside = %v, want the orphan reported apart from copies beside a live original", e.SetAside)
+	}
+}
+
+func TestEveryImportReturnsTheMemoryCopiesItSetAside(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	raw, _ := os.ReadFile(filepath.Join(kindDir, entries[0].Name()))
+	copyName := strings.TrimSuffix(entries[0].Name(), ".md") + " (1).md"
+	os.WriteFile(filepath.Join(kindDir, copyName), raw, 0o644)
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.SetAside) != 1 || e.SetAside[0] != "memories/fact/"+copyName {
+		t.Errorf("SetAside = %v, want the Drive copy named", e.SetAside)
 	}
 }

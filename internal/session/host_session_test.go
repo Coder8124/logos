@@ -243,3 +243,44 @@ func TestResumeBySessionIdReturnsTheWholeFollowsChainNotOneCheckpoint(t *testing
 		t.Fatalf("chain is not in oldest-first order: %+v", chain)
 	}
 }
+
+// A sync copy is set aside only while its original sits beside it. Refile
+// moved the original into its conversation folder and left "<stem> 2.md"
+// behind, where nothing was beside it any more — so the copy became a second
+// checkpoint, counted by every listing. The copies move with the original.
+func TestReFilingACheckpointTakesItsSyncCopiesWithIt(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	c := &Checkpoint{Project: "kestrel", Agent: "claude-code", Task: "fix the checkout crash", HostSession: "claude-code-abc123"}
+	if err := Commit(db, dir, c); err != nil {
+		t.Fatal(err)
+	}
+	correctPath := filepath.Join(dir, filepath.FromSlash(c.Slug)+".md")
+	raw, _ := os.ReadFile(correctPath)
+	scope := filepath.Join(dir, CheckpointDir, "kestrel")
+	os.Remove(correctPath)
+	for _, n := range []string{c.Session + ".md", c.Session + " 2.md", c.Session + " (1).md"} {
+		if err := os.WriteFile(filepath.Join(scope, n), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := Refile(dir); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CheckpointEntries(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("after re-filing, %d checkpoints are listed, want 1: %+v", len(entries), entries)
+	}
+	for _, n := range []string{c.Session + " 2.md", c.Session + " (1).md"} {
+		if _, err := os.Stat(filepath.Join(scope, n)); !os.IsNotExist(err) {
+			t.Errorf("%s was stranded at the top of the scope", n)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(correctPath), n)); err != nil {
+			t.Errorf("%s did not move with its original: %v", n, err)
+		}
+	}
+}

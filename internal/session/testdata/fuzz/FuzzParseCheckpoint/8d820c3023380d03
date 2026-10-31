@@ -1,0 +1,2 @@
+go test fuzz v1
+string("---\nsession: 000000000A\nfirst_seen: 0000-10-01\n0: 00\n---\n## Task\n0")
