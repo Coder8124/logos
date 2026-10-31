@@ -96,6 +96,9 @@ type Result struct {
 	// empty when there was nothing to copy. Reported, because a backup nobody
 	// is told about is a backup nobody uses.
 	Backup string
+	// Original is the copy from before logos first changed the config, when
+	// an earlier setup left one and it is not Backup itself.
+	Original string
 	// CommentsOnlyInBackup is set when the original config had comments.
 	// Writing it back as JSON drops them, and the backup is the one place
 	// they still exist.
@@ -306,11 +309,14 @@ func Install(s Server, hosts []Host) []Result {
 			out = append(out, r)
 			continue
 		}
-		r.Backup = backup
+		r.Original = backup.original
 		outcome, err := h.Register(s)
 		r.Outcome, r.Err = outcome, err
 		if err != nil {
+			// A failed registration may still have written part of the file,
+			// so the copy is kept, and named, whenever the file moved.
 			r.Outcome = Failed
+			r.Backup = backup.settle(!unchanged(h, backup))
 			out = append(out, r)
 			continue
 		}
@@ -328,17 +334,16 @@ func Install(s Server, hosts []Host) []Result {
 		// Compared afterwards rather than predicted beforehand: whether a
 		// registration changes anything is only knowable once the host's own
 		// command or our own merge has run. A backup of a file nobody changed
-		// is litter in the user's config directory, so it goes.
-		if unchanged(h, backup) {
-			r.Outcome = Unchanged
-			if err := os.Remove(backup); err == nil {
-				r.Backup = ""
-			}
-		} else if raw, err := os.ReadFile(backup); err == nil && (strings.HasSuffix(backup, ".json.logos-backup") || strings.HasSuffix(backup, ".jsonc.logos-backup")) {
+		// is litter in the user's config directory, so it goes (settle).
+		same := unchanged(h, backup)
+		r.Backup = backup.settle(!same)
+		if same {
+			r.Outcome, r.Original = Unchanged, ""
+		} else if backup.path != "" && (strings.HasSuffix(h.Config(), ".json") || strings.HasSuffix(h.Config(), ".jsonc")) {
 			// JSON hosts only: a TOML config is either rewritten by its own CLI or
 			// edited line by line, keeping its comments, and a # is not a JSON one.
 			// opencode's .jsonc is the file most likely to hold comments at all.
-			_, r.CommentsOnlyInBackup = standardJSON(raw)
+			_, r.CommentsOnlyInBackup = standardJSON(backup.before)
 		}
 		out = append(out, r)
 	}
@@ -355,44 +360,127 @@ func Install(s Server, hosts []Host) []Result {
 //
 // A config that does not exist yet needs no backup: Claude Desktop writes its
 // file only once it has an MCP server, and the first one is often ours.
-func backupConfig(h Host) (string, error) {
+func backupConfig(h Host) (fileBackup, error) {
 	if h.Config == nil {
-		return "", nil
+		return fileBackup{}, nil
 	}
 	path := h.Config()
 	if path == "" {
-		return "", nil
+		return fileBackup{}, nil
 	}
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
-	}
-	if err := os.WriteFile(path+".logos-backup", raw, 0o600); err != nil {
-		return "", fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
-	}
-	return path + ".logos-backup", nil
+	return backupFile(path, true)
 }
 
-// unchanged reports whether the config is byte-for-byte what the backup holds.
-// A read that fails answers no: the outcome the host reported stands, because
-// claiming nothing happened on the strength of a failed check is exactly the
-// silent-success failure invariant 4 exists to prevent.
-func unchanged(h Host, backup string) bool {
-	if backup == "" || h.Config == nil {
-		return false
+// fileBackup is a host file as this run found it, and where its copies are.
+type fileBackup struct {
+	path   string // the copy of what this run found; empty when there was no file
+	before []byte
+	// original is the .logos-backup an earlier run left: the file from before
+	// logos first changed it. A second setup — routine after an update or a
+	// moved vault — used to write over it with the first run's output, and so
+	// lost the only copy of the user's original (#353). It is never overwritten
+	// or removed now; what this run found goes beside it as
+	// .logos-backup.previous, so a wrong --vault can still be undone.
+	original string
+	// pending is where that .previous copy is written until the run knows it
+	// changed something, so a run that did not leaves the last one alone.
+	pending string
+	// earlier is set when path is that original — because the file still holds
+	// what it did then, or because no .previous is kept for this file. It is not
+	// this run's to remove.
+	earlier bool
+}
+
+// backupFile copies path aside before it is rewritten. A file that does not
+// exist yet needs no backup. previous says whether what this run found is kept
+// beside an earlier run's backup that differs from it; without it, that
+// earlier backup is the only copy.
+func backupFile(path string, previous bool) (fileBackup, error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return fileBackup{}, nil
 	}
-	before, err := os.ReadFile(backup)
 	if err != nil {
+		return fileBackup{}, fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
+	}
+	b := fileBackup{path: path + ".logos-backup", before: raw}
+	write := b.path
+	// Lstat, not Stat: a dangling link by that name would otherwise read as no
+	// backup, and the write below would follow it to wherever it points.
+	fi, err := os.Lstat(b.path)
+	if err != nil && !os.IsNotExist(err) {
+		return fileBackup{}, fmt.Errorf("could not check the backup of %s, so it was left alone: %w", path, err)
+	}
+	if err == nil && !fi.Mode().IsRegular() {
+		// A directory or a link there is not a copy logos wrote, and neither
+		// overwriting it nor naming it as the backup would be right.
+		return fileBackup{}, fmt.Errorf("%s is not a file, so %s was left alone", b.path, path)
+	}
+	if err == nil {
+		kept, err := os.ReadFile(b.path)
+		if err != nil {
+			return fileBackup{}, fmt.Errorf("could not read the backup of %s, so it was left alone: %w", path, err)
+		}
+		if bytes.Equal(kept, raw) || !previous {
+			b.earlier = true
+			return b, nil
+		}
+		b.original, b.path = b.path, path+".logos-backup.previous"
+		b.pending = b.path + ".pending"
+		write = b.pending
+	}
+	if err := os.WriteFile(write, raw, 0o600); err != nil {
+		return fileBackup{}, fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
+	}
+	return b, nil
+}
+
+// settle finishes a backup once the run knows whether it changed the file, and
+// returns the path of the copy that holds what the run found, or "" when there
+// is none to name. A copy of a file nobody changed is litter in the user's
+// config directory and goes; an earlier run's stays.
+func (b fileBackup) settle(changed bool) string {
+	switch {
+	case b.path == "":
+		return ""
+	case !changed && b.pending != "":
+		// Named if it cannot be taken back, as below: a file left in the user's
+		// config directory is one they are told about.
+		if os.Remove(b.pending) != nil {
+			return b.pending
+		}
+		return ""
+	case !changed && !b.earlier:
+		if os.Remove(b.path) != nil {
+			return b.path
+		}
+		return ""
+	case !changed:
+		return ""
+	case b.pending != "":
+		// Named where it is if the move fails: the copy exists, just not under
+		// the name it was meant to have.
+		if os.Rename(b.pending, b.path) != nil {
+			return b.pending
+		}
+	}
+	return b.path
+}
+
+// unchanged reports whether the config is byte-for-byte what this run found.
+// Compared with the bytes read before, not with the backup, which may be an
+// earlier run's. A read that fails answers no: the outcome the host reported
+// stands, because claiming nothing happened on the strength of a failed check
+// is exactly the silent-success failure invariant 4 exists to prevent.
+func unchanged(h Host, backup fileBackup) bool {
+	if backup.path == "" || h.Config == nil {
 		return false
 	}
 	after, err := os.ReadFile(h.Config())
 	if err != nil {
 		return false
 	}
-	return bytes.Equal(before, after)
+	return bytes.Equal(backup.before, after)
 }
 
 // --- registering through a host's own CLI ------------------------------------
@@ -801,6 +889,7 @@ func Uninstall(hosts []Host) []Removal {
 		// writing straight over it on a run that found nothing destroyed the
 		// earlier run's copy, the one that still had logos in it.
 		backup, pending := "", ""
+		var before []byte
 		if h.Config != nil && h.Config() != "" {
 			path := h.Config()
 			raw, err := os.ReadFile(path)
@@ -810,7 +899,7 @@ func Uninstall(hosts []Host) []Removal {
 				continue
 			}
 			if err == nil {
-				backup, pending = path+".logos-backup", path+".logos-backup.pending"
+				backup, pending, before = path+".logos-backup", path+".logos-backup.pending", raw
 				if err := os.WriteFile(pending, raw, 0o600); err != nil {
 					r.Err = fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
 					out = append(out, r)
@@ -829,7 +918,7 @@ func Uninstall(hosts []Host) []Removal {
 			}
 		}
 		if pending != "" {
-			if unchanged(h, pending) {
+			if unchanged(h, fileBackup{path: pending, before: before}) {
 				os.Remove(pending)
 				backup = ""
 			} else if err := os.Rename(pending, backup); err != nil && r.Err == nil {
