@@ -192,7 +192,10 @@ func TestASecondClientConnectingDoesNotMoveTheFirstOnesStart(t *testing.T) {
 	if err := <-doneA; err != nil {
 		t.Fatal(err)
 	}
-	c, err := session.Latest(vault, "shop")
+	// Read where the server files it: from a linked worktree that is
+	// shop/<worktree> (#188), so a bare "shop" failed this test whenever it
+	// ran inside one.
+	c, err := session.Latest(vault, (&Session{Server: srv}).resolveScope("shop"))
 	if err != nil {
 		t.Fatal(err)
 	}
