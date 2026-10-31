@@ -151,11 +151,7 @@ func codex() Host {
 			return viaCLI(codexCLI(), args)
 		},
 		Hooks: func(s Server) (Outcome, error) {
-			p := codexHooksPath()
-			if _, err := backupHooks(p); err != nil {
-				return Failed, err
-			}
-			return installHook(p, "codex", hookArgv(s))
+			return installHookBackedUp(codexHooksPath(), "codex", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) {
 			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
@@ -226,11 +222,7 @@ func cursor() Host {
 		},
 		List: func() ([]Registration, error) { return readMCPServers(path) },
 		Hooks: func(s Server) (Outcome, error) {
-			p := cursorHooksPath()
-			if _, err := backupHooks(p); err != nil {
-				return Failed, err
-			}
-			return installHook(p, "cursor", hookArgv(s))
+			return installHookBackedUp(cursorHooksPath(), "cursor", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) { return removeJSON(path, "mcpServers", name) },
 	}
