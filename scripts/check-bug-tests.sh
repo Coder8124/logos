@@ -96,12 +96,17 @@ for sha in $(git rev-list --reverse --no-merges "${base}..${head}"); do
   fi
 
   # A test the commit adds, or one whose body it changes: the hunk header names
-  # the function a change sits in. A hunk just after a test can name that test
-  # too, which only adds a name to the run. One "<package dir> <test>" per line.
+  # the function a change sits in. A hunk that adds a test names only that
+  # test: its header names the function above it, and that neighbour passing
+  # made a new test that skips here read as passing without the fix. One
+  # "<package dir> <test>" per line.
   tests=$(git diff --name-only --diff-filter=AM "${sha}^" "$sha" -- '*_test.go' |
     while IFS= read -r f; do
-      git diff -U0 "${sha}^" "$sha" -- "$f" |
-        sed -nE 's/^\+func (Test[A-Za-z0-9_]+)\(.*/\1/p; s/^@@ .* @@ func (Test[A-Za-z0-9_]+)\(.*/\1/p' |
+      git diff -U0 "${sha}^" "$sha" -- "$f" | awk '
+        function flush() { if (added == "" && header != "") print header; printf "%s", added; header = ""; added = "" }
+        /^@@ / { flush(); if (match($0, /@@ func Test[A-Za-z0-9_]+\(/)) header = substr($0, RSTART + 8, RLENGTH - 9); next }
+        /^\+func Test[A-Za-z0-9_]+\(/ { match($0, /Test[A-Za-z0-9_]+/); added = added substr($0, RSTART, RLENGTH) "\n" }
+        END { flush() }' |
         { grep -vx TestMain || true; } | sed "s|^|$(dirname "$f") |"
     done | sort -u)
 
