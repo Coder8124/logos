@@ -57,6 +57,9 @@ func (p *Pack) Render() string {
 	p.renderHeader(&b)
 	p.renderWindow(&b)
 	p.renderOtherRepo(&b)
+	if line := p.costLine(); line != "" {
+		fmt.Fprintf(&b, "\n_%s_\n", line)
+	}
 	p.renderCheckpoint(&b, checkpoint)
 	p.renderWorking(&b, keptWorking)
 	section(&b, "The project", keptProj, "\n")
@@ -100,14 +103,17 @@ func (p *Pack) renderHeader(b *strings.Builder) {
 	}
 	switch {
 	case p.Project != nil:
+		// oneLine, as everything above the first heading is: the SessionStart
+		// hook trusts that region to hold only lines the renderer wrote, and
+		// a name with a newline in it would be a line it did not.
 		fmt.Fprintf(b, "\nProject **%s** — last active %s.\n",
-			p.Project.Name, project.Age(p.Project.LastActive))
+			oneLine(p.Project.Name), project.Age(p.Project.LastActive))
 	case p.Checkpoint != nil:
 		// No project note, but there is a record of work. Saying "no project
 		// matched" here would tell the agent to disregard the very thing it is
 		// about to be handed; saying the note is missing promised one nothing
 		// in the product writes (#133).
-		fmt.Fprintf(b, "\nProject **%s** — its work history is below.\n", p.scope())
+		fmt.Fprintf(b, "\nProject **%s** — its work history is below.\n", oneLine(p.scope()))
 	default:
 		hint := p.Hint
 		if hint == "" {
@@ -146,15 +152,49 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 	}
 	switch {
 	case p.WindowEmpty:
-		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered._\n",
-			p.Window)
+		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered.%s_\n",
+			p.Window, p.revivedNote())
 	case p.OutOfWindow > 0:
-		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s._\n",
+		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s.%s_\n",
 			p.Window, p.inferredNote(), p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
-			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"))
+			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"), p.revivedNote())
+	case p.revivedNote() != "":
+		// Not "everything recorded falls inside it": older checkpoints were
+		// weighed against the task, and some may be from before the window.
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
 	default:
 		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
+}
+
+// revivedNote accounts for the older rulings weighed against the task. The
+// set-aside count above never included them — they were past History's
+// reach, not removed by the window — so they are stated apart from it, and a
+// reader can tell "hidden by the filter" from "brought back past it". How
+// they were weighed is said too: matching by keyword alone misses the same
+// idea in other words, and a reader who assumes a model looked trusts a "none
+// matched" it cannot back.
+func (p *Pack) revivedNote() string {
+	if p.ReviveErr != nil {
+		return fmt.Sprintf(" Older checkpoints could not be checked against this task: %s.", inline(p.ReviveErr.Error()))
+	}
+	n := len(p.Revived)
+	if p.ReviveConsidered == 0 {
+		return ""
+	}
+	how := ""
+	switch {
+	case p.ReviveEmbedErr != nil:
+		how = fmt.Sprintf(" by keyword only (the embedding model failed: %s)", inline(p.ReviveEmbedErr.Error()))
+	case p.ReviveLexical:
+		how = " by keyword only (no embedding model)"
+	}
+	if n == 0 {
+		return fmt.Sprintf(" %d ruled-out %s in older checkpoints %s checked against this task%s; none matched.",
+			p.ReviveConsidered, plural(p.ReviveConsidered, "approach", "approaches"), plural(p.ReviveConsidered, "was", "were"), how)
+	}
+	return fmt.Sprintf(" %d ruled-out %s from older checkpoints %s listed because %s this task%s.",
+		n, plural(n, "approach", "approaches"), plural(n, "is", "are"), plural(n, "it matches", "they match"), how)
 }
 
 // renderOtherRepo says why a checkpoint under this name was not handed over.
@@ -224,6 +264,14 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	// thing in an old checkpoint that is still true.
 	if older := p.priorFailures(); len(older) > 0 {
 		list(&tail, "Ruled out earlier in this project", older)
+	}
+	if revived := p.revivedLines(); len(revived) > 0 {
+		list(&tail, "Ruled out earlier, and matching this task", revived)
+	}
+	// With no window line to carry it, the account of what was weighed sits
+	// under what came back, so a since: all resume still says it looked.
+	if note := p.revivedNote(); note != "" && p.Window == nil {
+		fmt.Fprintf(&tail, "_%s_\n\n", strings.TrimSpace(note))
 	}
 	staleHint(&tail, p)
 	if earlier := p.priorDecisions(); len(earlier) > 0 {
@@ -618,6 +666,31 @@ func (p *Pack) priorFailures() []string {
 			}
 			out = append(out, line)
 		}
+	}
+	return out
+}
+
+// revivedLines renders the rulings brought back past History, each with its
+// age, and "outside the window" on any from before it, so none of them can be
+// read as a ruling from the period the pack is about. Each carries its drift
+// like the rest: these are the oldest rulings in the pack, the likeliest to
+// have been overtaken by the code.
+func (p *Pack) revivedLines() []string {
+	out := make([]string, 0, len(p.Revived))
+	for _, r := range p.Revived {
+		who := r.Agent
+		if who == "" {
+			who = "an earlier agent"
+		}
+		where := ""
+		if p.Window != nil && !p.WindowEmpty && !p.Window.Contains(r.TS) {
+			where = ", outside the window"
+		}
+		line := fmt.Sprintf("(%s, %s%s) %s", who, project.Age(r.TS), where, flatten(r.Text))
+		if d := p.RulingDrift[normalizeKey(r.Text)]; d != nil {
+			line += " — ⚠ " + d.Note()
+		}
+		out = append(out, line)
 	}
 	return out
 }
