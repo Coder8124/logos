@@ -2,8 +2,8 @@
 
 **When one coding agent stops, the next one continues the work.**
 
-| [Setup](SETUP.md) | [Benchmark](docs/continuity-benchmark.md) | [Agent guide](systemmd/LOGOSPROMPT.md) | [Contributing](CONTRIBUTING.md) | [Site](https://coder8124.github.io/logos/) |
-| --- | --- | --- | --- | --- |
+| [Setup](SETUP.md) | [Docs](https://github.com/Coder8124/logos/wiki) | [Benchmark](docs/continuity-benchmark.md) | [Agent guide](systemmd/LOGOSPROMPT.md) | [Contributing](CONTRIBUTING.md) | [Site](https://coder8124.github.io/logos/) |
+| --- | --- | --- | --- | --- | --- |
 
 ## About
 
@@ -131,6 +131,8 @@ first, or the plugin has nothing to launch.
 
 One-click buttons for Cursor and VS Code, release binaries, and wiring a host by
 hand are in **[SETUP.md](SETUP.md)**.
+How to use it day to day, every command and every MCP tool are in the
+**[wiki](https://github.com/Coder8124/logos/wiki)**.
 
 ## Contributing
 
