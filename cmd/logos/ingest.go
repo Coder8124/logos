@@ -21,7 +21,8 @@ import (
 // runIngest is `logos ingest`: read other coding agents' transcripts on this
 // machine and turn each into a checkpoint *candidate* in the vault. It never
 // replays a transcript and never copies one in — only a distillate plus a
-// pointer back to the source. See internal/ingest.
+// pointer back to the source — unless the user turned on keeping with
+// --keep-transcripts (see ingest.KeepsTranscripts). See internal/ingest.
 func runIngest(args []string) error {
 	if len(args) >= 1 && args[0] == "review" {
 		return runIngestReview(args[1:])
@@ -36,10 +37,11 @@ func runIngest(args []string) error {
 	dryRun := hasFlag(args, "--dry-run")
 	allProjects := hasFlag(args, "--all-projects")
 	assumeYes := hasFlag(args, "--yes")
+	keepOn, keepOff := hasFlag(args, "--keep-transcripts"), hasFlag(args, "--no-keep-transcripts")
 	harness := flagStr(args, "--harness", "")
 	explicit := flagStr(args, "--path", "")
 
-	rest := positionals(args, "--dry-run", "--all-projects", "--yes")
+	rest := positionals(args, "--dry-run", "--all-projects", "--yes", "--keep-transcripts", "--no-keep-transcripts")
 	rest = dropFlag(dropFlag(rest, "--harness"), "--path")
 	wantProject := ""
 	if len(rest) > 0 {
@@ -59,6 +61,26 @@ func runIngest(args []string) error {
 			return err
 		}
 	}
+	// The setting is changed only by a run that names it, and a dry run
+	// changes nothing — including this.
+	switch {
+	case keepOn && keepOff:
+		return fmt.Errorf("--keep-transcripts and --no-keep-transcripts contradict each other; pass one")
+	case (keepOn || keepOff) && dryRun:
+		return fmt.Errorf("--dry-run changes nothing, so it cannot turn keeping transcripts on or off; run without --dry-run")
+	case keepOn || keepOff:
+		changed, err := ingest.SetKeepTranscripts(v, keepOn, time.Now())
+		if err != nil {
+			return fmt.Errorf("changing whether harvests keep transcripts: %w", err)
+		}
+		switch {
+		case changed && keepOn:
+			fmt.Println(ingest.KeepTranscriptsWarning)
+		case changed:
+			fmt.Println("Harvests no longer keep a copy of the transcript; copies already in the vault stay where they are.")
+		}
+	}
+	keep := !dryRun && ingest.KeepsTranscripts(v)
 
 	sessions, readErrs, err := collectSessions(harness, explicit)
 	if err != nil {
@@ -68,6 +90,16 @@ func runIngest(args []string) error {
 	// Announce what was read and what was skipped, with numbers (invariant 3).
 	read, queued, skippedDup, skippedProj, redacted := 0, 0, 0, 0, 0
 	harvestOnly := 0
+	archived, unchanged := 0, 0
+	var archivedBytes int64
+	// Grouped by reason: a machine with two hundred Cursor chats would
+	// otherwise print the same sentence two hundred times, and a list nobody
+	// reads is as quiet as no list. Counted, so the total still adds up.
+	notArchived := map[string]int{}
+	var notArchivedOrder []string
+	// One example per reason, so a failure that needs a path to act on (a
+	// permission, a full disk) still names one.
+	notArchivedEg := map[string]error{}
 	var ix *index.Index
 	for _, s := range sessions {
 		read++
@@ -81,6 +113,32 @@ func runIngest(args []string) error {
 				orUnattributed(c.Project), c.Harness, shortID(c.SessionID), c.TurnCount, len(c.Commands), len(c.Files))
 			queued++
 			continue
+		}
+		// Archived before the candidate is written (vault before cache, and
+		// the copy before the note that points at its source): a crash between
+		// the two leaves a copy with no candidate, which the next harvest
+		// queues, rather than a candidate whose transcript was never kept.
+		// Distillation still reads the host's file; the copy is the record of
+		// it, read by `logos transcript`.
+		var ar ingest.Archived
+		if keep {
+			ar = ingest.ArchiveTranscript(v, c)
+		}
+		switch {
+		case !keep:
+		case ar.Err != nil:
+			why := fmt.Sprintf("%s: %s", c.Harness, ar.Why)
+			if notArchived[why] == 0 {
+				notArchivedOrder = append(notArchivedOrder, why)
+				notArchivedEg[why] = ar.Err
+			}
+			notArchived[why]++
+		case ar.Unchanged:
+			unchanged++
+		default:
+			archived++
+			archivedBytes += ar.Bytes
+			fmt.Printf("  archived  %s  %s  (raw, %s)\n", orUnattributed(c.Project), ar.Path, ingest.Size(ar.Bytes))
 		}
 		res, err := ingest.Put(v, c)
 		if err != nil {
@@ -113,6 +171,9 @@ func runIngest(args []string) error {
 		// Named and skipped, never swallowed (invariant 4).
 		fmt.Printf("  skipped  %s\n", e)
 	}
+	for _, why := range notArchivedOrder {
+		fmt.Printf("  not archived  %d transcript(s) — %s\n    e.g. %v\n", notArchived[why], why, notArchivedEg[why])
+	}
 
 	if ix != nil {
 		if _, err := ix.Sync(); err != nil {
@@ -129,6 +190,10 @@ func runIngest(args []string) error {
 			read, queued, skippedDup, skippedProj, len(readErrs))
 		if redacted > 0 {
 			fmt.Printf("%d secret-shaped token(s) redacted before writing\n", redacted)
+		}
+		if n := archived + unchanged + countOf(notArchived); n > 0 {
+			fmt.Printf("%d raw transcript(s) archived into the vault (%s) · %d already archived, unchanged · %d not archived\n",
+				archived, ingest.Size(archivedBytes), unchanged, countOf(notArchived))
 		}
 		if queued > 0 {
 			fmt.Println("review them:  logos review --candidates")
@@ -542,4 +607,12 @@ func runIngestArchive(args []string) error {
 		fmt.Println("session. Store them the way you would store the originals.")
 	}
 	return nil
+}
+
+func countOf(m map[string]int) int {
+	n := 0
+	for _, v := range m {
+		n += v
+	}
+	return n
 }

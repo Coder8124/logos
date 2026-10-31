@@ -16,7 +16,8 @@ import (
 // Archiving exists because of the one assumption this package makes that the
 // user cannot enforce: "the transcript stays where it is" (candidate.go). It
 // routinely holds pasted secrets and dead-end reasoning nobody meant to
-// persist, so logos will not copy it into the vault — and that is still right.
+// persist, so logos will not copy it into the vault unless the user turns that
+// on (keep.go) — and off is still the right default.
 // But distillation re-reads the source, so on the day a corp wipe or a log
 // rotation takes the transcripts, every harvest becomes permanently
 // un-upgradable and every provenance line starts citing a file nobody can
@@ -179,11 +180,21 @@ func copyFile(from, to string) (int64, error) {
 	}
 	defer in.Close()
 
-	tmp, err := os.OpenFile(to+".partial", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// A name of its own per copy: two harvests racing on one conversation
+	// would otherwise write into the same temp file and rename each other's
+	// interleaved bytes into place. CreateTemp also opens it 0600.
+	tmp, err := os.CreateTemp(filepath.Dir(to), filepath.Base(to)+".*.partial")
 	if err != nil {
 		return 0, err
 	}
 	n, err := io.Copy(tmp, in)
+	if err == nil {
+		// Synced before the rename: otherwise a power cut can leave the
+		// rename durable and the bytes not, which is a zero-length file under
+		// the name a reader trusts — the very half-file the rename is here to
+		// prevent.
+		err = tmp.Sync()
+	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}

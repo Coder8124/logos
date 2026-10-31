@@ -53,7 +53,7 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 			return "", err
 		}
 		s.rememberServed(ev.Record, maxTurns)
-		return s.receipt(fmt.Sprintf("served the transcript behind %s — %d turns of %s session %s", ev.Record, len(ev.Turns), ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))) +
+		return s.receipt(fmt.Sprintf("served the transcript behind %s — %d turns of %s session %s", ev.Record, len(ev.Turns), ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))+s.archiveServed(ev.Candidate)) +
 			"\n\n" + ev.Render(), nil
 	}
 
@@ -66,8 +66,27 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 	// knows what the read half rendered — otherwise a long session is served in
 	// two hundred turns and validated against two thousand.
 	s.rememberServed(ev.Candidate.SessionID, maxTurns)
-	return s.receipt(fmt.Sprintf("served the harvest for %s session %s", ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))) +
+	return s.receipt(fmt.Sprintf("served the harvest for %s session %s", ev.Candidate.Harness, shortSession(ev.Candidate.SessionID))+s.archiveServed(ev.Candidate)) +
 		"\n\n" + ev.Render(), nil
+}
+
+// archiveServed keeps a copy of the transcript a harvest just read, when the
+// user turned keeping on, and says what happened in words the receipt can
+// carry: the size when it was kept, the reason when it was not. It rides on the
+// receipt line rather than below it because hosts collapse tool output and the
+// receipt is the line an agent is told to relay — a vault that grew by a raw
+// transcript is something the user is owed hearing about.
+//
+// With keeping off it adds nothing at all, so the receipt is the one every
+// user who never asked for this already knows. KeepsTranscripts also answers
+// no without the ingest grant, which covers an auto record harvested with no
+// grant: serving turns to the agent here is a read, and copying the file into
+// the vault is a write only the grant plus the flag allow.
+func (s *Session) archiveServed(c ingest.Candidate) string {
+	if !ingest.KeepsTranscripts(s.vault) {
+		return ""
+	}
+	return " · " + ingest.ArchiveTranscript(s.vault, c).Receipt()
 }
 
 // ingestDistil takes the distillation back, filters it, and rewrites the

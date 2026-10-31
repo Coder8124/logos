@@ -139,9 +139,14 @@ BRINGING IT IN
                                       queue CLAUDE.md / AGENTS.md, Cursor rules or Claude Code's auto memory for review
     logos import --from transcripts [project] [--harness N] [--path FILE|ID] [--dry-run] [--all-projects]
                                       harvest other agents' transcripts into checkpoint candidates
+                                      --keep-transcripts also keeps a raw copy of each in its
+                                      conversation's vault folder from now on (off by default);
+                                      --no-keep-transcripts stops it
                                       --path is a file, or for a txcript harness a session id
     logos import --from transcripts status | archive <dir>
                                       candidates by tier; copy the cited transcripts somewhere you keep
+    logos transcript <session-id>     print the raw copy a --keep-transcripts harvest kept in the vault
+                                      (the exact host session id; the host's own file is never read)
     logos import --from git [project] [--dir DIR] [--dry-run] [--months N]
                                       seed a cold vault from this repo's git history
     logos project <name>              a project's dossier
