@@ -558,6 +558,14 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 		case setup.Failed:
 			failed++
 			fmt.Printf("    %-*s ✗  %v\n", hostColumn, r.Host, r.Err)
+			// A failed registration may have written part of the file, and
+			// these are the way back from it.
+			if r.Backup != "" {
+				fmt.Printf("    %-*s    the config as it was before this run is at %s\n", hostColumn, "", r.Backup)
+			}
+			if r.Original != "" {
+				fmt.Printf("    %-*s    the config from before logos first changed it is still at %s\n", hostColumn, "", r.Original)
+			}
 		default:
 			wired++
 			wiredHosts = append(wiredHosts, r.Host)

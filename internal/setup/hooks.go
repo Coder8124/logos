@@ -353,9 +353,11 @@ func saveHookFile(path string, f hookFile) error {
 //
 // The backup is taken for the same reason backupConfig takes one of an MCP
 // config: it is the only way back. One an earlier run left is kept as it is
-// (fileBackup).
+// (fileBackup), and no .previous goes beside it: the merge only adds logos's
+// own hook, so the original is the way back from any run, and setup has no line
+// on which to name a second copy.
 func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
-	backup, err := backupFile(path)
+	backup, err := backupFile(path, false)
 	if err != nil {
 		return Failed, err
 	}

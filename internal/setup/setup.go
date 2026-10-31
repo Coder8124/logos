@@ -368,7 +368,7 @@ func backupConfig(h Host) (fileBackup, error) {
 	if path == "" {
 		return fileBackup{}, nil
 	}
-	return backupFile(path)
+	return backupFile(path, true)
 }
 
 // fileBackup is a host file as this run found it, and where its copies are.
@@ -385,14 +385,17 @@ type fileBackup struct {
 	// pending is where that .previous copy is written until the run knows it
 	// changed something, so a run that did not leaves the last one alone.
 	pending string
-	// earlier is set when path is that original, because the file still holds
-	// what it did then. It is not this run's to remove.
+	// earlier is set when path is that original — because the file still holds
+	// what it did then, or because no .previous is kept for this file. It is not
+	// this run's to remove.
 	earlier bool
 }
 
 // backupFile copies path aside before it is rewritten. A file that does not
-// exist yet needs no backup.
-func backupFile(path string) (fileBackup, error) {
+// exist yet needs no backup. previous says whether what this run found is kept
+// beside an earlier run's backup that differs from it; without it, that
+// earlier backup is the only copy.
+func backupFile(path string, previous bool) (fileBackup, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return fileBackup{}, nil
@@ -402,14 +405,23 @@ func backupFile(path string) (fileBackup, error) {
 	}
 	b := fileBackup{path: path + ".logos-backup", before: raw}
 	write := b.path
-	// Only a regular file is a backup: a directory or a dangling link by that
-	// name holds nothing to restore, and naming it would say otherwise.
-	if fi, err := os.Stat(b.path); err == nil && fi.Mode().IsRegular() {
+	// Lstat, not Stat: a dangling link by that name would otherwise read as no
+	// backup, and the write below would follow it to wherever it points.
+	fi, err := os.Lstat(b.path)
+	if err != nil && !os.IsNotExist(err) {
+		return fileBackup{}, fmt.Errorf("could not check the backup of %s, so it was left alone: %w", path, err)
+	}
+	if err == nil && !fi.Mode().IsRegular() {
+		// A directory or a link there is not a copy logos wrote, and neither
+		// overwriting it nor naming it as the backup would be right.
+		return fileBackup{}, fmt.Errorf("%s is not a file, so %s was left alone", b.path, path)
+	}
+	if err == nil {
 		kept, err := os.ReadFile(b.path)
 		if err != nil {
 			return fileBackup{}, fmt.Errorf("could not read the backup of %s, so it was left alone: %w", path, err)
 		}
-		if bytes.Equal(kept, raw) {
+		if bytes.Equal(kept, raw) || !previous {
 			b.earlier = true
 			return b, nil
 		}
@@ -432,7 +444,11 @@ func (b fileBackup) settle(changed bool) string {
 	case b.path == "":
 		return ""
 	case !changed && b.pending != "":
-		os.Remove(b.pending)
+		// Named if it cannot be taken back, as below: a file left in the user's
+		// config directory is one they are told about.
+		if os.Remove(b.pending) != nil {
+			return b.pending
+		}
 		return ""
 	case !changed && !b.earlier:
 		if os.Remove(b.path) != nil {
