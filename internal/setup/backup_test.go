@@ -159,3 +159,30 @@ func TestAHostThatIsAlreadyConnectedIsNotReportedAsChanged(t *testing.T) {
 		t.Error("left a backup beside a config that was never changed")
 	}
 }
+
+// The test above settles a stub host, and the real merge was never asked the
+// same question. A first setup wrote logos's entry in the order its struct
+// declares (command, args, env) and a second one in map order (args, command,
+// env), so the bytes differed and the backup stayed; and the hooks file's
+// backup was written on every run and never taken back. scripts/first-run.sh
+// found three .logos-backup files after a second `setup --yes` changed nothing.
+func TestASecondSetupLeavesNoBackupBesideTheConfigsItDidNotChange(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	cursor := hostNamed(t, "Cursor")
+
+	if r := Install(server(), []Host{cursor}); r[0].Outcome == Failed || r[0].HookErr != nil {
+		t.Fatalf("first setup: %v %v", r[0].Err, r[0].HookErr)
+	}
+	r := Install(server(), []Host{cursor})
+	if r[0].Outcome != Unchanged {
+		t.Errorf("outcome = %q (%v), want %q", r[0].Outcome, r[0].Err, Unchanged)
+	}
+	if r[0].Hooked != Unchanged {
+		t.Errorf("hook outcome = %q (%v), want %q", r[0].Hooked, r[0].HookErr, Unchanged)
+	}
+	for _, f := range []string{"mcp.json", "hooks.json"} {
+		if _, err := os.Stat(filepath.Join(home, ".cursor", f+".logos-backup")); err == nil {
+			t.Errorf("left a backup beside %s, which the second setup did not change", f)
+		}
+	}
+}

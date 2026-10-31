@@ -604,8 +604,15 @@ func mergeServers(path, root string, entry any) (Outcome, error) {
 // defaults for an entry nobody has touched yet.
 func keepUserKeys(old, entry json.RawMessage) json.RawMessage {
 	var was, now map[string]json.RawMessage
-	if json.Unmarshal(old, &was) != nil || was == nil || json.Unmarshal(entry, &now) != nil {
+	if json.Unmarshal(entry, &now) != nil {
 		return entry
+	}
+	// A first registration goes through the map too. Written straight from the
+	// struct, its keys came out in declaration order, a re-run wrote them
+	// sorted, and a second setup that changed nothing differed by bytes, so it
+	// reported an update and kept a backup of a file it had not changed.
+	if json.Unmarshal(old, &was) != nil || was == nil {
+		was = map[string]json.RawMessage{}
 	}
 	for _, k := range []string{"type", "command", "args", "env", "environment", "url"} {
 		delete(was, k)
