@@ -792,6 +792,9 @@ func (s *Session) dispatch(name string, args map[string]any) (string, error) {
 		}
 		return out, err
 	case "resume":
+		if q := argStr(args, "conversation"); strings.TrimSpace(q) != "" {
+			return s.resumeConversation(argStr(args, "project"), q)
+		}
 		return s.resume(argStr(args, "project"), argStr(args, "agent"), argInt(args, "budget", 0), contextpack.Since(argStr(args, "since")))
 	case "before_you_try":
 		// Deliberately not defaulted: before_you_try searches every dead end in

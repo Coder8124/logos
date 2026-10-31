@@ -35,6 +35,10 @@ func printJSONFailure(cmd string, args []string, err error) {
 	if !slices.Contains(jsonVerbs, cmd) || !slices.Contains(args, "--json") {
 		return
 	}
+	var done jsonPrinted
+	if errors.As(err, &done) {
+		return // the command already wrote a fuller failure block than this one
+	}
 	printJSON(struct {
 		Outcome ops.Block `json:"outcome"`
 	}{ops.Failure(err)})
@@ -126,6 +130,62 @@ type sessionChainJSON struct {
 func printSessionChainJSON(hostSession string, chain []session.Checkpoint) error {
 	out := sessionChainJSON{HostSession: hostSession, Checkpoints: chain}
 	out.Outcome.Returned = len(chain)
+	out.Outcome.Settle()
+	return printJSON(out)
+}
+
+type conversationJSON struct {
+	Project string `json:"project"`
+	ID      string `json:"id"`
+	Name    string `json:"name,omitempty"`
+	// Newest first, the way resume reads them: the first is where it stopped.
+	Checkpoints []session.Checkpoint `json:"checkpoints"`
+	Outcome     ops.Block            `json:"outcome"`
+}
+
+// jsonPrinted is a failure whose --json block the command printed itself,
+// because it carries more than the error: a second, bare block after it
+// would be two documents on stdout and unparseable.
+type jsonPrinted struct{ error }
+
+func (e jsonPrinted) Unwrap() error { return e.error }
+
+type conversationCandidateJSON struct {
+	ID     string `json:"id"`
+	Name   string `json:"name,omitempty"`
+	Latest string `json:"latest_checkpoint"`
+}
+
+// printConversationMissJSON is a conversation name that resolved to none or
+// to several. The candidates are the point: the error tells a script to name
+// one by id, and it can only do that if it is given the ids.
+func printConversationMissJSON(project, query string, candidates []session.Conversation, notes []string, err error) error {
+	out := struct {
+		Project    string                      `json:"project"`
+		Query      string                      `json:"conversation"`
+		Candidates []conversationCandidateJSON `json:"candidates"`
+		Outcome    ops.Block                   `json:"outcome"`
+	}{Project: project, Query: query, Candidates: []conversationCandidateJSON{}, Outcome: ops.Failure(err)}
+	for _, c := range candidates {
+		out.Candidates = append(out.Candidates, conversationCandidateJSON{ID: c.ID, Name: c.Name, Latest: c.Latest.Slug})
+	}
+	out.Outcome.Notes = append(out.Outcome.Notes, notes...)
+	if perr := printJSON(out); perr != nil {
+		return perr
+	}
+	return jsonPrinted{err}
+}
+
+// printConversationJSON is resume narrowed to one conversation, for a script.
+// notes is what resume already said on the way (a sweep that recorded an
+// unsaved session, say): narrowing the answer must not make that silent.
+func printConversationJSON(project string, c session.Conversation, notes []string) error {
+	out := conversationJSON{Project: project, ID: c.ID, Name: c.Name, Checkpoints: c.Chain}
+	out.Outcome.Returned = len(c.Chain)
+	out.Outcome.Notes = append(out.Outcome.Notes, notes...)
+	if c.Flat {
+		out.Outcome.Notes = append(out.Outcome.Notes, "some of this conversation is still in the old flat layout — logos migrate sessions")
+	}
 	out.Outcome.Settle()
 	return printJSON(out)
 }

@@ -280,7 +280,7 @@ func runResume(args []string) error {
 	asJSON, args := jsonFlag(args)
 	project, rest := projectArg(args)
 	if project == "" {
-		return fmt.Errorf("usage: logos resume [project] [--budget <tokens>] [--since day|week|month|quarter|year|all] [--json]")
+		return fmt.Errorf("usage: logos resume [project [conversation]] [--budget <tokens>] [--since day|week|month|quarter|year|all] [--json]")
 	}
 	// What resume says besides the pack. In JSON it becomes the block's notes
 	// and errors rather than lines around a document a parser cannot skip.
@@ -294,14 +294,27 @@ func runResume(args []string) error {
 	}
 	budget := 0
 	since := ""
-	for i := 0; i < len(rest)-1; i++ {
-		switch rest[i] {
-		case "--budget", "-b":
-			budget, _ = strconv.Atoi(rest[i+1])
-		case "--since":
-			since = rest[i+1]
+	// Words after the project that are not a flag or a flag's value name one
+	// conversation in it. Joined, so an intent can be matched as typed —
+	// `logos resume shop fix the auth redirect` — without quoting.
+	var named []string
+	for i := 0; i < len(rest); i++ {
+		switch a := rest[i]; {
+		case a == "--budget" || a == "-b":
+			if i+1 < len(rest) && !isFlagToken(rest[i+1]) {
+				budget, _ = strconv.Atoi(rest[i+1])
+				i++
+			}
+		case a == "--since":
+			if i+1 < len(rest) && !isFlagToken(rest[i+1]) {
+				since = rest[i+1]
+				i++
+			}
+		case !isFlagToken(a):
+			named = append(named, a)
 		}
 	}
+	conversation := strings.Join(named, " ")
 
 	ix, err := openEvents()
 	if err != nil {
@@ -372,6 +385,59 @@ func runResume(args []string) error {
 	if auto.On(ix.Vault, auto.Checkpoint) {
 		say(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
 	}
+
+	// One conversation rather than the whole project: named on the command
+	// line, or chosen in the picker when a person ran this at a terminal.
+	// After the sweep, so a conversation that ended without a checkpoint is
+	// there to choose; before the pack, which is the answer to a different
+	// question ("what does this project know").
+	if conversation != "" || pickerAllowed(asJSON) {
+		convs, err := session.Conversations(ix.Vault, project)
+		if err != nil {
+			return err
+		}
+		var chosen *session.Conversation
+		switch {
+		case conversation != "":
+			c, candidates, err := session.FindConversation(convs, conversation)
+			if err != nil {
+				if asJSON {
+					return printConversationMissJSON(project, conversation, candidates, notes, err)
+				}
+				if len(candidates) > 0 {
+					fmt.Printf("%d conversations in %s match %q:\n\n", len(candidates), project, conversation)
+					for _, cand := range candidates {
+						fmt.Println("  " + session.ConversationLine(cand))
+					}
+					fmt.Println("\nNothing resumed. Name one by its id: logos resume " + project + " <id>")
+				}
+				return err
+			}
+			chosen = c
+		case len(convs) > 0:
+			c, ok, err := pickConversation(project, convs)
+			switch {
+			case err != nil:
+				// A terminal that refused raw mode is no reason to resume
+				// nothing: fall back to what this command always did, and
+				// say why the picker did not appear.
+				fmt.Fprintf(os.Stderr, "logos: could not show the conversation picker (%v) — resuming the whole project\n", err)
+			case !ok:
+				cancelledPick()
+				return nil
+			}
+			chosen = c
+		}
+		if chosen != nil {
+			if asJSON {
+				return printConversationJSON(project, *chosen, notes)
+			}
+			fmt.Print(session.RenderConversation(project, *chosen))
+			fmt.Printf("\n_Read from %s._\n", ix.Vault)
+			return nil
+		}
+	}
+
 	say(ops.RunAutoReview(ix.DB, ix.Vault, project))
 	say(ops.AutoLead(ix.Vault, project))
 

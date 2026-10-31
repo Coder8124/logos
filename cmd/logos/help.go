@@ -75,7 +75,10 @@ THE HANDOFF
                                       repeat --decided, --verified, --failed, --blocker,
                                       --ran, --question and --file to add more than one
     logos resume [project]            pick up where the last agent left off
-                                      the project defaults to the directory you are in
+                                      the project defaults to the directory you are in;
+                                      at a terminal, asks which conversation first
+    logos resume <project> <id|name>  just one conversation: its folder id, a checkpoint,
+                                      or part of its intent (several matches are listed)
     logos context <task> [--project <p>] [--budget <n>]
                                       everything bearing on a task, budgeted (also an MCP tool)
     logos tried <approach> [--project X]
@@ -202,6 +205,8 @@ PLUMBING — run by hooks, hosts and scripts rather than typed
                                       binary, at most once a day; --notice prints what it did, once
     logos migrate [--dry-run] [--yes] move a 0.4 vault from ~/brain to ~/logos, leaving a link behind,
                                       and re-pin the hosts that named the old path
+    logos migrate sessions [--dry-run]
+                                      move flat checkpoints into their conversation folders
     logos demo [--fast]               ninety seconds showing what this is for, in a scratch vault
     logos bench memory <file> [--qa] | bench pipeline
                                       LongMemEval retrieval recall / QA accuracy; the extract→recall loop

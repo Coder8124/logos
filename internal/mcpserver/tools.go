@@ -144,10 +144,11 @@ var toolDefs = []map[string]any{
 		"annotations": reads(),
 		"description": "Pick up where the last agent stopped. Read what already failed before proposing anything." + relay,
 		"inputSchema": obj(map[string]any{
-			"project": str("omit for the most recent"),
-			"agent":   str("optional: your name"),
-			"budget":  intSchema("token ceiling (default 4000)"),
-			"since":   enumStr("optional: how far back to look", "day", "week", "month", "quarter", "year", "all"),
+			"project":      str("omit for the most recent"),
+			"agent":        str("optional: your name"),
+			"budget":       intSchema("token ceiling (default 4000)"),
+			"since":        enumStr("optional: how far back to look", "day", "week", "month", "quarter", "year", "all"),
+			"conversation": str("optional: one conversation only — its id, a checkpoint, or part of its intent; budget and since do not apply to it"),
 		}),
 	},
 	{
