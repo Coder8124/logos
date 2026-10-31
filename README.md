@@ -2,6 +2,8 @@
 
 **When one coding agent stops, the next one continues the work.**
 
+![Claude Code checkpoints, Codex resumes, opencode continues](docs/demo.gif)
+
 | [Setup](SETUP.md) | [Docs](https://github.com/Coder8124/logos/wiki) | [Benchmark](docs/continuity-benchmark.md) | [Agent guide](systemmd/LOGOSPROMPT.md) | [Contributing](CONTRIBUTING.md) | [Site](https://coder8124.github.io/logos/) |
 | --- | --- | --- | --- | --- | --- |
 
