@@ -74,7 +74,13 @@ title: Bonding yield
 Display bonding runs at 71 percent first-pass. Every scrapped unit
 is absorbed by the units that ship.
 `)
+	return openVault(t, dir)
+}
 
+// openVault indexes dir and creates the tables a resume reads, as the first
+// run of logos on that vault would.
+func openVault(t *testing.T, dir string) *index.Index {
+	t.Helper()
 	ix, err := index.Open(dir)
 	if err != nil {
 		t.Fatal(err)

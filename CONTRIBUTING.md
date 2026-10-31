@@ -43,6 +43,12 @@ go test -tags chaos ./chaos/...     # SIGKILL mid-write, full disk, racing proce
 The chaos tier is behind a build tag because it mounts a disk image and kills
 real processes. Run it when you touch anything that writes to the vault.
 
+What a resume prints is snapshotted whole in
+`internal/contextpack/testdata/golden/`. A change to the render fails that test
+by design: rerun it with `go test ./internal/contextpack -run Golden -update`
+and read the snapshot diff in your pull request, since that diff is what every
+resuming agent will now see.
+
 Use a scratch vault when you exercise the CLI by hand — `LOGOS_VAULT=$(mktemp -d)`
 — rather than your own.
 
