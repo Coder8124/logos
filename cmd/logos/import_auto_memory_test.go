@@ -265,3 +265,136 @@ func TestAnEmptyAutoMemoryImportFromASubdirectoryNamesTheFolderItRead(t *testing
 		t.Errorf("the empty report names the subdirectory's folder, not the one read:\n%s", out)
 	}
 }
+
+func writeNote(t *testing.T, dir, file, body string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// autoMemoryDirectory in Claude Code's settings moves auto memory anywhere.
+// Looking only under projects/ found nothing and said there was nothing.
+func TestAutoMemoryIsReadFromTheAutoMemoryDirectorySetting(t *testing.T) {
+	standInAutoMemory(t, nil)
+	home := os.Getenv("HOME")
+	writeNote(t, filepath.Join(home, ".claude"), "settings.json", `{"autoMemoryDirectory": "~/notes/claude-memory"}`)
+	writeNote(t, filepath.Join(home, "notes", "claude-memory"), "project_freeze.md", projectNote)
+
+	out := importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 1 {
+		t.Errorf("queued %d notes from the autoMemoryDirectory folder, want 1\n%s", n, out)
+	}
+}
+
+// Claude Code takes the setting from local settings over the project's over
+// the user's, and only as an absolute path or one under ~/. A relative value
+// is passed over for the next one, not resolved against some directory.
+func TestTheAutoMemoryDirectorySettingFollowsClaudeCodesPrecedence(t *testing.T) {
+	standInAutoMemory(t, nil)
+	local, project := t.TempDir(), t.TempDir()
+	writeNote(t, filepath.Join(os.Getenv("HOME"), ".claude"), "settings.json", `{"autoMemoryDirectory": "`+t.TempDir()+`"}`)
+	writeNote(t, ".claude", "settings.json", `{"autoMemoryDirectory": "`+project+`"}`)
+	writeNote(t, project, "project_freeze.md", projectNote)
+
+	out := importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 1 {
+		t.Fatalf("the project setting did not win over the user's: queued %d, want 1\n%s", n, out)
+	}
+
+	writeNote(t, ".claude", "settings.local.json", `{"autoMemoryDirectory": "`+local+`"}`)
+	writeNote(t, local, "feedback_trailer.md", feedbackNote)
+	out = importRules(t, claudeAutoMemorySource)
+	if got := texts(pendingFrom(t, claudeAutoMemorySource)); len(got) != 2 {
+		t.Errorf("the local setting did not win: queued %q\n%s", got, out)
+	}
+}
+
+// CLAUDE_CODE_PROJECT_DIR_NAME names the projects folder, but Claude Code
+// honours it only beside CLAUDE_CONFIG_DIR and only as a plain folder name.
+func TestAProjectDirNameBesideClaudeConfigDirNamesTheAutoMemoryFolder(t *testing.T) {
+	standInAutoMemory(t, map[string]string{"project_freeze.md": projectNote})
+	t.Setenv("CLAUDE_CODE_PROJECT_DIR_NAME", "shared-work")
+
+	// Without CLAUDE_CONFIG_DIR the name is ignored, so the note under the
+	// path-derived folder is still found.
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 0 {
+		t.Fatalf("queue was not empty before the import: %d", n)
+	}
+	importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 1 {
+		t.Fatalf("the name was used without CLAUDE_CONFIG_DIR: queued %d, want 1", n)
+	}
+
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	writeNote(t, filepath.Join(config, "projects", "shared-work", "memory"), "feedback_trailer.md", feedbackNote)
+	out := importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 2 {
+		t.Errorf("queued %d notes after naming the folder, want 2\n%s", n, out)
+	}
+
+	t.Setenv("CLAUDE_CODE_PROJECT_DIR_NAME", "../escape")
+	out = importRules(t, claudeAutoMemorySource)
+	if !strings.Contains(out, "Nothing to import") || strings.Contains(out, "escape") {
+		t.Errorf("an invalid name was used rather than ignored:\n%s", out)
+	}
+}
+
+// Claude Code takes the first settings file that sets autoMemoryDirectory and
+// only then checks the value; one it rejects leaves the default folder, it
+// does not hand the choice to a lower file. Falling through imported a folder
+// Claude Code never writes to.
+func TestARejectedAutoMemoryDirectoryLeavesTheDefaultAndIsNamed(t *testing.T) {
+	standInAutoMemory(t, nil)
+	project := t.TempDir()
+	writeNote(t, ".claude", "settings.json", `{"autoMemoryDirectory": "`+project+`"}`)
+	writeNote(t, project, "project_freeze.md", projectNote)
+	for _, rejected := range []string{"relative/memory", "~/", "~/../elsewhere", ""} {
+		writeNote(t, ".claude", "settings.local.json", `{"autoMemoryDirectory": "`+rejected+`"}`)
+		out := importRules(t, claudeAutoMemorySource)
+		if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 0 {
+			t.Errorf("%q: queued %d notes from the project setting below it, want none\n%s", rejected, n, out)
+		}
+		if !strings.Contains(out, "settings.local.json") {
+			t.Errorf("%q: the rejected setting was not named:\n%s", rejected, out)
+		}
+	}
+}
+
+// A settings file that is there but is not JSON is passed over, as Claude Code
+// passes it over, and named: the folder it may have set is not the one read.
+func TestASettingsFileThatIsNotJSONIsNamed(t *testing.T) {
+	standInAutoMemory(t, nil)
+	user := t.TempDir()
+	writeNote(t, filepath.Join(os.Getenv("HOME"), ".claude"), "settings.json", `{"autoMemoryDirectory": "`+user+`"}`)
+	writeNote(t, user, "project_freeze.md", projectNote)
+	writeNote(t, ".claude", "settings.local.json", `{"autoMemoryDirectory": "/x",}`)
+
+	out := importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 1 {
+		t.Errorf("queued %d notes from the user setting, want 1\n%s", n, out)
+	}
+	if !strings.Contains(out, "settings.local.json") {
+		t.Errorf("the settings file that could not be parsed was not named:\n%s", out)
+	}
+}
+
+// With no home directory and no CLAUDE_CONFIG_DIR there is no user settings
+// file. Joining the empty folder name read settings.json from wherever the
+// command ran, so a stray file there chose what was imported.
+func TestWithNoHomeASettingsFileWhereTheCommandRunsIsNotRead(t *testing.T) {
+	standInAutoMemory(t, nil)
+	stray := t.TempDir()
+	writeNote(t, stray, "project_freeze.md", projectNote)
+	writeNote(t, ".", "settings.json", `{"autoMemoryDirectory": "`+stray+`"}`)
+	t.Setenv("HOME", "")
+
+	out := importRules(t, claudeAutoMemorySource)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 0 {
+		t.Errorf("queued %d notes from a settings.json in the working directory, want none\n%s", n, out)
+	}
+}

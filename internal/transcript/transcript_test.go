@@ -403,3 +403,39 @@ func TestALineClaudeCodeWroteIntoTheUsersTurnIsTheHostsNotThePersons(t *testing.
 		t.Errorf("roles = %s, want host,host,user", got)
 	}
 }
+
+// Claude Code keeps its transcripts under CLAUDE_CONFIG_DIR when that is set,
+// and ~/.claude then holds nothing of this user's. Reading only ~/.claude
+// imported zero sessions and said nothing was there.
+func TestClaudeCodeTranscriptsAreReadFromClaudeConfigDirWhenItIsSet(t *testing.T) {
+	t.Setenv(transcript.LogosClaudeProjectsEnv, "")
+	t.Setenv("HOME", t.TempDir())
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	copyTree(t, claudeRoot(t), filepath.Join(config, "projects"))
+
+	paths, err := transcript.Sessions("claude-code")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("discovered %d sessions under CLAUDE_CONFIG_DIR, want 2: %v", len(paths), paths)
+	}
+}
+
+// Codex keeps its sessions under CODEX_HOME when that is set, the same way.
+func TestCodexSessionsAreReadFromCodexHomeWhenItIsSet(t *testing.T) {
+	t.Setenv(transcript.LogosCodexSessionsEnv, "")
+	t.Setenv("HOME", t.TempDir())
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	copyTree(t, abs(t, "testdata/transcripts/codex"), filepath.Join(codexHome, "sessions"))
+
+	paths, err := transcript.Sessions("codex")
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("discovered %d sessions under CODEX_HOME, want 1: %v", len(paths), paths)
+	}
+}
