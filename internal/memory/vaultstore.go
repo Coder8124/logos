@@ -186,26 +186,62 @@ func stamp(db *sql.DB, kind Kind, sum [sha256.Size]byte) {
 		ON CONFLICT(kind) DO UPDATE SET sha = excluded.sha`, string(kind), hex.EncodeToString(sum[:]))
 }
 
-// stampSeen is the hash of the digest this process (or an earlier one, since
-// the table outlives any one process) last wrote for this kind, and whether
-// one was ever recorded — flushLocked's hand-edit guard needs that second
-// value, since a plain bool can't tell "recorded one, but it doesn't match"
-// apart from "no stamp yet", and a kind's first-ever write must never refuse.
-func stampSeen(db *sql.DB, kind Kind) ([sha256.Size]byte, bool) {
+// stampSeen is every hash of this kind's digest that counts as logos's own
+// write, and whether one was ever recorded — flushLocked's hand-edit guard
+// needs that second value, since an empty answer can't tell "recorded one, but
+// it doesn't match" apart from "no stamp yet", and a kind's first-ever write
+// must never refuse. Usually one hash; more while a write is in flight (see
+// stampPending).
+func stampSeen(db *sql.DB, kind Kind) ([][sha256.Size]byte, bool) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	var hexSum string
-	err := db.QueryRow(`SELECT sha FROM digest_stamps WHERE kind = ?`, string(kind)).Scan(&hexSum)
-	if err != nil {
-		return [sha256.Size]byte{}, false
+	var hexSums string
+	if err := db.QueryRow(`SELECT sha FROM digest_stamps WHERE kind = ?`, string(kind)).Scan(&hexSums); err != nil {
+		return nil, false
 	}
-	raw, err := hex.DecodeString(hexSum)
-	if err != nil || len(raw) != sha256.Size {
-		return [sha256.Size]byte{}, false
+	return parseStamps(hexSums)
+}
+
+// stampPending adds the hash of the digest about to be written to the kind's
+// stamp, beside the one already there, before the write. A process killed
+// between the write and stamp's record of it used to leave the new file on
+// disk and only the old hash in the table, and the next write refused logos's
+// own file as a hand edit — every later memory add of that kind failed until
+// someone ran `logos index`. With both hashes held across the write, a kill on
+// either side of the rename leaves a file the stamp still claims. stamp
+// replaces the pair once the write has landed. No stamp yet means no guard to
+// satisfy, so nothing is added.
+func stampPending(db *sql.DB, kind Kind, next [sha256.Size]byte) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`UPDATE digest_stamps SET sha = sha || ',' || ? WHERE kind = ?`, hex.EncodeToString(next[:]), string(kind))
+}
+
+// parseStamps reads a stamp column: one hex hash, or several joined by commas
+// while a write is in flight. A value that does not parse is treated as no
+// stamp, the same as a missing row — a missed detection, never a refusal.
+func parseStamps(hexSums string) ([][sha256.Size]byte, bool) {
+	var sums [][sha256.Size]byte
+	for _, h := range strings.Split(hexSums, ",") {
+		raw, err := hex.DecodeString(h)
+		if err != nil || len(raw) != sha256.Size {
+			return nil, false
+		}
+		var sum [sha256.Size]byte
+		copy(sum[:], raw)
+		sums = append(sums, sum)
 	}
-	var sum [sha256.Size]byte
-	copy(sum[:], raw)
-	return sum, true
+	return sums, true
+}
+
+// stamped reports whether sum is one of the hashes a stamp claims.
+func stamped(sums [][sha256.Size]byte, sum [sha256.Size]byte) bool {
+	for _, s := range sums {
+		if s == sum {
+			return true
+		}
+	}
+	return false
 }
 
 // dropStamps forgets every kind's claim for this vault, so a handle rebound
@@ -238,22 +274,28 @@ func fileStamp(db *sql.DB, uid string, sum [sha256.Size]byte) {
 		ON CONFLICT(uid) DO UPDATE SET sha = excluded.sha`, uid, hex.EncodeToString(sum[:]))
 }
 
-func fileStampSeen(db *sql.DB, uid string) ([sha256.Size]byte, bool) {
+func fileStampSeen(db *sql.DB, uid string) ([][sha256.Size]byte, bool) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	var hexSum string
-	err := db.QueryRow(`SELECT sha FROM memory_file_stamps WHERE uid = ?`, uid).Scan(&hexSum)
-	if err != nil {
-		return [sha256.Size]byte{}, false
+	var hexSums string
+	if err := db.QueryRow(`SELECT sha FROM memory_file_stamps WHERE uid = ?`, uid).Scan(&hexSums); err != nil {
+		return nil, false
 	}
-	raw, err := hex.DecodeString(hexSum)
-	if err != nil || len(raw) != sha256.Size {
-		return [sha256.Size]byte{}, false
-	}
-	var sum [sha256.Size]byte
-	copy(sum[:], raw)
-	return sum, true
+	return parseStamps(hexSums)
 }
+
+// fileStampPending is stampPending for one memory's own file, for the same
+// kill between the write and its record.
+func fileStampPending(db *sql.DB, uid string, next [sha256.Size]byte) {
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`UPDATE memory_file_stamps SET sha = sha || ',' || ? WHERE uid = ?`, hex.EncodeToString(next[:]), uid)
+}
+
+// vaultWritten runs after a memory file or digest is written and before its
+// stamp is recorded. A test panics there to stand for a process killed in
+// that gap.
+var vaultWritten = func(path string) {}
 
 // dropFileStamp forgets one uid's claim, used when its file is removed so a
 // later uid collision (same file path reused) never trusts a stale hash.
@@ -304,12 +346,19 @@ func flushLocked(db *sql.DB, kind Kind) error {
 	// directly, never through this guard.
 	if last, ok := stampSeen(db, kind); ok {
 		if onDisk, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
-			if sha256.Sum256(onDisk) != last {
+			if !stamped(last, sha256.Sum256(onDisk)) {
 				return fmt.Errorf("memories/%s.md was hand-edited since logos last wrote it; it is a generated digest now — edit the memory's own file under memories/%s/ instead, then run `logos index` to refresh this one", kind, kind)
 			}
 		}
 	}
-	if err := ExportKind(db, dir, kind); err != nil {
+	content, err := renderKindDigest(db, kind)
+	if err == nil {
+		if content != "" {
+			stampPending(db, kind, sha256.Sum256([]byte(content)))
+		}
+		err = writeKindDigest(dir, kind, content)
+	}
+	if err != nil {
 		// Record which rows the failed export left behind, so the split state
 		// outlives the one call that was told about it. The caller here gets an
 		// honest error and then exits; everyone after it — recall, doctor, the
@@ -317,6 +366,7 @@ func flushLocked(db *sql.DB, kind Kind) error {
 		markUnflushed(db, dir, kind)
 		return fmt.Errorf("memory saved to the cache but not to the vault: %w", err)
 	}
+	vaultWritten(filepath.Join(dir, Dir, string(kind)+".md"))
 	// The file on disk is now this kind, whole. Whatever an earlier failure
 	// stranded went out with it, because the export rewrites the entire file
 	// rather than appending — which is also why a single later write of any
@@ -467,11 +517,22 @@ func Export(db *sql.DB, dir string) error {
 // make quarantine theatre — reviewable in principle, already believed in
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
+	content, err := renderKindDigest(db, kind)
+	if err != nil {
+		return err
+	}
+	return writeKindDigest(dir, kind, content)
+}
+
+// renderKindDigest is the digest ExportKind would write for one kind, or ""
+// for a kind with no current memories. Split from the write so flushLocked can
+// stamp the bytes before they reach the disk.
+func renderKindDigest(db *sql.DB, kind Kind) (string, error) {
 	rows, err := db.Query(
 		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha, uid, supersedes
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer rows.Close()
 
@@ -481,17 +542,25 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
 			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid, &m.Supersedes); err != nil {
-			return err
+			return "", err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
 		mems = append(mems, m)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return "", err
 	}
-
-	path := filepath.Join(dir, Dir, string(kind)+".md")
 	if len(mems) == 0 {
+		return "", nil
+	}
+	return renderKind(kind, mems), nil
+}
+
+// writeKindDigest writes a digest renderKindDigest produced, or removes the
+// file for a kind with none.
+func writeKindDigest(dir string, kind Kind, content string) error {
+	path := filepath.Join(dir, Dir, string(kind)+".md")
+	if content == "" {
 		// Remove rather than leave an empty file: a kind nobody uses should not
 		// clutter the vault, and its absence is not ambiguous.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -499,7 +568,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		}
 		return nil
 	}
-	return vault.WriteAtomic(path, []byte(renderKind(kind, mems)))
+	return vault.WriteAtomic(path, []byte(content))
 }
 
 // generatedDigestBanner marks a kind's flat file as logos's own rendered
@@ -607,15 +676,17 @@ func writeMemoryFile(db *sql.DB, dir string, kind Kind, m Memory) error {
 	path := memoryFilePath(dir, kind, m.Uid)
 	if last, ok := fileStampSeen(db, m.Uid); ok {
 		if onDisk, err := os.ReadFile(path); err == nil {
-			if sha256.Sum256(onDisk) != last {
+			if !stamped(last, sha256.Sum256(onDisk)) {
 				return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
 			}
 		}
 	}
 	content := []byte(renderMemoryFile(kind, m))
+	fileStampPending(db, m.Uid, sha256.Sum256(content))
 	if err := vault.WriteAtomic(path, content); err != nil {
 		return err
 	}
+	vaultWritten(path)
 	fileStamp(db, m.Uid, sha256.Sum256(content))
 	return nil
 }
