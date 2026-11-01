@@ -84,7 +84,12 @@ func runImportRules(from string, args []string) error {
 		where := scope.DenyRoot(dir)
 		switch from {
 		case claudeMDSource:
-			where += " or ~/.claude"
+			// The folder that was read, which CLAUDE_CONFIG_DIR may have moved.
+			config := claudeConfigDir()
+			if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(config, home+string(filepath.Separator)) {
+				config = "~" + config[len(home):]
+			}
+			where += " or " + config
 		case claudeAutoMemorySource:
 			// The folder is named, because a moved one (autoMemoryDirectory)
 			// is the likeliest reason it is empty, and "none" would read as
@@ -247,9 +252,10 @@ func noun(from string, n int) string {
 }
 
 // readRuleFiles reads every rules file the source names, in the repository at
-// root and, for claude-md, in ~/.claude. A file that is missing is skipped; one
-// that is there and cannot be read is an error, because an import that quietly
-// left out a file would report a count the user takes as everything.
+// root and, for claude-md, in Claude Code's config directory. A file that is
+// missing is skipped; one that is there and cannot be read is an error,
+// because an import that quietly left out a file would report a count the user
+// takes as everything.
 func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 	home, _ := os.UserHomeDir()
 	if from == claudeAutoMemorySource {
@@ -259,30 +265,39 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 		path, project string
 	}
 	var cands []cand
+	add := func(project string, paths ...string) {
+		for _, p := range paths {
+			cands = append(cands, cand{p, project})
+		}
+	}
 	switch from {
 	case claudeMDSource:
-		for _, name := range []string{"CLAUDE.md", "AGENTS.md", filepath.Join(".claude", "CLAUDE.md")} {
-			cands = append(cands, cand{filepath.Join(root, name), project})
+		// Every place Claude Code loads instructions from, so the import
+		// offers what the agent was actually told: CLAUDE.local.md and
+		// .claude/rules are as much the project's rules as CLAUDE.md is.
+		for _, name := range []string{"CLAUDE.md", "AGENTS.md", "CLAUDE.local.md", filepath.Join(".claude", "CLAUDE.md"), filepath.Join(".claude", "AGENTS.md")} {
+			add(project, filepath.Join(root, name))
 		}
-		if home != "" {
-			for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
-				cands = append(cands, cand{filepath.Join(home, ".claude", name), ""})
-			}
-		}
-	case cursorRulesSource:
-		cands = append(cands, cand{filepath.Join(root, ".cursorrules"), project})
-		err := filepath.WalkDir(filepath.Join(root, ".cursor", "rules"), func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() && strings.HasSuffix(p, ".mdc") {
-				cands = append(cands, cand{p, project})
-			}
-			return nil
-		})
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		rules, err := filesUnder(filepath.Join(root, ".claude", "rules"), ".md")
+		if err != nil {
 			return nil, err
 		}
+		add(project, rules...)
+		if config := claudeConfigDir(); config != "" {
+			add("", filepath.Join(config, "CLAUDE.md"), filepath.Join(config, "AGENTS.md"))
+			rules, err := filesUnder(filepath.Join(config, "rules"), ".md")
+			if err != nil {
+				return nil, err
+			}
+			add("", rules...)
+		}
+	case cursorRulesSource:
+		add(project, filepath.Join(root, ".cursorrules"))
+		rules, err := filesUnder(filepath.Join(root, ".cursor", "rules"), ".mdc")
+		if err != nil {
+			return nil, err
+		}
+		add(project, rules...)
 	}
 
 	var out []ruleFile
@@ -324,6 +339,68 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 		}
 		seen[key] = len(out)
 		out = append(out, ruleFile{shown: shown, project: c.project, items: items})
+	}
+	return out, nil
+}
+
+// claudeConfigDir is where Claude Code keeps its user-level files:
+// CLAUDE_CONFIG_DIR when it is set, as Claude Code itself reads it, otherwise
+// ~/.claude. Empty when neither can be named.
+func claudeConfigDir() string {
+	if config := os.Getenv("CLAUDE_CONFIG_DIR"); config != "" {
+		return config
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// filesUnder is every file below dir whose name ends in ext, in name order, with
+// linked folders followed: Claude Code reads a rules folder through links,
+// and a team that shares rules does it by linking one in. Each real folder is
+// walked once, so a link back up the tree ends rather than looping. A dir
+// that is not there is no files.
+func filesUnder(dir, ext string) ([]string, error) {
+	var out []string
+	walked := map[string]bool{}
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return err
+		}
+		if walked[real] {
+			return nil
+		}
+		walked[real] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			p := filepath.Join(dir, e.Name())
+			info, err := os.Stat(p)
+			if err != nil {
+				// A dangling link names nothing to read.
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return err
+			}
+			if info.IsDir() {
+				if err := walk(p); err != nil {
+					return err
+				}
+			} else if strings.HasSuffix(e.Name(), ext) {
+				out = append(out, p)
+			}
+		}
+		return nil
+	}
+	if err := walk(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
 	return out, nil
 }

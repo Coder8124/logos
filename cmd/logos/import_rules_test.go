@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,12 +19,14 @@ const shopClaudeMD = "# Shop\n\n## Conventions\n\n" +
 	"Before you stop:\n"
 
 // standInRules is a repository with rule files in it and a home of its own, so
-// ~/.claude is the test's and not the machine's.
+// ~/.claude is the test's and not the machine's. CLAUDE_CONFIG_DIR is cleared
+// for the same reason: set on the machine, it would be read instead.
 func standInRules(t *testing.T, files map[string]string) string {
 	t.Helper()
 	vaultDir := standIn(t, "shop")
 	t.Setenv("LOGOS_EMBED", "off")
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	if err := os.MkdirAll(".git", 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +146,87 @@ func TestHomeClaudeMDRulesAreGlobalAndAgentsMDIsReadToo(t *testing.T) {
 	}
 	if p, ok := got["Run go vet before every commit."]; !ok || p != "shop" {
 		t.Errorf("the AGENTS.md rule was queued as project %q (found %v), want shop", p, ok)
+	}
+}
+
+// Claude Code loads instructions from more places than CLAUDE.md: a personal
+// CLAUDE.local.md, .claude/AGENTS.md, and every .md under .claude/rules and
+// the user's rules folder, subfolders included. An import that read only
+// CLAUDE.md left those rules out and called the rest everything.
+func TestEveryFileClaudeCodeReadsInstructionsFromIsImported(t *testing.T) {
+	standInRules(t, map[string]string{
+		"CLAUDE.local.md":              "- Use the staging database for manual checks.\n",
+		".claude/AGENTS.md":            "- Keep handlers free of SQL.\n",
+		".claude/rules/go/errors.md":   "- Wrap errors with the operation that failed.\n",
+		".claude/rules/notes.txt":      "- Not a rules file at all.\n",
+		"~/.claude/rules/git.md":       "- Sign every release tag.\n",
+		"~/.claude/rules/deep/rest.md": "- Return 404 for a missing resource.\n",
+	})
+	out := importRules(t, "claude-md")
+	got := map[string]string{}
+	for _, m := range pendingFrom(t, claudeMDSource) {
+		got[m.Text] = m.Project
+	}
+	want := map[string]string{
+		"Use the staging database for manual checks.": "shop",
+		"Keep handlers free of SQL.":                  "shop",
+		"Wrap errors with the operation that failed.": "shop",
+		"Sign every release tag.":                     "",
+		"Return 404 for a missing resource.":          "",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("queued %v, want %v\n%s", got, want, out)
+	}
+}
+
+// With CLAUDE_CONFIG_DIR set, Claude Code reads the user's CLAUDE.md and rules
+// from there and not from ~/.claude, so the import does the same.
+func TestUserRulesAreReadFromClaudeConfigDirWhenItIsSet(t *testing.T) {
+	standInRules(t, map[string]string{
+		"~/.claude/CLAUDE.md": "- A rule Claude Code is not reading.\n",
+	})
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	for name, body := range map[string]string{
+		"CLAUDE.md":      "- Never push to main without asking first.\n",
+		"rules/tests.md": "- Name each test as a sentence.\n",
+	} {
+		path := filepath.Join(config, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := importRules(t, "claude-md")
+	want := []string{"Name each test as a sentence.", "Never push to main without asking first."}
+	if got := texts(pendingFrom(t, claudeMDSource)); !slices.Equal(got, want) {
+		t.Errorf("queued %q, want %q\n%s", got, want, out)
+	}
+}
+
+// A team shares rules by linking a folder into .claude/rules, and Claude Code
+// reads through the link. A link that points back up the tree must end the
+// walk, not loop it.
+func TestALinkedRulesFolderIsReadThroughAndALoopEnds(t *testing.T) {
+	standInRules(t, map[string]string{
+		".claude/rules/local.md": "- Keep handlers free of SQL.\n",
+	})
+	shared := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shared, "team.md"), []byte("- Review every migration twice.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(".claude", "rules", "shared")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("..", filepath.Join(".claude", "rules", "up")); err != nil {
+		t.Fatal(err)
+	}
+	out := importRules(t, "claude-md")
+	want := []string{"Keep handlers free of SQL.", "Review every migration twice."}
+	if got := texts(pendingFrom(t, claudeMDSource)); !slices.Equal(got, want) {
+		t.Errorf("queued %q, want %q\n%s", got, want, out)
 	}
 }
 
