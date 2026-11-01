@@ -211,6 +211,11 @@ type Pack struct {
 	// filter was abandoned rather than applied and the pack holds everything it
 	// gathered.
 	WindowEmpty bool `json:"window_empty,omitempty"`
+	// CheckpointOutside is set when a window was applied but the checkpoint,
+	// which is never filtered, is not in it. Without it the line above a
+	// checkpoint from today read as if that checkpoint were from the period
+	// asked about.
+	CheckpointOutside bool `json:"checkpoint_outside_window,omitempty"`
 	// WindowInferred says Window came from neither a task phrase nor an
 	// explicit Since, but from the gap since the last checkpoint — the reader
 	// gets told this rather than mistaking a guess for something asked for.
@@ -516,28 +521,18 @@ func (p *Pack) applyWindow(req Request) {
 	}
 
 	dropped := (len(p.Notes) - len(notes)) + (len(p.Working) - len(working)) + (len(p.Related) - len(related))
-	if dropped == 0 {
-		p.Window = &w // nothing to filter, but the reader should still see what was assumed
-		// Nothing dated to drop is not the same as the period holding
-		// something: a fresh vault with one checkpoint from today, asked about
-		// five weeks ago, has nothing in that period at all.
-		if len(notes) == 0 && len(working) == 0 && len(related) == 0 &&
-			p.Checkpoint != nil && !w.Contains(p.Checkpoint.TS) {
-			p.WindowEmpty = true
-		}
-		return
-	}
-	// Everything dated fell outside. Either the window is wrong or the period is
-	// empty; either way, suppressing the whole pack would answer neither.
-	// Unless the checkpoint is inside it: then the period is not empty, and
-	// calling it so printed "nothing recorded" above a checkpoint from that very
-	// day. An inferred window is sized from that checkpoint, so without this it
-	// declared itself empty whenever the notes and memories were older.
+	// The period is empty only if the checkpoint is outside it too: calling it
+	// empty printed "nothing recorded" above a checkpoint from that very day,
+	// and an inferred window is sized from that checkpoint. Not calling it
+	// empty when nothing dated was dropped printed "everything recorded falls
+	// inside it" above a checkpoint from five weeks after it. Either way,
+	// suppressing the whole pack would answer neither, so the filter stands down.
 	inside := p.Checkpoint != nil && w.Contains(p.Checkpoint.TS)
 	if !inside && len(notes) == 0 && len(working) == 0 && len(related) == 0 {
 		p.Window, p.WindowEmpty = &w, true
 		return
 	}
+	p.CheckpointOutside = p.Checkpoint != nil && !inside
 
 	p.Notes, p.Working, p.Related = notes, working, related
 	p.Window, p.OutOfWindow = &w, dropped

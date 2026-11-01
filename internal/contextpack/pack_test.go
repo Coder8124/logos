@@ -1141,3 +1141,26 @@ func TestAWindowLineDoesNotClaimTheCheckpointOutsideItFallsInside(t *testing.T) 
 		t.Errorf("the window line does not say the checkpoint is outside it:\n%s", out)
 	}
 }
+
+// The same warning when the filter did set something aside: the count line
+// alone read as if today's checkpoint were from five weeks ago.
+func TestAWindowThatSetsItemsAsideStillSaysTheCheckpointIsOutsideIt(t *testing.T) {
+	now := time.Now()
+	p := Pack{
+		Task:       "what was I doing about five weeks ago?",
+		Checkpoint: &session.Checkpoint{Project: "shop", Next: "wire the cart", TS: now.Add(-time.Minute).Unix()},
+		Working: []session.Note{
+			{Text: "Ran the drop test series.", TS: now.AddDate(0, 0, -35).Unix()},
+			{Text: "Priced the courier.", TS: now.AddDate(0, 0, -1).Unix()},
+		},
+	}
+	p.Budget.Limit = DefaultBudget
+	p.applyWindow(Request{Task: p.Task, Now: now.Unix()})
+
+	if p.OutOfWindow != 1 {
+		t.Fatalf("OutOfWindow = %d, want the note from yesterday set aside", p.OutOfWindow)
+	}
+	if out := p.Render(); !strings.Contains(out, "The checkpoint below is from outside it") {
+		t.Errorf("the window line does not say the checkpoint is outside it:\n%s", out)
+	}
+}
