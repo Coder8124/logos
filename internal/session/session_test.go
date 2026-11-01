@@ -735,3 +735,57 @@ func TestANoteThatIsOnlyAPrivateSpanIsRefused(t *testing.T) {
 		t.Errorf("a note with words besides the span was refused: %v", err)
 	}
 }
+
+// #366: a checkpoint was named, and so ordered, by when its session started.
+// alice's session opens first, bob checkpoints, then alice checkpoints later —
+// and resume showed bob's as the latest because bob's session started after
+// alice's.
+func TestTheLatestCheckpointIsTheLastOneWrittenNotTheLastSessionStarted(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	if _, err := Start(db, "logos", "alice", "long task"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Start(db, "logos", "bob", "short task"); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(time.Hour).Unix()
+	if err := Commit(db, dir, &Checkpoint{Project: "logos", Agent: "bob", Next: "bob's", TS: base}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(db, dir, &Checkpoint{Project: "logos", Agent: "alice", Next: "alice's", TS: base + 600}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := Latest(dir, "logos")
+	if err != nil || latest == nil {
+		t.Fatalf("no latest checkpoint: %v", err)
+	}
+	if latest.Next != "alice's" {
+		t.Errorf("latest is %q, but alice wrote hers ten minutes after bob", latest.Next)
+	}
+}
+
+// #340: two checkpoints by one agent in one second push the second into the
+// next second, where it sorted after another agent's checkpoint written in that
+// next second by name alone — and became "latest" over it.
+func TestABurstOfCheckpointsDoesNotOvertakeTheNextAgentsCheckpoint(t *testing.T) {
+	db := testDB(t)
+	dir := t.TempDir()
+	s := time.Now().Add(time.Hour).Unix()
+	for _, c := range []*Checkpoint{
+		{Project: "logos", Agent: "claude", Next: "first", TS: s},
+		{Project: "logos", Agent: "claude", Next: "second", TS: s},
+		{Project: "logos", Agent: "amp", Next: "amp's", TS: s + 1},
+	} {
+		if err := Commit(db, dir, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	latest, err := Latest(dir, "logos")
+	if err != nil || latest == nil {
+		t.Fatalf("no latest checkpoint: %v", err)
+	}
+	if latest.Next != "amp's" {
+		t.Errorf("latest is %q, but amp wrote the last checkpoint", latest.Next)
+	}
+}
