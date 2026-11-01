@@ -57,6 +57,7 @@ func (p *Pack) Render() string {
 	p.renderHeader(&b)
 	p.renderWindow(&b)
 	p.renderOtherRepo(&b)
+	p.renderUnread(&b)
 	if line := p.costLine(); line != "" {
 		fmt.Fprintf(&b, "\n_%s_\n", line)
 	}
@@ -206,6 +207,15 @@ func (p *Pack) renderOtherRepo(b *strings.Builder) {
 	}
 	fmt.Fprintf(b, "\n_The latest checkpoint on **%s** came from another repository (%s); a `.logos-project` file in one keeps them apart._\n",
 		inline(p.scope()), inline(p.OtherRepo))
+}
+
+// renderUnread says a newer checkpoint was there and could not be read.
+// Without it an older checkpoint is presented as where work left off.
+func (p *Pack) renderUnread(b *strings.Builder) {
+	if n := len(p.Unread); n > 0 {
+		fmt.Fprintf(b, "\n_%d newer checkpoint %s could not be read — empty, or cut off partway through a save — so the one below is the latest readable, not the latest written. Open or delete: %s_\n",
+			n, plural(n, "file", "files"), inline(strings.Join(p.Unread, ", ")))
+	}
 }
 
 // spendCheckpoint charges the checkpoint against its share and returns the body
