@@ -59,3 +59,32 @@ func TestAutoMemoryIsFoundFromAWorktreeOfABareRepository(t *testing.T) {
 		t.Errorf("queued %d notes from a bare repository's worktree, want its 1:\n%s", n, out)
 	}
 }
+
+// A worktree of a submodule has <super>/.git/modules/<name> as its common dir,
+// not named .git, and Claude Code 2.1.316 files it under that git dir rather
+// than under the submodule's checkout. The import reads the folder the host
+// wrote, however odd its name.
+func TestAutoMemoryIsFoundFromAWorktreeOfASubmoduleWhereClaudeCodeFilesIt(t *testing.T) {
+	standInRules(t, nil)
+	projects := t.TempDir()
+	t.Setenv("LOGOS_CLAUDE_PROJECTS", projects)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib, super, tree := filepath.Join(base, "lib"), filepath.Join(base, "super"), filepath.Join(base, "tree")
+	for _, repo := range []string{lib, super} {
+		git(t, base, "init", "-q", repo)
+		git(t, repo, "commit", "-q", "--allow-empty", "-m", "first")
+	}
+	git(t, super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "lib")
+	git(t, filepath.Join(super, "lib"), "worktree", "add", "-q", tree)
+	dir := encodedAutoMemoryDir(t, projects, filepath.Join(super, ".git", "modules", "lib"))
+	if err := os.WriteFile(filepath.Join(dir, "project_freeze.md"), []byte(projectNote), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := importRules(t, claudeAutoMemorySource, "--dir", tree)
+	if n := len(pendingFrom(t, claudeAutoMemorySource)); n != 1 {
+		t.Errorf("queued %d notes from a submodule's worktree, want its 1:\n%s", n, out)
+	}
+}
