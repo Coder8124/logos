@@ -518,6 +518,13 @@ func (p *Pack) applyWindow(req Request) {
 	dropped := (len(p.Notes) - len(notes)) + (len(p.Working) - len(working)) + (len(p.Related) - len(related))
 	if dropped == 0 {
 		p.Window = &w // nothing to filter, but the reader should still see what was assumed
+		// Nothing dated to drop is not the same as the period holding
+		// something: a fresh vault with one checkpoint from today, asked about
+		// five weeks ago, has nothing in that period at all.
+		if len(notes) == 0 && len(working) == 0 && len(related) == 0 &&
+			p.Checkpoint != nil && !w.Contains(p.Checkpoint.TS) {
+			p.WindowEmpty = true
+		}
 		return
 	}
 	// Everything dated fell outside. Either the window is wrong or the period is

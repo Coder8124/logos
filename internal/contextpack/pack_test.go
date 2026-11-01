@@ -1091,3 +1091,53 @@ func TestAPlanTheUserLaterDroppedIsNotHandedOverAsNextEvenWhenTheTaskIsVague(t *
 		t.Errorf("the dropped plan is handed over as next:\n%s", out)
 	}
 }
+
+// A fresh vault with one checkpoint from today, asked about five weeks ago,
+// said "Everything recorded falls inside it" above that checkpoint. Nothing
+// dated was dropped, so the early return never looked at the checkpoint; the
+// period holds nothing, and the reader should be told so.
+func TestAWindowThatMissesTheOnlyCheckpointIsReportedEmpty(t *testing.T) {
+	now := time.Now()
+	p := Pack{
+		Task:       "what was I doing about five weeks ago?",
+		Checkpoint: &session.Checkpoint{Project: "shop", Next: "wire the cart", TS: now.Add(-time.Minute).Unix()},
+	}
+	p.Budget.Limit = DefaultBudget
+	p.applyWindow(Request{Task: p.Task, Now: now.Unix()})
+
+	if p.Window == nil {
+		t.Fatal("no window was parsed")
+	}
+	if !p.WindowEmpty {
+		t.Error("a window holding nothing, not even the checkpoint, was not reported empty")
+	}
+	if out := p.Render(); strings.Contains(out, "Everything recorded falls inside it") {
+		t.Errorf("the window line claims the checkpoint outside it falls inside it:\n%s", out)
+	}
+}
+
+// The same claim beside notes that do fall inside: the window kept them all,
+// but the checkpoint printed under the line is from outside it.
+func TestAWindowLineDoesNotClaimTheCheckpointOutsideItFallsInside(t *testing.T) {
+	now := time.Now()
+	p := Pack{
+		Task:       "what was I doing about five weeks ago?",
+		Checkpoint: &session.Checkpoint{Project: "shop", Next: "wire the cart", TS: now.Add(-time.Minute).Unix()},
+		Working: []session.Note{
+			{Text: "Ran the drop test series.", TS: now.AddDate(0, 0, -35).Unix()},
+		},
+	}
+	p.Budget.Limit = DefaultBudget
+	p.applyWindow(Request{Task: p.Task, Now: now.Unix()})
+
+	if p.Window == nil || p.WindowEmpty {
+		t.Fatalf("window = %v, empty = %v; want a window holding the note", p.Window, p.WindowEmpty)
+	}
+	out := p.Render()
+	if strings.Contains(out, "Everything recorded falls inside it") {
+		t.Errorf("the window line claims the checkpoint outside it falls inside it:\n%s", out)
+	}
+	if !strings.Contains(out, "The checkpoint below is from outside it") {
+		t.Errorf("the window line does not say the checkpoint is outside it:\n%s", out)
+	}
+}

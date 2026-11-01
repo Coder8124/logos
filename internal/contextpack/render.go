@@ -162,6 +162,10 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 		// Not "everything recorded falls inside it": older checkpoints were
 		// weighed against the task, and some may be from before the window.
 		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
+	case p.Checkpoint != nil && !p.Window.Contains(p.Checkpoint.TS):
+		// The checkpoint is never filtered, so "everything falls inside it"
+		// would be said directly above one that does not.
+		fmt.Fprintf(b, "\n_Filtered to %s%s. The checkpoint below is from outside it._\n", p.Window, p.inferredNote())
 	default:
 		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
