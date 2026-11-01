@@ -204,7 +204,7 @@ func offerBootstrap(root, project string, yes bool) {
 		fmt.Println("  Nothing written. `logos import --from git` offers them again.")
 		return
 	}
-	if err := storeSeeds(found, project); err != nil {
+	if err := storeSeeds(found, project, "  "); err != nil {
 		fmt.Printf("  bootstrap  failed: %v\n", err)
 	}
 }
