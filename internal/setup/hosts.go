@@ -75,21 +75,36 @@ func claudeCode() Host {
 			return parseClaudeMCPList(out), nil
 		},
 		Remove: func(name string) (bool, error) {
-			out, err := hostCommand(claudeCLI(), "mcp", "list").CombinedOutput()
-			if err != nil {
+			// `mcp get`, not `mcp list`, for the reason RemoveServerEntry gives:
+			// list starts every server Claude Code has, and one failed start of
+			// the plugin's turns Logos off for fifteen minutes. get exits
+			// non-zero when there is no such server, the common case.
+			out, err := hostCommand(claudeCLI(), "mcp", "get", name).Output()
+			if err != nil || !isLogosServer(claudeMCPGetCommand(out)) {
+				return false, nil
+			}
+			if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {
 				return false, err
 			}
-			for _, r := range parseClaudeMCPList(out) {
-				if r.Name == name && isLogosServer(r.Command) {
-					if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {
-						return false, err
-					}
-					return true, nil
-				}
-			}
-			return false, nil
+			return true, nil
 		},
 	}
+}
+
+// claudeMCPGetCommand reads the command line out of `claude mcp get`'s report,
+// whose "Command:" and "Args:" lines are what isLogosServer needs to tell a
+// logos entry from someone else's server of the same name.
+func claudeMCPGetCommand(out []byte) string {
+	var parts []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		for _, key := range []string{"Command:", "Args:"} {
+			if v, ok := strings.CutPrefix(line, key); ok {
+				parts = append(parts, strings.TrimSpace(v))
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // parseClaudeMCPList reads `claude mcp list`'s human-readable report, not a
