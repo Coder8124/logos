@@ -230,6 +230,24 @@ func TestALinkedRulesFolderIsReadThroughAndALoopEnds(t *testing.T) {
 	}
 }
 
+// A file link that names itself cannot be resolved; it has nothing to read,
+// like a dangling one. It ended the whole import with "too many levels of
+// symbolic links", the repository's CLAUDE.md included.
+func TestAFileLinkThatLoopsIsSkippedNotFatal(t *testing.T) {
+	standInRules(t, map[string]string{
+		"CLAUDE.md":              "- Keep handlers free of SQL.\n",
+		".claude/rules/local.md": "- Review every migration twice.\n",
+	})
+	if err := os.Symlink("self.md", filepath.Join(".claude", "rules", "self.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := importRules(t, "claude-md")
+	want := []string{"Keep handlers free of SQL.", "Review every migration twice."}
+	if got := texts(pendingFrom(t, claudeMDSource)); !slices.Equal(got, want) {
+		t.Errorf("queued %q, want %q\n%s", got, want, out)
+	}
+}
+
 // Cursor keeps its rules in .mdc files with frontmatter, and in the older
 // single .cursorrules. The frontmatter is Cursor's configuration, not a rule.
 func TestCursorRulesAreQueuedFromMdcBodiesAndCursorrules(t *testing.T) {

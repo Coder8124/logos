@@ -86,16 +86,14 @@ func runImportRules(from string, args []string) error {
 		switch from {
 		case claudeMDSource:
 			// The folder that was read, which CLAUDE_CONFIG_DIR may have moved.
-			config := claudeConfigDir()
-			if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(config, home+string(filepath.Separator)) {
-				config = "~" + config[len(home):]
+			if config := transcript.ClaudeConfigDir(); config != "" {
+				where += " or " + redactHome(config)
 			}
-			where += " or " + config
 		case claudeAutoMemorySource:
 			// The folder is named, because a moved one (autoMemoryDirectory)
 			// is the likeliest reason it is empty, and "none" would read as
 			// Claude Code never having saved anything.
-			where = autoMemoryDir(scope.DenyRoot(dir))
+			where, _ = autoMemoryDir(scope.DenyRoot(dir))
 		}
 		fmt.Printf("Nothing to import: no %s %s in %s.\n", from, noun(from, 2), where)
 		return nil
@@ -260,7 +258,12 @@ func noun(from string, n int) string {
 func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 	home, _ := os.UserHomeDir()
 	if from == claudeAutoMemorySource {
-		return readAutoMemory(autoMemoryDir(root), home, project)
+		dir, notes := autoMemoryDir(root)
+		files, err := readAutoMemory(dir, home, project)
+		if err != nil {
+			return nil, err
+		}
+		return append(notes, files...), nil
 	}
 	type cand struct {
 		path, project string
@@ -284,7 +287,7 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 			return nil, err
 		}
 		add(project, rules...)
-		if config := claudeConfigDir(); config != "" {
+		if config := transcript.ClaudeConfigDir(); config != "" {
 			add("", filepath.Join(config, "CLAUDE.md"), filepath.Join(config, "AGENTS.md"))
 			rules, err := filesUnder(filepath.Join(config, "rules"), ".md")
 			if err != nil {
@@ -344,20 +347,6 @@ func readRuleFiles(from, root, project string) ([]ruleFile, error) {
 	return out, nil
 }
 
-// claudeConfigDir is where Claude Code keeps its user-level files:
-// CLAUDE_CONFIG_DIR when it is set, as Claude Code itself reads it, otherwise
-// ~/.claude. Empty when neither can be named.
-func claudeConfigDir() string {
-	if config := os.Getenv("CLAUDE_CONFIG_DIR"); config != "" {
-		return config
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude")
-}
-
 // filesUnder is every file below dir whose name ends in ext, in name order, with
 // linked folders followed: Claude Code reads a rules folder through links,
 // and a team that shares rules does it by linking one in. Each real folder is
@@ -384,8 +373,9 @@ func filesUnder(dir, ext string) ([]string, error) {
 			p := filepath.Join(dir, e.Name())
 			info, err := os.Stat(p)
 			if err != nil {
-				// A dangling link names nothing to read.
-				if errors.Is(err, fs.ErrNotExist) {
+				// A link that names nothing, or only itself, has nothing to
+				// read; its error would end the import, CLAUDE.md included.
+				if link, lerr := os.Lstat(p); lerr == nil && link.Mode()&fs.ModeSymlink != 0 {
 					continue
 				}
 				return err
@@ -400,7 +390,13 @@ func filesUnder(dir, ext string) ([]string, error) {
 		}
 		return nil
 	}
-	if err := walk(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	// Only the top folder may be missing. A folder below it that vanishes
+	// mid-walk is an error, not "no rules here": the files gathered so far
+	// would be reported as all of them.
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err := walk(dir); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -497,10 +493,12 @@ func uncommented(line string, open bool) (string, bool) {
 // and records the physical path, so a worktree or a symlinked ~/code looked
 // for a folder that never existed. The naming is read off Claude Code's own
 // folders, not a documented contract, so a miss names the folder it looked in.
-func autoMemoryDir(root string) string {
-	config := claudeConfigDir()
-	if dir := autoMemoryDirectorySetting(root, config); dir != "" {
-		return dir
+// The ruleFiles are settings files that were passed over, for the report.
+func autoMemoryDir(root string) (string, []ruleFile) {
+	config := transcript.ClaudeConfigDir()
+	dir, notes := autoMemoryDirectorySetting(root, config)
+	if dir != "" {
+		return dir, notes
 	}
 	projects := os.Getenv(transcript.LogosClaudeProjectsEnv)
 	if projects == "" {
@@ -509,7 +507,7 @@ func autoMemoryDir(root string) string {
 	// Claude Code takes the name only beside CLAUDE_CONFIG_DIR and only when
 	// it is a plain folder name; otherwise it ignores it, and so must this.
 	if name := os.Getenv("CLAUDE_CODE_PROJECT_DIR_NAME"); os.Getenv("CLAUDE_CONFIG_DIR") != "" && projectDirName.MatchString(name) {
-		return filepath.Join(projects, name, "memory")
+		return filepath.Join(projects, name, "memory"), notes
 	}
 	if _, checkout := gitstate.Identity(root); checkout != "" {
 		root = checkout
@@ -525,42 +523,81 @@ func autoMemoryDir(root string) string {
 		}
 		return '-'
 	}, root)
-	return filepath.Join(projects, name, "memory")
+	return filepath.Join(projects, name, "memory"), notes
 }
 
 var projectDirName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // autoMemoryDirectorySetting is the autoMemoryDirectory Claude Code would use
-// for the repository at root, in its precedence: local settings, then the
-// project's, then the user's. Only an absolute path or one under ~/ counts,
-// as in Claude Code; any other value is passed over, not guessed at. Empty
-// when no settings file moves auto memory.
-func autoMemoryDirectorySetting(root, config string) string {
-	home, _ := os.UserHomeDir()
-	for _, path := range []string{
+// for the repository at root. As in Claude Code (read from 2.1.316), the
+// first settings file that sets the key decides, in the order local, project,
+// user, and only then is the value checked: one it rejects leaves the default
+// folder rather than handing the choice to a lower file. A settings file that
+// is there but cannot be read or parsed is passed over, as Claude Code passes
+// it over, and returned as a note, because the folder it may have named is
+// then not the one imported.
+func autoMemoryDirectorySetting(root, config string) (string, []ruleFile) {
+	paths := []string{
 		filepath.Join(root, ".claude", "settings.local.json"),
 		filepath.Join(root, ".claude", "settings.json"),
-		filepath.Join(config, "settings.json"),
-	} {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var settings struct {
-			AutoMemoryDirectory string `json:"autoMemoryDirectory"`
-		}
-		if json.Unmarshal([]byte(strings.TrimPrefix(string(raw), "\ufeff")), &settings) != nil {
-			continue
-		}
-		dir := settings.AutoMemoryDirectory
-		if rest, ok := strings.CutPrefix(dir, "~/"); ok && home != "" {
-			return filepath.Join(home, rest)
-		}
-		if filepath.IsAbs(dir) {
-			return filepath.Clean(dir)
-		}
 	}
-	return ""
+	// With no config folder there is no user settings file; joining "" would
+	// read settings.json from wherever the command ran.
+	if config != "" {
+		paths = append(paths, filepath.Join(config, "settings.json"))
+	}
+	var notes []ruleFile
+	for _, path := range paths {
+		shown := redactHome(path)
+		raw, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			notes = append(notes, ruleFile{shown: shown, skip: fmt.Sprintf("it could not be read (%v), so an autoMemoryDirectory in it was not followed", err)})
+			continue
+		}
+		var settings map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(string(raw), "\ufeff")), &settings); err != nil {
+			notes = append(notes, ruleFile{shown: shown, skip: "it is not valid JSON, so an autoMemoryDirectory in it was not followed"})
+			continue
+		}
+		value, set := settings["autoMemoryDirectory"]
+		if !set || string(value) == "null" {
+			continue
+		}
+		var dir string
+		if json.Unmarshal(value, &dir) == nil {
+			if dir := memoryDirectoryValue(dir); dir != "" {
+				return dir, notes
+			}
+		}
+		notes = append(notes, ruleFile{shown: shown, skip: fmt.Sprintf("its autoMemoryDirectory %s is not an absolute path or one under ~/, so Claude Code uses its default folder", value)})
+		return "", notes
+	}
+	return "", notes
+}
+
+// memoryDirectoryValue is the folder an autoMemoryDirectory value names, or
+// "" for one Claude Code rejects: anything not absolute once ~/ is expanded,
+// a ~/ that names home itself or climbs out of it, and a path too short to be
+// anything but a root.
+func memoryDirectoryValue(v string) string {
+	if rest, ok := strings.CutPrefix(v, "~/"); ok {
+		home, err := os.UserHomeDir()
+		rest = filepath.Clean(rest)
+		if err != nil || rest == "." || rest == ".." || strings.HasPrefix(rest, ".."+string(filepath.Separator)) {
+			return ""
+		}
+		v = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(v) || strings.ContainsRune(v, 0) {
+		return ""
+	}
+	if v = filepath.Clean(v); len(v) < 3 {
+		return ""
+	}
+	return v
 }
 
 // autoMemoryKinds maps auto memory's four types onto Logos's kinds. feedback is
