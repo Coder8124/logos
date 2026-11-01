@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -747,6 +748,11 @@ type Edits struct {
 	// client made a second one, and reading that copy as live brought the
 	// forgotten memory back on the next import without a word.
 	SetAside, Orphaned []string
+	// Unreadable are memory files under memories/<kind>/ that could not be
+	// read, each "path: why". Such a file drops its memory from the index and
+	// the digest for as long as it stays unreadable, and nothing else says so:
+	// the counts read as a vault with one memory fewer, not one memory hidden.
+	Unreadable []string
 }
 
 // ImportEdits is Import, also saying which memories a hand edit made or
@@ -1254,6 +1260,17 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 				// Unreadable, not missing — treated the same as linesElsewhere
 				// treats one: costs this memory its place in the digest, never
 				// a reason to call the whole kind damaged over one bad file.
+				// Recorded, since a memory that vanishes with no word is the
+				// silent loss invariant 4 rules out.
+				if e != nil {
+					rel := filepath.ToSlash(filepath.Join(Dir, string(kind), en.Name()))
+					why := rerr
+					var pe *fs.PathError
+					if errors.As(rerr, &pe) {
+						why = pe.Err // the path is said once, vault-relative
+					}
+					e.Unreadable = append(e.Unreadable, rel+": "+why.Error())
+				}
 				continue
 			}
 			have[strings.TrimSuffix(en.Name(), ".md")] = true

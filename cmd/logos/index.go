@@ -395,6 +395,13 @@ func printConflictCopies(w io.Writer, prefix string, walked []string, e memory.E
 		fmt.Fprintf(w, "%sset aside %d sync conflict %s of a memory that is no longer current — delete %s, or rename one to its original name to bring the memory back: %s\n",
 			prefix, n, plural2(n, "copy", "copies"), plural2(n, "it", "them"), terminalSafe(strings.Join(e.Orphaned, ", "), 2000))
 	}
+	// Said here, with the other files an index left out, because it is the
+	// same promise: a file on disk that is not in memory is named, or the
+	// counts read as a vault that simply has fewer memories.
+	if n := len(e.Unreadable); n > 0 {
+		fmt.Fprintf(w, "%scould not read %d memory %s, left out of memory until %s readable: %s\n",
+			prefix, n, plural2(n, "file", "files"), plural2(n, "it is", "they are"), terminalSafe(strings.Join(e.Unreadable, ", "), 2000))
+	}
 }
 
 func plural2(n int, one, many string) string {
