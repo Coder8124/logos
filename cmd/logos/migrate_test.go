@@ -495,7 +495,7 @@ func TestMigrateSaysWhenItAddsAHostsHook(t *testing.T) {
 	home, _ := oldVaultHome(t)
 	var cursor string
 	h := pinnedHost(t, "Cursor", filepath.Join(home, "brain"), &cursor)
-	h.Hooks = func(setup.Server) (setup.Outcome, error) { return setup.Registered, nil }
+	h.Hooks = func(setup.Server) (setup.Outcome, string, error) { return setup.Registered, "", nil }
 	hostsOnMachine(t, h)
 
 	out := captureStdout(t, func() {

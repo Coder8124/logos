@@ -111,6 +111,9 @@ type Result struct {
 	Tier    Tier
 	Hooked  Outcome
 	HookErr error
+	// HookBackup is the copy of the hooks file from before logos added its
+	// hook, named whenever this run changed that file.
+	HookBackup string
 	// Replaced is set when the entry 0.4 setup wrote under OldName was
 	// removed, and ReplaceErr when that was tried and failed. Neither fails the
 	// host: logos is registered either way, and the leftover is reported.
@@ -142,7 +145,7 @@ type Host struct {
 	// Hooks installs this host's user-level session-start hook, so a session
 	// starts with the last checkpoint instead of waiting to be asked. Nil for a
 	// host with no hooks, and for Claude Code, whose plugin carries its own.
-	Hooks func(s Server) (Outcome, error)
+	Hooks func(s Server) (Outcome, string, error)
 	// Remove removes the entry registered under name when it runs logos, and
 	// reports whether there was one. Setup uses it for OldName, uninstall for
 	// both names. Nil for a host logos cannot take an entry back out of.
@@ -324,7 +327,7 @@ func Install(s Server, hosts []Host) []Result {
 		// that has no logos to call, and a hook installed beside a failed
 		// registration would run on every session for nothing.
 		if h.Hooks != nil {
-			r.Hooked, r.HookErr = h.Hooks(s)
+			r.Hooked, r.HookBackup, r.HookErr = h.Hooks(s)
 		}
 		// After registering, so a failed registration never leaves a host with
 		// neither entry; and before the comparison below, which must see it.
