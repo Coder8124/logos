@@ -357,8 +357,9 @@ func TestAHistoryMadeInOneDayIsGivenNoCadence(t *testing.T) {
 func TestCadenceIsOverTheMonthsTheHistoryCovers(t *testing.T) {
 	dir := repo(t)
 	start := time.Now().AddDate(0, -4, 0)
+	step := time.Since(start) / 23
 	for i := 0; i < 24; i++ {
-		commitDated(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), start.Add(time.Duration(i)*96*time.Hour))
+		commitDated(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), start.Add(time.Duration(i)*step))
 	}
 	c, ok := find(found(FromGitHistory(dir, 12)), "commits a month")
 	if !ok {
@@ -366,5 +367,18 @@ func TestCadenceIsOverTheMonthsTheHistoryCovers(t *testing.T) {
 	}
 	if !strings.Contains(c.Text, "roughly 6 commits a month") || !strings.Contains(c.Evidence, "over 4 months") {
 		t.Fatalf("24 commits over four months reported as %q (%s)", c.Text, c.Evidence)
+	}
+}
+
+// Measured to now rather than to the newest commit, a one-day burst three
+// months old still read as "roughly 8 commits a month".
+func TestAnOldOneDayBurstIsGivenNoCadence(t *testing.T) {
+	dir := repo(t)
+	day := time.Now().AddDate(0, -3, 0)
+	for i := 0; i < minCommits+4; i++ {
+		commitDated(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), day.Add(time.Duration(i)*time.Minute))
+	}
+	if c, ok := find(found(FromGitHistory(dir, 12)), "commits a month"); ok {
+		t.Fatalf("a one-day burst three months ago was given a cadence: %s (%s)", c.Text, c.Evidence)
 	}
 }

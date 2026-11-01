@@ -24,7 +24,6 @@ package bootstrap
 
 import (
 	"fmt"
-	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -92,7 +91,11 @@ func FromGitHistory(dir string, months int) (found []Candidate, unread []string)
 	// Counting them only in the denominator would report "132 of the last 152"
 	// for an author who in fact wrote 132 of 132 — a ratio understated by
 	// exactly the merges nobody typed.
-	total := countLines(read(dir, &unread, "the commit log", "log", since, "--no-merges", "--format=%H"))
+	//
+	// Read as commit times, so cadence takes its span from the same commits it
+	// counts rather than walking the window a second time.
+	times := commitTimes(read(dir, &unread, "the commit log", "log", since, "--no-merges", "--format=%ct"))
+	total := len(times)
 	if total < minCommits {
 		return nil, unread
 	}
@@ -103,7 +106,7 @@ func FromGitHistory(dir string, months int) (found []Candidate, unread []string)
 	if c, ok := commitStyle(dir, since, total, &unread); ok {
 		out = append(out, c)
 	}
-	if c, ok := cadence(dir, since, total, months); ok {
+	if c, ok := cadence(times); ok {
 		out = append(out, c)
 	}
 	return out, unread
@@ -279,56 +282,59 @@ func commitStyle(dir, since string, total int, unread *[]string) (Candidate, boo
 
 // cadence says how actively the project moves. It is what tells an arriving
 // agent whether a six-week-old branch is stale or normal here.
-func cadence(dir, since string, total, months int) (Candidate, bool) {
-	last := git(dir, "log", "-1", "--format=%cs")
-	if last == "" {
+//
+// The rate is over the span between the oldest and newest counted commit, not
+// the window asked for: 24 commits made in one day were reported as "roughly 2
+// commits a month" (#248), divided by twelve months the history never covered,
+// and recalled later as if the user had said it. Measuring to the newest
+// commit rather than to now is what keeps an old one-day burst from reading as
+// a rate too; how long ago that was is what "the most recent is dated" says.
+func cadence(times []time.Time) (Candidate, bool) {
+	if len(times) == 0 {
 		return Candidate{}, false
 	}
-	// Divide by the span the history actually covers, not the window asked
-	// for: 24 commits made today were reported as "roughly 2 commits a month"
-	// (#248), a rate recalled later as if the user had stated it. Under two
-	// months there is no rate to speak of yet, so say nothing.
-	first := firstCommit(dir, since)
-	if first.IsZero() {
+	first, last := times[0], times[0]
+	for _, t := range times[1:] {
+		if t.Before(first) {
+			first = t
+		}
+		if t.After(last) {
+			last = t
+		}
+	}
+	months := last.Sub(first).Hours() / 24 / daysPerMonth
+	if months < minCadenceMonths {
 		return Candidate{}, false
 	}
-	span := time.Since(first).Hours() / 24 / daysPerMonth
-	if span < minCadenceMonths {
-		return Candidate{}, false
-	}
-	if span < float64(months) {
-		months = int(math.Round(span))
-	}
-	perMonth := float64(total) / float64(months)
+	lastDay := last.Format("2006-01-02")
 	return Candidate{
 		Text: fmt.Sprintf("This project runs at roughly %.0f commits a month; the most recent is dated %s.",
-			perMonth, last),
+			float64(len(times))/months, lastDay),
 		Kind:       memory.Context,
 		Confidence: confCounted,
 		Salience:   0.4,
-		Evidence:   fmt.Sprintf("%d commits over %d months, last %s", total, months, last),
+		Evidence:   fmt.Sprintf("%d commits over %.0f months, last %s", len(times), months, lastDay),
 	}, true
 }
 
-// daysPerMonth and minCadenceMonths turn the history's span into months, and
-// set how much of it there must be before a rate means anything.
+// daysPerMonth turns a span into months; under minCadenceMonths of history
+// there is no rate to speak of yet, so cadence says nothing.
 const (
 	daysPerMonth     = 30.44
 	minCadenceMonths = 2
 )
 
-// firstCommit is the commit date of the oldest commit in the window, or the
-// zero time when git gives nothing it can parse.
-func firstCommit(dir, since string) time.Time {
-	out := strings.Fields(git(dir, "log", since, "--no-merges", "--format=%ct"))
-	if len(out) == 0 {
-		return time.Time{}
+// commitTimes parses git log's %ct lines. Git's walk order is not date order —
+// rebases and clock skew see to that — so callers take the extremes, not the
+// ends of the list.
+func commitTimes(out string) []time.Time {
+	var times []time.Time
+	for _, f := range strings.Fields(out) {
+		if secs, err := strconv.ParseInt(f, 10, 64); err == nil {
+			times = append(times, time.Unix(secs, 0))
+		}
 	}
-	secs, err := strconv.ParseInt(out[len(out)-1], 10, 64)
-	if err != nil {
-		return time.Time{}
-	}
-	return time.Unix(secs, 0)
+	return times
 }
 
 // isConventional matches "type:" and "type(scope):" prefixes without pulling in
@@ -409,13 +415,6 @@ func englishList(items []string) string {
 		return items[0] + " and " + items[1]
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
-}
-
-func countLines(s string) int {
-	if strings.TrimSpace(s) == "" {
-		return 0
-	}
-	return len(strings.Split(strings.TrimSpace(s), "\n"))
 }
 
 func min(a, b int) int {
