@@ -154,6 +154,67 @@ func Identity(dir string) (remote, root string) {
 	return remote, root
 }
 
+// AutoMemoryRoot is the checkout Claude Code files the repository at dir's
+// auto memory under, "" when git will not say. Identity's root, the parent of
+// the common git dir, is that checkout only for a linked worktree of an
+// ordinary repository. A submodule's common dir is <super>/.git/modules/<name>
+// and a bare repository's worktree has /x/repo.git, so their parents name a
+// folder Claude Code never used and the import found nothing. The rule is
+// Claude Code's own (read from 2.1.316), followed even where it looks odd: a
+// checkout that is not a linked worktree is its own top level; a linked
+// worktree is filed under the parent of a common dir named .git, and under the
+// common dir itself otherwise — so a submodule's worktree or a
+// --separate-git-dir repository's lands in the git dir — unless that dir holds
+// a .git of its own, when the worktree is its own top level again.
+func AutoMemoryRoot(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	// One git process, not four: each has its own timeout, and a slow mount
+	// would otherwise hold the import for all of them in turn.
+	out := git(dir, "rev-parse", "--is-inside-work-tree", "--show-toplevel", "--absolute-git-dir", "--git-common-dir")
+	lines := strings.Split(out, "\n")
+	if len(lines) != 4 || lines[0] != "true" {
+		return ""
+	}
+	abs := func(p string) string {
+		if p != "" && !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return resolved
+		}
+		return ""
+	}
+	top, gitDir, common := abs(lines[1]), abs(lines[2]), abs(lines[3])
+	if top == "" {
+		return ""
+	}
+	if gitDir == "" || common == "" || !sameFile(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
+		return scope.OnDisk(top)
+	}
+	if filepath.Base(common) == ".git" {
+		return scope.OnDisk(filepath.Dir(common))
+	}
+	if _, err := os.Stat(filepath.Join(common, ".git")); err == nil {
+		return scope.OnDisk(top)
+	}
+	return scope.OnDisk(common)
+}
+
+// sameFile compares two paths by what they are, not how they are spelled:
+// git reports the worktree's git dir by its real path and the common dir by
+// the caller's, and on a disk that ignores case those can differ in spelling
+// for one folder.
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
+}
+
 // NormalizeRemote reduces a remote URL — as Identity returns it — to a form
 // where the ssh and https spellings of the same repository compare equal:
 // `git@github.com:Coder8124/logos.git`, `https://github.com/Coder8124/logos.git`
