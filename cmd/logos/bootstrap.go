@@ -76,7 +76,7 @@ func runBootstrap(args []string) error {
 		fmt.Println("Nothing written.")
 		return nil
 	}
-	return storeSeeds(found, project)
+	return storeSeeds(found, project, "")
 }
 
 func printSeeds(found []bootstrap.Candidate) {
@@ -87,7 +87,9 @@ func printSeeds(found []bootstrap.Candidate) {
 }
 
 // storeSeeds writes what the user said yes to, and says how to take it back.
-func storeSeeds(found []bootstrap.Candidate, project string) error {
+// indent is prefixed to every line it prints, so inside setup its report sits
+// with setup's indented rows instead of at column 0 between them (#247).
+func storeSeeds(found []bootstrap.Candidate, project, indent string) error {
 	ix, err := openEvents()
 	if err != nil {
 		return err
@@ -130,11 +132,11 @@ func storeSeeds(found []bootstrap.Candidate, project string) error {
 		}
 	}
 
-	fmt.Printf("\n%d written, %d already known.\n", created, reinforced)
+	fmt.Printf("\n%s%d written, %d already known.\n", indent, created, reinforced)
 	if embed == nil {
-		fmt.Println("No embedding model, so these were matched by exact text; a later run with one will merge near-duplicates.")
+		fmt.Printf("%sNo embedding model, so these were matched by exact text; a later run with one will merge near-duplicates.\n", indent)
 	}
-	fmt.Printf("To undo all of it: logos memory forget --source %s\n", bootstrap.Source)
+	fmt.Printf("%sTo undo all of it: logos memory forget --source %s\n", indent, bootstrap.Source)
 	return nil
 }
 
