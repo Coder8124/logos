@@ -64,3 +64,26 @@ func TestSetupEmbedsWithTheRuntimeLogosRuntimeNames(t *testing.T) {
 		t.Errorf("setup did not embed with the runtime LOGOS_RUNTIME names:\n%s", out)
 	}
 }
+
+// Resolve reports a configured runtime that does not answer as none, and
+// setup printed nothing at all for none: the user who named a runtime was not
+// told it was down, or that the index was built without it.
+func TestSetupSaysTheRuntimeLogosRuntimeNamesDidNotAnswer(t *testing.T) {
+	dead := httptest.NewServer(http.NotFoundHandler())
+	url := dead.URL
+	dead.Close()
+	old := provider.LocalEndpoints
+	provider.LocalEndpoints = nil
+	t.Cleanup(func() { provider.LocalEndpoints = old })
+	t.Setenv("LOGOS_RUNTIME", url)
+	vault := vaultWithNotes(t, 2)
+
+	out := captureStdout(t, func() {
+		checkRuntime(true, true)
+		indexVault(vault)
+	})
+
+	if strings.Count(out, url) < 2 || !strings.Contains(out, "did not answer") {
+		t.Errorf("setup did not say, for the runtime and the index, that %s did not answer:\n%s", url, out)
+	}
+}

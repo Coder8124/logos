@@ -26,6 +26,12 @@ func checkRuntime(yes, dryRun bool) {
 	// LOGOS_RUNTIME, which doctor and index honour and setup did not.
 	found := provider.Resolve()
 	if len(found) == 0 {
+		// Silence is right for a machine with no runtime, not for one whose
+		// user named a runtime that is down: they would read nothing as setup
+		// ignoring the setting.
+		if c := provider.Configured(); c != nil {
+			fmt.Printf("  runtime    LOGOS_RUNTIME names %s, which did not answer — retrieval stays lexical until it does\n", c.BaseURL)
+		}
 		return
 	}
 	p := found[0].Provider
@@ -55,7 +61,7 @@ func checkRuntime(yes, dryRun bool) {
 	fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
 	if !have[embed] {
 		if !canPull {
-			fmt.Printf("             load %s in %s for semantic search — logos can only pull through Ollama\n", embed, p.Name)
+			fmt.Printf("             load %s in %s for semantic search — logos can only pull through Ollama\n", embed, runtimeName(p))
 		} else if dryRun {
 			fmt.Printf("             would offer to pull %s (%s)\n", embed, modelSize(embed))
 		} else if yes || confirm(fmt.Sprintf("             pull %s (%s)? adds semantic search",
@@ -88,7 +94,7 @@ func checkRuntime(yes, dryRun bool) {
 		return
 	}
 	if !canPull {
-		fmt.Printf("             load %s in %s — logos can only pull through Ollama\n", strings.Join(chat, " and "), p.Name)
+		fmt.Printf("             load %s in %s — logos can only pull through Ollama\n", strings.Join(chat, " and "), runtimeName(p))
 		return
 	}
 	if dryRun {
@@ -224,4 +230,14 @@ func pullModel(baseURL, model string, progress func(pct int)) error {
 		}
 	}
 	return sc.Err()
+}
+
+// runtimeName is how setup's advice names a runtime. One named by LOGOS_RUNTIME
+// is called "configured", and "load it in configured" names nothing a user can
+// go and open.
+func runtimeName(p *provider.Provider) string {
+	if p.Name == "configured" {
+		return "the runtime at " + p.BaseURL
+	}
+	return p.Name
 }

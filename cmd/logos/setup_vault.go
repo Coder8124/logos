@@ -322,6 +322,8 @@ func indexVault(dir string) error {
 		} else {
 			printConflictCopies(os.Stdout, "  index      ", nil, edits)
 		}
+	} else if c := provider.Configured(); c != nil {
+		fmt.Printf("  index      not embedded: LOGOS_RUNTIME names %s, which did not answer — search is lexical until `logos index` reaches it\n", c.BaseURL)
 	}
 	notes, _ := ix.NoteCount()
 	edges, _ := ix.EdgeCount()
