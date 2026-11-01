@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/memory"
 )
@@ -316,5 +317,54 @@ func TestARepositoryWithNoCommitsIsNotSaidToHaveAnUnreadableLog(t *testing.T) {
 	got, unread := FromGitHistory(dir, 12)
 	if len(got) != 0 || len(unread) != 0 {
 		t.Errorf("found %d, unread %q in a repository with no commits", len(got), unread)
+	}
+}
+
+// commitDated commits like commitTo but with both dates set to when, so a test
+// can lay out a history that spans months without waiting for it.
+func commitDated(t *testing.T, dir, path, subject string, when time.Time) {
+	t.Helper()
+	full := filepath.Join(dir, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(subject+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "add", "-A")
+	stamp := when.Format(time.RFC3339)
+	cmd := exec.Command("git", "-C", dir, "commit", "-m", subject, "--date", stamp)
+	cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE="+stamp)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+}
+
+// 24 commits made today were seeded as "roughly 2 commits a month" (#248):
+// the count was divided by the twelve-month window, not by the day the history
+// actually covers.
+func TestAHistoryMadeInOneDayIsGivenNoCadence(t *testing.T) {
+	dir := repo(t)
+	for i := 0; i < minCommits+4; i++ {
+		commitTo(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), "Ada Lovelace <ada@example.com>")
+	}
+	got := found(FromGitHistory(dir, 12))
+	if c, ok := find(got, "commits a month"); ok {
+		t.Fatalf("a one-day history was given a cadence: %s", c.Text)
+	}
+}
+
+func TestCadenceIsOverTheMonthsTheHistoryCovers(t *testing.T) {
+	dir := repo(t)
+	start := time.Now().AddDate(0, -4, 0)
+	for i := 0; i < 24; i++ {
+		commitDated(t, dir, fmt.Sprintf("src/f%d.go", i), fmt.Sprintf("add f%d", i), start.Add(time.Duration(i)*96*time.Hour))
+	}
+	c, ok := find(found(FromGitHistory(dir, 12)), "commits a month")
+	if !ok {
+		t.Fatal("a four-month history was given no cadence")
+	}
+	if !strings.Contains(c.Text, "roughly 6 commits a month") || !strings.Contains(c.Evidence, "over 4 months") {
+		t.Fatalf("24 commits over four months reported as %q (%s)", c.Text, c.Evidence)
 	}
 }

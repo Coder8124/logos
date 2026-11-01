@@ -24,6 +24,7 @@ package bootstrap
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -283,6 +284,21 @@ func cadence(dir, since string, total, months int) (Candidate, bool) {
 	if last == "" {
 		return Candidate{}, false
 	}
+	// Divide by the span the history actually covers, not the window asked
+	// for: 24 commits made today were reported as "roughly 2 commits a month"
+	// (#248), a rate recalled later as if the user had stated it. Under two
+	// months there is no rate to speak of yet, so say nothing.
+	first := firstCommit(dir, since)
+	if first.IsZero() {
+		return Candidate{}, false
+	}
+	span := time.Since(first).Hours() / 24 / daysPerMonth
+	if span < minCadenceMonths {
+		return Candidate{}, false
+	}
+	if span < float64(months) {
+		months = int(math.Round(span))
+	}
 	perMonth := float64(total) / float64(months)
 	return Candidate{
 		Text: fmt.Sprintf("This project runs at roughly %.0f commits a month; the most recent is dated %s.",
@@ -292,6 +308,27 @@ func cadence(dir, since string, total, months int) (Candidate, bool) {
 		Salience:   0.4,
 		Evidence:   fmt.Sprintf("%d commits over %d months, last %s", total, months, last),
 	}, true
+}
+
+// daysPerMonth and minCadenceMonths turn the history's span into months, and
+// set how much of it there must be before a rate means anything.
+const (
+	daysPerMonth     = 30.44
+	minCadenceMonths = 2
+)
+
+// firstCommit is the commit date of the oldest commit in the window, or the
+// zero time when git gives nothing it can parse.
+func firstCommit(dir, since string) time.Time {
+	out := strings.Fields(git(dir, "log", since, "--no-merges", "--format=%ct"))
+	if len(out) == 0 {
+		return time.Time{}
+	}
+	secs, err := strconv.ParseInt(out[len(out)-1], 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(secs, 0)
 }
 
 // isConventional matches "type:" and "type(scope):" prefixes without pulling in
