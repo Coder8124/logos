@@ -107,24 +107,28 @@ func TestThePickerNeverRunsWhenInvokedFromTheSessionStartHook(t *testing.T) {
 }
 
 // The picker's keys, driven without a terminal: Enter alone is the old
-// behaviour (the whole project), arrows move, and q is a cancel, never a pick.
-func TestThePickerMovesWithArrowsAndCancelsOnQ(t *testing.T) {
+// behaviour (the whole project), arrows move, q is a cancel, never a pick,
+// and a bare Esc goes back rather than cancelling.
+func TestThePickerMovesWithArrowsCancelsOnQAndGoesBackOnEsc(t *testing.T) {
 	rows := []string{"whole", "one", "two"}
 	var sink strings.Builder
-	if i, ok := runPicker(strings.NewReader("\r"), &sink, "t", rows, 80); !ok || i != 0 {
-		t.Errorf("Enter alone picked %d ok=%v, want the whole project", i, ok)
+	if i, res := runPicker(strings.NewReader("\r"), &sink, "t", "h", rows, 80); res != picked || i != 0 {
+		t.Errorf("Enter alone picked %d res=%v, want the whole project", i, res)
 	}
-	if i, ok := runPicker(strings.NewReader("\x1b[B\x1b[B\x1b[A\r"), &sink, "t", rows, 80); !ok || i != 1 {
-		t.Errorf("down, down, up, Enter picked %d ok=%v, want 1", i, ok)
+	if i, res := runPicker(strings.NewReader("\x1b[B\x1b[B\x1b[A\r"), &sink, "t", "h", rows, 80); res != picked || i != 1 {
+		t.Errorf("down, down, up, Enter picked %d res=%v, want 1", i, res)
 	}
-	if i, ok := runPicker(strings.NewReader("jjjjj\r"), &sink, "t", rows, 80); !ok || i != 2 {
-		t.Errorf("moving past the end picked %d ok=%v, want the last row", i, ok)
+	if i, res := runPicker(strings.NewReader("jjjjj\r"), &sink, "t", "h", rows, 80); res != picked || i != 2 {
+		t.Errorf("moving past the end picked %d res=%v, want the last row", i, res)
 	}
-	if _, ok := runPicker(strings.NewReader("jq"), &sink, "t", rows, 80); ok {
-		t.Error("q picked a conversation instead of cancelling")
+	if _, res := runPicker(strings.NewReader("jq"), &sink, "t", "h", rows, 80); res != cancelled {
+		t.Errorf("q left the menu with %v, want a cancel", res)
 	}
-	if _, ok := runPicker(strings.NewReader(""), &sink, "t", rows, 80); ok {
-		t.Error("closed input picked a conversation instead of cancelling")
+	if _, res := runPicker(strings.NewReader(""), &sink, "t", "h", rows, 80); res != cancelled {
+		t.Errorf("closed input left the menu with %v, want a cancel", res)
+	}
+	if _, res := runPicker(strings.NewReader("j\x1b"), &sink, "t", "h", rows, 80); res != wentBack {
+		t.Errorf("a bare Esc left the menu with %v, want back", res)
 	}
 }
 

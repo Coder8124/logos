@@ -55,7 +55,7 @@ give you, makes no such call.
 **Logos is built for continuity:**
 
 - `resume` / `context` — where the last agent stopped, what it verified, what it ruled out; an older ruled-out approach that matches the task comes back even from outside the time window
-- `logos resume <project> <id|name>` — just one conversation, by its folder id or its intent; at a terminal, a picker
+- `logos resume <project> <id|name>` — just one conversation, by its folder id or its intent; at a terminal, a picker that can also start Claude Code, Codex, Cursor, Gemini CLI or opencode on the conversation you choose
 - `before_you_try` — whether an approach was already attempted and abandoned, here or elsewhere
 - `why` — what was being decided when a given file was last worked on
 - `checkpoint` / `handoff` — the durable record, with `verified` and `failed` kept deliberately separate; a `verified` line naming a command the activity log never saw run is marked unverified

@@ -397,6 +397,7 @@ func runResume(args []string) error {
 			return err
 		}
 		var chosen *session.Conversation
+		var agent *launcher
 		switch {
 		case conversation != "":
 			c, candidates, err := session.FindConversation(convs, conversation)
@@ -415,7 +416,7 @@ func runResume(args []string) error {
 			}
 			chosen = c
 		case len(convs) > 0:
-			c, ok, err := pickConversation(project, convs)
+			c, l, ok, err := chooseResume(project, convs)
 			switch {
 			case err != nil:
 				// A terminal that refused raw mode is no reason to resume
@@ -426,7 +427,10 @@ func runResume(args []string) error {
 				cancelledPick()
 				return nil
 			}
-			chosen = c
+			chosen, agent = c, l
+		}
+		if agent != nil {
+			return launchAgent(*agent, project, chosen.ID)
 		}
 		if chosen != nil {
 			if asJSON {
