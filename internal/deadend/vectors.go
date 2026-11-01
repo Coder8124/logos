@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"math"
+	"time"
 
 	"github.com/Coder8124/logos/internal/provider"
 )
@@ -25,6 +28,13 @@ const vectorSchema = `CREATE TABLE IF NOT EXISTS ruling_vectors (
 // embedBatch caps one embeddings request. A single request holding the whole
 // corpus failed intermittently at 900 inputs with a reset connection.
 const embedBatch = 256
+
+// fillBudget bounds the embedding one check does for rulings the cache has no
+// vector for. A runtime answering every batch in time still took 108 s to
+// embed a cold 2,001-checkpoint vault before tried printed anything; a hook
+// that shells out to it is killed long before that. Each batch is cached as it
+// lands, so a check cut short leaves the next one less to do.
+var fillBudget = 5 * time.Second
 
 // rulingVectors returns one vector per text, embedding only the texts the cache
 // has no vector for under this model. A text whose batch failed gets a nil
@@ -69,7 +79,15 @@ func rulingVectors(db *sql.DB, p *provider.Provider, model string, texts []strin
 	}
 
 	var firstErr error
+	began, embedded := time.Now(), 0
 	for start := 0; start < len(order); start += embedBatch {
+		if start > 0 && time.Since(began) > fillBudget {
+			// Joined, not dropped behind an earlier batch's error: what was
+			// left unembedded is the part the reader needs the number for.
+			firstErr = errors.Join(firstErr, fmt.Errorf("embedded %d of %d new rulings in %s; the rest are embedded by the next checks",
+				embedded, len(order), time.Since(began).Round(100*time.Millisecond)))
+			break
+		}
 		chunk := order[start:min(start+embedBatch, len(order))]
 		inputs := make([]string, len(chunk))
 		for j, fp := range chunk {
@@ -82,6 +100,7 @@ func rulingVectors(db *sql.DB, p *provider.Provider, model string, texts []strin
 			}
 			continue
 		}
+		embedded += len(chunk)
 		for j, fp := range chunk {
 			for _, i := range pending[fp] {
 				vecs[i] = got[j]
