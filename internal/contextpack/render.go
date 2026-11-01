@@ -365,7 +365,9 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 	// got.
 	verified := "Verified — safe to continue from"
 	if reader != "" && c.Agent != "" && reader != c.Agent {
-		verified = fmt.Sprintf("Verified by **%s**, not by you — safe to continue from", inline(c.Agent))
+		// Plain, not bold: list wraps the whole heading in bold, and a bold name
+		// inside it closes the wrapper early and leaves stray markers.
+		verified = fmt.Sprintf("Verified by %s, not by you — safe to continue from", inline(c.Agent))
 	}
 	verifiedList(b, verified, c)
 	list(b, "Known broken — do not build on it", c.Blockers)
