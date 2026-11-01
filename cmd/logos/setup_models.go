@@ -22,7 +22,9 @@ import (
 // combination that downloaded models — several gigabytes, from a command whose
 // last line says nothing was written.
 func checkRuntime(yes, dryRun bool) {
-	found := provider.Discover()
+	// Resolve, not Discover: a runtime on another host is named by
+	// LOGOS_RUNTIME, which doctor and index honour and setup did not.
+	found := provider.Resolve()
 	if len(found) == 0 {
 		return
 	}
