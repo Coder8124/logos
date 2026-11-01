@@ -375,3 +375,47 @@ func TestUninstallTakesLogosOutOfCodexsSessionStart(t *testing.T) {
 		t.Errorf("SessionStart after uninstall = %q, want only the user's handler", cmds)
 	}
 }
+
+// JSON's null unmarshals into a map as nil, so a hooks file holding
+// `"hooks": null` panicked setup with "assignment to entry in nil map" after
+// the server was already registered: a stack trace, a half-wired host, and
+// no later host wired at all (#356).
+func TestAHooksFileWithANullHooksBlockGetsTheHook(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.WriteFile(hooks, []byte(`{"version": 1, "hooks": null}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Install(server(), []Host{hostNamed(t, "Cursor")})
+
+	if r[0].Outcome == Failed || r[0].HookErr != nil {
+		t.Fatalf("result = %+v", r[0])
+	}
+	if cmds := hookCommands(t, hooks); len(cmds) != 1 {
+		t.Errorf("hooks = %q, want the logos hook", cmds)
+	}
+}
+
+// The same nil map in an MCP config: `"mcpServers": null` panicked setup
+// before it wrote anything (#355).
+func TestAConfigWithANullServersBlockGetsLogos(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers": null, "theme": "keep-me"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Install(server(), []Host{hostNamed(t, "Cursor")})
+
+	if r[0].Outcome == Failed {
+		t.Fatalf("Cursor was not wired: %v", r[0].Err)
+	}
+	cfg := readJSON(t, path)
+	if servers, _ := cfg["mcpServers"].(map[string]any); servers[Name] == nil {
+		t.Errorf("no logos entry: %v", cfg)
+	}
+	if cfg["theme"] != "keep-me" {
+		t.Errorf("the user's other key was lost: %v", cfg)
+	}
+}
