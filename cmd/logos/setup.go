@@ -582,6 +582,10 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 					fmt.Printf("    %-*s    approve it in Codex's /hooks before it runs\n", hostColumn, "")
 				}
 			}
+			// Outside the switch: a hook that failed may still have written.
+			if r.HookBackup != "" {
+				fmt.Printf("    %-*s    the hooks file from before logos added its hook is at %s\n", hostColumn, "", r.HookBackup)
+			}
 			// A registration rewrites the entry's command and environment, so
 			// a wrong --vault replaces the right one. Naming the copy is what
 			// makes that recoverable.

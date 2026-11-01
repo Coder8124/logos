@@ -150,7 +150,7 @@ func codex() Host {
 			args = append(args, s.Args...)
 			return viaCLI(codexCLI(), args)
 		},
-		Hooks: func(s Server) (Outcome, error) {
+		Hooks: func(s Server) (Outcome, string, error) {
 			return installHookBackedUp(codexHooksPath(), "codex", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) {
@@ -221,7 +221,7 @@ func cursor() Host {
 			return mergeJSON(path, s)
 		},
 		List: func() ([]Registration, error) { return readMCPServers(path) },
-		Hooks: func(s Server) (Outcome, error) {
+		Hooks: func(s Server) (Outcome, string, error) {
 			return installHookBackedUp(cursorHooksPath(), "cursor", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) { return removeJSON(path, "mcpServers", name) },
