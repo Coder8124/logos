@@ -322,7 +322,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 			out += fmt.Sprintf("_Nothing in this vault is filed under %s%s._\n", untrusted.Inline(project), known)
 		}
 	}
-	out += s.awaitingReview()
+	out += s.awaitingReview() + staleNotice()
 	// Filed under the scope the pack itself read, so the note lands in the same
 	// session a checkpoint will later close — in this worktree, not in the
 	// project the worktree belongs to. Not when the project was a guess: the
@@ -560,5 +560,5 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	// No "run `logos index`": resume and before_you_try read the checkpoint off
 	// disk, so it is usable the moment this returns. See cmd/logos/session.go.
-	return msg, nil
+	return msg + staleNotice(), nil
 }
