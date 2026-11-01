@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -488,21 +489,27 @@ func uncommented(line string, open bool) (string, bool) {
 }
 
 // autoMemoryDir is where Claude Code keeps auto memory for the repository at
-// root: <projects>/<path with every non-alphanumeric rune as "-">/memory. The
-// path is the main checkout's, symlinks resolved: Claude Code shares one auto
-// memory across a repository's worktrees and records the physical path, so a
-// worktree or a symlinked ~/code looked for a folder that never existed. The
-// naming is read off Claude Code's own folders, not a documented contract, so
-// a miss names the folder it looked in.
+// root. An autoMemoryDirectory setting names the folder outright. Otherwise it
+// is <projects>/<name>/memory, where the name is CLAUDE_CODE_PROJECT_DIR_NAME
+// when Claude Code would honour it, or else the path with every
+// non-alphanumeric rune as "-". The path is the main checkout's, symlinks
+// resolved: Claude Code shares one auto memory across a repository's worktrees
+// and records the physical path, so a worktree or a symlinked ~/code looked
+// for a folder that never existed. The naming is read off Claude Code's own
+// folders, not a documented contract, so a miss names the folder it looked in.
 func autoMemoryDir(root string) string {
+	config := claudeConfigDir()
+	if dir := autoMemoryDirectorySetting(root, config); dir != "" {
+		return dir
+	}
 	projects := os.Getenv(transcript.LogosClaudeProjectsEnv)
 	if projects == "" {
-		config := os.Getenv("CLAUDE_CONFIG_DIR")
-		if config == "" {
-			home, _ := os.UserHomeDir()
-			config = filepath.Join(home, ".claude")
-		}
 		projects = filepath.Join(config, "projects")
+	}
+	// Claude Code takes the name only beside CLAUDE_CONFIG_DIR and only when
+	// it is a plain folder name; otherwise it ignores it, and so must this.
+	if name := os.Getenv("CLAUDE_CODE_PROJECT_DIR_NAME"); os.Getenv("CLAUDE_CONFIG_DIR") != "" && projectDirName.MatchString(name) {
+		return filepath.Join(projects, name, "memory")
 	}
 	if _, checkout := gitstate.Identity(root); checkout != "" {
 		root = checkout
@@ -519,6 +526,41 @@ func autoMemoryDir(root string) string {
 		return '-'
 	}, root)
 	return filepath.Join(projects, name, "memory")
+}
+
+var projectDirName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// autoMemoryDirectorySetting is the autoMemoryDirectory Claude Code would use
+// for the repository at root, in its precedence: local settings, then the
+// project's, then the user's. Only an absolute path or one under ~/ counts,
+// as in Claude Code; any other value is passed over, not guessed at. Empty
+// when no settings file moves auto memory.
+func autoMemoryDirectorySetting(root, config string) string {
+	home, _ := os.UserHomeDir()
+	for _, path := range []string{
+		filepath.Join(root, ".claude", "settings.local.json"),
+		filepath.Join(root, ".claude", "settings.json"),
+		filepath.Join(config, "settings.json"),
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var settings struct {
+			AutoMemoryDirectory string `json:"autoMemoryDirectory"`
+		}
+		if json.Unmarshal([]byte(strings.TrimPrefix(string(raw), "\ufeff")), &settings) != nil {
+			continue
+		}
+		dir := settings.AutoMemoryDirectory
+		if rest, ok := strings.CutPrefix(dir, "~/"); ok && home != "" {
+			return filepath.Join(home, rest)
+		}
+		if filepath.IsAbs(dir) {
+			return filepath.Clean(dir)
+		}
+	}
+	return ""
 }
 
 // autoMemoryKinds maps auto memory's four types onto Logos's kinds. feedback is
