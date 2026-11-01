@@ -245,7 +245,7 @@ func notDismissed(db *sql.DB, found []*memory.Memory) (fresh []*memory.Memory, d
 // noun is what one item of the source is called, in the count n.
 func noun(from string, n int) string {
 	if from == claudeAutoMemorySource {
-		return plural(n, "memory")
+		return plural2(n, "memory", "memories")
 	}
 	return plural(n, "rule")
 }
