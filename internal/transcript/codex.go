@@ -30,11 +30,16 @@ func (codexReader) root() string {
 		}
 		return ""
 	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	// CODEX_HOME moves Codex's state, sessions included, off ~/.codex.
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		codexHome = filepath.Join(h, ".codex")
 	}
-	p := filepath.Join(h, ".codex", "sessions")
+	p := filepath.Join(codexHome, "sessions")
 	if dirExists(p) {
 		return p
 	}

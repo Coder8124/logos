@@ -34,11 +34,17 @@ func (claudeCodeReader) root() string {
 		}
 		return ""
 	}
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+	// CLAUDE_CONFIG_DIR moves everything Claude Code keeps, transcripts
+	// included; ~/.claude then holds none of this user's sessions.
+	config := os.Getenv("CLAUDE_CONFIG_DIR")
+	if config == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		config = filepath.Join(h, ".claude")
 	}
-	p := filepath.Join(h, ".claude", "projects")
+	p := filepath.Join(config, "projects")
 	if dirExists(p) {
 		return p
 	}
