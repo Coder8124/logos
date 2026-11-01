@@ -124,8 +124,23 @@ var serveTools string
 
 // toolSetFrom reads --tools, falling back to LOGOS_TOOLS, because some host
 // configs take env more readily than an extra argument.
-func toolSetFrom(args []string) string {
-	return flagStr(args, "--tools", os.Getenv("LOGOS_TOOLS"))
+//
+// --tools=set is read too, and a --tools with no set is refused: both used to
+// fall through to "serve everything", so a user who asked for a narrow surface
+// got the whole one without a word (#359).
+func toolSetFrom(args []string) (string, error) {
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, "--tools="); ok {
+			if strings.TrimSpace(v) == "" {
+				return "", fmt.Errorf("--tools needs a tool set, as --tools continuity")
+			}
+			return v, nil
+		}
+		if a == "--tools" && (i+1 >= len(args) || isFlagToken(args[i+1])) {
+			return "", fmt.Errorf("--tools needs a tool set, as --tools continuity")
+		}
+	}
+	return flagStr(args, "--tools", os.Getenv("LOGOS_TOOLS")), nil
 }
 
 func newMCPServer(db *sql.DB, vault string) (*mcpserver.Server, error) {
