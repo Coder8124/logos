@@ -14,7 +14,7 @@
 // it. So stdio is inherited — the child gets the real file descriptors and this
 // process is not in the data path at all — and every diagnostic goes to stderr.
 
-const { spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 
 // npm's platform vocabulary, which is Node's, not Go's.
 const PLATFORMS = {
@@ -64,16 +64,22 @@ function fail(...lines) {
   process.exit(1);
 }
 
-// spawnSync rather than spawn: this process has nothing to do while the binary
-// runs, and inheriting stdio means the JSON-RPC stream flows through the real
-// descriptors with no Node layer in between.
-const result = spawnSync(binaryPath(), process.argv.slice(2), {
+// Inheriting stdio means the JSON-RPC stream flows through the real descriptors
+// with no Node layer in between; this process only waits. It waits with spawn,
+// not spawnSync, because a blocked event loop cannot handle a signal: a SIGTERM
+// meant for the server killed this wrapper alone, and the binary ran on as an
+// orphan for as long as anyone held its stdin.
+const child = spawn(binaryPath(), process.argv.slice(2), {
   stdio: "inherit",
   windowsHide: true,
 });
 
-if (result.error) {
-  if (result.error.code === "EACCES") {
+for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) {
+  process.on(sig, () => child.kill(sig));
+}
+
+child.on("error", (err) => {
+  if (err.code === "EACCES") {
     fail(
       "the binary is not executable.",
       "",
@@ -81,14 +87,18 @@ if (result.error) {
       "  npm install --force @noeton/logos"
     );
   }
-  fail(`could not start the binary: ${result.error.message}`);
-}
+  fail(`could not start the binary: ${err.message}`);
+});
 
 // A child killed by a signal has a null status. Reproduce the signal rather
 // than inventing an exit code, so `logos mcp serve` under a host that kills its
-// servers reports what actually happened.
-if (result.signal) {
-  process.kill(process.pid, result.signal);
-  process.exit(1);
-}
-process.exit(result.status === null ? 1 : result.status);
+// servers reports what actually happened. The forwarding handlers come off
+// first, or the signal would be caught here again instead of ending this process.
+child.on("exit", (status, signal) => {
+  if (signal) {
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+    return;
+  }
+  process.exit(status === null ? 1 : status);
+});
