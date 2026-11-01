@@ -78,9 +78,17 @@ func claudeCode() Host {
 			// `mcp get`, not `mcp list`, for the reason RemoveServerEntry gives:
 			// list starts every server Claude Code has, and one failed start of
 			// the plugin's turns Logos off for fifteen minutes. get exits
-			// non-zero when there is no such server, the common case.
-			out, err := hostCommand(claudeCLI(), "mcp", "get", name).Output()
-			if err != nil || !isLogosServer(claudeMCPGetCommand(out)) {
+			// non-zero when there is no such server, the common case, and that
+			// answer alone means there is nothing to remove: any other failure
+			// left the old entry in place behind a clean report.
+			out, err := hostCommand(claudeCLI(), "mcp", "get", name).CombinedOutput()
+			if err != nil {
+				if strings.Contains(string(out), "No MCP server") {
+					return false, nil
+				}
+				return false, fmt.Errorf("%s mcp get %s: %v: %s", claudeCLI(), name, err, strings.TrimSpace(string(out)))
+			}
+			if !isLogosServer(claudeMCPGetCommand(out)) {
 				return false, nil
 			}
 			if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {

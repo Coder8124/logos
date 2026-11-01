@@ -154,3 +154,19 @@ func TestCodexWithoutAnOldEntryIsNotAskedToRemoveOne(t *testing.T) {
 		t.Errorf("a clean Codex was asked to remove brain (Replaced %v, %v); calls:\n%s", r[0].Replaced, r[0].ReplaceErr, log)
 	}
 }
+
+// `mcp get` failing for any reason read as "no brain entry here", so a broken
+// claude CLI left the old server in place and setup reported a clean run. Only
+// Claude Code's own "no such server" answer means there is nothing to remove.
+func TestAFailingClaudeMCPGetIsReportedNotTakenForNoEntry(t *testing.T) {
+	stubCLI(t, "claude", `
+[ "$2" = get ] && { echo "Error: could not parse ~/.claude.json" >&2; exit 2; }
+exit 0
+`)
+
+	r := Install(server(), []Host{claudeCode()})
+
+	if r[0].ReplaceErr == nil || !strings.Contains(r[0].ReplaceErr.Error(), "could not parse") {
+		t.Errorf("ReplaceErr = %v, want the CLI's failure", r[0].ReplaceErr)
+	}
+}

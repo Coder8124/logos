@@ -61,7 +61,7 @@ func TestUninstallFromAHostWithoutLogosChangesNothing(t *testing.T) {
 func TestUninstallRemovesLogosFromClaudeCode(t *testing.T) {
 	_, calls := stubCLI(t, "claude", `
 [ "$2" = get ] && [ "$3" = logos ] && printf 'logos:\n  Type: stdio\n  Command: /usr/local/bin/logos\n  Args: mcp serve\n' && exit 0
-[ "$2" = get ] && exit 1
+[ "$2" = get ] && { echo "No MCP server named \"$3\"" >&2; exit 1; }
 exit 0
 `)
 
