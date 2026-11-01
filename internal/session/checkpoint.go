@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -539,6 +540,34 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// SkippedAhead names the checkpoint files in a project's scope that sort after
+// shown — the checkpoint History handed back as the latest — and so were
+// passed over because they are empty or could not be read. With shown nil,
+// every checkpoint file was passed over.
+//
+// History skips them on purpose, so one torn file does not hide a year of
+// history. But the reader is then told an older checkpoint is where work left
+// off, and a newer file was right there: that has to be said (#367).
+func SkippedAhead(vaultDir, project string, shown *Checkpoint) []string {
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
+	entries, err := CheckpointEntries(dir)
+	if err != nil {
+		return nil
+	}
+	var after string
+	if shown != nil {
+		after = path.Base(shown.Slug) + ".md"
+	}
+	var out []string
+	for _, en := range entries {
+		if en.Name > after {
+			out = append(out, filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), en.Rel)))
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(out)))
+	return out
 }
 
 // ByHostSession returns every checkpoint anywhere in the vault that carries

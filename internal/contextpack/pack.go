@@ -113,6 +113,10 @@ type Pack struct {
 	// OtherRepo names the repository the project's latest checkpoint came from
 	// when it is not the one the agent is in, and so was not handed over.
 	OtherRepo string `json:"other_repo,omitempty"`
+	// Unread names checkpoint files newer than the one handed over that were
+	// passed over as empty or torn, so the render can say the checkpoint below
+	// is the latest that could be read, not the latest written.
+	Unread []string `json:"unread,omitempty"`
 	// Drifted is where the tree stands now, filled in only when it is not where
 	// the checkpoint below says it was. "Repository was: memory/bugfix ·
 	// fcd0331" is a claim about a moment that may be forty commits gone, and
@@ -242,7 +246,7 @@ func (p *Pack) Empty() bool {
 		// Not empty: a checkpoint was set aside, and a caller that prints
 		// "nothing recorded" instead would hide that two repositories share
 		// this name.
-		p.OtherRepo == ""
+		p.OtherRepo == "" && len(p.Unread) == 0
 }
 
 const (
@@ -321,6 +325,16 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		// the rulings are then handed over as they were recorded, which is
 		// the state before anyone reviewed them, not a wrong one.
 		reviews, _ = session.Reviews(ix.Vault, scope)
+		// Read before sameRepository filters: a newer checkpoint from another
+		// repository is set aside on purpose and said by renderOtherRepo, not
+		// a file that could not be read.
+		if err == nil {
+			var shown *session.Checkpoint
+			if len(all) > 0 {
+				shown = &all[0]
+			}
+			p.Unread = session.SkippedAhead(ix.Vault, scope, shown)
+		}
 		if err == nil && len(all) > 0 && req.Dir != "" {
 			all, p.OtherRepo = sameRepository(all, req.Dir)
 		}
