@@ -867,6 +867,9 @@ type Removal struct {
 	Removed []string
 	// Backup is the config as it was before, kept only when it changed.
 	Backup string
+	// Original is the .logos-backup setup left, the config from before logos
+	// first changed it, when Backup had to go beside it.
+	Original string
 	// Unhooked is set when this host's session-start hook was taken out too. A
 	// hook left behind runs a logos that uninstall just removed, and the host
 	// reports the failure at the user on every session.
@@ -884,27 +887,19 @@ func Uninstall(hosts []Host) []Removal {
 			continue
 		}
 		r := Removal{Host: h.Name, Where: h.Where()}
-		// Backed up to a side file first, so a config is never changed without
-		// one, and moved over the real backup only if something was removed:
-		// writing straight over it on a run that found nothing destroyed the
-		// earlier run's copy, the one that still had logos in it.
-		backup, pending := "", ""
-		var before []byte
+		// Backed up the way setup backs up, so a config is never changed
+		// without a copy and an earlier .logos-backup is never written over.
+		// Uninstall renamed its copy over that name, and the one it replaced was
+		// usually setup's: the user's config from before logos, the copy most
+		// worth having after an uninstall. A run that removed nothing keeps
+		// nothing, so a second uninstall leaves the first one's copy alone.
+		var b fileBackup
 		if h.Config != nil && h.Config() != "" {
-			path := h.Config()
-			raw, err := os.ReadFile(path)
-			if err != nil && !os.IsNotExist(err) {
-				r.Err = fmt.Errorf("could not read %s to back it up, so it was left alone: %w", path, err)
+			var err error
+			if b, err = backupFile(h.Config(), true); err != nil {
+				r.Err = err
 				out = append(out, r)
 				continue
-			}
-			if err == nil {
-				backup, pending, before = path+".logos-backup", path+".logos-backup.pending", raw
-				if err := os.WriteFile(pending, raw, 0o600); err != nil {
-					r.Err = fmt.Errorf("could not back up %s, so it was left alone: %w", path, err)
-					out = append(out, r)
-					continue
-				}
 			}
 		}
 		for _, name := range []string{Name, OldName} {
@@ -917,16 +912,14 @@ func Uninstall(hosts []Host) []Removal {
 				r.Removed = append(r.Removed, name)
 			}
 		}
-		if pending != "" {
-			if unchanged(h, fileBackup{path: pending, before: before}) {
-				os.Remove(pending)
-				backup = ""
-			} else if err := os.Rename(pending, backup); err != nil && r.Err == nil {
-				r.Err = fmt.Errorf("removed from %s but could not keep its backup, which is at %s: %w", h.Name, pending, err)
-				backup = pending
-			}
+		changed := b.path != "" && !unchanged(h, b)
+		r.Backup = b.settle(changed)
+		switch {
+		case changed && b.pending != "" && r.Backup == b.pending && r.Err == nil:
+			r.Err = fmt.Errorf("removed from %s but could not keep its backup, which is at %s", h.Name, b.pending)
+		case r.Backup == b.path:
+			r.Original = b.original
 		}
-		r.Backup = backup
 		if h.Hooks != nil {
 			removed, err := removeHook(hooksPathFor(h.Name))
 			r.Unhooked = removed
