@@ -488,13 +488,17 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 			out = append(out, ruleFile{shown: shown, skip: "not a note"})
 			continue
 		}
+		// One note that cannot be read is left out by name, not the end of the
+		// import: a hand edit to one note stopped every other one importing.
 		raw, err := os.ReadFile(p)
 		if err != nil {
-			return nil, err
+			out = append(out, ruleFile{shown: shown, skip: "could not be read: " + err.Error()})
+			continue
 		}
 		front, body, err := splitAutoMemory(string(raw))
 		if err != nil {
-			return nil, fmt.Errorf("%s: the frontmatter is not YAML, so its type is unknown: %w", shown, err)
+			out = append(out, ruleFile{shown: shown, skip: "the frontmatter is not YAML, so its type is unknown: " + err.Error()})
+			continue
 		}
 		kind, ok := autoMemoryKinds[strings.ToLower(front.Metadata.Type)]
 		if !ok {
