@@ -61,7 +61,7 @@ func runTried(args []string) error {
 		// Interactive, as mcp serve's is: the 300 s client is sized for
 		// generation, and a runtime that never answers would hold tried — and
 		// a hook shelling out to it — for that long.
-		local := rt.Local().Interactive(5 * time.Second)
+		local := rt.Local().Interactive(triedEmbedTimeout)
 		if m, err := rt.Model(router.T0); err == nil {
 			embed, model = local, m
 		}
@@ -99,6 +99,13 @@ func runTried(args []string) error {
 	}
 	return err
 }
+
+// triedEmbedTimeout bounds each embedding tried waits on. Longer than mcp
+// serve's five seconds on purpose: tried is a fresh process, so its first
+// embedding is often the one that loads the model — Ollama unloads it after
+// five idle minutes — and a CPU-only runtime can take several seconds over a
+// full batch of rulings. Five seconds failed both and left the cache empty.
+var triedEmbedTimeout = 30 * time.Second
 
 // recordRuledOut files the proposed approach as a dead end, now, without
 // waiting for a checkpoint.

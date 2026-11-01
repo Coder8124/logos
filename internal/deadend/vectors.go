@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -81,9 +82,10 @@ func rulingVectors(db *sql.DB, p *provider.Provider, model string, texts []strin
 	began, embedded := time.Now(), 0
 	for start := 0; start < len(order); start += embedBatch {
 		if start > 0 && time.Since(began) > fillBudget {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("embedded %d of %d new rulings in %s; the rest are embedded by the next checks", embedded, len(order), fillBudget)
-			}
+			// Joined, not dropped behind an earlier batch's error: what was
+			// left unembedded is the part the reader needs the number for.
+			firstErr = errors.Join(firstErr, fmt.Errorf("embedded %d of %d new rulings in %s; the rest are embedded by the next checks",
+				embedded, len(order), time.Since(began).Round(100*time.Millisecond)))
 			break
 		}
 		chunk := order[start:min(start+embedBatch, len(order))]
