@@ -745,6 +745,14 @@ func loadServers(path, root string) (mcpConfig, map[string]json.RawMessage, erro
 			return nil, nil, fmt.Errorf("%s has a %s block that is not an object: %w", path, root, err)
 		}
 	}
+	// A null block, or a whole file that is just null, unmarshals to a nil
+	// map, and the first entry setup added then panicked (#355).
+	if cfg == nil {
+		cfg = mcpConfig{}
+	}
+	if servers == nil {
+		servers = map[string]json.RawMessage{}
+	}
 	return cfg, servers, nil
 }
 
