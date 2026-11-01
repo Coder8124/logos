@@ -680,11 +680,17 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: the frontmatter is not YAML, so its type is unknown: %w", shown, err)
 		}
-		kind, ok := autoMemoryKinds[strings.ToLower(front.Metadata.Type)]
+		// One type decides both the kind and the scope. Read separately, a note
+		// with `type: user` beside `metadata: {type: project}` became Context
+		// scoped to every project, and one repository's context was recalled
+		// in all of them.
+		typ := strings.ToLower(front.Metadata.Type)
+		if _, ok := autoMemoryKinds[typ]; !ok {
+			typ = strings.ToLower(front.Type)
+		}
+		kind, ok := autoMemoryKinds[typ]
 		if !ok {
-			if kind, ok = autoMemoryKinds[strings.ToLower(front.Type)]; !ok {
-				kind = memory.Fact
-			}
+			kind = memory.Fact
 		}
 		// The body is the memory, the Why and How lines with it: they are what
 		// makes a rule something the next agent can judge rather than obey.
@@ -700,7 +706,7 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 		// A user note is who the person is, which does not change at the next
 		// repository; scoped to this one, every other project's recall missed it.
 		scoped := project
-		if strings.EqualFold(front.Metadata.Type, "user") || strings.EqualFold(front.Type, "user") {
+		if typ == "user" {
 			scoped = ""
 		}
 		out = append(out, ruleFile{shown: shown, project: scoped, items: []string{text}, kind: kind})
@@ -713,6 +719,9 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 // the body is not the end of one.
 func splitAutoMemory(text string) (autoMemoryFront, string, error) {
 	var front autoMemoryFront
+	// A byte order mark from an editor hid the opening fence, and the
+	// frontmatter's lines were imported as the memory.
+	text = strings.TrimPrefix(text, "\ufeff")
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return front, text, nil
