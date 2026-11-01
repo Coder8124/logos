@@ -14,34 +14,34 @@ import (
 // onPath stands in for the PATH: only the named binaries are installed.
 func onPath(t *testing.T, bins ...string) {
 	t.Helper()
-	was := lookPath
-	lookPath = func(bin string) (string, error) {
+	was := findAgent
+	findAgent = func(bin string) string {
 		if slices.Contains(bins, bin) {
-			return "/fake/bin/" + bin, nil
+			return "/fake/bin/" + bin
 		}
-		return "", exec.ErrNotFound
+		return ""
 	}
-	t.Cleanup(func() { lookPath = was })
+	t.Cleanup(func() { findAgent = was })
 }
 
 // keys plays one scripted answer per menu, in order, and records each
 // menu's title so a test can say which menus appeared.
-func keys(t *testing.T, answers ...func(rows []string) (int, pick)) *[]string {
+func keys(t *testing.T, answers ...func(rows []string) (int, pick)) *[]menu {
 	t.Helper()
-	var titles []string
+	var shown []menu
 	was := pickOnTerminal
-	pickOnTerminal = func(title, hint string, rows []string) (int, pick, error) {
-		titles = append(titles, title)
+	pickOnTerminal = func(m menu) (int, pick, int, error) {
+		shown = append(shown, m)
 		if len(answers) == 0 {
-			t.Fatalf("an unexpected menu appeared: %q", title)
+			t.Fatalf("an unexpected menu appeared: %q", m.title)
 		}
 		a := answers[0]
 		answers = answers[1:]
-		i, res := a(rows)
-		return i, res, nil
+		i, res := a(m.rows)
+		return i, res, len(m.rows) + 1, nil
 	}
 	t.Cleanup(func() { pickOnTerminal = was })
-	return &titles
+	return &shown
 }
 
 func choose(i int) func([]string) (int, pick) {
@@ -91,13 +91,18 @@ func TestEnterOnTheAgentMenuStillPrintsTheHandoff(t *testing.T) {
 
 func TestEscOnTheAgentMenuGoesBackToTheConversations(t *testing.T) {
 	onPath(t, "claude")
-	titles := keys(t, choose(1), press(wentBack), choose(2), choose(1))
+	shown := keys(t, choose(1), press(wentBack), choose(2), choose(1))
 	c, l, ok, err := chooseResume("p", twoConvs)
 	if err != nil || !ok || c == nil || c.ID != "bbb222" || l == nil {
 		t.Fatalf("got conv=%v agent=%v ok=%v err=%v, want bbb222 in Claude Code after going back", c, l, ok, err)
 	}
-	if len(*titles) != 4 || !strings.HasPrefix((*titles)[2], "Resume which conversation") {
-		t.Errorf("menus shown %q, want the conversations again after Esc", *titles)
+	if len(*shown) != 4 || !strings.HasPrefix((*shown)[2].title, "Resume which conversation") {
+		t.Fatalf("menus shown %v, want the conversations again after Esc", *shown)
+	}
+	// Back on the conversation that was chosen, drawn over both frames:
+	// the conversations' title and three rows, the agent menu's title and two.
+	if again := (*shown)[2]; again.sel != 1 || again.over != 7 {
+		t.Errorf("the conversations came back with sel=%d over=%d, want sel=1 over=7", again.sel, again.over)
 	}
 }
 
@@ -152,7 +157,7 @@ func TestALaunchedAgentIsToldToCallTheResumeToolForThatConversation(t *testing.T
 	t.Cleanup(func() { runAgent = was })
 
 	l := availableLaunchers()[0]
-	if err := launchAgent(l, "proj", "conv-42"); err != nil {
+	if err := launchAgent(l, "/the/vault", "proj", "conv-42"); err != nil {
 		t.Fatal(err)
 	}
 	if ran == nil {
@@ -161,6 +166,9 @@ func TestALaunchedAgentIsToldToCallTheResumeToolForThatConversation(t *testing.T
 	wd, _ := os.Getwd()
 	if ran.Path != "/fake/bin/claude" || ran.Dir != wd || ran.Stdin != os.Stdin || ran.Stdout != os.Stdout {
 		t.Errorf("started %s in %s with stdin=%v stdout=%v, want the resolved claude here on this terminal", ran.Path, ran.Dir, ran.Stdin, ran.Stdout)
+	}
+	if !slices.Contains(ran.Env, "LOGOS_VAULT=/the/vault") {
+		t.Error("the agent was not given the vault the conversation was read from")
 	}
 	prompt := ran.Args[len(ran.Args)-1]
 	for _, s := range []string{"logos resume tool", `project "proj"`, `conversation "conv-42"`, "logos resume proj conv-42"} {
@@ -176,13 +184,64 @@ func TestAnAgentThatExitsNonZeroIsReported(t *testing.T) {
 	was := runAgent
 	runAgent = func(*exec.Cmd) error { return exec.Command("sh", "-c", "exit 3").Run() }
 	t.Cleanup(func() { runAgent = was })
-	err := launchAgent(availableLaunchers()[0], "p", "c")
+	err := launchAgent(availableLaunchers()[0], "/v", "p", "c")
 	if err == nil || !strings.Contains(err.Error(), "Codex exited with status 3") {
 		t.Errorf("got %v, want Codex's exit status named", err)
 	}
 
 	runAgent = func(*exec.Cmd) error { return errors.New("permission denied") }
-	if err := launchAgent(availableLaunchers()[0], "p", "c"); err == nil || !strings.Contains(err.Error(), "could not start Codex") {
+	if err := launchAgent(availableLaunchers()[0], "/v", "p", "c"); err == nil || !strings.Contains(err.Error(), "could not start Codex") {
 		t.Errorf("got %v, want the start failure named", err)
+	}
+}
+
+// Killed rather than exited: there is no status, and "status -1" named
+// nothing that happened.
+func TestAnAgentStoppedByASignalSaysSo(t *testing.T) {
+	onPath(t, "codex")
+	was := runAgent
+	runAgent = func(*exec.Cmd) error { return exec.Command("sh", "-c", "kill -TERM $$").Run() }
+	t.Cleanup(func() { runAgent = was })
+	err := launchAgent(availableLaunchers()[0], "/v", "p", "c")
+	if err == nil || !strings.Contains(err.Error(), "Codex was stopped") || strings.Contains(err.Error(), "-1") {
+		t.Errorf("got %v, want the stop named without a made-up status", err)
+	}
+}
+
+// The fallback is pasted into a shell by the agent; a name with a space or a
+// quote must stay one argument.
+func TestTheShellFallbackQuotesWhatTheShellWouldSplit(t *testing.T) {
+	p := launchPrompt("my proj", "it's")
+	if !strings.Contains(p, `logos resume 'my proj' 'it'\''s'`) {
+		t.Errorf("fallback not quoted:\n%s", p)
+	}
+	if p := launchPrompt("brain", "20261031-a1"); !strings.Contains(p, "logos resume brain 20261031-a1`") {
+		t.Errorf("a plain name was quoted:\n%s", p)
+	}
+}
+
+// A worktree's folder is named for its branch; it is still the project's
+// checkout, and saying otherwise sent people to cd somewhere they already were.
+func TestAWorktreeOfTheProjectIsItsCheckout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	t.Setenv("LOGOS_PROJECT", "")
+	root := t.TempDir()
+	main, wt := root+"/kestrel", root+"/kestrel-feature"
+	for _, args := range [][]string{
+		{"init", "-q", main},
+		{"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"},
+		{"-C", main, "worktree", "add", "-q", wt},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if !isProjectCheckout(wt, "kestrel") {
+		t.Error("a worktree of kestrel was called not kestrel")
+	}
+	if isProjectCheckout(wt, "other") || isProjectCheckout(root, "kestrel") {
+		t.Error("a folder of some other project was called kestrel")
 	}
 }

@@ -616,6 +616,12 @@ func claudeCLI() string {
 	return ""
 }
 
+// ClaudeCLI and CodexCLI are the CLIs setup runs, exported for the resume
+// picker, which starts the same agents: a person who uses Codex only through
+// its desktop app was wired by setup and must be offered it there too.
+func ClaudeCLI() string { return claudeCLI() }
+func CodexCLI() string  { return codexCLI() }
+
 func isExecutable(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"os"
@@ -112,23 +113,55 @@ func TestThePickerNeverRunsWhenInvokedFromTheSessionStartHook(t *testing.T) {
 func TestThePickerMovesWithArrowsCancelsOnQAndGoesBackOnEsc(t *testing.T) {
 	rows := []string{"whole", "one", "two"}
 	var sink strings.Builder
-	if i, res := runPicker(strings.NewReader("\r"), &sink, "t", "h", rows, 80); res != picked || i != 0 {
+	if i, res, _ := runPicker(keysOf("\r"), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != picked || i != 0 {
 		t.Errorf("Enter alone picked %d res=%v, want the whole project", i, res)
 	}
-	if i, res := runPicker(strings.NewReader("\x1b[B\x1b[B\x1b[A\r"), &sink, "t", "h", rows, 80); res != picked || i != 1 {
+	if i, res, _ := runPicker(keysOf("\x1b[B\x1b[B\x1b[A\r"), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != picked || i != 1 {
 		t.Errorf("down, down, up, Enter picked %d res=%v, want 1", i, res)
 	}
-	if i, res := runPicker(strings.NewReader("jjjjj\r"), &sink, "t", "h", rows, 80); res != picked || i != 2 {
+	if i, res, _ := runPicker(keysOf("jjjjj\r"), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != picked || i != 2 {
 		t.Errorf("moving past the end picked %d res=%v, want the last row", i, res)
 	}
-	if _, res := runPicker(strings.NewReader("jq"), &sink, "t", "h", rows, 80); res != cancelled {
+	if _, res, _ := runPicker(keysOf("jq"), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != cancelled {
 		t.Errorf("q left the menu with %v, want a cancel", res)
 	}
-	if _, res := runPicker(strings.NewReader(""), &sink, "t", "h", rows, 80); res != cancelled {
+	if _, res, _ := runPicker(keysOf(""), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != cancelled {
 		t.Errorf("closed input left the menu with %v, want a cancel", res)
 	}
-	if _, res := runPicker(strings.NewReader("j\x1b"), &sink, "t", "h", rows, 80); res != wentBack {
+	if _, res, _ := runPicker(keysOf("j\x1b"), &sink, menu{title: "t", hint: "h", rows: rows}, 80); res != wentBack {
 		t.Errorf("a bare Esc left the menu with %v, want back", res)
+	}
+}
+
+func keysOf(s string) *bufio.Reader { return bufio.NewReader(strings.NewReader(s)) }
+
+// Two menus read one stream. Enter, Enter typed fast arrives in one read, and
+// the second Enter must reach the second menu, not leave with the first.
+func TestKeysTypedAheadReachTheNextMenu(t *testing.T) {
+	in := keysOf("j\r\r")
+	var sink strings.Builder
+	rows := []string{"a", "b"}
+	if i, res, _ := runPicker(in, &sink, menu{rows: rows}, 80); res != picked || i != 1 {
+		t.Fatalf("first menu: %d %v", i, res)
+	}
+	if i, res, _ := runPicker(in, &sink, menu{rows: rows}, 80); res != picked || i != 0 {
+		t.Errorf("the second Enter was lost: second menu left with %d %v, want a pick of 0", i, res)
+	}
+}
+
+// Going back redraws the conversations over the old frames, on the row that
+// was chosen, instead of stacking a fresh list under them.
+func TestAMenuOpensOnItsSelectionAndDrawsOverTheFrameAboveIt(t *testing.T) {
+	var out strings.Builder
+	i, res, lines := runPicker(keysOf("\r"), &out, menu{title: "t", hint: "h", rows: []string{"a", "b", "c"}, sel: 2, over: 7}, 80)
+	if res != picked || i != 2 {
+		t.Errorf("Enter picked %d %v, want row 2, where the menu opened", i, res)
+	}
+	if lines != 4 {
+		t.Errorf("drew %d lines, want the title and three rows", lines)
+	}
+	if !strings.HasPrefix(out.String(), "\x1b[7A") || !strings.Contains(out.String(), "> c") {
+		t.Errorf("want the cursor moved up 7 lines and c selected:\n%q", out.String())
 	}
 }
 

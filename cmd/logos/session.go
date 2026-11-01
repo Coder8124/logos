@@ -430,7 +430,7 @@ func runResume(args []string) error {
 			chosen, agent = c, l
 		}
 		if agent != nil {
-			return launchAgent(*agent, project, chosen.ID)
+			return launchAgent(*agent, ix.Vault, project, chosen.ID)
 		}
 		if chosen != nil {
 			if asJSON {
