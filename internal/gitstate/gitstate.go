@@ -154,6 +154,44 @@ func Identity(dir string) (remote, root string) {
 	return remote, root
 }
 
+// AutoMemoryRoot is the checkout Claude Code files the repository at dir's
+// auto memory under, "" when git will not say. Identity's root, the parent of
+// the common git dir, is that checkout only for a linked worktree of an
+// ordinary repository. A submodule's common dir is <super>/.git/modules/<name>
+// and a bare repository's worktree has /x/repo.git, so their parents name a
+// folder Claude Code never used and the import found nothing. Claude Code
+// (read from 2.1.316) keeps any checkout that is not a linked worktree as its
+// own top level, and files a bare repository's worktrees under the bare
+// repository itself.
+func AutoMemoryRoot(dir string) string {
+	if dir == "" || !isRepo(dir) {
+		return ""
+	}
+	abs := func(p string) string {
+		if p != "" && !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		if resolved, err := filepath.EvalSymlinks(p); err == nil {
+			return resolved
+		}
+		return ""
+	}
+	top := abs(git(dir, "rev-parse", "--show-toplevel"))
+	gitDir := abs(git(dir, "rev-parse", "--absolute-git-dir"))
+	common := abs(git(dir, "rev-parse", "--git-common-dir"))
+	if top == "" {
+		return ""
+	}
+	root := top
+	if gitDir != "" && common != "" && filepath.Dir(gitDir) == filepath.Join(common, "worktrees") {
+		root = common
+		if filepath.Base(common) == ".git" {
+			root = filepath.Dir(common)
+		}
+	}
+	return scope.OnDisk(root)
+}
+
 // NormalizeRemote reduces a remote URL — as Identity returns it — to a form
 // where the ssh and https spellings of the same repository compare equal:
 // `git@github.com:Coder8124/logos.git`, `https://github.com/Coder8124/logos.git`

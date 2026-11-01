@@ -511,12 +511,13 @@ func uncommented(line string, open bool) (string, bool) {
 // root. An autoMemoryDirectory setting names the folder outright. Otherwise it
 // is <projects>/<name>/memory, where the name is CLAUDE_CODE_PROJECT_DIR_NAME
 // when Claude Code would honour it, or else the path with every
-// non-alphanumeric rune as "-". The path is the main checkout's, symlinks
-// resolved: Claude Code shares one auto memory across a repository's worktrees
-// and records the physical path, so a worktree or a symlinked ~/code looked
-// for a folder that never existed. The naming is read off Claude Code's own
-// folders, not a documented contract, so a miss names the folder it looked in.
-// The ruleFiles are settings files that were passed over, for the report.
+// non-alphanumeric rune as "-". The path is the one gitstate.AutoMemoryRoot
+// gives, a worktree's main checkout, symlinks resolved: Claude Code shares one
+// auto memory across a repository's worktrees and records the physical path,
+// so a worktree or a symlinked ~/code looked for a folder that never existed.
+// The naming is read off Claude Code's own folders, not a documented contract,
+// so a miss names the folder it looked in. The ruleFiles are settings files
+// that were passed over, for the report.
 func autoMemoryDir(root string) (string, []ruleFile) {
 	config := transcript.ClaudeConfigDir()
 	dir, notes := autoMemoryDirectorySetting(root, config)
@@ -532,7 +533,7 @@ func autoMemoryDir(root string) (string, []ruleFile) {
 	if name := os.Getenv("CLAUDE_CODE_PROJECT_DIR_NAME"); os.Getenv("CLAUDE_CONFIG_DIR") != "" && projectDirName.MatchString(name) {
 		return filepath.Join(projects, name, "memory"), notes
 	}
-	if _, checkout := gitstate.Identity(root); checkout != "" {
+	if checkout := gitstate.AutoMemoryRoot(root); checkout != "" {
 		root = checkout
 	} else if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
