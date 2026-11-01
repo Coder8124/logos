@@ -240,3 +240,18 @@ func TestACheckpointRecordedUnderAnotherCaseOfTheSameCheckoutIsHandedOver(t *tes
 		t.Errorf("the checkout's own handoff was withheld as another repository's:\n%s", out)
 	}
 }
+
+// The cross-agent heading put the agent's name in bold inside list's own bold
+// wrapper, so "**Verified by **cursor**, not by you…:**" closed the bold at
+// the name and left two stray markers in every renderer.
+func TestTheCrossAgentVerifiedHeadingIsNotNestedBold(t *testing.T) {
+	var b strings.Builder
+	safeToContinue(&b, &session.Checkpoint{Agent: "cursor", Verified: []string{"go test ./... ok"}}, "claude-code")
+	head, _, _ := strings.Cut(b.String(), "\n")
+	if got := strings.Count(head, "**"); got != 2 {
+		t.Errorf("heading has %d bold markers, want 2: %q", got, head)
+	}
+	if !strings.Contains(head, "Verified by cursor, not by you") {
+		t.Errorf("heading no longer names the agent: %q", head)
+	}
+}
