@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/session"
@@ -19,6 +20,7 @@ type embedCounter struct {
 	mu       sync.Mutex
 	requests []int
 	down     bool
+	delay    time.Duration // per request, for a runtime that is slow but answering
 }
 
 func (c *embedCounter) provider(t *testing.T) *provider.Provider {
@@ -32,6 +34,7 @@ func (c *embedCounter) provider(t *testing.T) *provider.Provider {
 		c.requests = append(c.requests, len(req.Input))
 		down := c.down
 		c.mu.Unlock()
+		time.Sleep(c.delay)
 		if down {
 			http.Error(w, "connection reset by peer", http.StatusBadRequest)
 			return
@@ -114,5 +117,44 @@ func TestAFailedEmbeddingSaysTheSemanticCheckWasSkipped(t *testing.T) {
 	}
 	if note := SemanticSkipped(semantic); !strings.Contains(note, "semantic check skipped") {
 		t.Errorf("a failed embedding was not reported: %q", note)
+	}
+}
+
+// logos tried on a cold 2,001-checkpoint vault took 108 s: a runtime answering
+// every batch in time still had ten thousand rulings to embed before the first
+// answer. The fill stops at its budget, says so, and the next check carries on
+// from the vectors already cached.
+func TestAColdRulingFillStopsAtItsBudgetAndResumesOnTheNextCheck(t *testing.T) {
+	dir, db := seed(t)
+	var failed []string
+	for i := range 3 * embedBatch {
+		failed = append(failed, fmt.Sprintf("approach %d abandoned — reason %d", i, i))
+	}
+	if err := session.Commit(db, dir, &session.Checkpoint{
+		Project: "big", Agent: "claude", Task: "work", Failed: failed, Next: "carry on",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	old := fillBudget
+	fillBudget = 20 * time.Millisecond
+	t.Cleanup(func() { fillBudget = old })
+	c := &embedCounter{delay: 50 * time.Millisecond}
+	p := c.provider(t)
+
+	_, semantic, err := CheckNoting(dir, db, p, "m", "switch to a plastic frame", "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := c.texts()
+	if first >= 3*embedBatch {
+		t.Errorf("the first check embedded %d texts, past its budget", first)
+	}
+	if note := SemanticSkipped(semantic); !strings.Contains(note, "semantic check skipped") {
+		t.Errorf("a fill cut short by its budget was not reported: %q", note)
+	}
+
+	CheckNoting(dir, db, p, "m", "switch to a plastic frame", "", 5)
+	if second, _ := c.texts(); second-first < embedBatch {
+		t.Errorf("the second check embedded %d new texts, want the fill to carry on", second-first)
 	}
 }

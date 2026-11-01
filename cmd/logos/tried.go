@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
 	"github.com/Coder8124/logos/internal/index"
@@ -57,15 +58,19 @@ func runTried(args []string) error {
 	var embed *provider.Provider
 	var model string
 	if rt, err := openRouter(); err == nil {
+		// Interactive, as mcp serve's is: the 300 s client is sized for
+		// generation, and a runtime that never answers would hold tried — and
+		// a hook shelling out to it — for that long.
+		local := rt.Local().Interactive(5 * time.Second)
 		if m, err := rt.Model(router.T0); err == nil {
-			embed, model = rt.Local(), m
+			embed, model = local, m
 		}
 		// LOGOS_EMBED is asked as `mcp serve` asks it: off means no
 		// embedding call at all, and a named model is the one the index's
 		// ruling vectors were made with, so the query has to match it.
 		if _, set := os.LookupEnv("LOGOS_EMBED"); set {
 			if m, on := embedModel(); on {
-				embed, model = rt.Local(), m
+				embed, model = local, m
 			} else {
 				embed, model = nil, ""
 			}
