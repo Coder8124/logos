@@ -64,6 +64,14 @@ function fail(...lines) {
   process.exit(1);
 }
 
+// At a terminal, Ctrl-C reaches the whole foreground group, the binary
+// included, and the binary decides what it means: `logos resume` stays up while
+// an agent it started handles the key. This process dying under it handed the
+// shell back while the agent still owned the terminal. Off a terminal a signal
+// is aimed at this process alone, and a host stopping its server with SIGINT
+// must still stop it, so the default stays there.
+if (require("tty").isatty(0)) process.on("SIGINT", () => {});
+
 // spawnSync rather than spawn: this process has nothing to do while the binary
 // runs, and inheriting stdio means the JSON-RPC stream flows through the real
 // descriptors with no Node layer in between.
@@ -88,6 +96,8 @@ if (result.error) {
 // than inventing an exit code, so `logos mcp serve` under a host that kills its
 // servers reports what actually happened.
 if (result.signal) {
+  // Back to the default, or the SIGINT listener above would catch this too.
+  process.removeAllListeners(result.signal);
   process.kill(process.pid, result.signal);
   process.exit(1);
 }

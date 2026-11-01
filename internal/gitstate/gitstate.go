@@ -231,6 +231,21 @@ func WorktreeName(dir string) string {
 	return filepath.Base(gitDir)
 }
 
+// MainCheckout is the main working tree of the repository whose linked
+// worktree is at dir, and "" when dir is not a linked worktree. A worktree's
+// folder is named for its branch, so it is the main checkout that says which
+// project the worktree's work belongs to.
+func MainCheckout(dir string) string {
+	if linkedGitDir(dir) == "" {
+		return ""
+	}
+	common := git(dir, "rev-parse", "--git-common-dir")
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(dir, common)
+	}
+	return filepath.Dir(common)
+}
+
 // linkedGitDir returns the worktree's own git directory when dir is a linked
 // worktree, and "" when it is the main checkout or not a repository at all.
 //
