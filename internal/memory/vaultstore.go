@@ -820,10 +820,14 @@ type Edits struct {
 	// forgotten memory back on the next import without a word.
 	SetAside, Orphaned []string
 	// Unreadable are memory files under memories/<kind>/ that could not be
-	// read, each "path: why". Such a file drops its memory from the index and
-	// the digest for as long as it stays unreadable, and nothing else says so:
-	// the counts read as a vault with one memory fewer, not one memory hidden.
+	// read, each "path: why". A rebuilt index has no row for such a file's
+	// memory until it is readable again, and nothing else says so: the counts
+	// read as a vault with one memory fewer, not one memory hidden.
 	Unreadable []string
+	// unreadableUIDs are the same files' uids, so the reaping in ImportEdits
+	// keeps the rows they name: the file is there, only unreadable, and
+	// forgetting its memory deleted the file with it.
+	unreadableUIDs []string
 }
 
 // ImportEdits is Import, also saying which memories a hand edit made or
@@ -929,6 +933,13 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 	// A damaged file is reported and never acted on. Importing what survived
 	// would be the same silent deletion this guard exists to prevent, and the
 	// user needs to know before they overwrite the file by writing a new memory.
+	for _, uid := range edits.unreadableUIDs {
+		var id int64
+		if db.QueryRow("SELECT id FROM memories WHERE uid = ? AND superseded = 0", uid).Scan(&id) == nil {
+			keep[id] = true
+		}
+	}
+
 	if len(damaged) > 0 {
 		return imported, rescued, fmt.Errorf(
 			"refusing to import an incomplete memory store (%s); "+
@@ -1341,7 +1352,11 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 						why = pe.Err // the path is said once, vault-relative
 					}
 					e.Unreadable = append(e.Unreadable, rel+": "+why.Error())
+					e.unreadableUIDs = append(e.unreadableUIDs, strings.TrimSuffix(en.Name(), ".md"))
 				}
+				// Not migrated over either: a legacy line with this uid would
+				// be written onto the file nobody could read.
+				have[strings.TrimSuffix(en.Name(), ".md")] = true
 				continue
 			}
 			have[strings.TrimSuffix(en.Name(), ".md")] = true

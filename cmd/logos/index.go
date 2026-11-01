@@ -399,8 +399,8 @@ func printConflictCopies(w io.Writer, prefix string, walked []string, e memory.E
 	// same promise: a file on disk that is not in memory is named, or the
 	// counts read as a vault that simply has fewer memories.
 	if n := len(e.Unreadable); n > 0 {
-		fmt.Fprintf(w, "%scould not read %d memory %s, left out of memory until %s readable: %s\n",
-			prefix, n, plural2(n, "file", "files"), plural2(n, "it is", "they are"), terminalSafe(strings.Join(e.Unreadable, ", "), 2000))
+		fmt.Fprintf(w, "%scould not read %d memory %s; a memory the index already has is kept, but none is read from %s until %s readable: %s\n",
+			prefix, n, plural2(n, "file", "files"), plural2(n, "it", "them"), plural2(n, "it is", "they are"), terminalSafe(strings.Join(e.Unreadable, ", "), 2000))
 	}
 }
 
