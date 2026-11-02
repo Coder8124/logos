@@ -322,7 +322,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 			out += fmt.Sprintf("_Nothing in this vault is filed under %s%s._\n", untrusted.Inline(project), known)
 		}
 	}
-	out += s.awaitingReview()
+	out += s.awaitingReview() + staleNotice()
 	// Filed under the scope the pack itself read, so the note lands in the same
 	// session a checkpoint will later close — in this worktree, not in the
 	// project the worktree belongs to. Not when the project was a guess: the
@@ -459,15 +459,39 @@ func (s *Session) agentFor(args map[string]any) string {
 // internal/ingest's transcript-driven path uses for the very same
 // conversation. An older log line with no Extra falls back to the cut id —
 // still wrong against a full-id writer, but no worse than before this fix.
+//
+// Only an event the checkpointing host itself logged counts. Only Claude
+// Code's hooks write this log, so a host with none (opencode, Codex without
+// its hooks) took Claude's newest conversation and filed its checkpoint there
+// (#339); with no event of its own, a host has no conversation id to give.
 func (s *Session) hostSession(proj string) string {
-	events, err := activity.Read(s.vault, activity.Query{Project: proj, Limit: 1})
-	if err != nil || len(events) == 0 {
+	if s.clientAgent == "" {
 		return ""
 	}
-	if full, ok := events[0].Extra["session_id"].(string); ok && full != "" {
+	events, err := activity.Read(s.vault, activity.Query{Project: proj})
+	if err != nil {
+		return ""
+	}
+	// Read keeps file order within a second, so newest-first puts the first
+	// event written in the newest second ahead of the last one (#329): walk
+	// that second to its end before choosing.
+	var e *activity.Event
+	for i := range events {
+		if !strings.EqualFold(events[i].Agent, s.clientAgent) {
+			continue
+		}
+		if e != nil && events[i].TS != e.TS {
+			break
+		}
+		e = &events[i]
+	}
+	if e == nil {
+		return ""
+	}
+	if full, ok := e.Extra["session_id"].(string); ok && full != "" {
 		return full
 	}
-	return events[0].Session
+	return e.Session
 }
 
 // checkpoint commits the session to the vault. handoffTo is set when the caller
@@ -560,5 +584,5 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	}
 	// No "run `logos index`": resume and before_you_try read the checkpoint off
 	// disk, so it is usable the moment this returns. See cmd/logos/session.go.
-	return msg, nil
+	return msg + staleNotice(), nil
 }

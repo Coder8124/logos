@@ -14,7 +14,7 @@ Last checkpoint by **claude**, 5h ago.
 
 **They were doing:** move payments to stripe v3
 
-**Verified by **claude**, not by you — safe to continue from:**
+**Verified by claude, not by you — safe to continue from:**
 - go test ./payments passes against the v3 test keys
 
 **Already tried, didn't work:**

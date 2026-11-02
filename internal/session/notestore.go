@@ -2,6 +2,7 @@ package session
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,8 +171,48 @@ func flushNotesIn(db *sql.DB, dir, scope string) error {
 	if err := vault.MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
-	return vault.WriteAtomic(path, []byte(renderNotes(scope, notes)))
+	sessions, err := openSessions(db, scope)
+	if err != nil {
+		return err
+	}
+	return vault.WriteAtomic(path, []byte(renderNotes(scope, sessions, notes)))
 }
+
+// openSessions loads the open sessions holding notes in a scope, for their
+// header lines: one query, since a flush follows every note.
+func openSessions(db *sql.DB, scope string) ([]Session, error) {
+	rows, err := db.Query(
+		`SELECT id, agent, task, started FROM sessions
+		 WHERE project = ? AND ended = 0 AND id IN (SELECT session FROM session_notes)
+		 ORDER BY started, id`, safeScope(scope))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Session
+	for rows.Next() {
+		var s Session
+		if err := rows.Scan(&s.ID, &s.Agent, &s.Task, &s.Started); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// sessionHeader is the line uncommitted.md keeps for each open session its
+// notes belong to. Without it a rebuilt index opened a fresh session around the
+// notes: a new id and start time, and the task gone, so the pack said "started
+// a minute ago" about work an hour old (#328). JSON because a task is free
+// text, and Marshal escapes < and > so no task can close the comment early.
+type sessionHeader struct {
+	ID      string `json:"id"`
+	Agent   string `json:"agent"`
+	Task    string `json:"task,omitempty"`
+	Started int64  `json:"started"`
+}
+
+var sessionPattern = regexp.MustCompile(`^<!--\s*session\s+(\{.*\})\s*-->$`)
 
 // removeNotes deletes a scope's working-notes file. Absence is success — the
 // common case is a project that has been checkpointed twice in a row.
@@ -185,13 +226,24 @@ func removeNotes(vaultDir, scope string) error {
 	return nil
 }
 
-func renderNotes(scope string, notes []Note) string {
+func renderNotes(scope string, sessions []Session, notes []Note) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# uncommitted — %s\n\n", scope)
 	b.WriteString("Working notes from sessions that have not been checkpointed yet.\n")
 	b.WriteString("`logos checkpoint " + scope + "` folds these into a permanent record and\n")
 	b.WriteString("empties this file. Until then they live here, so a rebuilt index does not\n")
 	b.WriteString("lose them.\n\n")
+	for _, s := range sessions {
+		// The task is masked like the notes beside it: this file is in the vault
+		// before any checkpoint is.
+		head, err := json.Marshal(sessionHeader{ID: s.ID, Agent: s.Agent, Task: NoteText(s.Task), Started: s.Started})
+		if err == nil {
+			fmt.Fprintf(&b, "<!-- session %s -->\n", head)
+		}
+	}
+	if len(sessions) > 0 {
+		b.WriteString("\n")
+	}
 	for _, n := range notes {
 		// oneLine, because a note holding a newline would render as a bullet the
 		// parser cannot read back — a lost note wearing the costume of a saved one.
@@ -310,6 +362,12 @@ func importScopeNotes(db *sql.DB, scope, raw string) (restored, empty int, err e
 	for _, n := range existing {
 		have[n.Text+"\x00"+strconv.FormatInt(n.TS, 10)] = true
 	}
+	// Notes name their agent as safe() spelled it; the header has it as the
+	// session was opened, which is what the restored row and its notes use.
+	agents, err := reopenSessions(db, scope, raw)
+	if err != nil {
+		return 0, 0, err
+	}
 
 	for _, line := range strings.Split(raw, "\n") {
 		m := notePattern.FindStringSubmatch(strings.TrimSpace(line))
@@ -333,6 +391,9 @@ func importScopeNotes(db *sql.DB, scope, raw string) (restored, empty int, err e
 		if agent == "" {
 			agent = "agent"
 		}
+		if a := agents[agent]; a != "" {
+			agent = a
+		}
 		if _, err := addNoteNoFlush(db, scope, agent, text, ts); err != nil {
 			return restored, empty, err
 		}
@@ -340,4 +401,44 @@ func importScopeNotes(db *sql.DB, scope, raw string) (restored, empty int, err e
 		restored++
 	}
 	return restored, empty, nil
+}
+
+// reopenSessions restores the open sessions uncommitted.md names, before its
+// notes are restored into them, and maps each one's agent as the note lines
+// spell it to the agent as the session has it. A session already open for that
+// agent and scope is left alone: it is a running agent's, newer than the file.
+// A file from before the header has none, and its notes open a fresh session
+// as they always did.
+func reopenSessions(db *sql.DB, scope, raw string) (map[string]string, error) {
+	agents := map[string]string{}
+	for _, line := range strings.Split(raw, "\n") {
+		m := sessionPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		var h sessionHeader
+		if json.Unmarshal([]byte(m[1]), &h) != nil || h.ID == "" || strings.TrimSpace(h.Agent) == "" {
+			continue
+		}
+		var open int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE project = ? AND agent = ? AND ended = 0`,
+			safeScope(scope), h.Agent).Scan(&open); err != nil {
+			return nil, err
+		}
+		if open == 0 {
+			if _, err := db.Exec(`INSERT OR IGNORE INTO sessions (id, project, agent, task, started) VALUES (?,?,?,?,?)`,
+				h.ID, safeScope(scope), h.Agent, h.Task, h.Started); err != nil {
+				return nil, err
+			}
+		}
+		// Only one session is ever open per agent and scope, but two agents
+		// can share a safe() spelling, and then a note line cannot say whose
+		// it is. Neither is guessed: those notes open a session as before.
+		if prev, ok := agents[safe(h.Agent)]; ok && prev != h.Agent {
+			agents[safe(h.Agent)] = ""
+			continue
+		}
+		agents[safe(h.Agent)] = h.Agent
+	}
+	return agents, nil
 }

@@ -211,6 +211,18 @@ func TestOversizeFrameDoesNotKillTheServer(t *testing.T) {
 			"goes unanswered and the host has to restart the transport. A large " +
 			"checkpoint or a long context pack is not an unusual payload")
 	}
+	// The reader answers ping itself, ahead of the worker, so 501 comes back
+	// while the 5MB checkpoint is still being masked and written. Without this
+	// wait the cleanup's shutdown deadline also timed that write, which under
+	// -race on a loaded Linux runner took longer than 2s (#378). Waiting also
+	// proves the frame was served, not just survived.
+	line, ok := c.await(t, `"id":500`, 30*time.Second)
+	if !ok {
+		t.Fatal("the 5MB checkpoint was never answered")
+	}
+	if strings.Contains(line, `"isError":true`) || strings.Contains(line, `"error":`) {
+		t.Errorf("a 5MB checkpoint, under the 32MB limit, was refused: %.300s", line)
+	}
 }
 
 // Wrong types, missing arguments, unknown tools: all must come back as in-band

@@ -315,6 +315,14 @@ func loadHookFile(path string) (hookFile, error) {
 			return f, fmt.Errorf("%s has a hooks block that is not an object: %w", path, err)
 		}
 	}
+	// "hooks": null unmarshals to a nil map, and adding logos's hook to it
+	// panicked (#356). A file that is just null leaves rest nil the same way.
+	if f.Hooks == nil {
+		f.Hooks = map[string]json.RawMessage{}
+	}
+	if f.rest == nil {
+		f.rest = map[string]json.RawMessage{}
+	}
 	return f, nil
 }
 
@@ -356,26 +364,30 @@ func saveHookFile(path string, f hookFile) error {
 // (fileBackup), and no .previous goes beside it: the merge only adds logos's
 // own hook, so the original is the way back from any run, and setup has no line
 // on which to name a second copy.
-func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
+//
+// It returns where that copy is whenever the file changed, so setup can name
+// it: a copy nobody is told about is no way back.
+func installHookBackedUp(path, host string, argv []string) (Outcome, string, error) {
 	backup, err := backupFile(path, false)
 	if err != nil {
-		return Failed, err
+		return Failed, "", err
 	}
 	outcome, err := installHook(path, host, argv)
+	kept := ""
 	if backup.path != "" {
 		after, aerr := os.ReadFile(path)
 		same := aerr == nil && bytes.Equal(backup.before, after)
-		backup.settle(!same)
+		kept = backup.settle(!same)
 		if same && err == nil {
 			outcome = Unchanged
 		}
 	}
-	return outcome, err
+	return outcome, kept, err
 }
 
 // The two hosts with a user-level hooks file.
 func cursorHooksPath() string { return inHome(".cursor", "hooks.json") }
-func codexHooksPath() string  { return inHome(".codex", "hooks.json") }
+func codexHooksPath() string  { return inCodexHome("hooks.json") }
 
 // hooksPathFor is the same lookup by host name, for uninstall, which has the
 // host but not the closure that knows its path.
@@ -390,30 +402,46 @@ func hooksPathFor(name string) string {
 }
 
 // removeHook takes logos's session-start hook out and leaves the rest of the
-// file as it was, reporting whether there was one. A hook left behind after
-// uninstall runs a binary that is gone, and the host says so at every session.
-func removeHook(path string) (bool, error) {
+// file as it was, reporting whether there was one and where the copy of the
+// file as it found it is. A hook left behind after uninstall runs a binary that
+// is gone, and the host says so at every session.
+//
+// The file is re-encoded on the way out, so anything the decoder does not keep
+// is gone from it; the copy is how that is got back, and it is named because a
+// rewrite nobody mentions is one nobody looks for a copy of (#357). Setup's
+// .logos-backup, the file from before logos, is never written over: what this
+// run found goes beside it as .previous.
+func removeHook(path string) (bool, string, error) {
 	if path == "" {
-		return false, nil
+		return false, "", nil
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false, nil
+		return false, "", nil
 	}
 	f, err := loadHookFile(path)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	// A block in a shape logos did not write is not logos's to change, so an
 	// unreadable one is skipped here rather than failing the uninstall.
 	flat, _ := dropFlatLogosHooks(path, &f)
 	nested := dropCodexLogosHooks(path, &f)
 	if !flat && !nested {
-		return false, nil
+		return false, "", nil
+	}
+	backup, err := backupFile(path, true)
+	if err != nil {
+		return false, "", err
 	}
 	if err := saveHookFile(path, f); err != nil {
-		return false, err
+		// Unchanged, so the copy is not this run's to keep — and one that
+		// could not be removed is named, not left behind unsaid.
+		if left := backup.settle(false); left != "" {
+			err = fmt.Errorf("%w (a copy of it is left at %s)", err, left)
+		}
+		return false, "", err
 	}
-	return true, nil
+	return true, backup.settle(true), nil
 }
 
 // dropCodexLogosHooks takes logos's handler out of SessionStart, and with it

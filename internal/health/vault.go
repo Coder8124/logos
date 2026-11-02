@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/hostdir"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -182,8 +183,9 @@ func UnderTempDir(path string) bool {
 	// $HOME, so none of the system roots below match it. ~/.claude/jobs/<id>/tmp
 	// is where the pointer that broke a real installation was made.
 	roots := []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"}
-	if home, err := os.UserHomeDir(); err == nil {
-		roots = append(roots, filepath.Join(home, ".claude", "jobs"), filepath.Join(home, ".claude", "tmp"))
+	// Under CLAUDE_CONFIG_DIR when the user moved it (#376).
+	if config := hostdir.ClaudeConfig(); config != "" {
+		roots = append(roots, filepath.Join(config, "jobs"), filepath.Join(config, "tmp"))
 	}
 	for _, p := range forms(path) {
 		for _, root := range roots {

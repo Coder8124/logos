@@ -39,7 +39,7 @@ func claudeCode() Host {
 		Where:  func() string { return "claude mcp add --scope user" },
 		// User-scope MCP servers live in ~/.claude.json, alongside a great deal
 		// else that is not ours to lose.
-		Config: func() string { return inHome(".claude.json") },
+		Config: func() string { return claudeJSON() },
 		Register: func(s Server) (Outcome, error) {
 			args := []string{"mcp", "add", "--scope", "user", Name}
 			for k, v := range s.Env {
@@ -75,21 +75,44 @@ func claudeCode() Host {
 			return parseClaudeMCPList(out), nil
 		},
 		Remove: func(name string) (bool, error) {
-			out, err := hostCommand(claudeCLI(), "mcp", "list").CombinedOutput()
+			// `mcp get`, not `mcp list`, for the reason RemoveServerEntry gives:
+			// list starts every server Claude Code has, and one failed start of
+			// the plugin's turns Logos off for fifteen minutes. get exits
+			// non-zero when there is no such server, the common case, and that
+			// answer alone means there is nothing to remove: any other failure
+			// left the old entry in place behind a clean report.
+			out, err := hostCommand(claudeCLI(), "mcp", "get", name).CombinedOutput()
 			if err != nil {
+				if strings.Contains(string(out), "No MCP server") {
+					return false, nil
+				}
+				return false, fmt.Errorf("%s mcp get %s: %v: %s", claudeCLI(), name, err, strings.TrimSpace(string(out)))
+			}
+			if !isLogosServer(claudeMCPGetCommand(out)) {
+				return false, nil
+			}
+			if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {
 				return false, err
 			}
-			for _, r := range parseClaudeMCPList(out) {
-				if r.Name == name && isLogosServer(r.Command) {
-					if _, err := viaCLI(claudeCLI(), []string{"mcp", "remove", "--scope", "user", name}); err != nil {
-						return false, err
-					}
-					return true, nil
-				}
-			}
-			return false, nil
+			return true, nil
 		},
 	}
+}
+
+// claudeMCPGetCommand reads the command line out of `claude mcp get`'s report,
+// whose "Command:" and "Args:" lines are what isLogosServer needs to tell a
+// logos entry from someone else's server of the same name.
+func claudeMCPGetCommand(out []byte) string {
+	var parts []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		for _, key := range []string{"Command:", "Args:"} {
+			if v, ok := strings.CutPrefix(line, key); ok {
+				parts = append(parts, strings.TrimSpace(v))
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // parseClaudeMCPList reads `claude mcp list`'s human-readable report, not a
@@ -125,16 +148,16 @@ func codex() Host {
 	return Host{
 		Name:   "Codex",
 		Detect: func() bool { return codexCLI() != "" },
-		Where:  func() string { return inHome(".codex", "config.toml") },
-		Config: func() string { return inHome(".codex", "config.toml") },
+		Where:  func() string { return inCodexHome("config.toml") },
+		Config: func() string { return inCodexHome("config.toml") },
 		// Read off the file, not `codex mcp list`: the file is where the
 		// environment is written down, and asking a host's own CLI at doctor
 		// time starts a process per host. Without this Codex was the one host
 		// whose registrations nothing could see, so a Codex wired to a deleted
 		// binary or an npx cache path passed every check (#90).
-		List: func() ([]Registration, error) { return readCodexServers(inHome(".codex", "config.toml")) },
+		List: func() ([]Registration, error) { return readCodexServers(inCodexHome("config.toml")) },
 		Register: func(s Server) (Outcome, error) {
-			path := inHome(".codex", "config.toml")
+			path := inCodexHome("config.toml")
 			raw, err := os.ReadFile(path)
 			if err != nil && !os.IsNotExist(err) {
 				return Failed, err
@@ -150,11 +173,11 @@ func codex() Host {
 			args = append(args, s.Args...)
 			return viaCLI(codexCLI(), args)
 		},
-		Hooks: func(s Server) (Outcome, error) {
+		Hooks: func(s Server) (Outcome, string, error) {
 			return installHookBackedUp(codexHooksPath(), "codex", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) {
-			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
+			raw, err := os.ReadFile(inCodexHome("config.toml"))
 			if err != nil || !codexHasEntry(string(raw), name) {
 				return false, nil
 			}
@@ -221,7 +244,7 @@ func cursor() Host {
 			return mergeJSON(path, s)
 		},
 		List: func() ([]Registration, error) { return readMCPServers(path) },
-		Hooks: func(s Server) (Outcome, error) {
+		Hooks: func(s Server) (Outcome, string, error) {
 			return installHookBackedUp(cursorHooksPath(), "cursor", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) { return removeJSON(path, "mcpServers", name) },
@@ -616,6 +639,12 @@ func claudeCLI() string {
 	return ""
 }
 
+// ClaudeCLI and CodexCLI are the CLIs setup runs, exported for the resume
+// picker, which starts the same agents: a person who uses Codex only through
+// its desktop app was wired by setup and must be offered it there too.
+func ClaudeCLI() string { return claudeCLI() }
+func CodexCLI() string  { return codexCLI() }
+
 func isExecutable(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0
@@ -653,7 +682,7 @@ func LogosPlugin() (version string, connects bool) {
 // scope that the user settings do not disable counts. A disable in one
 // project's settings cannot be seen from here, which Why says.
 func LogosPluginRecord() PluginRecord {
-	path := inHome(".claude", "plugins", "installed_plugins.json")
+	path := inClaudeConfig("plugins", "installed_plugins.json")
 	if path == "" {
 		return PluginRecord{}
 	}
@@ -674,7 +703,7 @@ func LogosPluginRecord() PluginRecord {
 	var enabled struct {
 		EnabledPlugins map[string]bool `json:"enabledPlugins"`
 	}
-	if settings, err := os.ReadFile(inHome(".claude", "settings.json")); err == nil {
+	if settings, err := os.ReadFile(inClaudeConfig("settings.json")); err == nil {
 		_ = json.Unmarshal(settings, &enabled)
 	}
 	// Map order is random, so a disabled logos@ from one marketplace must not

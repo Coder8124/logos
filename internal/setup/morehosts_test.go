@@ -39,6 +39,10 @@ func fakeHome(t *testing.T, dirs ...string) string {
 	// os.UserConfigDir is HOME-relative. It also means the suite was writing
 	// into a Linux developer's real ~/.config/logos.
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	// Both move a host's whole config off HOME, so one exported in the
+	// developer's shell sent these tests to their real Codex or Claude Code.
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	for _, d := range dirs {
 		if err := os.MkdirAll(filepath.Join(home, d), 0o755); err != nil {
 			t.Fatal(err)

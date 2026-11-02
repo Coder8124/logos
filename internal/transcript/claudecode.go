@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Coder8124/logos/internal/hostdir"
 )
 
 // Claude Code writes one JSON object per line to
@@ -28,16 +30,7 @@ const LogosClaudeProjectsEnv = "LOGOS_CLAUDE_PROJECTS"
 // ~/.claude. ~/.claude holds none of a moved user's sessions, rules or
 // memory, so every reader of Claude Code's files asks here, and they cannot
 // disagree about where it lives. Empty when neither can be named.
-func ClaudeConfigDir() string {
-	if config := os.Getenv("CLAUDE_CONFIG_DIR"); config != "" {
-		return config
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude")
-}
+func ClaudeConfigDir() string { return hostdir.ClaudeConfig() }
 
 type claudeCodeReader struct{}
 
@@ -50,7 +43,9 @@ func (claudeCodeReader) root() string {
 		}
 		return ""
 	}
-	config := ClaudeConfigDir()
+	// Under CLAUDE_CONFIG_DIR when the user moved it: Claude Code writes its
+	// transcripts there, and ~/.claude/projects is then empty or stale (#376).
+	config := hostdir.ClaudeConfig()
 	if config == "" {
 		return ""
 	}
