@@ -667,7 +667,14 @@ func writeMemoryFile(db *sql.DB, dir string, kind Kind, m Memory) error {
 		return fmt.Errorf("memory #%d has no uid to file it under", m.ID)
 	}
 	path := memoryFilePath(dir, kind, m.Uid)
-	if onDisk, err := os.ReadFile(path); err == nil {
+	onDisk, err := os.ReadFile(path)
+	// A file there that cannot be read may hold a hand edit nobody can check,
+	// and the index keeps its row now; replacing it would lose that edit with
+	// no refusal.
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("memories/%s/%s.md could not be read to check it for hand edits, so it was not rewritten: %w", kind, m.Uid, err)
+	}
+	if err == nil {
 		last, stamped := fileStampSeen(db, m.Uid)
 		pending, pendingStamped := fileStampSeen(db, pendingUID(m.Uid))
 		if mine, claimed := ours(sha256.Sum256(onDisk), last, stamped, pending, pendingStamped); claimed && !mine {
@@ -852,6 +859,11 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 	}
 
 	keep := map[int64]bool{}
+	// unread rows are named by a file nobody could read, or one holding no
+	// memory line: kept from the reap like keep's, but not counted as found
+	// in the vault, since nothing confirmed them there and an unflushed flag
+	// has to stay set for doctor and the next index.
+	unread := map[int64]bool{}
 
 	// Only kinds whose file was read and found intact are authoritative. A kind
 	// whose file is missing or truncated says nothing about what the user wants
@@ -895,7 +907,7 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 			var id int64
 			uid := strings.TrimSuffix(filepath.Base(rel), ".md")
 			if db.QueryRow("SELECT id FROM memories WHERE uid = ? AND kind = ?", uid, string(kind)).Scan(&id) == nil {
-				keep[id] = true
+				unread[id] = true
 			}
 		}
 
@@ -985,6 +997,9 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 		if err := rows.Scan(&id, &kind, &unflushed); err != nil {
 			rows.Close()
 			return imported, rescued, err
+		}
+		if unread[id] {
+			continue
 		}
 		if keep[id] {
 			// Already recovered — not by the rescue below, but by its own
