@@ -295,8 +295,13 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// here holding one id, and both wrote to one path. WriteAtomic renames into
 	// place, so the second silently replaced the first: a handoff nobody was
 	// told had been lost, in the one file this product exists to keep.
+	//
+	// The name is taken from when the checkpoint is written, not from s.ID,
+	// which is when the session started: History sorts by name, so a long
+	// session's checkpoint sorted behind a shorter one written before it, and
+	// resume showed the older one as where work left off (#366).
 	convo := convoFolder(c.HostSession)
-	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, s.ID, convo)
+	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
 	if err != nil {
 		return err
 	}
@@ -388,13 +393,21 @@ func claimCheckpoint(vaultDir, project, agent, id, convo string) (string, string
 	// whichever of the two it happened to reach first. Checked against the
 	// whole scope, not just dir, to keep every name in it unique the way a
 	// single flat directory used to guarantee for free.
+	//
+	// A second any agent already wrote in counts as taken too. A name pushed
+	// into the next second by a collision would otherwise share it with another
+	// agent's checkpoint written there, and the two sorted by agent name, not
+	// by which came first (#340).
 	taken := map[string]bool{}
+	takenSecond := map[string]bool{}
 	if entries, err := CheckpointEntries(scopeDir); err == nil {
 		for _, en := range entries {
 			taken[en.Name] = true
+			takenSecond[firstN(en.Name, 15)] = true
 		}
 	}
 	start, err := time.Parse("20060102-150405", firstN(id, 15))
+	stamped := err == nil
 	if err != nil {
 		// An id from somewhere that does not carry a timestamp. Nothing to walk
 		// forward, so take it or fail — better than inventing an ordering key.
@@ -405,7 +418,7 @@ func claimCheckpoint(vaultDir, project, agent, id, convo string) (string, string
 		if i > 0 {
 			candidate = idFor(agent, start.Add(time.Duration(i)*time.Second))
 		}
-		if taken[candidate+".md"] {
+		if taken[candidate+".md"] || (stamped && takenSecond[firstN(candidate, 15)]) {
 			continue
 		}
 		path := filepath.Join(dir, candidate+".md")
