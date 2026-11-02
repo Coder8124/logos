@@ -315,6 +315,14 @@ func loadHookFile(path string) (hookFile, error) {
 			return f, fmt.Errorf("%s has a hooks block that is not an object: %w", path, err)
 		}
 	}
+	// "hooks": null unmarshals to a nil map, and adding logos's hook to it
+	// panicked (#356). A file that is just null leaves rest nil the same way.
+	if f.Hooks == nil {
+		f.Hooks = map[string]json.RawMessage{}
+	}
+	if f.rest == nil {
+		f.rest = map[string]json.RawMessage{}
+	}
 	return f, nil
 }
 
@@ -356,21 +364,25 @@ func saveHookFile(path string, f hookFile) error {
 // (fileBackup), and no .previous goes beside it: the merge only adds logos's
 // own hook, so the original is the way back from any run, and setup has no line
 // on which to name a second copy.
-func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
+//
+// It returns where that copy is whenever the file changed, so setup can name
+// it: a copy nobody is told about is no way back.
+func installHookBackedUp(path, host string, argv []string) (Outcome, string, error) {
 	backup, err := backupFile(path, false)
 	if err != nil {
-		return Failed, err
+		return Failed, "", err
 	}
 	outcome, err := installHook(path, host, argv)
+	kept := ""
 	if backup.path != "" {
 		after, aerr := os.ReadFile(path)
 		same := aerr == nil && bytes.Equal(backup.before, after)
-		backup.settle(!same)
+		kept = backup.settle(!same)
 		if same && err == nil {
 			outcome = Unchanged
 		}
 	}
-	return outcome, err
+	return outcome, kept, err
 }
 
 // The two hosts with a user-level hooks file.

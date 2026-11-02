@@ -289,3 +289,26 @@ func TestALinkWhereTheBackupGoesIsNotWrittenThrough(t *testing.T) {
 		t.Error("the backup was written through the link")
 	}
 }
+
+// Setup copied a user's hooks file aside before adding its hook and never said
+// so: the copy sat beside hooks.json unnamed, the one file setup changed that
+// the report gave no way back from.
+func TestSetupNamesTheBackupOfAHooksFileItChanged(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	cursor := hostNamed(t, "Cursor")
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.WriteFile(hooks, []byte("{\"version\":1,\"hooks\":{\"stop\":[{\"command\":\"their-hook\"}]}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Install(server(), []Host{cursor})
+	if r[0].HookErr != nil {
+		t.Fatalf("setup: %v", r[0].HookErr)
+	}
+	if r[0].HookBackup != hooks+".logos-backup" {
+		t.Errorf("hook backup = %q, want the copy beside hooks.json named", r[0].HookBackup)
+	}
+	if again := Install(server(), []Host{cursor}); again[0].HookBackup != "" {
+		t.Errorf("a setup that left the hooks file alone named %q", again[0].HookBackup)
+	}
+}

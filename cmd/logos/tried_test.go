@@ -1,7 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Coder8124/logos/internal/deadend"
 )
@@ -106,5 +111,49 @@ func TestTriedEmbedsWithTheModelLOGOS_EMBEDNamesAndNotAtAllWhenOff(t *testing.T)
 	}
 	if len(rt.embedded()) == 0 {
 		t.Error("tried did not embed at all with a model named")
+	}
+}
+
+// tried embedded through the 300 s generation client, so a runtime that listed
+// its models and then never answered held it — and the hook shelling out to
+// it — for minutes (#244). It now gives up at its own timeout and says the
+// semantic check was skipped.
+func TestTriedStopsWaitingOnARuntimeThatNeverAnswers(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			fmt.Fprint(w, `{"data":[{"id":"nomic-embed-text"}]}`)
+			return
+		}
+		<-release
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	old := triedEmbedTimeout
+	triedEmbedTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { triedEmbedTimeout = old })
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	t.Setenv("LOGOS_RUNTIME", srv.URL)
+	t.Setenv("LOGOS_EMBED", "")
+	if err := runTried([]string{"cache the embeddings in the index", "--ruled-out", "a reindex drops them",
+		"--project", "kestrel"}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan string, 1)
+	go func() {
+		done <- captureStdout(t, func() {
+			if err := runTried([]string{"keep the vectors in sqlite", "--project", "kestrel"}); err != nil {
+				t.Error(err)
+			}
+		})
+	}()
+	select {
+	case out := <-done:
+		if !strings.Contains(out, "semantic check skipped") {
+			t.Errorf("tried gave up on the runtime without saying so:\n%s", out)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("tried was still waiting on a runtime that never answers after 10 s")
 	}
 }
