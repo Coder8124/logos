@@ -522,7 +522,8 @@ func CheckpointEntries(dir string) ([]CheckpointEntry, error) {
 
 // History returns up to n checkpoints for a project, newest first.
 func History(vaultDir, project string, n int) ([]Checkpoint, error) {
-	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
+	scope := historyScope(vaultDir, project)
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
 	entries, err := CheckpointEntries(dir)
 	if err != nil {
 		return nil, err
@@ -549,7 +550,7 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 		if c.Empty() {
 			continue
 		}
-		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), strings.TrimSuffix(en.Rel, ".md")))
+		c.Slug = filepath.ToSlash(filepath.Join(CheckpointDir, scope, strings.TrimSuffix(en.Rel, ".md")))
 		out = append(out, c)
 	}
 	return out, nil
@@ -564,7 +565,8 @@ func History(vaultDir, project string, n int) ([]Checkpoint, error) {
 // history. But the reader is then told an older checkpoint is where work left
 // off, and a newer file was right there: that has to be said (#367).
 func SkippedAhead(vaultDir, project string, shown *Checkpoint) []string {
-	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(project)))
+	scope := historyScope(vaultDir, project)
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
 	entries, err := CheckpointEntries(dir)
 	if err != nil {
 		return nil
@@ -576,7 +578,7 @@ func SkippedAhead(vaultDir, project string, shown *Checkpoint) []string {
 	var out []string
 	for _, en := range entries {
 		if en.Name > after {
-			out = append(out, filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(project), en.Rel)))
+			out = append(out, filepath.ToSlash(filepath.Join(CheckpointDir, scope, en.Rel)))
 		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(out)))

@@ -117,6 +117,11 @@ type Pack struct {
 	// passed over as empty or torn, so the render can say the checkpoint below
 	// is the latest that could be read, not the latest written.
 	Unread []string `json:"unread,omitempty"`
+	// Stranded is the folder this project's history was read from because it
+	// is still where logos 0.5.6 filed a name with a symbol in it (#368). The
+	// render names it and the rename that moves it: the folder may hold
+	// another project's history as well, which only the user can judge.
+	Stranded string `json:"stranded,omitempty"`
 	// Drifted is where the tree stands now, filled in only when it is not where
 	// the checkpoint below says it was. "Repository was: memory/bugfix ·
 	// fcd0331" is a claim about a moment that may be forty commits gone, and
@@ -246,7 +251,7 @@ func (p *Pack) Empty() bool {
 		// Not empty: a checkpoint was set aside, and a caller that prints
 		// "nothing recorded" instead would hide that two repositories share
 		// this name.
-		p.OtherRepo == "" && len(p.Unread) == 0
+		p.OtherRepo == "" && len(p.Unread) == 0 && p.Stranded == ""
 }
 
 const (
@@ -334,6 +339,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 				shown = &all[0]
 			}
 			p.Unread = session.SkippedAhead(ix.Vault, scope, shown)
+			p.Stranded = session.Stranded(ix.Vault, scope)
 		}
 		if err == nil && len(all) > 0 && req.Dir != "" {
 			all, p.OtherRepo = sameRepository(all, req.Dir)

@@ -22,6 +22,7 @@ package session
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -442,7 +443,68 @@ func closeSessions(db *sql.DB, ids []string, slug string) error {
 // What is still stripped is what makes a path dangerous or ambiguous:
 // separators, dots, and control characters. `..` and `/` cannot survive, which
 // is what keeps a checkpoint inside the vault.
+//
+// Any other symbol is spelled out rather than dropped (#368). Dropping it made
+// `C++`, `C#` and `C` one folder, and `a:b` one with `ab`, so resume handed one
+// project another's stopping place as its own. The common ones read as words;
+// the rest become their code point. Neither spelling contains a character this
+// function would change again, because a scope is run through it more than once
+// on the way to disk (Current, then Start) and a second pass that moved it
+// would file the checkpoint where no lookup looks.
+//
+// A name made only of letters, digits and `- _ . space /` comes out exactly as
+// it did before, so the only folders that move are the ones that were merged.
+// Combining marks are still dropped as they were: keeping them would move the
+// folder of every project named in Hindi or Arabic to fix a collision nobody
+// has reported there.
 func safe(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	lastDash, afterWord := false, false
+	for _, r := range s {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			if afterWord {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			lastDash, afterWord = false, false
+		case r == '-' || r == '_' || r == '/' || r == '.' || unicode.IsSpace(r):
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+			afterWord = false
+		case unicode.IsControl(r), unicode.IsMark(r):
+		default:
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteString(symbolWord(r))
+			lastDash, afterWord = false, true
+		}
+	}
+	return capName(strings.Trim(b.String(), "-"))
+}
+
+// symbolWord is how safe spells a symbol it used to drop.
+func symbolWord(r rune) string {
+	switch r {
+	case '+':
+		return "plus"
+	case '#':
+		return "sharp"
+	case ':':
+		return "colon"
+	}
+	return fmt.Sprintf("u-%x", r)
+}
+
+// legacySafe is safe as logos 0.5.6 and earlier wrote it: symbols dropped. It
+// is kept only to find a folder that rule filed a project under, so history
+// written before #368 is still read until it is moved; nothing is written with
+// it.
+func legacySafe(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder
 	lastDash := false
@@ -508,13 +570,71 @@ func capAt(s string, n int) string {
 // different keys and a checkpoint never cleared its own notes.
 func SafeScope(s string) string { return safeScope(s) }
 
-func safeScope(s string) string {
+func safeScope(s string) string { return scopeWith(s, safe) }
+
+func legacyScope(s string) string { return scopeWith(s, legacySafe) }
+
+func scopeWith(s string, seg func(string) string) string {
 	parts := strings.Split(s, "/")
 	kept := parts[:0]
 	for _, p := range parts {
-		if p = safe(p); p != "" {
+		if p = seg(p); p != "" {
 			kept = append(kept, p)
 		}
 	}
 	return strings.Join(kept, "/")
+}
+
+// historyScope is the scope a project's history is read from: its own, or,
+// while that holds no checkpoint, the folder 0.5.6 and earlier filed the same
+// name under. Without the fallback an upgrade would show a project with a
+// symbol in its name as having no history at all, which is the reading
+// invariant 3 exists to prevent; with it, nothing moves until someone says so.
+func historyScope(vaultDir, project string) string {
+	if old := Stranded(vaultDir, project); old != "" {
+		return old
+	}
+	return safeScope(project)
+}
+
+// Stranded names the folder a project's history is still in when that is not
+// the folder it is filed under now: the name has a symbol the old rule
+// dropped, its own folder holds no checkpoint, and the old one does. Empty
+// otherwise.
+//
+// The old folder may hold another project's history too — that merge is #368
+// itself — so this is said to the user with the rename that moves it, never
+// acted on.
+func Stranded(vaultDir, project string) string {
+	scope, old := safeScope(project), legacyScope(project)
+	if vaultDir == "" || old == "" || old == scope {
+		return ""
+	}
+	if hasCheckpoints(vaultDir, scope) || !hasCheckpoints(vaultDir, old) {
+		return ""
+	}
+	return old
+}
+
+// StrandedNotice is the one line resume and checkpoint say while Stranded
+// finds a folder: where the history is, and the command that brings it over.
+func StrandedNotice(project, old string) string {
+	return fmt.Sprintf("History for %q is in %s/%s, where logos 0.5.6 and earlier filed it before names with symbols got their own folder. "+
+		"`logos project rename %s %s --merge` moves it; that folder also holds any project whose name differed from this one only in symbols.",
+		project, CheckpointDir, old, old, safeScope(project))
+}
+
+// SplitNotice is what checkpoint says when it writes the first checkpoint into
+// a project's own folder while Stranded still found the old one. From here on
+// resume reads the new folder only, so the earlier history drops out of it;
+// this is the one moment that can still be said before it does.
+func SplitNotice(project, old string) string {
+	return fmt.Sprintf("This is the first checkpoint in %s/%s, so resume stops reading the earlier history in %s/%s. "+
+		"`logos project rename %s %s --merge` brings it across; that folder also holds any project whose name differed from this one only in symbols.",
+		CheckpointDir, safeScope(project), CheckpointDir, old, old, safeScope(project))
+}
+
+func hasCheckpoints(vaultDir, scope string) bool {
+	entries, err := CheckpointEntries(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope)))
+	return err == nil && len(entries) > 0
 }

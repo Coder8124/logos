@@ -52,7 +52,7 @@ type Conversation struct {
 // present unrelated work by different agents as one sitting, which is the
 // fabrication UnattachedFolder exists to avoid.
 func Conversations(vaultDir, projectName string) ([]Conversation, error) {
-	scope := safeScope(projectName)
+	scope := historyScope(vaultDir, projectName)
 	if scope == "" {
 		return nil, nil
 	}
