@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"os"
@@ -1207,5 +1208,107 @@ func TestAnUnreadableMemoryFileIsKeptAndReportedNotForgotten(t *testing.T) {
 	}
 	if len(e.Unread) != 1 || e.Unread[0] != "memories/fact/"+entries[0].Name() {
 		t.Errorf("Unread = %v, want the file named", e.Unread)
+	}
+}
+
+// A kill between writing the digest and recording its hash left the hash of
+// the file before it. The next `memory add` took logos's own write for a hand
+// edit and refused, and every add after it, until an index (#371). Put back
+// here as the state the kill leaves: the earlier stamp, and the pending claim
+// on the file the write produced.
+func TestAKillBetweenTheDigestWriteAndItsStampDoesNotBlockTheNextWrite(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := Store(db, nil, "", &Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	before, ok := stampSeen(db, Fact)
+	if !ok {
+		t.Fatal("the first write recorded no stamp")
+	}
+	if _, err := Store(db, nil, "", &Memory{Text: "deploys go through staging", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp(db, Fact, before)
+	stamp(db, pendingKind(Fact), sha256.Sum256(written))
+
+	if _, err := Store(db, nil, "", &Memory{Text: "the cache lives in redis", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatalf("logos's own interrupted write was refused as a hand edit: %v", err)
+	}
+}
+
+// The same kill on a memory's own file: a pin rewrites it, and the next
+// rewrite refused it as hand-edited.
+func TestAKillBetweenAMemoryFileWriteAndItsStampDoesNotBlockTheNextWrite(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	before, ok := fileStampSeen(db, m.Uid)
+	if !ok {
+		t.Fatal("the first write recorded no file stamp")
+	}
+	if err := Pin(db, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(memoryFilePath(dir, Fact, m.Uid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStamp(db, m.Uid, before)
+	fileStamp(db, pendingUID(m.Uid), sha256.Sum256(written))
+
+	if err := Unpin(db, m.ID); err != nil {
+		t.Fatalf("logos's own interrupted write was refused as a hand edit: %v", err)
+	}
+}
+
+// The pending claim is only for the window between a write and its stamp. Left
+// behind after it, it kept an old file "ours" once something else (an index)
+// had stamped a newer one: restore the old digest from a backup and the next
+// write overwrote it instead of refusing.
+func TestAnOldPendingClaimDoesNotLetAWriteOverARestoredDigest(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := Store(db, nil, "", &Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	digestPath := filepath.Join(dir, Dir, "fact.md")
+	old, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp(db, Fact, sha256.Sum256([]byte("what a later index wrote")))
+	if err := os.WriteFile(digestPath, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Store(db, nil, "", &Memory{Text: "deploys go through staging", Kind: Fact, Source: "manual"}); err == nil {
+		t.Fatal("a write went over a file the newest stamp does not describe")
+	}
+}
+
+// The same for a memory's own file.
+func TestAnOldPendingClaimDoesNotLetAWriteOverARestoredMemoryFile(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	path := memoryFilePath(dir, Fact, m.Uid)
+	old, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStamp(db, m.Uid, sha256.Sum256([]byte("what a later write left")))
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Pin(db, m.ID); err == nil {
+		t.Fatal("a write went over a file the newest stamp does not describe")
 	}
 }

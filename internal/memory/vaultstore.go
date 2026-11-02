@@ -223,7 +223,45 @@ func dropStamps(db *sql.DB) {
 func dropStamp(db *sql.DB, kind Kind) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	_, _ = db.Exec(`DELETE FROM digest_stamps WHERE kind = ?`, string(kind))
+	_, _ = db.Exec(`DELETE FROM digest_stamps WHERE kind IN (?, ?)`, string(kind), string(pendingKind(kind)))
+}
+
+// pendingKind and pendingUID name the second claim a write records: the hash
+// of the bytes it is about to write, stamped before the write where the first
+// is stamped after it. A kill between a write and its stamp left the hash of
+// the file before it, and the next write took logos's own output for a hand
+// edit and refused — every `memory add` after it, until an index (#371). A
+// file matching either claim is ours. Kept in the same tables under a prefix
+// no kind or uid can have, so losing index.db loses both together.
+func pendingKind(kind Kind) Kind   { return Kind("pending/" + string(kind)) }
+func pendingUID(uid string) string { return "pending/" + uid }
+
+// settleStamp and settleFileStamp record the claim a finished write makes and
+// retire its pending one. A pending claim left behind outlived its window: once
+// an index stamped a newer file, a restore of the old one still matched it, and
+// the next write took the restore for its own output and overwrote it.
+func settleStamp(db *sql.DB, kind Kind, sum [sha256.Size]byte) {
+	stamp(db, kind, sum)
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`DELETE FROM digest_stamps WHERE kind = ?`, string(pendingKind(kind)))
+}
+
+func settleFileStamp(db *sql.DB, uid string, sum [sha256.Size]byte) {
+	fileStamp(db, uid, sum)
+	stampMu.Lock()
+	defer stampMu.Unlock()
+	_, _ = db.Exec(`DELETE FROM memory_file_stamps WHERE uid = ?`, pendingUID(uid))
+}
+
+// ours is whether bytes on disk are logos's own last write of a file, by
+// either claim — and whether there was a claim at all, since a file with
+// none must never be refused.
+func ours(sum [sha256.Size]byte, last [sha256.Size]byte, stamped bool, pending [sha256.Size]byte, pendingStamped bool) (bool, bool) {
+	if !stamped {
+		return false, false
+	}
+	return sum == last || (pendingStamped && sum == pending), true
 }
 
 // fileStamp and fileStampSeen are digest_stamps' counterparts for one
@@ -259,7 +297,7 @@ func fileStampSeen(db *sql.DB, uid string) ([sha256.Size]byte, bool) {
 func dropFileStamp(db *sql.DB, uid string) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	_, _ = db.Exec(`DELETE FROM memory_file_stamps WHERE uid = ?`, uid)
+	_, _ = db.Exec(`DELETE FROM memory_file_stamps WHERE uid IN (?, ?)`, uid, pendingUID(uid))
 }
 
 // kinds is the fixed set, so exporting is deterministic and a kind with no
@@ -301,14 +339,21 @@ func flushLocked(db *sql.DB, kind Kind) error {
 	// a stamp that exists and no longer matches refuses the write — `logos
 	// index` is the unconditional override, and it writes through ExportKind
 	// directly, never through this guard.
-	if last, ok := stampSeen(db, kind); ok {
-		if onDisk, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
-			if sha256.Sum256(onDisk) != last {
-				return fmt.Errorf("memories/%s.md was hand-edited since logos last wrote it; it is a generated digest now — edit the memory's own file under memories/%s/ instead, then run `logos index` to refresh this one", kind, kind)
-			}
+	if onDisk, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
+		last, stamped := stampSeen(db, kind)
+		pending, pendingStamped := stampSeen(db, pendingKind(kind))
+		if mine, claimed := ours(sha256.Sum256(onDisk), last, stamped, pending, pendingStamped); claimed && !mine {
+			return fmt.Errorf("memories/%s.md was hand-edited since logos last wrote it; it is a generated digest now — edit the memory's own file under memories/%s/ instead, then run `logos index` to refresh this one", kind, kind)
 		}
 	}
-	if err := ExportKind(db, dir, kind); err != nil {
+	content, has, err := kindDigest(db, kind)
+	if err == nil && has {
+		stamp(db, pendingKind(kind), sha256.Sum256([]byte(content)))
+	}
+	if err == nil {
+		err = writeKindDigest(dir, kind, content, has)
+	}
+	if err != nil {
 		// Record which rows the failed export left behind, so the split state
 		// outlives the one call that was told about it. The caller here gets an
 		// honest error and then exits; everyone after it — recall, doctor, the
@@ -339,7 +384,7 @@ func flushLocked(db *sql.DB, kind Kind) error {
 	// to a file the stamp still describes — recovering a restored file is
 	// `logos index`'s job (see readKindFiles), not a plain write's.
 	if raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
-		stamp(db, kind, sha256.Sum256(raw))
+		settleStamp(db, kind, sha256.Sum256(raw))
 	} else {
 		dropStamp(db, kind)
 	}
@@ -466,11 +511,22 @@ func Export(db *sql.DB, dir string) error {
 // make quarantine theatre — reviewable in principle, already believed in
 // practice. They start appearing here the moment Accept clears the flag.
 func ExportKind(db *sql.DB, dir string, kind Kind) error {
+	content, has, err := kindDigest(db, kind)
+	if err != nil {
+		return err
+	}
+	return writeKindDigest(dir, kind, content, has)
+}
+
+// kindDigest renders one kind's digest from the cache, apart from writing it
+// so flushLocked can stamp the bytes before they reach the disk. has is false
+// for a kind with no current memories, whose file is removed instead.
+func kindDigest(db *sql.DB, kind Kind) (content string, has bool, err error) {
 	rows, err := db.Query(
 		`SELECT id, text, salience, confidence, project, source, agent, created, last_used, uses, pin, auto_accepted, commit_sha, uid, supersedes
 		 FROM memories WHERE kind = ? AND superseded = 0 AND quarantined = 0 ORDER BY created, id`, string(kind))
 	if err != nil {
-		return err
+		return "", false, err
 	}
 	defer rows.Close()
 
@@ -480,17 +536,24 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		var project, source, agent sql.NullString
 		if err := rows.Scan(&m.ID, &m.Text, &m.Salience, &m.Confidence,
 			&project, &source, &agent, &m.Created, &m.LastUsed, &m.Uses, &m.Pin, &m.AutoAccepted, &m.Commit, &m.Uid, &m.Supersedes); err != nil {
-			return err
+			return "", false, err
 		}
 		m.Kind, m.Project, m.Source, m.Agent = kind, project.String, source.String, agent.String
 		mems = append(mems, m)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return "", false, err
 	}
 
-	path := filepath.Join(dir, Dir, string(kind)+".md")
 	if len(mems) == 0 {
+		return "", false, nil
+	}
+	return renderKind(kind, mems), true, nil
+}
+
+func writeKindDigest(dir string, kind Kind, content string, has bool) error {
+	path := filepath.Join(dir, Dir, string(kind)+".md")
+	if !has {
 		// Remove rather than leave an empty file: a kind nobody uses should not
 		// clutter the vault, and its absence is not ambiguous.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -498,7 +561,7 @@ func ExportKind(db *sql.DB, dir string, kind Kind) error {
 		}
 		return nil
 	}
-	return vault.WriteAtomic(path, []byte(renderKind(kind, mems)))
+	return vault.WriteAtomic(path, []byte(content))
 }
 
 // generatedDigestBanner marks a kind's flat file as logos's own rendered
@@ -604,18 +667,19 @@ func writeMemoryFile(db *sql.DB, dir string, kind Kind, m Memory) error {
 		return fmt.Errorf("memory #%d has no uid to file it under", m.ID)
 	}
 	path := memoryFilePath(dir, kind, m.Uid)
-	if last, ok := fileStampSeen(db, m.Uid); ok {
-		if onDisk, err := os.ReadFile(path); err == nil {
-			if sha256.Sum256(onDisk) != last {
-				return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
-			}
+	if onDisk, err := os.ReadFile(path); err == nil {
+		last, stamped := fileStampSeen(db, m.Uid)
+		pending, pendingStamped := fileStampSeen(db, pendingUID(m.Uid))
+		if mine, claimed := ours(sha256.Sum256(onDisk), last, stamped, pending, pendingStamped); claimed && !mine {
+			return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
 		}
 	}
 	content := []byte(renderMemoryFile(kind, m))
+	fileStamp(db, pendingUID(m.Uid), sha256.Sum256(content))
 	if err := vault.WriteAtomic(path, content); err != nil {
 		return err
 	}
-	fileStamp(db, m.Uid, sha256.Sum256(content))
+	settleFileStamp(db, m.Uid, sha256.Sum256(content))
 	return nil
 }
 
@@ -1041,7 +1105,7 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 			db.Exec("UPDATE memories SET unflushed = 0 WHERE id = ?", id)
 		}
 		if raw, err := os.ReadFile(filepath.Join(dir, Dir, string(kind)+".md")); err == nil {
-			stamp(db, kind, sha256.Sum256(raw))
+			settleStamp(db, kind, sha256.Sum256(raw))
 		} else {
 			dropStamp(db, kind)
 		}
