@@ -2,6 +2,7 @@ package setup
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,7 +61,8 @@ func TestUninstallFromAHostWithoutLogosChangesNothing(t *testing.T) {
 
 func TestUninstallRemovesLogosFromClaudeCode(t *testing.T) {
 	_, calls := stubCLI(t, "claude", `
-[ "$2" = list ] && echo "logos: /usr/local/bin/logos mcp serve - ✓ Connected"
+[ "$2" = get ] && [ "$3" = logos ] && printf 'logos:\n  Type: stdio\n  Command: /usr/local/bin/logos\n  Args: mcp serve\n' && exit 0
+[ "$2" = get ] && { echo "No MCP server named \"$3\"" >&2; exit 1; }
 exit 0
 `)
 
@@ -90,5 +92,37 @@ func TestASecondUninstallKeepsTheFirstBackup(t *testing.T) {
 
 	if raw, err := os.ReadFile(first[0].Backup); err != nil || string(raw) != cfg {
 		t.Errorf("the first uninstall's backup was lost (%v): %q", err, raw)
+	}
+}
+
+// Setup keeps the user's config from before logos as .logos-backup and never
+// writes over it (#353), but uninstall renamed its own copy over that name, so
+// setup then uninstall left only copies with logos in them.
+func TestUninstallKeepsTheBackupOfTheUsersOriginalConfig(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	cursor := hostNamed(t, "Cursor")
+	path := filepath.Join(home, ".cursor", "mcp.json")
+	const original = "{\"mcpServers\":{\"theirs\":{\"command\":\"their-server\"}}}\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if r := Install(server(), []Host{cursor}); r[0].Outcome == Failed {
+		t.Fatalf("setup: %v", r[0].Err)
+	}
+	connected, _ := os.ReadFile(path)
+
+	r := Uninstall([]Host{cursor})
+
+	if r[0].Err != nil || len(r[0].Removed) == 0 {
+		t.Fatalf("uninstall = %+v", r[0])
+	}
+	if got, _ := os.ReadFile(path + ".logos-backup"); string(got) != original {
+		t.Errorf("the backup of the user's original config now holds %q", got)
+	}
+	if got, err := os.ReadFile(r[0].Backup); err != nil || string(got) != string(connected) {
+		t.Errorf("the config as uninstall found it was not kept at %q (%v): %q", r[0].Backup, err, got)
+	}
+	if r[0].Original != path+".logos-backup" {
+		t.Errorf("original = %q, want the .logos-backup named", r[0].Original)
 	}
 }

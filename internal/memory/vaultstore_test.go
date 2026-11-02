@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"os"
@@ -1141,5 +1142,208 @@ func TestEveryImportReturnsTheMemoryCopiesItSetAside(t *testing.T) {
 	}
 	if len(e.SetAside) != 1 || e.SetAside[0] != "memories/fact/"+copyName {
 		t.Errorf("SetAside = %v, want the Drive copy named", e.SetAside)
+	}
+}
+
+func TestAMemoryFileWithNoMemoryLineIsKeptAndReportedNotForgotten(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "deploys go through the staging gate", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	path := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(path)
+	// The bullet edited away, the frontmatter left: a slip, not a forget.
+	// Deleting the file is how a memory is forgotten by hand.
+	kept := strings.SplitN(string(raw), "\n- ", 2)[0] + "\n"
+	if err := os.WriteFile(path, []byte(kept), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Forgotten) != 0 {
+		t.Errorf("Forgotten = %v, want the memory kept while its file is unreadable as one", e.Forgotten)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the file the user is still editing was removed: %v", err)
+	}
+	want := "memories/fact/" + entries[0].Name()
+	if len(e.Unread) != 1 || e.Unread[0] != want {
+		t.Errorf("Unread = %v, want [%s] so the import can say it", e.Unread, want)
+	}
+}
+
+func TestAnUnreadableMemoryFileIsKeptAndReportedNotForgotten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	db, dir := vaultDB(t)
+	m := Memory{Text: "the cache lives in redis", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	path := filepath.Join(kindDir, entries[0].Name())
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Forgotten) != 0 {
+		t.Errorf("Forgotten = %v, want a memory kept while its file cannot be read", e.Forgotten)
+	}
+	os.Chmod(path, 0o644)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the unreadable file was removed: %v", err)
+	}
+	if len(e.Unread) != 1 || e.Unread[0] != "memories/fact/"+entries[0].Name() {
+		t.Errorf("Unread = %v, want the file named", e.Unread)
+	}
+}
+
+// A kill between writing the digest and recording its hash left the hash of
+// the file before it. The next `memory add` took logos's own write for a hand
+// edit and refused, and every add after it, until an index (#371). Put back
+// here as the state the kill leaves: the earlier stamp, and the pending claim
+// on the file the write produced.
+func TestAKillBetweenTheDigestWriteAndItsStampDoesNotBlockTheNextWrite(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := Store(db, nil, "", &Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	before, ok := stampSeen(db, Fact)
+	if !ok {
+		t.Fatal("the first write recorded no stamp")
+	}
+	if _, err := Store(db, nil, "", &Memory{Text: "deploys go through staging", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, Dir, "fact.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp(db, Fact, before)
+	stamp(db, pendingKind(Fact), sha256.Sum256(written))
+
+	if _, err := Store(db, nil, "", &Memory{Text: "the cache lives in redis", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatalf("logos's own interrupted write was refused as a hand edit: %v", err)
+	}
+}
+
+// The same kill on a memory's own file: a pin rewrites it, and the next
+// rewrite refused it as hand-edited.
+func TestAKillBetweenAMemoryFileWriteAndItsStampDoesNotBlockTheNextWrite(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	before, ok := fileStampSeen(db, m.Uid)
+	if !ok {
+		t.Fatal("the first write recorded no file stamp")
+	}
+	if err := Pin(db, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(memoryFilePath(dir, Fact, m.Uid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStamp(db, m.Uid, before)
+	fileStamp(db, pendingUID(m.Uid), sha256.Sum256(written))
+
+	if err := Unpin(db, m.ID); err != nil {
+		t.Fatalf("logos's own interrupted write was refused as a hand edit: %v", err)
+	}
+}
+
+// The pending claim is only for the window between a write and its stamp. Left
+// behind after it, it kept an old file "ours" once something else (an index)
+// had stamped a newer one: restore the old digest from a backup and the next
+// write overwrote it instead of refusing.
+func TestAnOldPendingClaimDoesNotLetAWriteOverARestoredDigest(t *testing.T) {
+	db, dir := vaultDB(t)
+	if _, err := Store(db, nil, "", &Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+	digestPath := filepath.Join(dir, Dir, "fact.md")
+	old, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp(db, Fact, sha256.Sum256([]byte("what a later index wrote")))
+	if err := os.WriteFile(digestPath, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Store(db, nil, "", &Memory{Text: "deploys go through staging", Kind: Fact, Source: "manual"}); err == nil {
+		t.Fatal("a write went over a file the newest stamp does not describe")
+	}
+}
+
+// The same for a memory's own file.
+func TestAnOldPendingClaimDoesNotLetAWriteOverARestoredMemoryFile(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "builds run on the m2 runner", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	path := memoryFilePath(dir, Fact, m.Uid)
+	old, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStamp(db, m.Uid, sha256.Sum256([]byte("what a later write left")))
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Pin(db, m.ID); err == nil {
+		t.Fatal("a write went over a file the newest stamp does not describe")
+	}
+}
+
+// A memory file torn mid-record is damage, as a torn digest is, wherever it
+// sorts: the files are joined before the torn-tail check, so one torn file
+// that was not the last was read as a record and its metadata lost.
+func TestATornMemoryFileReportsItsKindDamagedWhereverItSorts(t *testing.T) {
+	db, dir := vaultDB(t)
+	a := Memory{Text: "deploys go through the staging gate", Kind: Fact, Source: "manual"}
+	b := Memory{Text: "the cache key includes the locale", Kind: Fact, Source: "manual"}
+	for _, m := range []*Memory{&a, &b} {
+		if _, err := Store(db, nil, "", m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := a
+	if b.Uid < a.Uid {
+		first = b
+	}
+	path := memoryFilePath(dir, Fact, first.Uid)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := strings.Index(string(raw), "<!--")
+	if cut < 0 {
+		t.Fatalf("no metadata comment to tear in:\n%s", raw)
+	}
+	if err := os.WriteFile(path, raw[:cut+8], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err = ImportEdits(db, nil, "", dir)
+	if err == nil || !strings.Contains(err.Error(), first.Uid) {
+		t.Errorf("err = %v, want the torn file %s named as damage", err, first.Uid)
 	}
 }
