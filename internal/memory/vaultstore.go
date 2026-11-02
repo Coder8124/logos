@@ -679,19 +679,25 @@ func writeMemoryFile(db *sql.DB, dir string, kind Kind, m Memory) error {
 	}
 	path := memoryFilePath(dir, kind, m.Uid)
 	if last, ok := fileStampSeen(db, m.Uid); ok {
-		if onDisk, err := os.ReadFile(path); err == nil {
-			if !stamped(last, sha256.Sum256(onDisk)) {
-				return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
-			}
+		onDisk, err := os.ReadFile(path)
+		// A file there that cannot be read may hold a hand edit nobody can
+		// check, and the index keeps its row now; replacing it would lose
+		// that edit with no refusal.
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("memories/%s/%s.md could not be read to check it for hand edits, so it was not rewritten: %w", kind, m.Uid, err)
+		}
+		if err == nil && !stamped(last, sha256.Sum256(onDisk)) {
+			return fmt.Errorf("memories/%s/%s.md was hand-edited since logos last wrote it — correct the memory with `logos memory correct`, or edit the file and run `logos index`", kind, m.Uid)
 		}
 	}
 	content := []byte(renderMemoryFile(kind, m))
-	fileStampPending(db, m.Uid, sha256.Sum256(content))
+	sum := sha256.Sum256(content)
+	fileStampPending(db, m.Uid, sum)
 	if err := vault.WriteAtomic(path, content); err != nil {
 		return err
 	}
 	vaultWritten(path)
-	fileStamp(db, m.Uid, sha256.Sum256(content))
+	fileStamp(db, m.Uid, sum)
 	return nil
 }
 
@@ -934,16 +940,21 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 		authoritative[kind] = true
 	}
 
-	// A damaged file is reported and never acted on. Importing what survived
-	// would be the same silent deletion this guard exists to prevent, and the
-	// user needs to know before they overwrite the file by writing a new memory.
+	// A file that could not be read says nothing about its memory, so the row
+	// is neither reaped as a deleted line nor counted as safe in the vault —
+	// nothing confirmed it there, and an unflushed flag has to stay set for
+	// doctor and the next index.
+	unreadable := map[int64]bool{}
 	for _, uid := range edits.unreadableUIDs {
 		var id int64
 		if db.QueryRow("SELECT id FROM memories WHERE uid = ? AND superseded = 0", uid).Scan(&id) == nil {
-			keep[id] = true
+			unreadable[id] = true
 		}
 	}
 
+	// A damaged file is reported and never acted on. Importing what survived
+	// would be the same silent deletion this guard exists to prevent, and the
+	// user needs to know before they overwrite the file by writing a new memory.
 	if len(damaged) > 0 {
 		return imported, rescued, fmt.Errorf(
 			"refusing to import an incomplete memory store (%s); "+
@@ -995,6 +1006,9 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 		if err := rows.Scan(&id, &kind, &unflushed); err != nil {
 			rows.Close()
 			return imported, rescued, err
+		}
+		if unreadable[id] {
+			continue
 		}
 		if keep[id] {
 			// Already recovered — not by the rescue below, but by its own
@@ -1341,6 +1355,7 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 				}
 				continue
 			}
+			uid := strings.TrimSuffix(en.Name(), ".md")
 			content, rerr := os.ReadFile(filepath.Join(kindDir, en.Name()))
 			if rerr != nil {
 				// Unreadable, not missing — treated the same as linesElsewhere
@@ -1356,14 +1371,14 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 						why = pe.Err // the path is said once, vault-relative
 					}
 					e.Unreadable = append(e.Unreadable, rel+": "+why.Error())
-					e.unreadableUIDs = append(e.unreadableUIDs, strings.TrimSuffix(en.Name(), ".md"))
+					e.unreadableUIDs = append(e.unreadableUIDs, uid)
 				}
 				// Not migrated over either: a legacy line with this uid would
 				// be written onto the file nobody could read.
-				have[strings.TrimSuffix(en.Name(), ".md")] = true
+				have[uid] = true
 				continue
 			}
-			have[strings.TrimSuffix(en.Name(), ".md")] = true
+			have[uid] = true
 			b.Write(content)
 			if len(content) > 0 && content[len(content)-1] != '\n' {
 				b.WriteByte('\n')
