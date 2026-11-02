@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/hostdir"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -861,18 +862,15 @@ func joinPath(parts ...string) string { return filepath.Join(parts...) }
 // read ~/.claude regardless, so a user who had moved either got a success for
 // a config the host never read (#376). Claude Code keeps .claude.json in that
 // directory too once it is moved, rather than beside it in HOME.
-func inCodexHome(parts ...string) string {
-	if d := os.Getenv("CODEX_HOME"); d != "" {
-		return filepath.Join(append([]string{d}, parts...)...)
-	}
-	return inHome(append([]string{".codex"}, parts...)...)
-}
+func inCodexHome(parts ...string) string { return joinUnder(hostdir.CodexHome(), parts) }
 
-func inClaudeConfig(parts ...string) string {
-	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-		return filepath.Join(append([]string{d}, parts...)...)
+func inClaudeConfig(parts ...string) string { return joinUnder(hostdir.ClaudeConfig(), parts) }
+
+func joinUnder(dir string, parts []string) string {
+	if dir == "" {
+		return ""
 	}
-	return inHome(append([]string{".claude"}, parts...)...)
+	return filepath.Join(append([]string{dir}, parts...)...)
 }
 
 func claudeJSON() string {

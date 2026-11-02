@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/hostdir"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
@@ -420,12 +421,7 @@ func uncommented(line string, open bool) (string, bool) {
 func autoMemoryDir(root string) string {
 	projects := os.Getenv(transcript.LogosClaudeProjectsEnv)
 	if projects == "" {
-		config := os.Getenv("CLAUDE_CONFIG_DIR")
-		if config == "" {
-			home, _ := os.UserHomeDir()
-			config = filepath.Join(home, ".claude")
-		}
-		projects = filepath.Join(config, "projects")
+		projects = filepath.Join(hostdir.ClaudeConfig(), "projects")
 	}
 	if _, checkout := gitstate.Identity(root); checkout != "" {
 		root = checkout
