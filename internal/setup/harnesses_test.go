@@ -335,3 +335,39 @@ func TestPinnedEntriesReadsOpencodeAndAmpInTheirOwnShapes(t *testing.T) {
 		t.Errorf("opencode's environment lost LOGOS_EMBED: %v", s.Env)
 	}
 }
+
+// CODEX_HOME moves Codex's config and hooks with the rest of its home. Setup
+// wrote ~/.codex regardless and said Codex was connected, while Codex read a
+// config.toml with no logos in it (#376).
+func TestCodexIsWiredUnderCODEX_HOMEWhenItIsSet(t *testing.T) {
+	isolatePath(t)
+	home := fakeHome(t)
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	h := hostNamed(t, "Codex")
+	if h.Config() != filepath.Join(dir, "config.toml") {
+		t.Errorf("config %s, want %s", h.Config(), filepath.Join(dir, "config.toml"))
+	}
+	if codexHooksPath() != filepath.Join(dir, "hooks.json") {
+		t.Errorf("hooks %s, want %s", codexHooksPath(), filepath.Join(dir, "hooks.json"))
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex")); !os.IsNotExist(err) {
+		t.Errorf("~/.codex was touched: %v", err)
+	}
+}
+
+// CLAUDE_CONFIG_DIR moves Claude Code's settings, plugin records and its
+// .claude.json. Reading ~/.claude instead, setup missed an installed plugin and
+// wired a second logos beside it (#376).
+func TestClaudeCodeIsReadUnderCLAUDE_CONFIG_DIRWhenItIsSet(t *testing.T) {
+	fakeHome(t)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	writeFile(t, filepath.Join(dir, "plugins", "installed_plugins.json"), `{"version":2,"plugins":{"logos@logos":[{"scope":"user","version":"0.5.6"}]}}`)
+	if r := LogosPluginRecord(); !r.Installed {
+		t.Errorf("the plugin installed under CLAUDE_CONFIG_DIR was not found: %+v", r)
+	}
+	if got := hostNamed(t, "Claude Code").Config(); got != filepath.Join(dir, ".claude.json") {
+		t.Errorf("config %s, want %s", got, filepath.Join(dir, ".claude.json"))
+	}
+}

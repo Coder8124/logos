@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/hostdir"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -867,6 +868,29 @@ func parent(path string) string { return filepath.Dir(path) }
 
 func joinPath(parts ...string) string { return filepath.Join(parts...) }
 
+// inCodexHome and inClaudeConfig are inHome for the two hosts whose whole
+// config directory an environment variable moves. Setup wrote ~/.codex and
+// read ~/.claude regardless, so a user who had moved either got a success for
+// a config the host never read (#376). Claude Code keeps .claude.json in that
+// directory too once it is moved, rather than beside it in HOME.
+func inCodexHome(parts ...string) string { return joinUnder(hostdir.CodexHome(), parts) }
+
+func inClaudeConfig(parts ...string) string { return joinUnder(hostdir.ClaudeConfig(), parts) }
+
+func joinUnder(dir string, parts []string) string {
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{dir}, parts...)...)
+}
+
+func claudeJSON() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(d, ".claude.json")
+	}
+	return inHome(".claude.json")
+}
+
 // appData is Windows' per-user config root.
 func appData() string { return os.Getenv("APPDATA") }
 
@@ -885,7 +909,10 @@ type Removal struct {
 	// hook left behind runs a logos that uninstall just removed, and the host
 	// reports the failure at the user on every session.
 	Unhooked bool
-	Err      error
+	// HookBackup is the copy of the hooks file as uninstall found it, before
+	// the hook came out of it.
+	HookBackup string
+	Err        error
 }
 
 // Uninstall takes every logos entry back out of each host that is present.
@@ -932,8 +959,8 @@ func Uninstall(hosts []Host) []Removal {
 			r.Original = b.original
 		}
 		if h.Hooks != nil {
-			removed, err := removeHook(hooksPathFor(h.Name))
-			r.Unhooked = removed
+			removed, backup, err := removeHook(hooksPathFor(h.Name))
+			r.Unhooked, r.HookBackup = removed, backup
 			if err != nil && r.Err == nil {
 				r.Err = err
 			}

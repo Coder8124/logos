@@ -287,6 +287,9 @@ func mcpUninstallCmd(args []string) error {
 		if r.Unhooked {
 			fmt.Printf("  %-*s and its session-start hook\n", hostColumn, "")
 		}
+		if r.HookBackup != "" {
+			fmt.Printf("  %-*s backup of the old hooks file: %s\n", hostColumn, "", r.HookBackup)
+		}
 		if r.Backup != "" {
 			fmt.Printf("  %-*s backup of the old config: %s\n", hostColumn, "", r.Backup)
 		}

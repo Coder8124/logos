@@ -40,5 +40,11 @@ func (b *Logos) Index() (SyncReport, error) {
 	_, _, edits, err := b.ix.SyncMemoryEdits(b.embed, b.embedModel)
 	rep.ConflictCopies = append(rep.ConflictCopies, edits.SetAside...)
 	rep.ConflictCopies = append(rep.ConflictCopies, edits.Orphaned...)
+	// A memory file kept but not read leaves its memory frozen at the cached
+	// version, or missing from a fresh cache; `logos index` says so, and an
+	// embedder hears it the same way it hears of a folder the walk skipped.
+	for _, rel := range edits.Unread {
+		rep.Unreadable = append(rep.Unreadable, rel+": kept, not read: it could not be read or holds no `- ` memory line")
+	}
 	return rep, err
 }

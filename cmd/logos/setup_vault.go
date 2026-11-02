@@ -321,6 +321,7 @@ func indexVault(dir string) error {
 			fmt.Printf("  index      could not import memories: %v — run `logos index`\n", err)
 		} else {
 			printConflictCopies(os.Stdout, "  index      ", nil, edits)
+			printUnreadMemoryFiles(os.Stdout, "  index      ", edits)
 		}
 	} else if c := provider.Configured(); c != nil {
 		fmt.Printf("  index      not embedded: LOGOS_RUNTIME names %s, which did not answer — search is lexical until `logos index` reaches it\n", c.BaseURL)
