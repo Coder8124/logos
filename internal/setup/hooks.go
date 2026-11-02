@@ -315,6 +315,14 @@ func loadHookFile(path string) (hookFile, error) {
 			return f, fmt.Errorf("%s has a hooks block that is not an object: %w", path, err)
 		}
 	}
+	// "hooks": null unmarshals to a nil map, and adding logos's hook to it
+	// panicked (#356). A file that is just null leaves rest nil the same way.
+	if f.Hooks == nil {
+		f.Hooks = map[string]json.RawMessage{}
+	}
+	if f.rest == nil {
+		f.rest = map[string]json.RawMessage{}
+	}
 	return f, nil
 }
 
