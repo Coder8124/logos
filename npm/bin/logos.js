@@ -74,7 +74,19 @@ const child = spawn(binaryPath(), process.argv.slice(2), {
   windowsHide: true,
 });
 
+// At a terminal, Ctrl-C reaches the whole foreground group, the binary
+// included, and the binary decides what it means: `logos resume` stays up while
+// an agent it started handles the key. Forwarding it as well delivered it twice,
+// and this process dying under it handed the shell back while the agent still
+// owned the terminal, so there it is only held. Off a terminal a signal is aimed
+// at this process alone, and a host stopping its server with SIGINT must still
+// stop it, so there it is forwarded like the others.
+const atTerminal = require("tty").isatty(0);
 for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) {
+  if (sig === "SIGINT" && atTerminal) {
+    process.on(sig, () => {});
+    continue;
+  }
   process.on(sig, () => child.kill(sig));
 }
 
