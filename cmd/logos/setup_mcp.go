@@ -290,6 +290,9 @@ func mcpUninstallCmd(args []string) error {
 		if r.Backup != "" {
 			fmt.Printf("  %-*s backup of the old config: %s\n", hostColumn, "", r.Backup)
 		}
+		if r.Original != "" {
+			fmt.Printf("  %-*s the config from before logos first changed it is still at %s\n", hostColumn, "", r.Original)
+		}
 	}
 	// The plugin carries its own server, which no host config holds, so it is
 	// removed through claude's own CLI rather than left running.
