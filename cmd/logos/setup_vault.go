@@ -299,10 +299,11 @@ func indexVault(dir string) error {
 	if err != nil {
 		return err
 	}
-	// provider.Discover rather than findProvider: the latter prints a banner of
-	// its own, which would interrupt this report mid-table.
+	// provider.Resolve rather than findProvider: the latter prints a banner of
+	// its own, which would interrupt this report mid-table. Resolve, not
+	// Discover, so a LOGOS_RUNTIME on another host is the one embedded with.
 	embedModel := env("LOGOS_EMBED", defaultEmbedModel)
-	if found := provider.Discover(); len(found) > 0 {
+	if found := provider.Resolve(); len(found) > 0 {
 		// Said before it starts: a large vault takes minutes to embed, and
 		// silence for that long reads as a hang with the hosts prompt stuck
 		// behind it.
@@ -321,6 +322,8 @@ func indexVault(dir string) error {
 		} else {
 			printConflictCopies(os.Stdout, "  index      ", nil, edits)
 		}
+	} else if c := provider.Configured(); c != nil {
+		fmt.Printf("  index      not embedded: LOGOS_RUNTIME names %s, which did not answer — search is lexical until `logos index` reaches it\n", c.BaseURL)
 	}
 	notes, _ := ix.NoteCount()
 	edges, _ := ix.EdgeCount()
