@@ -90,3 +90,17 @@ func TestEveryDeclaredArgumentIsStillAccepted(t *testing.T) {
 		}
 	}
 }
+
+// #360: only a string was checked against the enum, and argStr reads anything
+// else as "", so `kind: 5` or `kind: ["person"]` was stored as a plain fact
+// with a green receipt — the same failure as `banana`, by another route.
+func TestAnEnumValueThatIsNotAStringIsRefusedRatherThanDefaulted(t *testing.T) {
+	for _, kind := range []any{5, []any{"person"}, true, map[string]any{"v": "fact"}} {
+		if err := validateArgs("remember", map[string]any{"text": "x", "kind": kind}); err == nil {
+			t.Errorf("kind %v was accepted, and would be stored as a fact", kind)
+		}
+	}
+	if err := validateArgs("remember", map[string]any{"text": "x", "kind": nil}); err != nil {
+		t.Errorf("a null kind, which is no kind, was refused: %v", err)
+	}
+}

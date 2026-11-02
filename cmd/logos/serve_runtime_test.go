@@ -172,7 +172,7 @@ func TestServeHonoursTheToolSetAndRefusesOneItDoesNotKnow(t *testing.T) {
 	old := serveTools
 	t.Cleanup(func() { serveTools = old })
 
-	serveTools = toolSetFrom([]string{"serve", "--tools", "continuity"})
+	serveTools, _ = toolSetFrom([]string{"serve", "--tools", "continuity"})
 	srv, err := newMCPServer(ix.DB, vault)
 	if err != nil {
 		t.Fatal(err)
@@ -187,8 +187,28 @@ func TestServeHonoursTheToolSetAndRefusesOneItDoesNotKnow(t *testing.T) {
 	}
 
 	t.Setenv("LOGOS_TOOLS", "continuty")
-	serveTools = toolSetFrom([]string{"serve"})
+	serveTools, _ = toolSetFrom([]string{"serve"})
 	if _, err := newMCPServer(ix.DB, vault); err == nil {
 		t.Error("LOGOS_TOOLS=continuty started a server instead of failing")
+	}
+}
+
+// #359: only `--tools <set>` was read. `--tools=continuity` and a bare
+// `--tools` both served every tool without a word, so a user who asked for a
+// narrow surface got the whole one.
+func TestToolsFlagWithEqualsOrNoValueIsNotIgnored(t *testing.T) {
+	t.Setenv("LOGOS_TOOLS", "")
+	got, err := toolSetFrom([]string{"serve", "--tools=continuity"})
+	if err != nil || got != "continuity" {
+		t.Errorf("--tools=continuity read as %q, %v", got, err)
+	}
+	for _, args := range [][]string{
+		{"serve", "--tools"},
+		{"serve", "--tools", "--http"},
+		{"serve", "--tools="},
+	} {
+		if got, err := toolSetFrom(args); err == nil {
+			t.Errorf("%q served %q instead of asking for a tool set", args, got)
+		}
 	}
 }
