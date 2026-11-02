@@ -20,7 +20,7 @@ Last checkpoint by **cursor**, 3h ago.
 
 **Why:** the first production run is priced at the $118 target or it does not happen _(from aider's earlier checkpoint of this work, 3d ago)_
 
-**Verified by **cursor**, not by you — safe to continue from:**
+**Verified by cursor, not by you — safe to continue from:**
 - battery quote B is $2.30 cheaper at the same capacity
 
 **Known broken — do not build on it:**

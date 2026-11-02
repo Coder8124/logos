@@ -228,11 +228,13 @@ func main() {
 	case cmd == "project":
 		err = projectCmd(args)
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve" && hasFlag(args, "--http"):
-		serveTools = toolSetFrom(args)
-		err = runMCPServeHTTP(flagInt(args, "--port", 8137))
+		if serveTools, err = toolSetFrom(args); err == nil {
+			err = runMCPServeHTTP(flagInt(args, "--port", 8137))
+		}
 	case cmd == "mcp" && len(args) >= 1 && args[0] == "serve":
-		serveTools = toolSetFrom(args)
-		err = runMCPServe()
+		if serveTools, err = toolSetFrom(args); err == nil {
+			err = runMCPServe()
+		}
 	case cmd == "bench" && len(args) >= 2 && args[0] == "memory" && hasFlag(args, "--qa"):
 		err = runBenchQA(args[1], flagInt(args, "--n", 100), !hasFlag(args, "--vector"), flagInt(args, "--depth", 5))
 	case cmd == "bench" && len(args) >= 2 && args[0] == "memory":
