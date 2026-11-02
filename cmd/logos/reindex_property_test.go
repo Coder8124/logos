@@ -30,7 +30,7 @@ var durableColumns = map[string]string{
 	"memory_log":     "event, detail, project",
 	"commitments":    "text, who, status",
 	"dream_insights": "kind, text, status",
-	"sessions":       "project, agent, ended",
+	"sessions":       "id, project, agent, task, started, ended",
 	"session_notes":  "text, ts",
 }
 
@@ -40,12 +40,6 @@ var durableColumns = map[string]string{
 // restores only the sessions still open. Nor is a superseded memory: its file
 // is deleted when it is replaced, the replacement names it by uid, and log.md
 // holds the history (see Memory.Supersedes).
-//
-// An open session's id, start time and task are left out of the columns above
-// for a narrower reason: uncommitted.md records each note's text, time and
-// agent and nothing about the session, so a rebuild opens a fresh one around
-// them. That is safe — the id names no file until a checkpoint, which creates
-// its file exclusively — but it is not the same row.
 var durableWhere = map[string]string{
 	"memories":      "WHERE superseded = 0",
 	"sessions":      "WHERE ended = 0",

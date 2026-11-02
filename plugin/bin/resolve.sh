@@ -205,11 +205,15 @@ logos_resolve() {
   # however old, and with nothing recorded the skew notice never saw it. Not
   # through logos_runs, whose LOGOS_REJECTED would then name npx to mcp.sh in
   # place of the installed copy that really failed.
-  local out
-  if command -v npx >/dev/null 2>&1 && out=$(npx --prefer-offline -y @noeton/logos --version 2>/dev/null); then
+  #
+  # LOGOS_NPX_OFFLINE is for a hook that promises no network: --offline uses
+  # the cache or fails, where --prefer-offline still fetches into a cold one.
+  local out npx_cache=--prefer-offline
+  [ -n "${LOGOS_NPX_OFFLINE:-}" ] && npx_cache=--offline
+  if command -v npx >/dev/null 2>&1 && out=$(npx "$npx_cache" -y @noeton/logos --version 2>/dev/null); then
     case "$out" in
       "logos "*)
-        LOGOS=(npx --prefer-offline -y @noeton/logos)
+        LOGOS=(npx "$npx_cache" -y @noeton/logos)
         LOGOS_RESOLVED="npx" LOGOS_RESOLVED_VERSION=${out#* }
         LOGOS_RESOLVED_VERSION=${LOGOS_RESOLVED_VERSION%% *}
         return 0
