@@ -216,7 +216,7 @@ func TestInstallingTheHookKeepsEveryFieldOfTheUsersOwnEntry(t *testing.T) {
 	}
 	assertTheirEntryIsWhole(t, path)
 
-	if _, err := removeHook(path); err != nil {
+	if _, _, err := removeHook(path); err != nil {
 		t.Fatal(err)
 	}
 	assertTheirEntryIsWhole(t, path)
@@ -367,11 +367,88 @@ func TestUninstallTakesLogosOutOfCodexsSessionStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	removed, err := removeHook(path)
+	removed, _, err := removeHook(path)
 	if err != nil || !removed {
 		t.Fatalf("removeHook = %v, %v; want true", removed, err)
 	}
 	if cmds := codexHookCommands(t, path); len(cmds) != 1 || cmds[0] != "mine.sh" {
 		t.Errorf("SessionStart after uninstall = %q, want only the user's handler", cmds)
+	}
+}
+
+// Uninstall rewrote hooks.json in place with no copy, so whatever the user had
+// put there since setup — a field logos does not model, a hook it does not
+// parse — had nowhere to be got back from, and nothing said the file was
+// rewritten at all (#357). Setup's own .logos-backup, the file from before
+// logos, must survive the uninstall too.
+func TestUninstallKeepsACopyOfTheHooksFileItRewritesAndNamesIt(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "hooks.json")
+	original := `{"version":1,"hooks":{"sessionStart":[{"command":"theirs.sh"}]}}`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := installHookBackedUp(path, "cursor", []string{"/usr/local/bin/logos"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r := Uninstall([]Host{hostNamed(t, "Cursor")})
+
+	if len(r) != 1 || !r[0].Unhooked || r[0].HookBackup == "" {
+		t.Fatalf("uninstall rewrote hooks.json and named no copy: %+v", r)
+	}
+	if got, _ := os.ReadFile(r[0].HookBackup); string(got) != string(before) {
+		t.Errorf("the named copy %s holds %q, want the file as uninstall found it", r[0].HookBackup, got)
+	}
+	if got, _ := os.ReadFile(path + ".logos-backup"); string(got) != original {
+		t.Errorf("setup's backup of the file from before logos now holds %q", got)
+	}
+}
+
+// JSON's null unmarshals into a map as nil, so a hooks file holding
+// `"hooks": null` panicked setup with "assignment to entry in nil map" after
+// the server was already registered: a stack trace, a half-wired host, and
+// no later host wired at all (#356).
+func TestAHooksFileWithANullHooksBlockGetsTheHook(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	hooks := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.WriteFile(hooks, []byte(`{"version": 1, "hooks": null}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Install(server(), []Host{hostNamed(t, "Cursor")})
+
+	if r[0].Outcome == Failed || r[0].HookErr != nil {
+		t.Fatalf("result = %+v", r[0])
+	}
+	if cmds := hookCommands(t, hooks); len(cmds) != 1 {
+		t.Errorf("hooks = %q, want the logos hook", cmds)
+	}
+}
+
+// The same nil map in an MCP config: `"mcpServers": null` panicked setup
+// before it wrote anything (#355).
+func TestAConfigWithANullServersBlockGetsLogos(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	path := filepath.Join(home, ".cursor", "mcp.json")
+	if err := os.WriteFile(path, []byte(`{"mcpServers": null, "theme": "keep-me"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Install(server(), []Host{hostNamed(t, "Cursor")})
+
+	if r[0].Outcome == Failed {
+		t.Fatalf("Cursor was not wired: %v", r[0].Err)
+	}
+	cfg := readJSON(t, path)
+	if servers, _ := cfg["mcpServers"].(map[string]any); servers[Name] == nil {
+		t.Errorf("no logos entry: %v", cfg)
+	}
+	if cfg["theme"] != "keep-me" {
+		t.Errorf("the user's other key was lost: %v", cfg)
 	}
 }

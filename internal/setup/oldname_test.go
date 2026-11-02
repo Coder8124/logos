@@ -73,6 +73,8 @@ func TestSetupRemovesTheOldBrainEntryFromClaudeCode(t *testing.T) {
 	home, calls := stubCLI(t, "claude", `
 case "$2" in
 list) [ -f "$HOME/old" ] && echo "brain: /Users/x/.local/bin/brain mcp serve - ✓ Connected" ;;
+get) [ "$3" = brain ] && [ -f "$HOME/old" ] || { echo "No MCP server found with name: $3" >&2; exit 1; }
+  printf 'brain:\n  Scope: User config\n  Status: ✓ Connected\n  Type: stdio\n  Command: /Users/x/.local/bin/brain\n  Args: mcp serve\n  Environment:\n' ;;
 remove) [ "$5" = brain ] && rm -f "$HOME/old" ;;
 esac
 exit 0
@@ -89,6 +91,30 @@ exit 0
 	}
 	if !r[0].Replaced || r[0].ReplaceErr != nil {
 		t.Errorf("Replaced = %v (%v), want true", r[0].Replaced, r[0].ReplaceErr)
+	}
+	// `mcp list` starts every server Claude Code has to report its health,
+	// and plugin.go stopped using it because one failed start of the
+	// plugin's server turns Logos off for fifteen minutes. Looking for one
+	// old entry by name needs only that name.
+	if strings.Contains(string(log), "mcp list") {
+		t.Errorf("looking for the brain entry health-checked every server; calls:\n%s", log)
+	}
+}
+
+// Someone else's server called brain, seen through `mcp get`, is still kept.
+func TestABrainEntryInClaudeCodeThatIsNotLogosIsKept(t *testing.T) {
+	_, calls := stubCLI(t, "claude", `
+case "$2" in
+get) printf 'brain:\n  Scope: User config\n  Type: stdio\n  Command: uvx\n  Args: some-other-brain\n' ;;
+esac
+exit 0
+`)
+
+	r := Install(server(), []Host{claudeCode()})
+
+	log, _ := os.ReadFile(calls)
+	if strings.Contains(string(log), "remove --scope user brain") || r[0].Replaced {
+		t.Errorf("someone else's brain server was removed (Replaced %v); calls:\n%s", r[0].Replaced, log)
 	}
 }
 
@@ -126,5 +152,21 @@ func TestCodexWithoutAnOldEntryIsNotAskedToRemoveOne(t *testing.T) {
 	log, _ := os.ReadFile(calls)
 	if strings.Contains(string(log), "remove") || r[0].Replaced || r[0].ReplaceErr != nil {
 		t.Errorf("a clean Codex was asked to remove brain (Replaced %v, %v); calls:\n%s", r[0].Replaced, r[0].ReplaceErr, log)
+	}
+}
+
+// `mcp get` failing for any reason read as "no brain entry here", so a broken
+// claude CLI left the old server in place and setup reported a clean run. Only
+// Claude Code's own "no such server" answer means there is nothing to remove.
+func TestAFailingClaudeMCPGetIsReportedNotTakenForNoEntry(t *testing.T) {
+	stubCLI(t, "claude", `
+[ "$2" = get ] && { echo "Error: could not parse ~/.claude.json" >&2; exit 2; }
+exit 0
+`)
+
+	r := Install(server(), []Host{claudeCode()})
+
+	if r[0].ReplaceErr == nil || !strings.Contains(r[0].ReplaceErr.Error(), "could not parse") {
+		t.Errorf("ReplaceErr = %v, want the CLI's failure", r[0].ReplaceErr)
 	}
 }

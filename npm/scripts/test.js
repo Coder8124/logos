@@ -61,11 +61,21 @@ check("a failing command exits non-zero", bad.status !== 0, `status=${bad.status
 
 // 3. The MCP handshake, end to end through the wrapper. This is the one that
 //    matters: it is how every host will actually invoke this package.
-const mcp = spawn(process.execPath, [launcher, "mcp", "serve"], {
-  env: { ...process.env, LOGOS_VAULT: fs.mkdtempSync(path.join(require("os").tmpdir(), "logos-npm-vault-")) },
-});
+const mcpEnv = { ...process.env, LOGOS_VAULT: fs.mkdtempSync(path.join(require("os").tmpdir(), "logos-npm-vault-")) };
+const mcp = spawn(process.execPath, [launcher, "mcp", "serve"], { env: mcpEnv });
 let stdout = "";
-mcp.stdout.on("data", (d) => (stdout += d));
+// Checked on the first complete line rather than after a fixed wait: a cold
+// Windows runner took longer than three seconds to start the binary, and the
+// check failed against a server that was about to answer.
+let answered = false;
+mcp.stdout.on("data", (d) => {
+  stdout += d;
+  if (!answered && stdout.includes("\n")) {
+    answered = true;
+    clearTimeout(deadline);
+    afterInitialize();
+  }
+});
 mcp.stdin.write(
   JSON.stringify({
     jsonrpc: "2.0",
@@ -75,10 +85,12 @@ mcp.stdin.write(
   }) + "\n"
 );
 
-setTimeout(() => {
-  mcp.stdin.end();
-  mcp.kill();
+const deadline = setTimeout(() => {
+  answered = true;
+  afterInitialize();
+}, 60000);
 
+function afterInitialize() {
   const lines = stdout.split("\n").filter((l) => l.trim() !== "");
   check("mcp serve answered initialize", lines.length > 0, "no output on stdout");
 
@@ -98,6 +110,7 @@ setTimeout(() => {
     }
   }
   check("stdout carries only JSON-RPC", clean, why);
+  mcp.stdin.end();
 
   const first = lines[0] ? JSON.parse(lines[0]) : {};
   check(
@@ -106,6 +119,33 @@ setTimeout(() => {
     JSON.stringify(first).slice(0, 200)
   );
 
+  // 4. A process manager stops a server with SIGTERM to the pid it started:
+  //    this wrapper. The wrapper died and the binary kept running on a stdin
+  //    someone else still held open, one orphaned server per restart. The
+  //    stdin here is a FIFO this test keeps open, so only the signal can stop
+  //    the binary, and its stdout closing is the proof that it went.
+  if (process.platform === "win32") return finish();
+  const fifo = path.join(fs.mkdtempSync(path.join(require("os").tmpdir(), "logos-npm-fifo-")), "stdin");
+  spawnSync("mkfifo", [fifo]);
+  const held = fs.openSync(fifo, "r+");
+  const served = spawn(process.execPath, [launcher, "mcp", "serve"], {
+    stdio: [held, "pipe", "inherit"],
+    env: mcpEnv,
+  });
+  served.stdout.resume();
+  const stopped = setTimeout(() => {
+    check("a SIGTERM to the wrapper stops the server", false, "the server outlived the wrapper by 10s");
+    finish();
+  }, 10000);
+  served.stdout.on("close", () => {
+    clearTimeout(stopped);
+    check("a SIGTERM to the wrapper stops the server", true);
+    finish();
+  });
+  setTimeout(() => served.kill("SIGTERM"), 1500);
+}
+
+function finish() {
   console.log(failed === 0 ? "\nall checks passed" : `\n${failed} check(s) failed`);
   process.exit(failed === 0 ? 0 : 1);
-}, 3000);
+}

@@ -459,15 +459,39 @@ func (s *Session) agentFor(args map[string]any) string {
 // internal/ingest's transcript-driven path uses for the very same
 // conversation. An older log line with no Extra falls back to the cut id —
 // still wrong against a full-id writer, but no worse than before this fix.
+//
+// Only an event the checkpointing host itself logged counts. Only Claude
+// Code's hooks write this log, so a host with none (opencode, Codex without
+// its hooks) took Claude's newest conversation and filed its checkpoint there
+// (#339); with no event of its own, a host has no conversation id to give.
 func (s *Session) hostSession(proj string) string {
-	events, err := activity.Read(s.vault, activity.Query{Project: proj, Limit: 1})
-	if err != nil || len(events) == 0 {
+	if s.clientAgent == "" {
 		return ""
 	}
-	if full, ok := events[0].Extra["session_id"].(string); ok && full != "" {
+	events, err := activity.Read(s.vault, activity.Query{Project: proj})
+	if err != nil {
+		return ""
+	}
+	// Read keeps file order within a second, so newest-first puts the first
+	// event written in the newest second ahead of the last one (#329): walk
+	// that second to its end before choosing.
+	var e *activity.Event
+	for i := range events {
+		if !strings.EqualFold(events[i].Agent, s.clientAgent) {
+			continue
+		}
+		if e != nil && events[i].TS != e.TS {
+			break
+		}
+		e = &events[i]
+	}
+	if e == nil {
+		return ""
+	}
+	if full, ok := e.Extra["session_id"].(string); ok && full != "" {
 		return full
 	}
-	return events[0].Session
+	return e.Session
 }
 
 // checkpoint commits the session to the vault. handoffTo is set when the caller

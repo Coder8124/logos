@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Coder8124/logos/internal/hostdir"
 )
 
 // Claude Code writes one JSON object per line to
@@ -34,11 +36,13 @@ func (claudeCodeReader) root() string {
 		}
 		return ""
 	}
-	h, err := os.UserHomeDir()
-	if err != nil {
+	// Under CLAUDE_CONFIG_DIR when the user moved it: Claude Code writes its
+	// transcripts there, and ~/.claude/projects is then empty or stale (#376).
+	config := hostdir.ClaudeConfig()
+	if config == "" {
 		return ""
 	}
-	p := filepath.Join(h, ".claude", "projects")
+	p := filepath.Join(config, "projects")
 	if dirExists(p) {
 		return p
 	}

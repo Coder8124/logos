@@ -27,7 +27,10 @@ event="${1:-}"
 [ -z "$event" ] && exit 0
 
 . "$(dirname "${BASH_SOURCE[0]}")/../bin/resolve.sh" 2>/dev/null || exit 0
-logos_resolve || exit 0
+# The npx fallback reads its cache only: a cold one is a registry round trip
+# per tool call, which "no network" above rules out and the 5 s timeout kills
+# anyway. Session start and the MCP server, which may fetch, warm it (#364).
+LOGOS_NPX_OFFLINE=1 logos_resolve || exit 0
 # Tells logos it has a hook's few seconds: the index switch waits for a command
 # nobody is about to kill.
 export LOGOS_HOOK=1

@@ -52,6 +52,21 @@ implied=" $(go tool dist list | tr '/' '\n' | sort -u | tr '\n' ' ') unix cgo gc
 # or an os.Exit, and it prints no "--- FAIL" line, only the package's FAIL.
 run() {
   local dir="$1" names="$2" n f w tags="" race=""
+  # The npm wrapper's test is one Node script driving a built binary through
+  # the wrapper, so it passes or fails as a whole.
+  if [ "$dir" = npm/scripts ]; then
+    local plat
+    plat=$(node -p 'process.platform + "-" + process.arch')
+    mkdir -p "$wt/npm/platforms/$plat/bin"
+    if ! (cd "$wt" && go build -o "npm/platforms/$plat/bin/logos" ./cmd/logos) >/dev/null 2>&1; then
+      echo BUILD
+    elif (cd "$wt/npm" && node scripts/test.js) >/dev/null 2>&1; then
+      echo "PASS test.js"
+    else
+      echo "FAIL test.js"
+    fi
+    return
+  fi
   # The tags the tests' own files are built under. Only chaos was passed once,
   # and a test behind any other tag never ran.
   for n in $names; do
@@ -89,7 +104,7 @@ for sha in $(git rev-list --reverse --no-merges "${base}..${head}"); do
   # Everything the commit changed except its tests and their fixtures. Empty,
   # the bug was in a test itself — a flake, a leak between tests — and there is
   # no code to put back: the fixed test passing is the proof.
-  fixed=$(git diff --name-only --no-renames "${sha}^" "$sha" | { grep -vE '_test\.go$|(^|/)testdata/' || true; })
+  fixed=$(git diff --name-only --no-renames "${sha}^" "$sha" | { grep -vE '_test\.go$|(^|/)testdata/|^npm/scripts/test\.js$' || true; })
   if [ -z "$fixed" ]; then
     echo "  ok $short: fixes only tests, nothing to run without the fix"
     continue
@@ -109,6 +124,10 @@ for sha in $(git rev-list --reverse --no-merges "${base}..${head}"); do
         END { flush() }' |
         { grep -vx TestMain || true; } | sed "s|^|$(dirname "$f") |"
     done | sort -u)
+  # A fix to the npm wrapper is proved by its own test, not a Go one.
+  if [ -n "$(git diff --name-only "${sha}^" "$sha" -- npm/scripts/test.js)" ]; then
+    tests=$(printf '%s\n%s\n' "$tests" "npm/scripts test.js" | sed '/^$/d')
+  fi
 
   if [ -z "$tests" ]; then
     echo "  $short: adds or changes no test: $subject"

@@ -177,3 +177,38 @@ func TestRecordHookStaysUnderBudgetOnALargeActivityLog(t *testing.T) {
 		}
 	}
 }
+
+// With no installed logos, the resolver falls back to npx, and --prefer-offline
+// still asks the registry when the cache is cold. record.sh runs on every tool
+// call under a 5 s timeout and promises no network, so a cold cache cost a
+// registry round trip per tool call, each killed before it finished (#364).
+// Here the cache is all it may use: the session-start hook and the MCP server
+// warm it, and an event missed before then is one event, not every one.
+func TestTheRecordHookNeverAsksTheRegistryForLogos(t *testing.T) {
+	hook, err := filepath.Abs("../../plugin/hooks/record.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, calls := t.TempDir(), filepath.Join(t.TempDir(), "npx-calls")
+	fakeProgram(t, tools, "npx", `echo "$*" >> '`+calls+`'
+case "$*" in *--version*) echo "logos 0.5.6 darwin/arm64 go1.26" ;; esac`)
+
+	cmd := exec.Command("/bin/bash", hook, "PostToolUse")
+	cmd.Env = []string{
+		"PATH=" + tools + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "GOBIN=", "GOPATH=",
+		noFixedInstallDirs, "CLAUDE_PROJECT_DIR=" + t.TempDir(),
+	}
+	cmd.Stdin = strings.NewReader(`{"tool_name":"Bash"}`)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("record.sh: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatalf("record.sh never reached npx: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(got)), "\n") {
+		if !strings.Contains(" "+line+" ", " --offline ") {
+			t.Errorf("record.sh ran npx without --offline: npx %s", line)
+		}
+	}
+}
