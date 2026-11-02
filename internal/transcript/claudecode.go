@@ -25,6 +25,13 @@ import (
 // LOGOS_VAULT.
 const LogosClaudeProjectsEnv = "LOGOS_CLAUDE_PROJECTS"
 
+// ClaudeConfigDir is where Claude Code keeps everything it writes:
+// CLAUDE_CONFIG_DIR when it is set, as Claude Code reads it, otherwise
+// ~/.claude. ~/.claude holds none of a moved user's sessions, rules or
+// memory, so every reader of Claude Code's files asks here, and they cannot
+// disagree about where it lives. Empty when neither can be named.
+func ClaudeConfigDir() string { return hostdir.ClaudeConfig() }
+
 type claudeCodeReader struct{}
 
 func (claudeCodeReader) harness() string { return "claude-code" }
