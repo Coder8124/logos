@@ -1332,6 +1332,13 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 				continue
 			}
 			content, rerr := os.ReadFile(filepath.Join(kindDir, en.Name()))
+			// Checked per file, not on the joined text: a torn file that does
+			// not sort last ends in the middle of the join, where the tail
+			// check never sees it, and its half-written line was imported as
+			// a record that had lost its metadata.
+			if rerr == nil && looksTruncated(string(content)) {
+				return "", existed, 0, kindDamaged(string(kind) + "/" + en.Name() + " ends mid-record; a memory file has no count line, so close its last line's <!-- comment or delete the line")
+			}
 			// Unreadable, or read and holding no memory line: never a reason
 			// to call the whole kind damaged over one bad file, and never a
 			// forget either — importInto keeps the row its name points at.

@@ -1312,3 +1312,38 @@ func TestAnOldPendingClaimDoesNotLetAWriteOverARestoredMemoryFile(t *testing.T) 
 		t.Fatal("a write went over a file the newest stamp does not describe")
 	}
 }
+
+// A memory file torn mid-record is damage, as a torn digest is, wherever it
+// sorts: the files are joined before the torn-tail check, so one torn file
+// that was not the last was read as a record and its metadata lost.
+func TestATornMemoryFileReportsItsKindDamagedWhereverItSorts(t *testing.T) {
+	db, dir := vaultDB(t)
+	a := Memory{Text: "deploys go through the staging gate", Kind: Fact, Source: "manual"}
+	b := Memory{Text: "the cache key includes the locale", Kind: Fact, Source: "manual"}
+	for _, m := range []*Memory{&a, &b} {
+		if _, err := Store(db, nil, "", m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := a
+	if b.Uid < a.Uid {
+		first = b
+	}
+	path := memoryFilePath(dir, Fact, first.Uid)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := strings.Index(string(raw), "<!--")
+	if cut < 0 {
+		t.Fatalf("no metadata comment to tear in:\n%s", raw)
+	}
+	if err := os.WriteFile(path, raw[:cut+8], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err = ImportEdits(db, nil, "", dir)
+	if err == nil || !strings.Contains(err.Error(), first.Uid) {
+		t.Errorf("err = %v, want the torn file %s named as damage", err, first.Uid)
+	}
+}
