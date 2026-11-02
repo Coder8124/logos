@@ -265,3 +265,28 @@ func TestAnEmptyAutoMemoryImportFromASubdirectoryNamesTheFolderItRead(t *testing
 		t.Errorf("the empty report names the subdirectory's folder, not the one read:\n%s", out)
 	}
 }
+
+// One hand-edited note with an unquoted second colon is not YAML, and its
+// error ended the import, so no note in the folder was imported. It is left
+// out by name like every other note that has nothing to offer.
+func TestOneNoteWithBrokenFrontmatterDoesNotStopTheOthersImporting(t *testing.T) {
+	dir := standInAutoMemory(t, map[string]string{
+		"feedback_trailer.md": feedbackNote,
+		"broken.md":           "---\nname: deploys\ndescription: Deploys: always run make check\n---\n\nRun make check first.\n",
+	})
+	// A link to a folder, named like a note, is not a directory entry to
+	// ReadDir, so it got past the folder check and could not be read.
+	if err := os.Symlink(t.TempDir(), filepath.Join(dir, "folder.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	out := importRules(t, claudeAutoMemorySource)
+	if !strings.Contains(out, "Imported 1,") {
+		t.Errorf("the good note was not imported:\n%s", out)
+	}
+	for _, name := range []string{"broken.md", "folder.md"} {
+		if !strings.Contains(out, "Left out") || !strings.Contains(out, name) {
+			t.Errorf("the report does not name %s as left out:\n%s", name, out)
+		}
+	}
+}
