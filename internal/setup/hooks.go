@@ -375,7 +375,7 @@ func installHookBackedUp(path, host string, argv []string) (Outcome, error) {
 
 // The two hosts with a user-level hooks file.
 func cursorHooksPath() string { return inHome(".cursor", "hooks.json") }
-func codexHooksPath() string  { return inHome(".codex", "hooks.json") }
+func codexHooksPath() string  { return inCodexHome("hooks.json") }
 
 // hooksPathFor is the same lookup by host name, for uninstall, which has the
 // host but not the closure that knows its path.

@@ -856,6 +856,32 @@ func parent(path string) string { return filepath.Dir(path) }
 
 func joinPath(parts ...string) string { return filepath.Join(parts...) }
 
+// inCodexHome and inClaudeConfig are inHome for the two hosts whose whole
+// config directory an environment variable moves. Setup wrote ~/.codex and
+// read ~/.claude regardless, so a user who had moved either got a success for
+// a config the host never read (#376). Claude Code keeps .claude.json in that
+// directory too once it is moved, rather than beside it in HOME.
+func inCodexHome(parts ...string) string {
+	if d := os.Getenv("CODEX_HOME"); d != "" {
+		return filepath.Join(append([]string{d}, parts...)...)
+	}
+	return inHome(append([]string{".codex"}, parts...)...)
+}
+
+func inClaudeConfig(parts ...string) string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(append([]string{d}, parts...)...)
+	}
+	return inHome(append([]string{".claude"}, parts...)...)
+}
+
+func claudeJSON() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(d, ".claude.json")
+	}
+	return inHome(".claude.json")
+}
+
 // appData is Windows' per-user config root.
 func appData() string { return os.Getenv("APPDATA") }
 

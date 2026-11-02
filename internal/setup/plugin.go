@@ -149,7 +149,7 @@ const (
 // line most people never see. Without this, the machine simply has no Logos and
 // doctor's other checks all pass: the plugin is installed, enabled, current.
 func PluginConnectionSkipped(now time.Time) (time.Duration, bool) {
-	path := inHome(".claude", "mcp-needs-auth-cache.json")
+	path := inClaudeConfig("mcp-needs-auth-cache.json")
 	if path == "" {
 		return 0, false
 	}

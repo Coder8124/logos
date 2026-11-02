@@ -39,7 +39,7 @@ func claudeCode() Host {
 		Where:  func() string { return "claude mcp add --scope user" },
 		// User-scope MCP servers live in ~/.claude.json, alongside a great deal
 		// else that is not ours to lose.
-		Config: func() string { return inHome(".claude.json") },
+		Config: func() string { return claudeJSON() },
 		Register: func(s Server) (Outcome, error) {
 			args := []string{"mcp", "add", "--scope", "user", Name}
 			for k, v := range s.Env {
@@ -125,16 +125,16 @@ func codex() Host {
 	return Host{
 		Name:   "Codex",
 		Detect: func() bool { return codexCLI() != "" },
-		Where:  func() string { return inHome(".codex", "config.toml") },
-		Config: func() string { return inHome(".codex", "config.toml") },
+		Where:  func() string { return inCodexHome("config.toml") },
+		Config: func() string { return inCodexHome("config.toml") },
 		// Read off the file, not `codex mcp list`: the file is where the
 		// environment is written down, and asking a host's own CLI at doctor
 		// time starts a process per host. Without this Codex was the one host
 		// whose registrations nothing could see, so a Codex wired to a deleted
 		// binary or an npx cache path passed every check (#90).
-		List: func() ([]Registration, error) { return readCodexServers(inHome(".codex", "config.toml")) },
+		List: func() ([]Registration, error) { return readCodexServers(inCodexHome("config.toml")) },
 		Register: func(s Server) (Outcome, error) {
-			path := inHome(".codex", "config.toml")
+			path := inCodexHome("config.toml")
 			raw, err := os.ReadFile(path)
 			if err != nil && !os.IsNotExist(err) {
 				return Failed, err
@@ -154,7 +154,7 @@ func codex() Host {
 			return installHookBackedUp(codexHooksPath(), "codex", hookArgv(s))
 		},
 		Remove: func(name string) (bool, error) {
-			raw, err := os.ReadFile(inHome(".codex", "config.toml"))
+			raw, err := os.ReadFile(inCodexHome("config.toml"))
 			if err != nil || !codexHasEntry(string(raw), name) {
 				return false, nil
 			}
@@ -653,7 +653,7 @@ func LogosPlugin() (version string, connects bool) {
 // scope that the user settings do not disable counts. A disable in one
 // project's settings cannot be seen from here, which Why says.
 func LogosPluginRecord() PluginRecord {
-	path := inHome(".claude", "plugins", "installed_plugins.json")
+	path := inClaudeConfig("plugins", "installed_plugins.json")
 	if path == "" {
 		return PluginRecord{}
 	}
@@ -674,7 +674,7 @@ func LogosPluginRecord() PluginRecord {
 	var enabled struct {
 		EnabledPlugins map[string]bool `json:"enabledPlugins"`
 	}
-	if settings, err := os.ReadFile(inHome(".claude", "settings.json")); err == nil {
+	if settings, err := os.ReadFile(inClaudeConfig("settings.json")); err == nil {
 		_ = json.Unmarshal(settings, &enabled)
 	}
 	// Map order is random, so a disabled logos@ from one marketplace must not
