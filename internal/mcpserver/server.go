@@ -506,8 +506,11 @@ func readFrame(br *bufio.Reader) (string, error) {
 	for {
 		chunk, more, err := br.ReadLine()
 		if err != nil {
-			if b.Len() > 0 && err == io.EOF {
-				break // a final frame with no trailing newline
+			// A final frame with no trailing newline. An overlong one has
+			// already reset b, and is still owed its -32600: a client that
+			// half-closed stdin is reading stdout yet (#365).
+			if (b.Len() > 0 || tooLong) && err == io.EOF {
+				break
 			}
 			return "", err
 		}

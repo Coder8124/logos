@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/Coder8124/logos/internal/hostdir"
 )
 
 // Codex writes rollout-<timestamp>-<uuid>.jsonl files under
@@ -30,11 +32,12 @@ func (codexReader) root() string {
 		}
 		return ""
 	}
-	h, err := os.UserHomeDir()
-	if err != nil {
+	// Under CODEX_HOME when the user moved it, as for Claude Code (#376).
+	codex := hostdir.CodexHome()
+	if codex == "" {
 		return ""
 	}
-	p := filepath.Join(h, ".codex", "sessions")
+	p := filepath.Join(codex, "sessions")
 	if dirExists(p) {
 		return p
 	}

@@ -86,3 +86,13 @@ func TestALineLeftOutOfMemoryIsNamedByIndex(t *testing.T) {
 		t.Errorf("index did not name the line it left out:\n%s", b.String())
 	}
 }
+
+// A memory file kept only because it names a memory is said every run until
+// it is fixed: nothing else shows that its memory is no longer being read.
+func TestAMemoryFileWithNoReadableLineIsNamedByIndex(t *testing.T) {
+	var b bytes.Buffer
+	printUnreadMemoryFiles(&b, "", memory.Edits{Unread: []string{"memories/fact/4a22a430cff4dd3a.md"}})
+	if !strings.Contains(b.String(), "1 memory file") || !strings.Contains(b.String(), "memories/fact/4a22a430cff4dd3a.md") {
+		t.Errorf("index did not name the memory file it could not read:\n%s", b.String())
+	}
+}

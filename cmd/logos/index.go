@@ -196,6 +196,7 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		return err
 	}
 	printMemoryEdits(w, edits)
+	printUnreadMemoryFiles(w, "", edits)
 	// Same again for memories, and this is the count the bug was about: a
 	// memory stranded in the cache used to be reaped here as a line the
 	// user had deleted by hand, and reported under `-0`.
@@ -376,6 +377,18 @@ func printMemoryEdits(w io.Writer, e memory.Edits) {
 	// write to its file drops it, so this is the one place it is visible.
 	for _, h := range e.Held {
 		fmt.Fprintf(w, "left out of memory: %s\n", terminalSafe(h, 400))
+	}
+}
+
+// printUnreadMemoryFiles names the memory files an import left in place but
+// could not read a memory from. A memory already in the cache stays as it was
+// and one that is not stays missing, so neither count shows the file — said
+// every run, with the paths, until it is fixed or deleted.
+func printUnreadMemoryFiles(w io.Writer, prefix string, e memory.Edits) {
+	if n := len(e.Unread); n > 0 {
+		fmt.Fprintf(w, "%sleft %d memory %s in place that could not be read or %s no `- ` memory line — fix %s, or delete %s to forget %s: %s\n",
+			prefix, n, plural2(n, "file", "files"), plural2(n, "holds", "hold"), plural2(n, "it", "them"), plural2(n, "it", "them"),
+			plural2(n, "its memory", "their memories"), terminalSafe(strings.Join(e.Unread, ", "), 2000))
 	}
 }
 
