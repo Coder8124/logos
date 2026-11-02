@@ -320,6 +320,7 @@ func indexVault(dir string) error {
 			fmt.Printf("  index      could not import memories: %v — run `logos index`\n", err)
 		} else {
 			printConflictCopies(os.Stdout, "  index      ", nil, edits)
+			printUnreadMemoryFiles(os.Stdout, "  index      ", edits)
 		}
 	}
 	notes, _ := ix.NoteCount()

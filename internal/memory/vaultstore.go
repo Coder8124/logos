@@ -747,6 +747,12 @@ type Edits struct {
 	// client made a second one, and reading that copy as live brought the
 	// forgotten memory back on the next import without a word.
 	SetAside, Orphaned []string
+	// Unread are per-memory files, vault-relative, that could not be read or
+	// hold no memory line — a bullet edited away, a permissions slip. Their
+	// memories are kept, not reaped: the reap read the silence as a forget and
+	// deleted the very file the user was still editing, and on a fresh index
+	// the memory was simply missing with nothing said.
+	Unread []string
 }
 
 // ImportEdits is Import, also saying which memories a hand edit made or
@@ -790,6 +796,7 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 	var damaged []string
 
 	for _, kind := range kinds {
+		unreadBefore := len(edits.Unread)
 		raw, existed, n, err := readKindFiles(db, dir, kind, edits)
 		var dmg kindDamaged
 		if errors.As(err, &dmg) {
@@ -815,6 +822,17 @@ func importInto(db *sql.DB, p *provider.Provider, embedModel, dir string, edits 
 		if looksTruncated(raw) {
 			damaged = append(damaged, string(kind)+" has a record that ends mid-line")
 			continue
+		}
+
+		// A file named for a memory still names it, whatever it holds. Kept by
+		// uid, its filename, so the reap below does not forget the row and
+		// delete the file the user is still editing.
+		for _, rel := range edits.Unread[unreadBefore:] {
+			var id int64
+			uid := strings.TrimSuffix(filepath.Base(rel), ".md")
+			if db.QueryRow("SELECT id FROM memories WHERE uid = ? AND kind = ?", uid, string(kind)).Scan(&id) == nil {
+				keep[id] = true
+			}
 		}
 
 		parsed := parseKind(kind, raw)
@@ -1250,10 +1268,16 @@ func readKindFiles(db *sql.DB, dir string, kind Kind, e *Edits) (raw string, exi
 				continue
 			}
 			content, rerr := os.ReadFile(filepath.Join(kindDir, en.Name()))
-			if rerr != nil {
-				// Unreadable, not missing — treated the same as linesElsewhere
-				// treats one: costs this memory its place in the digest, never
-				// a reason to call the whole kind damaged over one bad file.
+			// Unreadable, or read and holding no memory line: never a reason
+			// to call the whole kind damaged over one bad file, and never a
+			// forget either — importInto keeps the row its name points at.
+			// Marked as had, so a legacy flat line for the same uid is not
+			// migrated over the top of the file the user is still fixing.
+			if rerr != nil || len(parseKind(kind, string(content))) == 0 {
+				have[strings.TrimSuffix(en.Name(), ".md")] = true
+				if e != nil {
+					e.Unread = append(e.Unread, filepath.ToSlash(filepath.Join(Dir, string(kind), en.Name())))
+				}
 				continue
 			}
 			have[strings.TrimSuffix(en.Name(), ".md")] = true

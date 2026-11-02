@@ -1143,3 +1143,69 @@ func TestEveryImportReturnsTheMemoryCopiesItSetAside(t *testing.T) {
 		t.Errorf("SetAside = %v, want the Drive copy named", e.SetAside)
 	}
 }
+
+func TestAMemoryFileWithNoMemoryLineIsKeptAndReportedNotForgotten(t *testing.T) {
+	db, dir := vaultDB(t)
+	m := Memory{Text: "deploys go through the staging gate", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	path := filepath.Join(kindDir, entries[0].Name())
+	raw, _ := os.ReadFile(path)
+	// The bullet edited away, the frontmatter left: a slip, not a forget.
+	// Deleting the file is how a memory is forgotten by hand.
+	kept := strings.SplitN(string(raw), "\n- ", 2)[0] + "\n"
+	if err := os.WriteFile(path, []byte(kept), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Forgotten) != 0 {
+		t.Errorf("Forgotten = %v, want the memory kept while its file is unreadable as one", e.Forgotten)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the file the user is still editing was removed: %v", err)
+	}
+	want := "memories/fact/" + entries[0].Name()
+	if len(e.Unread) != 1 || e.Unread[0] != want {
+		t.Errorf("Unread = %v, want [%s] so the import can say it", e.Unread, want)
+	}
+}
+
+func TestAnUnreadableMemoryFileIsKeptAndReportedNotForgotten(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	db, dir := vaultDB(t)
+	m := Memory{Text: "the cache lives in redis", Kind: Fact, Source: "manual"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	kindDir := filepath.Join(dir, Dir, string(Fact))
+	entries, _ := os.ReadDir(kindDir)
+	path := filepath.Join(kindDir, entries[0].Name())
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o644) })
+
+	_, _, e, err := ImportEdits(db, nil, "", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Forgotten) != 0 {
+		t.Errorf("Forgotten = %v, want a memory kept while its file cannot be read", e.Forgotten)
+	}
+	os.Chmod(path, 0o644)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the unreadable file was removed: %v", err)
+	}
+	if len(e.Unread) != 1 || e.Unread[0] != "memories/fact/"+entries[0].Name() {
+		t.Errorf("Unread = %v, want the file named", e.Unread)
+	}
+}
