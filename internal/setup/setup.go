@@ -897,7 +897,10 @@ type Removal struct {
 	// hook left behind runs a logos that uninstall just removed, and the host
 	// reports the failure at the user on every session.
 	Unhooked bool
-	Err      error
+	// HookBackup is the copy of the hooks file as uninstall found it, before
+	// the hook came out of it.
+	HookBackup string
+	Err        error
 }
 
 // Uninstall takes every logos entry back out of each host that is present.
@@ -954,8 +957,8 @@ func Uninstall(hosts []Host) []Removal {
 		}
 		r.Backup = backup
 		if h.Hooks != nil {
-			removed, err := removeHook(hooksPathFor(h.Name))
-			r.Unhooked = removed
+			removed, backup, err := removeHook(hooksPathFor(h.Name))
+			r.Unhooked, r.HookBackup = removed, backup
 			if err != nil && r.Err == nil {
 				r.Err = err
 			}
