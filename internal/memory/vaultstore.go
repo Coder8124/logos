@@ -211,10 +211,14 @@ func stampSeen(db *sql.DB, kind Kind) ([][sha256.Size]byte, bool) {
 // either side of the rename leaves a file the stamp still claims. stamp
 // replaces the pair once the write has landed. No stamp yet means no guard to
 // satisfy, so nothing is added.
+//
+// Beside the last confirmed hash, never beside an earlier pending one: a write
+// that keeps failing (a read-only or full vault) would otherwise grow the
+// column by a hash per attempt, every one of them trusted.
 func stampPending(db *sql.DB, kind Kind, next [sha256.Size]byte) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	_, _ = db.Exec(`UPDATE digest_stamps SET sha = sha || ',' || ? WHERE kind = ?`, hex.EncodeToString(next[:]), string(kind))
+	_, _ = db.Exec(`UPDATE digest_stamps SET sha = substr(sha, 1, 64) || ',' || ? WHERE kind = ?`, hex.EncodeToString(next[:]), string(kind))
 }
 
 // parseStamps reads a stamp column: one hex hash, or several joined by commas
@@ -289,7 +293,7 @@ func fileStampSeen(db *sql.DB, uid string) ([][sha256.Size]byte, bool) {
 func fileStampPending(db *sql.DB, uid string, next [sha256.Size]byte) {
 	stampMu.Lock()
 	defer stampMu.Unlock()
-	_, _ = db.Exec(`UPDATE memory_file_stamps SET sha = sha || ',' || ? WHERE uid = ?`, hex.EncodeToString(next[:]), uid)
+	_, _ = db.Exec(`UPDATE memory_file_stamps SET sha = substr(sha, 1, 64) || ',' || ? WHERE uid = ?`, hex.EncodeToString(next[:]), uid)
 }
 
 // vaultWritten runs after a memory file or digest is written and before its

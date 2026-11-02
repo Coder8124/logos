@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,7 @@ func TestAWriteKilledBeforeItsStampIsNotTakenForAHandEdit(t *testing.T) {
 			}
 			// The own file is written first and ends in ".md"; "/fact.md"
 			// matches only the digest.
+			t.Cleanup(func() { vaultWritten = func(string) {} })
 			vaultWritten = func(path string) {
 				if strings.HasSuffix(path, file) {
 					panic("killed")
@@ -40,5 +42,34 @@ func TestAWriteKilledBeforeItsStampIsNotTakenForAHandEdit(t *testing.T) {
 				t.Fatalf("the store after a killed write was refused: %v", err)
 			}
 		})
+	}
+}
+
+// A write that keeps failing — a read-only or full vault — calls stampPending
+// once per attempt. Appended beside whatever was there, the column grew a hash
+// per attempt, and every one of them stayed a claim the file was logos's own.
+func TestARepeatedlyFailingWriteHoldsOnlyOnePendingHash(t *testing.T) {
+	db, _ := vaultDB(t)
+	r, err := Store(db, nil, "", &Memory{Text: "Deploys go out on Tuesdays", Kind: Fact, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uid string
+	if err := db.QueryRow(`SELECT uid FROM memories WHERE id = ?`, r.ID).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		next := sha256.Sum256([]byte{byte(i)})
+		stampPending(db, Fact, next)
+		fileStampPending(db, uid, next)
+	}
+	for table, where := range map[string]string{"digest_stamps": "kind = 'fact'", "memory_file_stamps": "uid = '" + uid + "'"} {
+		var sha string
+		if err := db.QueryRow(`SELECT sha FROM ` + table + ` WHERE ` + where).Scan(&sha); err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(sha, ",") + 1; n != 2 {
+			t.Errorf("%s holds %d hashes after three failed writes, want the confirmed one and the last pending one", table, n)
+		}
 	}
 }

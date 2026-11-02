@@ -999,15 +999,17 @@ func carryRecallTimes(db *sql.DB, kind Kind, ms []Memory, now int64) error {
 		}
 		last, seen := fileStampSeen(db, m.Uid)
 		ours := seen && stamped(last, sha256.Sum256(raw))
+		out := []byte(patched)
+		sum := sha256.Sum256(out)
 		if ours {
-			fileStampPending(db, m.Uid, sha256.Sum256([]byte(patched)))
+			fileStampPending(db, m.Uid, sum)
 		}
-		if err := vault.WriteAtomic(path, []byte(patched)); err != nil {
+		if err := vault.WriteAtomic(path, out); err != nil {
 			errs = append(errs, fmt.Errorf("memory #%d: %w", m.ID, err))
 			continue
 		}
 		if ours {
-			fileStamp(db, m.Uid, sha256.Sum256([]byte(patched)))
+			fileStamp(db, m.Uid, sum)
 		}
 	}
 	return errors.Join(errs...)
