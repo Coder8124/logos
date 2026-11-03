@@ -193,6 +193,10 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 	// nothing" cannot depend on a model being reachable.
 	mems, rescuedMems, edits, err := ix.SyncMemoryEdits(p, embed)
 	if err != nil {
+		// What the scan found before it refused is still true, and an
+		// unreadable file left out of this run would otherwise go unnamed
+		// behind the refusal.
+		printUnreadMemoryFiles(w, "", edits)
 		return err
 	}
 	printMemoryEdits(w, edits)
