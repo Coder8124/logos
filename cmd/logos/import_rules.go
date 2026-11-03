@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/gitstate"
@@ -132,10 +133,7 @@ func runImportRules(from string, args []string) error {
 	}
 
 	fmt.Println("Found:")
-	for _, f := range files {
-		if f.skip != "" {
-			continue
-		}
+	for _, f := range foundLines(from, files) {
 		where := "project " + f.project
 		if f.project == "" {
 			where = "every project"
@@ -245,9 +243,34 @@ func notDismissed(db *sql.DB, found []*memory.Memory) (fresh []*memory.Memory, d
 // noun is what one item of the source is called, in the count n.
 func noun(from string, n int) string {
 	if from == claudeAutoMemorySource {
-		return plural(n, "memory")
+		return plural2(n, "memory", "memories")
 	}
 	return plural(n, "rule")
+}
+
+// foundLines is the Found list: a line per rules file, but for auto memory a
+// line per folder and scope. Auto memory is one note per file, so a line per
+// file was a line per memory, each saying "1 memory".
+func foundLines(from string, files []ruleFile) []ruleFile {
+	var out []ruleFile
+	at := map[[2]string]int{}
+	for _, f := range files {
+		if f.skip != "" {
+			continue
+		}
+		if from != claudeAutoMemorySource {
+			out = append(out, f)
+			continue
+		}
+		key := [2]string{filepath.Dir(f.shown), f.project}
+		if i, ok := at[key]; ok {
+			out[i].items = append(out[i].items, f.items...)
+			continue
+		}
+		at[key] = len(out)
+		out = append(out, ruleFile{shown: key[0], project: f.project, items: slices.Clone(f.items)})
+	}
+	return out
 }
 
 // readRuleFiles reads every rules file the source names, in the repository at
@@ -632,7 +655,11 @@ func readAutoMemory(dir, home, project string) ([]ruleFile, error) {
 	}
 	var out []ruleFile
 	for _, e := range entries {
-		if e.Name() == "MEMORY.md" {
+		// A hidden file that is not a note is the system's (Finder's
+		// .DS_Store), not something anyone wrote. Reported on every run, it
+		// taught people to read past the Left out lines that name a real note.
+		// A hidden .md is still read, and still reported if it is left out.
+		if e.Name() == "MEMORY.md" || strings.HasPrefix(e.Name(), ".") && !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
