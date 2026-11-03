@@ -68,8 +68,17 @@ func validateArgs(tool string, args map[string]any) error {
 		if !has {
 			continue
 		}
+		if v == nil {
+			continue
+		}
+		// Anything but a string reads as "" further in, which is the default:
+		// `kind: 5` was stored as a fact, the failure this check exists for.
 		s, isStr := v.(string)
-		if !isStr || strings.TrimSpace(s) == "" {
+		if !isStr {
+			return fmt.Errorf("%s needs %s as text. It takes: %s",
+				tool, k, strings.Join(vals, ", "))
+		}
+		if strings.TrimSpace(s) == "" {
 			continue
 		}
 		canon, valid := matchEnum(strings.TrimSpace(s), vals)

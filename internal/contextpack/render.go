@@ -57,6 +57,7 @@ func (p *Pack) Render() string {
 	p.renderHeader(&b)
 	p.renderWindow(&b)
 	p.renderOtherRepo(&b)
+	p.renderUnread(&b)
 	if line := p.costLine(); line != "" {
 		fmt.Fprintf(&b, "\n_%s_\n", line)
 	}
@@ -150,18 +151,24 @@ func (p *Pack) renderWindow(b *strings.Builder) {
 	if p.Window == nil {
 		return
 	}
+	outside := ""
+	if p.CheckpointOutside {
+		outside = " The checkpoint below is from outside it."
+	}
 	switch {
 	case p.WindowEmpty:
 		fmt.Fprintf(b, "\n_Nothing recorded in %s, so this is unfiltered.%s_\n",
 			p.Window, p.revivedNote())
 	case p.OutOfWindow > 0:
-		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s.%s_\n",
+		fmt.Fprintf(b, "\n_Filtered to %s%s — %d %s outside that period %s set aside. Call again with since: all to see %s.%s%s_\n",
 			p.Window, p.inferredNote(), p.OutOfWindow, plural(p.OutOfWindow, "item", "items"),
-			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"), p.revivedNote())
+			plural(p.OutOfWindow, "was", "were"), plural(p.OutOfWindow, "it", "them"), outside, p.revivedNote())
 	case p.revivedNote() != "":
 		// Not "everything recorded falls inside it": older checkpoints were
 		// weighed against the task, and some may be from before the window.
-		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s_\n", p.Window, p.inferredNote(), p.revivedNote())
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s%s_\n", p.Window, p.inferredNote(), outside, p.revivedNote())
+	case p.CheckpointOutside:
+		fmt.Fprintf(b, "\n_Filtered to %s%s. Nothing in it was set aside.%s_\n", p.Window, p.inferredNote(), outside)
 	default:
 		fmt.Fprintf(b, "\n_Filtered to %s%s. Everything recorded falls inside it._\n", p.Window, p.inferredNote())
 	}
@@ -206,6 +213,15 @@ func (p *Pack) renderOtherRepo(b *strings.Builder) {
 	}
 	fmt.Fprintf(b, "\n_The latest checkpoint on **%s** came from another repository (%s); a `.logos-project` file in one keeps them apart._\n",
 		inline(p.scope()), inline(p.OtherRepo))
+}
+
+// renderUnread says a newer checkpoint was there and could not be read.
+// Without it an older checkpoint is presented as where work left off.
+func (p *Pack) renderUnread(b *strings.Builder) {
+	if n := len(p.Unread); n > 0 {
+		fmt.Fprintf(b, "\n_%d newer checkpoint %s could not be read — empty, or cut off partway through a save — so the one below is the latest readable, not the latest written. Open or delete: %s_\n",
+			n, plural(n, "file", "files"), inline(strings.Join(p.Unread, ", ")))
+	}
 }
 
 // spendCheckpoint charges the checkpoint against its share and returns the body
@@ -365,7 +381,9 @@ func safeToContinue(b *strings.Builder, c *session.Checkpoint, reader string) {
 	// got.
 	verified := "Verified — safe to continue from"
 	if reader != "" && c.Agent != "" && reader != c.Agent {
-		verified = fmt.Sprintf("Verified by **%s**, not by you — safe to continue from", inline(c.Agent))
+		// Plain, not bold: verifiedList wraps the whole heading in bold, and a bold name
+		// inside it closes the wrapper early and leaves stray markers.
+		verified = fmt.Sprintf("Verified by %s, not by you — safe to continue from", inline(c.Agent))
 	}
 	verifiedList(b, verified, c)
 	list(b, "Known broken — do not build on it", c.Blockers)

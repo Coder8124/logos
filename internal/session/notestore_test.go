@@ -75,6 +75,35 @@ func TestWorkingNotesSurviveDeletingTheIndex(t *testing.T) {
 	}
 }
 
+// A rebuild used to open a fresh session around the restored notes: a new id,
+// a start time of the rebuild, no task. The work in flight was the same; the
+// session that held it looked younger, and lost what it was for.
+func TestRebuildingTheIndexKeepsAnOpenSessionsIdStartAndTask(t *testing.T) {
+	v := t.TempDir()
+	db := boundDB(t, v)
+
+	before, err := Start(db, "kestrel", "claude", "move the annual toggle into PricingTable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddNote(db, "kestrel", "claude", "the toggle reads its default from the plan"); err != nil {
+		t.Fatal(err)
+	}
+
+	rebuilt := boundDB(t, v)
+	if _, _, _, err := ImportNotes(rebuilt, v); err != nil {
+		t.Fatal(err)
+	}
+	after, err := Current(rebuilt, "kestrel", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != before.ID || after.Started != before.Started || after.Task != before.Task {
+		t.Errorf("after the rebuild the open session is %q started %d for %q, want %q started %d for %q",
+			after.ID, after.Started, after.Task, before.ID, before.Started, before.Task)
+	}
+}
+
 // Running index twice is ordinary — the watch loop does it every two seconds.
 // Importing has to add what is missing and nothing else.
 func TestRestoringNotesTwiceDoesNotDoubleThem(t *testing.T) {
