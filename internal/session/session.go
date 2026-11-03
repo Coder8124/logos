@@ -22,6 +22,7 @@ package session
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -120,7 +121,7 @@ func idFor(agent string, t time.Time) string {
 // that range started a session and then failed every checkpoint with "file
 // name too long". The frontmatter keeps the full name; only the filename is cut.
 func agentPart(agent string) string {
-	return capAt(safe(agent), maxNameLen-len("plan-20060102-150405-.md"))
+	return capAt(dropSymbols(agent), maxNameLen-len("plan-20060102-150405-.md"))
 }
 
 // Start opens a session. Agent defaults to "agent" rather than erroring: a
@@ -500,11 +501,13 @@ func symbolWord(r rune) string {
 	return fmt.Sprintf("u-%x", r)
 }
 
-// legacySafe is safe as logos 0.5.6 and earlier wrote it: symbols dropped. It
-// is kept only to find a folder that rule filed a project under, so history
-// written before #368 is still read until it is moved; nothing is written with
-// it.
-func legacySafe(s string) string {
+// dropSymbols is safe as logos 0.5.6 and earlier wrote it: symbols dropped.
+// Two uses. It finds the folder that rule filed a project under, so history
+// written before #368 is still read until it is moved. And it still names what
+// is not a project — a host's session id, an agent in a filename — because
+// those were never merged with each other, and spelling their symbols would
+// only move a conversation's folder or an agent's files partway through.
+func dropSymbols(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	var b strings.Builder
 	lastDash := false
@@ -572,7 +575,7 @@ func SafeScope(s string) string { return safeScope(s) }
 
 func safeScope(s string) string { return scopeWith(s, safe) }
 
-func legacyScope(s string) string { return scopeWith(s, legacySafe) }
+func legacyScope(s string) string { return scopeWith(s, dropSymbols) }
 
 func scopeWith(s string, seg func(string) string) string {
 	parts := strings.Split(s, "/")
@@ -597,14 +600,22 @@ func historyScope(vaultDir, project string) string {
 	return safeScope(project)
 }
 
+// HistoryScope is historyScope for callers outside this package that read
+// something filed beside a project's checkpoints — the verdicts in
+// reviewed.md, the dead ends shown at edit time, the ledger. Built from
+// SafeScope instead, they read the new, empty folder while resume shows the
+// old one, and a dead end a person retired there came back as live.
+func HistoryScope(vaultDir, project string) string { return historyScope(vaultDir, project) }
+
 // Stranded names the folder a project's history is still in when that is not
 // the folder it is filed under now: the name has a symbol the old rule
 // dropped, its own folder holds no checkpoint, and the old one does. Empty
 // otherwise.
 //
-// The old folder may hold another project's history too — that merge is #368
-// itself — so this is said to the user with the rename that moves it, never
-// acted on.
+// The old folder may hold another project's history instead — that merge is
+// #368 itself, and the checkpoints in it record only the folder name, so which
+// project wrote them cannot be told — so this is said to the user with the
+// rename that moves it, never acted on.
 func Stranded(vaultDir, project string) string {
 	scope, old := safeScope(project), legacyScope(project)
 	if vaultDir == "" || old == "" || old == scope {
@@ -616,22 +627,57 @@ func Stranded(vaultDir, project string) string {
 	return old
 }
 
-// StrandedNotice is the one line resume and checkpoint say while Stranded
-// finds a folder: where the history is, and the command that brings it over.
-func StrandedNotice(project, old string) string {
-	return fmt.Sprintf("History for %q is in %s/%s, where logos 0.5.6 and earlier filed it before names with symbols got their own folder. "+
-		"`logos project rename %s %s --merge` moves it; that folder also holds any project whose name differed from this one only in symbols.",
-		project, CheckpointDir, old, old, safeScope(project))
+// Split names the old folder once the fallback has ended without an agent
+// saying so: the project's own folder holds checkpoints now, but only auto
+// records. The hook writes those at session end, where nothing it prints is
+// read, so the first one quietly took every earlier checkpoint out of resume;
+// resume says it instead until an agent checkpoints, which says it too.
+func Split(vaultDir, project string) string {
+	scope, old := safeScope(project), legacyScope(project)
+	if vaultDir == "" || old == "" || old == scope || !hasCheckpoints(vaultDir, old) {
+		return ""
+	}
+	dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
+	entries, err := CheckpointEntries(dir)
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+	for _, en := range entries {
+		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(en.Rel)))
+		if err != nil {
+			continue
+		}
+		if c := ParseCheckpoint(string(raw)); !c.Empty() && !c.Auto {
+			return ""
+		}
+	}
+	return old
 }
 
-// SplitNotice is what checkpoint says when it writes the first checkpoint into
-// a project's own folder while Stranded still found the old one. From here on
-// resume reads the new folder only, so the earlier history drops out of it;
-// this is the one moment that can still be said before it does.
-func SplitNotice(project, old string) string {
-	return fmt.Sprintf("This is the first checkpoint in %s/%s, so resume stops reading the earlier history in %s/%s. "+
-		"`logos project rename %s %s --merge` brings it across; that folder also holds any project whose name differed from this one only in symbols.",
-		CheckpointDir, safeScope(project), CheckpointDir, old, old, safeScope(project))
+// StrandedNotice is the one line resume says while Stranded finds a folder.
+// It does not call the history this project's: a new "C#" in a vault that has
+// "C" finds C's folder the same way, and nothing in the files tells them apart.
+func StrandedNotice(scope, old string) string {
+	return fmt.Sprintf("This history was read from %s/%s, where logos 0.5.6 and earlier filed every project whose name differs from %q only in symbols, so it may be another project's. "+
+		"If it is this one's, `logos project rename %s --merge` moves it to %s/%s.",
+		CheckpointDir, old, scope, renameArgs(scope, old), CheckpointDir, safeScope(scope))
+}
+
+// SplitNotice is what checkpoint and resume say once a project's own folder
+// has taken over from the one 0.5.6 filed it under: from here resume reads the
+// new folder only, so the earlier history is no longer shown.
+func SplitNotice(scope, old string) string {
+	return fmt.Sprintf("Resume now reads %s/%s only, so the earlier history in %s/%s is not shown; that folder holds every project whose name differs from %q only in symbols. "+
+		"If it is this one's, `logos project rename %s --merge` brings it across.",
+		CheckpointDir, safeScope(scope), CheckpointDir, old, scope, renameArgs(scope, old))
+}
+
+// renameArgs is the rename for a scope's project. rename takes project names
+// and refuses a path separator, and moving a project moves its worktrees, so a
+// worktree scope names the project folders it lives in.
+func renameArgs(scope, old string) string {
+	top := func(s string) string { return strings.SplitN(s, "/", 2)[0] }
+	return top(old) + " " + top(safeScope(scope))
 }
 
 func hasCheckpoints(vaultDir, scope string) bool {

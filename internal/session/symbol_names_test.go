@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -99,5 +101,80 @@ func TestHistoryFiledUnderTheOldNameIsReadUntilTheProjectHasItsOwn(t *testing.T)
 	// Plain names are never sent anywhere else.
 	if got := Stranded(dir, "c"); got != "" {
 		t.Errorf("Stranded(c) = %q", got)
+	}
+}
+
+// The session-end hook writes an auto record, and nothing it prints is read.
+// The first one in a project's new folder ended the fallback, so every earlier
+// checkpoint left resume without a word; resume has to say it until an agent
+// checkpoints, which says it too.
+func TestAnAutoRecordDoesNotQuietlyEndTheEarlierHistory(t *testing.T) {
+	db, dir := vaultDB(t)
+	if err := Commit(db, dir, &Checkpoint{Project: "c", Next: "old step"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteAuto(dir, Checkpoint{Project: "C++", Task: "edited files"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Split(dir, "C++"); got != "c" {
+		t.Fatalf("Split = %q after an auto record took over, want c", got)
+	}
+	if err := Commit(db, dir, &Checkpoint{Project: "C++", Next: "new step"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Split(dir, "C++"); got != "" {
+		t.Errorf("Split = %q after an agent checkpointed, which says it itself", got)
+	}
+}
+
+// Normalised before the lookup, "C++" became c-plus-plus and no longer found
+// sessions/c, so the auto record lost its link to the checkpoint before it.
+func TestAnAutoRecordFollowsTheCheckpointFiledUnderTheOldName(t *testing.T) {
+	db, dir := vaultDB(t)
+	prev := &Checkpoint{Project: "c", Next: "old step"}
+	if err := Commit(db, dir, prev); err != nil {
+		t.Fatal(err)
+	}
+	c, err := WriteAuto(dir, Checkpoint{Project: "C++", Task: "edited files"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(c.Slug)+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "pred: follows") {
+		t.Errorf("auto record follows nothing, though %s is before it:\n%s", prev.Slug, raw)
+	}
+}
+
+// Nothing in the old folder says which project wrote it, so a new "C#" in a
+// vault with "C" reads C's history the same way; the notice must not call it
+// C#'s.
+func TestTheNoticeDoesNotSayTheOldFolderIsThisProjects(t *testing.T) {
+	if n := StrandedNotice("C#", "c"); !strings.Contains(n, "may be another project's") {
+		t.Errorf("notice claims the history: %s", n)
+	}
+}
+
+// rename takes project names and refuses a separator; a worktree is moved with
+// its project.
+func TestAWorktreeIsToldToRenameItsProject(t *testing.T) {
+	for _, n := range []string{StrandedNotice("C++/feat", "c/feat"), SplitNotice("C++/feat", "c/feat")} {
+		if !strings.Contains(n, "logos project rename c c-plus-plus --merge") {
+			t.Errorf("notice names a rename that is refused: %s", n)
+		}
+	}
+}
+
+// Session ids and agent names were never merged with each other, so spelling
+// their symbols only moved a conversation's folder, or an agent's files,
+// partway through.
+func TestHostSessionIdsAndAgentNamesKeepTheirFolder(t *testing.T) {
+	if got := convoFolder("abc:123"); got != "abc123" {
+		t.Errorf("convoFolder = %q, want abc123", got)
+	}
+	if got := agentPart("gpt-4o (copilot)"); got != "gpt-4o-copilot" {
+		t.Errorf("agentPart = %q, want gpt-4o-copilot", got)
 	}
 }

@@ -223,7 +223,10 @@ func (p *Pack) renderUnread(b *strings.Builder) {
 // filed this name under, and how to move it.
 func (p *Pack) renderStranded(b *strings.Builder) {
 	if p.Stranded != "" {
-		fmt.Fprintf(b, "\n_%s_\n", session.StrandedNotice(p.Continuity(), p.Stranded))
+		fmt.Fprintf(b, "\n_%s_\n", session.StrandedNotice(p.strandedFor, p.Stranded))
+	}
+	if p.Split != "" {
+		fmt.Fprintf(b, "\n_%s_\n", session.SplitNotice(p.strandedFor, p.Split))
 	}
 }
 

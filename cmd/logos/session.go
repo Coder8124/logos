@@ -232,8 +232,13 @@ func runCheckpoint(args []string) error {
 	claimed, claimErr := claims.Check(ix.Vault, c.Project, c.Verified)
 	c.Unseen = claimed.Unseen
 	// Before the commit: once this checkpoint is in the new folder, nothing
-	// finds the old one any more.
-	stranded := session.Stranded(ix.Vault, c.Project)
+	// finds the old one any more. Split covers a folder an auto record already
+	// took over, which nobody has been told about yet. The name is kept as
+	// given because Commit rewrites c.Project to its folder.
+	named, stranded := c.Project, session.Stranded(ix.Vault, c.Project)
+	if stranded == "" {
+		stranded = session.Split(ix.Vault, c.Project)
+	}
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
@@ -242,7 +247,7 @@ func runCheckpoint(args []string) error {
 		fmt.Println(said + ".")
 	}
 	if stranded != "" {
-		fmt.Println(session.SplitNotice(c.Project, stranded))
+		fmt.Println(session.SplitNotice(named, stranded))
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.CLI) {
 		fmt.Println(said)

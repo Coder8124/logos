@@ -547,8 +547,13 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	claimed, claimErr := claims.Check(s.vault, c.Project, c.Verified)
 	c.Unseen = claimed.Unseen
 	// Before the commit: once this checkpoint is in the new folder, nothing
-	// finds the old one any more.
-	stranded := session.Stranded(s.vault, c.Project)
+	// finds the old one any more. Split covers a folder an auto record already
+	// took over, which nobody has been told about yet. The name is kept as
+	// given because Commit rewrites c.Project to its folder.
+	named, stranded := c.Project, session.Stranded(s.vault, c.Project)
+	if stranded == "" {
+		stranded = session.Split(s.vault, c.Project)
+	}
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -559,7 +564,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 		msg += ". " + said + "."
 	}
 	if stranded != "" {
-		msg += " " + session.SplitNotice(c.Project, stranded)
+		msg += " " + session.SplitNotice(named, stranded)
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said

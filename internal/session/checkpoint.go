@@ -160,7 +160,7 @@ const UnattachedFolder = "_unattached"
 // checkpoints from hosts without hooks both land there, together, rather
 // than each inventing a folder name nobody supplied.
 func convoFolder(hostSession string) string {
-	if s := safe(hostSession); s != "" {
+	if s := dropSymbols(hostSession); s != "" {
 		return s
 	}
 	return UnattachedFolder

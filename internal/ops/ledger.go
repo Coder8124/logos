@@ -50,7 +50,7 @@ type Ledger struct {
 // structured field, quoted and cited, and what it adds around them says what
 // was recorded and when — history, not a rulebook.
 func WriteLedger(vaultDir, project, repoDir string) (Ledger, error) {
-	scope := session.SafeScope(project)
+	scope := session.HistoryScope(vaultDir, project)
 	if scope == "" {
 		return Ledger{}, fmt.Errorf("project name %q has no letters or digits to find its checkpoints by", project)
 	}

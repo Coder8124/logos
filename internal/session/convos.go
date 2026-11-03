@@ -149,7 +149,7 @@ func FindConversation(convs []Conversation, query string) (*Conversation, []Conv
 		return nil, nil, fmt.Errorf("no conversation named")
 	}
 	for i := range convs {
-		if convs[i].ID == q || convs[i].ID == safe(q) {
+		if convs[i].ID == q || convs[i].ID == dropSymbols(q) {
 			return &convs[i], nil, nil
 		}
 	}

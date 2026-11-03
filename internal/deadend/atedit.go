@@ -131,7 +131,7 @@ func AtPath(db *sql.DB, vaultDir, project, rel string) ([]Ruling, error) {
 // every project with any checkpoint at all would report a phantom worktree
 // scope named "_convos".
 func scopesOf(vaultDir, project string) ([]string, error) {
-	project = session.SafeScope(project)
+	project = session.HistoryScope(vaultDir, project)
 	root := filepath.Join(vaultDir, session.CheckpointDir, filepath.FromSlash(project))
 	entries, err := os.ReadDir(root)
 	if err != nil {
