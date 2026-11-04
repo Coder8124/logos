@@ -4,9 +4,19 @@
 
 **When one coding agent stops, the next one continues the work.**
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Coder8124/logos/ci.yml?branch=main&label=CI)](https://github.com/Coder8124/logos/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Coder8124/logos?color=00392F)](https://github.com/Coder8124/logos/releases)
 [![npm](https://img.shields.io/npm/v/@noeton/logos?color=00392F)](https://www.npmjs.com/package/@noeton/logos)
+[![Homebrew](https://img.shields.io/badge/brew-coder8124%2Ftap%2Flogos--mcp-00392F)](https://github.com/Coder8124/homebrew-tap)
 [![License](https://img.shields.io/badge/license-Apache%202.0-00392F)](LICENSE)
+
+[![Go](https://img.shields.io/github/go-mod/go-version/Coder8124/logos?color=00392F)](go.mod)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Coder8124/logos.svg)](https://pkg.go.dev/github.com/Coder8124/logos)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-00392F)](https://github.com/Coder8124/logos/wiki/Installation)
+[![MCP](https://img.shields.io/badge/MCP-server-00392F)](https://github.com/Coder8124/logos/wiki/MCP-Tools-Reference)
+[![Local-first](https://img.shields.io/badge/data-stays%20on%20your%20machine-00392F)](https://github.com/Coder8124/logos/wiki/Settings-and-Privacy)
+[![Stars](https://img.shields.io/github/stars/Coder8124/logos?color=00392F)](https://github.com/Coder8124/logos/stargazers)
+[![Discussions](https://img.shields.io/github/discussions/Coder8124/logos?color=00392F)](https://github.com/Coder8124/logos/discussions)
 
 [Docs](https://github.com/Coder8124/logos/wiki) · [Quick Start](https://github.com/Coder8124/logos/wiki/Quick-Start) · [Benchmark](docs/continuity-benchmark.md) · [Site](https://coder8124.github.io/logos/) · [Issues](https://github.com/Coder8124/logos/issues)
 
