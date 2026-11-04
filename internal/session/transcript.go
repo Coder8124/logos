@@ -47,7 +47,7 @@ func IsTranscriptFile(name string) bool {
 // a project folder made up for an unattributed session is one nobody resuming
 // would look in.
 func TranscriptDir(vaultDir, project, hostSession string) (string, error) {
-	folder := safe(hostSession)
+	folder := dropSymbols(hostSession)
 	if folder == "" {
 		return "", fmt.Errorf("the transcript names no session id, so it has no conversation folder of its own")
 	}
@@ -73,7 +73,7 @@ func TranscriptDir(vaultDir, project, hostSession string) (string, error) {
 // a resolver this does not try to be, and a near match that served the wrong
 // conversation's text would be worse than a miss.
 func FindTranscript(vaultDir, hostSession string) string {
-	folder := safe(hostSession)
+	folder := dropSymbols(hostSession)
 	if folder == "" {
 		return ""
 	}

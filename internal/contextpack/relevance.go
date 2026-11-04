@@ -105,7 +105,7 @@ func (p *Pack) reviveRelevant(ix *index.Index, embed *provider.Provider, embedMo
 			rendered[normalizeKey(f)] = true
 		}
 	}
-	prefix := key(session.CheckpointDir+"/"+session.SafeScope(p.historyScope)) + "/"
+	prefix := key(session.CheckpointDir+"/"+session.HistoryScope(ix.Vault, p.historyScope)) + "/"
 
 	matched := map[string]bool{}
 	for _, h := range lex {

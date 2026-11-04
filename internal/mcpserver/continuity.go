@@ -546,6 +546,14 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	// Before the commit, so the mark is in the file and not only in this reply.
 	claimed, claimErr := claims.Check(s.vault, c.Project, c.Verified)
 	c.Unseen = claimed.Unseen
+	// Before the commit: once this checkpoint is in the new folder, nothing
+	// finds the old one any more. Split covers a folder an auto record already
+	// took over, which nobody has been told about yet. The name is kept as
+	// given because Commit rewrites c.Project to its folder.
+	named, stranded := c.Project, session.Stranded(s.vault, c.Project)
+	if stranded == "" {
+		stranded = session.Split(s.vault, c.Project)
+	}
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -554,6 +562,9 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if said := secret.Summary(c.Redactions); said != "" {
 		msg += ". " + said + "."
+	}
+	if stranded != "" {
+		msg += " " + session.SplitNotice(named, stranded)
 	}
 	for _, said := range advice.Checkpoint(*c, earlier, dropped, advice.MCP) {
 		msg += " " + said

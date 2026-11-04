@@ -42,6 +42,10 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	if safeScope(c.Project) == "" {
 		return Checkpoint{}, fmt.Errorf("an auto checkpoint needs a project")
 	}
+	// History is looked up under the name as given: once normalised, a name
+	// with a symbol no longer finds the folder 0.5.6 filed it under, and the
+	// record lost its link to the checkpoint before it.
+	asGiven := c.Project
 	c.Project = safeScope(c.Project)
 	if c.Agent == "" {
 		c.Agent = "agent"
@@ -69,7 +73,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 
 	var follows string
 	if past {
-		history, err := History(vaultDir, c.Project, 0)
+		history, err := History(vaultDir, asGiven, 0)
 		if err != nil {
 			return Checkpoint{}, err
 		}
@@ -79,7 +83,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 				break
 			}
 		}
-	} else if prev, _ := Latest(vaultDir, c.Project); prev != nil {
+	} else if prev, _ := Latest(vaultDir, asGiven); prev != nil {
 		follows = prev.Session
 	}
 	convo := convoFolder(c.HostSession)

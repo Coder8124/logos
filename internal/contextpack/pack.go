@@ -117,6 +117,17 @@ type Pack struct {
 	// passed over as empty or torn, so the render can say the checkpoint below
 	// is the latest that could be read, not the latest written.
 	Unread []string `json:"unread,omitempty"`
+	// Stranded is the folder this project's history was read from because it
+	// is still where logos 0.5.6 filed a name with a symbol in it (#368). The
+	// render names it and the rename that moves it: the folder may hold
+	// another project's history as well, which only the user can judge.
+	Stranded string `json:"stranded,omitempty"`
+	// Split is the folder the history was read from until the project's own
+	// folder got a checkpoint nobody announced — see session.Split.
+	Split string `json:"split,omitempty"`
+	// strandedFor is the scope Stranded and Split were found for, which is the
+	// project's own when a worktree inherited its history, not Continuity().
+	strandedFor string
 	// Drifted is where the tree stands now, filled in only when it is not where
 	// the checkpoint below says it was. "Repository was: memory/bugfix ·
 	// fcd0331" is a claim about a moment that may be forty commits gone, and
@@ -251,7 +262,7 @@ func (p *Pack) Empty() bool {
 		// Not empty: a checkpoint was set aside, and a caller that prints
 		// "nothing recorded" instead would hide that two repositories share
 		// this name.
-		p.OtherRepo == "" && len(p.Unread) == 0
+		p.OtherRepo == "" && len(p.Unread) == 0 && p.Stranded == "" && p.Split == ""
 }
 
 const (
@@ -329,7 +340,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 		// the worktree that inherits it. An unreadable file is no verdicts:
 		// the rulings are then handed over as they were recorded, which is
 		// the state before anyone reviewed them, not a wrong one.
-		reviews, _ = session.Reviews(ix.Vault, scope)
+		reviews, _ = session.Reviews(ix.Vault, session.HistoryScope(ix.Vault, scope))
 		// Read before sameRepository filters: a newer checkpoint from another
 		// repository is set aside on purpose and said by renderOtherRepo, not
 		// a file that could not be read.
@@ -339,6 +350,9 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 				shown = &all[0]
 			}
 			p.Unread = session.SkippedAhead(ix.Vault, scope, shown)
+			p.Stranded = session.Stranded(ix.Vault, scope)
+			p.Split = session.Split(ix.Vault, scope)
+			p.strandedFor = scope
 		}
 		if err == nil && len(all) > 0 && req.Dir != "" {
 			all, p.OtherRepo = sameRepository(all, req.Dir)

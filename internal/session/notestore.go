@@ -247,7 +247,7 @@ func renderNotes(scope string, sessions []Session, notes []Note) string {
 	for _, n := range notes {
 		// oneLine, because a note holding a newline would render as a bullet the
 		// parser cannot read back — a lost note wearing the costume of a saved one.
-		fmt.Fprintf(&b, "- %s <!-- ts=%d agent=%s -->\n", oneLine(n.Text), n.TS, safe(n.Agent))
+		fmt.Fprintf(&b, "- %s <!-- ts=%d agent=%s -->\n", oneLine(n.Text), n.TS, dropSymbols(n.Agent))
 	}
 	return b.String()
 }
