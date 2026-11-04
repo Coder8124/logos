@@ -114,16 +114,25 @@ func pickAgent(agents []launcher) (*launcher, pick, int, error) {
 // menu is one list on screen: what it asks, its rows, the row selected when it
 // opens, and how many lines above the cursor it is drawn over (0 for below
 // whatever is there).
+//
+// checked, when set, makes it a checklist: Space ticks the selected row, and
+// the ticks are left in checked for the caller, which shares its backing
+// array with the copy the picker was given.
 type menu struct {
 	title, hint string
 	rows        []string
 	sel, over   int
+	checked     []bool
 }
 
 // keyboard is stdin, read through one buffer for every menu. A fast typist's
 // Enter, Enter can arrive in one read; a reader per menu kept the second Enter
 // in the first menu's buffer and threw it away with it.
 var keyboard = bufio.NewReader(os.Stdin)
+
+// keyboardFrom is the stdin keyboard was built over, so a prompt after a menu
+// reads on from keyboard's buffer instead of past it.
+var keyboardFrom = os.Stdin
 
 // pickOnTerminal is runPicker on the real terminal, in raw mode for exactly
 // as long as the menu is up. It returns the row, how the menu was left, and
@@ -183,6 +192,13 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 			if i == sel {
 				mark = "> "
 			}
+			if m.checked != nil {
+				if m.checked[i] {
+					mark += "[x] "
+				} else {
+					mark += "[ ] "
+				}
+			}
 			lines = append(lines, text.Ellipsize(mark+rows[i], width-1))
 		}
 		if len(rows) > pickerWindow {
@@ -212,6 +228,8 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 			sel = max(sel-1, 0)
 		case b == 'j':
 			sel = min(sel+1, len(rows)-1)
+		case b == ' ' && m.checked != nil:
+			m.checked[sel] = !m.checked[sel]
 		case b == 0x1b:
 			// An arrow arrives as ESC [ A (or ESC O A in application mode)
 			// in one write, so its tail is already buffered; an ESC with

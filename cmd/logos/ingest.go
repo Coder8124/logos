@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -385,9 +384,9 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 		fmt.Println("(Claude Code under ~/.claude/projects, Codex under ~/.codex/sessions, and")
 		fmt.Println("others via txcript). Only a checkpoint candidate is written to the vault —")
 		fmt.Println("never the transcript itself. This is asked once.")
-		fmt.Print("\nallow ingest to read transcripts on this machine? [y/N] ")
-		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		if a := strings.TrimSpace(strings.ToLower(line)); a != "y" && a != "yes" {
+		// Through the prompts' shared reader: reached from the import menu,
+		// a reader of its own would lose a y typed right after the Enter.
+		if !confirmNo("\nallow ingest to read transcripts on this machine?") {
 			return fmt.Errorf("ingest needs consent to read transcripts; not granted")
 		}
 	}

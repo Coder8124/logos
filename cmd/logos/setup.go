@@ -913,7 +913,14 @@ func readAnswer(prompt string) (answer string, ok bool) {
 	// prompt swallowed the rest of a piped script into the first and left the
 	// next prompt at EOF. Rebuilt only if stdin itself was swapped.
 	if answers == nil || answersFrom != os.Stdin {
-		answers, answersFrom = bufio.NewScanner(os.Stdin), os.Stdin
+		// After a menu, through the menu's own reader: an Enter and the
+		// answer typed after it can arrive in one read, and a scanner of its
+		// own would never see the answer the menu's buffer already took.
+		var in io.Reader = os.Stdin
+		if os.Stdin == keyboardFrom {
+			in = keyboard
+		}
+		answers, answersFrom = bufio.NewScanner(in), os.Stdin
 	}
 	sc := answers
 	if !sc.Scan() {
