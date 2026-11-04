@@ -7,7 +7,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Coder8124/logos/ci.yml?branch=main&label=CI)](https://github.com/Coder8124/logos/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Coder8124/logos?color=00392F)](https://github.com/Coder8124/logos/releases)
 [![npm](https://img.shields.io/npm/v/@noeton/logos?color=00392F)](https://www.npmjs.com/package/@noeton/logos)
-[![npm downloads](https://img.shields.io/npm/dm/@noeton/logos?color=00392F)](https://www.npmjs.com/package/@noeton/logos)
 [![Homebrew](https://img.shields.io/badge/brew-coder8124%2Ftap%2Flogos--mcp-00392F)](https://github.com/Coder8124/homebrew-tap)
 [![License](https://img.shields.io/badge/license-Apache%202.0-00392F)](LICENSE)
 
