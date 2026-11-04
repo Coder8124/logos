@@ -36,12 +36,17 @@ const claudeMemConfidence = 0.6
 // are about to be recalled into an agent's context as if they were known.
 func runImport(args []string) error {
 	from := strings.TrimSpace(flagStr(args, "--from", ""))
+	// No source named: a person at a terminal gets a menu of them; a script
+	// or a hook still gets the usage error, never a wait on a keypress.
+	if from == "" && pickerAllowed(false) {
+		return runImportPicked(args)
+	}
 	switch from {
 	case claudeMDSource, cursorRulesSource, claudeAutoMemorySource:
 		return runImportRules(from, args)
 	}
 	if from != claudeMemSource {
-		return fmt.Errorf("usage: logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules|claude-auto-memory [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
+		return fmt.Errorf("usage: logos import                     (at a terminal: a menu of the sources)\n       logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]\n       logos import --from claude-mem --auto   (what the import switch runs)\n       logos import --from claude-md|cursor-rules|claude-auto-memory [--dir DIR] [--project P] [--dry-run] [--yes]\n       logos import --from git ...             (seed from git history; see logos help all)")
 	}
 	if hasFlag(args, "--auto") {
 		return runImportAuto()

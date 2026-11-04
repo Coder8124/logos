@@ -135,6 +135,7 @@ MEMORY
                                       the connections a dream proposed overnight
 
 BRINGING IT IN
+    logos import                      at a terminal, a menu: tick any of the sources below
     logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]
                                       bring claude-mem's observations over as memories
     logos import --from claude-md|cursor-rules|claude-auto-memory [--dir DIR] [--dry-run] [--yes]
