@@ -267,3 +267,26 @@ func CheckPlugin(version string) (c Check) {
 	c.Detail = "plugin " + pluginVersion
 	return c
 }
+
+// checkSessionHooks reads each host's hooks file the way the host reads it.
+// Registration can be perfect while the hook is dead: a Codex file an earlier
+// setup wrote with Cursor's "version" key makes Codex run none of its hooks,
+// and the hosts check still said "detected", because detected is all it asks.
+// ok is false when every hook would run, so a healthy machine sees no row.
+func checkSessionHooks(hosts []setup.Host) (Check, bool) {
+	problems := setup.HookProblems(hosts)
+	if len(problems) == 0 {
+		return Check{}, false
+	}
+	var details, fixes []string
+	for _, p := range problems {
+		details = append(details, fmt.Sprintf("%s (%s): %s", p.Host, p.Path, p.Detail))
+		fixes = append(fixes, fmt.Sprintf("`logos setup --host %s`", strings.ToLower(p.Host)))
+	}
+	return Check{
+		Name:   "session hooks",
+		State:  Failed,
+		Detail: strings.Join(details, "; "),
+		Fix:    "run " + strings.Join(fixes, " and ") + " — it rewrites the hook and keeps a copy of the file it found",
+	}, true
+}
