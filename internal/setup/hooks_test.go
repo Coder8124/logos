@@ -452,3 +452,55 @@ func TestAConfigWithANullServersBlockGetsLogos(t *testing.T) {
 		t.Errorf("the user's other key was lost: %v", cfg)
 	}
 }
+
+// Codex 0.164 refuses a hooks file with any top-level key but description and
+// hooks — "unknown field `version`" — and then runs none of the hooks in it,
+// the user's included. Setups before 0.5.5 wrote Cursor's versioned shape
+// there, and moving the entry into Codex's shape kept the key, so re-running
+// setup left Codex exactly as broken as before.
+func TestMovingAnEarlierCodexHookDropsTheVersionCodexRefuses(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	path := filepath.Join(home, ".codex", "hooks.json")
+	old := `{"hooks":{"sessionStart":[{"command":"/opt/homebrew/opt/logos-mcp/bin/logos mcp serve hook codex session-start"}]},"version":1}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installHook(path, "codex", []string{"/usr/local/bin/logos"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := readJSON(t, path)["version"]; has {
+		t.Errorf("Codex's hooks file still has a version, which Codex refuses:\n%s", mustRead(t, path))
+	}
+	if cmds := codexHookCommands(t, path); len(cmds) != 1 {
+		t.Errorf("SessionStart = %q, want logos's hook", cmds)
+	}
+}
+
+// Uninstalling has to leave a file Codex can read too: the user's own hooks
+// are still in it, and a version left behind stops all of them.
+func TestUninstallLeavesCodexAHooksFileItCanRead(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	path := filepath.Join(home, ".codex", "hooks.json")
+	old := `{"version":1,"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"mine.sh"},{"type":"command","command":"/usr/local/bin/logos hook codex session-start"}]}]}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := removeHook(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := readJSON(t, path)["version"]; has {
+		t.Errorf("uninstall left a version in Codex's hooks file:\n%s", mustRead(t, path))
+	}
+	if cmds := codexHookCommands(t, path); len(cmds) != 1 || cmds[0] != "mine.sh" {
+		t.Errorf("SessionStart = %q, want only the user's handler", cmds)
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

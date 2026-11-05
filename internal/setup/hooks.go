@@ -48,6 +48,16 @@ type hookFile struct {
 	rest      map[string]json.RawMessage // everything in the file, ours included
 }
 
+// unversion takes the version out of a file that is Codex's. Codex refuses a
+// hooks file with any top-level key but description and hooks ("unknown field
+// `version`") and then runs none of its hooks, the user's included — and every
+// setup before 0.5.5 wrote Cursor's versioned shape into it, so keeping the key
+// on the way through left Codex as broken as it found it.
+func (f *hookFile) unversion() {
+	f.versioned = false
+	delete(f.rest, "version")
+}
+
 // A session-start entry is kept as the object the file held, not as a struct of
 // the one field logos reads. Hosts put more on an entry than a command — a
 // timeout, a name, a matcher — and a struct with a single field silently
@@ -116,6 +126,7 @@ func installHook(path, host string, argv []string) (Outcome, error) {
 	want := logosEntryFor(host, argv)
 	var had bool
 	if host == "codex" {
+		f.unversion()
 		had, err = installCodexHook(path, &f, want)
 	} else {
 		f.versioned = true
@@ -428,6 +439,9 @@ func removeHook(path string) (bool, string, error) {
 	nested := dropCodexLogosHooks(path, &f)
 	if !flat && !nested {
 		return false, "", nil
+	}
+	if nested {
+		f.unversion()
 	}
 	backup, err := backupFile(path, true)
 	if err != nil {
