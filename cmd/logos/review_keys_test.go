@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,38 @@ func TestTheTerminalIsGivenBackWhenInputEndsMidReview(t *testing.T) {
 	}
 	if restored != entered {
 		t.Fatalf("raw mode entered %d, restored %d", entered, restored)
+	}
+}
+
+func TestAnArrowKeyInApplicationCursorModeIsNotReadAsAccept(t *testing.T) {
+	// Some terminals send Up as ESC O A; its A would accept a memory.
+	if got := answersTo(t, "\x1bOA\x1bOBr", 1); got[0] != "r" {
+		t.Fatalf("an arrow key answered %q", got[0])
+	}
+}
+
+// When the terminal refused raw mode, the first answer came back as an error,
+// which review reads as end of input: it quit with "0 accepted" and exit 0,
+// and nobody was told the keys never worked.
+func TestAReviewWhoseTerminalRefusesRawModeSaysSoAndTakesLines(t *testing.T) {
+	refuse := func() (func(), error) { return nil, errors.New("not a tty") }
+	answer := keyAnswers(bufio.NewReader(strings.NewReader("r\na\n")), refuse)
+	var got []string
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() {
+			for range 2 {
+				k, err := answer()
+				if err != nil {
+					t.Fatalf("answer %d: %v", len(got)+1, err)
+				}
+				got = append(got, k)
+			}
+		})
+	})
+	if strings.Join(got, ",") != "r,a" {
+		t.Fatalf("got %q, want r,a read as lines", got)
+	}
+	if !strings.Contains(stderr, "not a tty") || strings.Count(stderr, "not a tty") != 1 {
+		t.Fatalf("the fallback is not said exactly once:\n%s", stderr)
 	}
 }

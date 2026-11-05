@@ -406,7 +406,11 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 		}
 		for _, r := range plan {
 			if r.Outcome == setup.Skipped {
-				fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
+				// A menu that could not open falls back to [Y/n] after
+				// the missing hosts were already listed above it.
+				if !(pending && asMenu) {
+					fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
+				}
 				continue
 			}
 			// The tier, because "connected" meant three different things:
@@ -490,7 +494,11 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 	}
 	if !wire {
 		fmt.Println("  skipped; re-run `logos mcp install` when you are ready")
-		// The prompt cannot pick a subset, so the way to wire some of these is
+		if asked {
+			// The checklist that was just cancelled is the way to a subset.
+			return nil, nil
+		}
+		// [Y/n] cannot pick a subset, so the way to wire some of these is
 		// printed with each found host's spelling, ready to trim and paste.
 		var pick []string
 		for _, r := range plan {
@@ -929,8 +937,6 @@ func confirmNo(prompt string) bool {
 	return ok && (answer == "y" || answer == "yes")
 }
 
-// readAnswer prints prompt and reads one answer, lowercased. ok is false when there
-// is no answer to read.
 // chooseHosts asks which of the hosts found to wire, all ticked to start, so
 // Enter on the last row is the old Enter at [Y/n]. A [Y/n] could only take
 // every host or none; leaving one out meant retyping the run with --host per
@@ -990,6 +996,8 @@ func leaveOut(hosts []setup.Host, pluginSteps [][]string, unticked []string) ([]
 	return kept, pluginSteps
 }
 
+// readAnswer prints prompt and reads one answer, lowercased. ok is false when there
+// is no answer to read.
 func readAnswer(prompt string) (answer string, ok bool) {
 	fmt.Print(prompt)
 	// One scanner for every prompt: a scanner reads ahead, so a fresh one per

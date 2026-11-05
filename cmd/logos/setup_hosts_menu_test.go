@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,6 +95,36 @@ func TestCancellingTheSetupHostMenuWiresNothing(t *testing.T) {
 	}
 	if !strings.Contains(out, "skipped") {
 		t.Fatalf("the cancel was not said:\n%s", out)
+	}
+	// The --host line was the [Y/n] prompt's only way to a subset; after a
+	// checklist it sends the person to type what the menu just offered.
+	if strings.Contains(out, "--host") {
+		t.Fatalf("a cancelled checklist still teaches --host:\n%s", out)
+	}
+}
+
+// When the menu could not be drawn, setup fell back to [Y/n] and printed the
+// whole roster again, so every host that is not installed was listed twice.
+func TestAHostMenuThatCannotOpenListsEachMissingHostOnce(t *testing.T) {
+	dir := setupInFakeHome(t)
+	recordingHosts(t, "Fakey Cursor")
+	gone := setup.Host{Name: "Fakey Absent", Detect: func() bool { return false }, Where: func() string { return "" }}
+	withGone := detectHosts
+	detectHosts = func() []setup.Host { return append(withGone(), gone) }
+	atTerminal(t, true)
+	was := pickOnTerminal
+	pickOnTerminal = func(menu) (int, pick, int, error) { return 0, cancelled, 0, errors.New("no raw mode") }
+	t.Cleanup(func() { pickOnTerminal = was })
+
+	out := captureStdout(t, func() { wireHosts(dir, wireOpts{}) })
+	if !strings.Contains(out, "asking instead") {
+		t.Fatalf("the fallback was not taken:\n%s", out)
+	}
+	if n := strings.Count(out, "Fakey Absent"); n != 1 {
+		t.Fatalf("the missing host is listed %d times:\n%s", n, out)
+	}
+	if !strings.Contains(out, "Fakey Cursor") {
+		t.Fatalf("the fallback prompt does not say what it would wire:\n%s", out)
 	}
 }
 

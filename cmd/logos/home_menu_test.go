@@ -125,3 +125,16 @@ func TestAnEmptySearchKeepsTheTextBoxOpen(t *testing.T) {
 }
 
 var errEmptyQueryForTest = errors.New("type something to search for")
+
+// The wheel moved the selection while a text box was being typed into, and
+// Enter then ran whichever row the wheel had reached with the typed text —
+// a query typed into search could start an index rebuild.
+func TestScrollingWhileTypingInTheSearchBoxStillRunsSearch(t *testing.T) {
+	f := &menuField{row: 1, prompt: "search for: ", check: func(s string) (string, error) { return strings.TrimSpace(s), nil }}
+	var screen bytes.Buffer
+	keys := "j\rflaky" + "\x1b[<65;5;18M\x1b[<65;5;18M" + "\r"
+	sel, res, _ := runPicker(keysOf(keys), &screen, menu{title: "t", hint: "h", rows: []string{"a", "search", "c", "d"}, field: f, mouse: true}, 80)
+	if res != picked || sel != 1 || f.value != "flaky" {
+		t.Fatalf("sel %d res %v value %q, want the search row picked with the text", sel, res, f.value)
+	}
+}

@@ -216,11 +216,21 @@ func rawStdin() (func(), error) {
 // byte at a time its "A" would accept a memory nobody chose — so a whole
 // escape sequence is read and dropped. Ctrl-C and Ctrl-D quit with the
 // tally, as q does: raw mode turns Ctrl-C into a byte, not a signal.
+//
+// A terminal that refuses raw mode is said once on stderr and the review goes
+// on reading lines: returned as an error, it read as the end of input, and
+// review quit with "0 accepted" and exit 0 before anyone had answered.
 func keyAnswers(in *bufio.Reader, raw func() (func(), error)) reviewAnswer {
+	var lines reviewAnswer
 	return func() (string, error) {
+		if lines != nil {
+			return lines()
+		}
 		restore, err := raw()
 		if err != nil {
-			return "", err
+			fmt.Fprintf(os.Stderr, "logos: could not read single keys (%v) — type each answer and press Enter\n", err)
+			lines = lineAnswers(in)
+			return lines()
 		}
 		for {
 			b, err := in.ReadByte()
@@ -231,10 +241,14 @@ func keyAnswers(in *bufio.Reader, raw func() (func(), error)) reviewAnswer {
 			key := ""
 			switch b = byte(unicode.ToLower(rune(b))); {
 			case b == 0x1b:
-				// A lone Esc arrives by itself; a sequence arrives whole.
+				// A lone Esc arrives by itself; a sequence arrives whole,
+				// as ESC [ … or, in application cursor mode, ESC O A.
 				if in.Buffered() > 0 {
-					if next, _ := in.ReadByte(); next == '[' {
+					switch next, _ := in.ReadByte(); next {
+					case '[':
 						readCSI(in)
+					case 'O':
+						in.ReadByte()
 					}
 				}
 				continue

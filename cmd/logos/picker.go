@@ -374,12 +374,17 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 			if _, err := fmt.Sscanf(params, "<%d;%d;%d", &b, &x, &y); err != nil {
 				return false, 0, false
 			}
-			switch b {
-			case 64:
+			switch {
+			case editing && (b == 64 || b == 65):
+				// The typed text belongs to the field's row; a wheel that
+				// moved the selection would hand it to whichever row Enter
+				// then lands on.
+				return false, 0, false
+			case b == 64:
 				sel = max(sel-1, 0)
-			case 65:
+			case b == 65:
 				sel = min(sel+1, n-1)
-			case 0:
+			case b == 0:
 				k := y - titleAt
 				if titleAt == 0 || k < 1 || k > pickerWindow || top+k-1 >= n {
 					return false, 0, false // the title, or off the menu
