@@ -83,14 +83,6 @@ func TestTheImportMenuImportsEveryTickedSourceInOrder(t *testing.T) {
 	}
 }
 
-func TestEnterWithNothingTickedImportsTheHighlightedSource(t *testing.T) {
-	ticks(t, 5, picked)
-	chosen, ok, err := chooseImportSources()
-	if err != nil || !ok || len(chosen) != 1 || chosen[0].from != "git" {
-		t.Fatalf("chose %v ok=%v err=%v, want only git", fromOf(chosen), ok, err)
-	}
-}
-
 func TestCancellingTheImportMenuImportsNothing(t *testing.T) {
 	for _, res := range []pick{cancelled, wentBack} {
 		ticks(t, 0, res, 0, 1)
@@ -170,5 +162,169 @@ func TestIngestConsentTypedRightAfterTheMenuIsGranted(t *testing.T) {
 	}
 	if err := ensureIngestConsent(vault, false); err != nil {
 		t.Fatalf("the y typed after the menu's Enter did not grant consent: %v", err)
+	}
+}
+
+// typedSlowly delivers keys a byte per read, as a person types them, so every
+// key draws its own frame.
+func typedSlowly(s string) *bufio.Reader {
+	return bufio.NewReader(iotest.OneByteReader(strings.NewReader(s)))
+}
+
+// importMenu is the shape of the import menu, small: two rows, the second a
+// folder field, and the row that starts the import.
+func importMenu(checked []bool, f *menuField) menu {
+	return menu{title: "t", hint: "h", rows: []string{"a", "folder"}, checked: checked, submit: "Import", field: f}
+}
+
+func TestEnterTicksARowAndOnlyTheLastRowStartsTheImport(t *testing.T) {
+	checked := make([]bool, 3)
+	var screen bytes.Buffer
+	m := menu{title: "t", hint: "h", rows: []string{"a", "b", "c"}, checked: checked, submit: "Import"}
+	if _, res, _ := runPicker(keysOf("\rjj\rk\r\rjj\r"), &screen, m, 80); res != picked {
+		t.Fatalf("menu ended %v, want picked", res)
+	}
+	if want := []bool{true, false, true}; checked[0] != want[0] || checked[1] != want[1] || checked[2] != want[2] {
+		t.Errorf("ticks %v, want %v: Enter on a row ticks and unticks it", checked, want)
+	}
+}
+
+func TestTheLastRowRefusesToStartWithNothingTicked(t *testing.T) {
+	checked := make([]bool, 1)
+	var screen bytes.Buffer
+	m := menu{title: "t", hint: "h", rows: []string{"a"}, checked: checked, submit: "Import"}
+	// Input ends after the refused Enter: had it been taken, the menu would
+	// have ended picked rather than with nobody left to choose.
+	if _, res, _ := runPicker(keysOf("j\r"), &screen, m, 80); res != cancelled {
+		t.Fatalf("menu ended %v, want it still open when the input ran out", res)
+	}
+	if !strings.Contains(screen.String(), "Tick at least one row first.") {
+		t.Errorf("the refusal is not said:\n%q", screen.String())
+	}
+}
+
+func TestAClickOnARowTicksItAndAClickOnTheLastRowImports(t *testing.T) {
+	checked := make([]bool, 2)
+	var screen bytes.Buffer
+	m := menu{title: "t", hint: "h", rows: []string{"a", "b"}, checked: checked, submit: "Import", mouse: true}
+	// The first frame is four lines and leaves the cursor on row 20, so its
+	// title is on row 16, "b" on 18 and the last row on 19. A release (m)
+	// follows each press and must not count as a second click.
+	keys := "\x1b[20;1R" + "\x1b[<0;5;18M\x1b[<0;5;18m" + "\x1b[<0;5;16M" + "\x1b[<0;5;19M\x1b[<0;5;19m"
+	if _, res, _ := runPicker(keysOf(keys), &screen, m, 80); res != picked {
+		t.Fatalf("menu ended %v, want picked by the click on the last row", res)
+	}
+	if checked[0] || !checked[1] {
+		t.Errorf("ticks %v, want only the clicked row", checked)
+	}
+	if !strings.Contains(screen.String(), "\x1b[6n") {
+		t.Error("the menu never asked where it was drawn, so it cannot place a click")
+	}
+}
+
+func TestAMenuWithoutTheMouseDoesNotAskWhereItIsDrawn(t *testing.T) {
+	var screen bytes.Buffer
+	runPicker(keysOf("\r"), &screen, menu{title: "t", hint: "h", rows: []string{"a"}}, 80)
+	if strings.Contains(screen.String(), "\x1b[6n") {
+		t.Error("a menu without mouse asked for the cursor, and its answer would reach the next prompt")
+	}
+}
+
+func TestTheFolderRowTakesATypedFolderAndTicksIt(t *testing.T) {
+	dir := t.TempDir()
+	checked := make([]bool, 2)
+	f := &menuField{row: 1, prompt: "Folder: ", check: importFolder}
+	var screen bytes.Buffer
+	// q and j are typed into the field, not taken as keys, and Backspace
+	// takes them out again.
+	keys := "j\r" + dir + "qj\x7f\x7f\r" + "j\r"
+	if _, res, _ := runPicker(typedSlowly(keys), &screen, importMenu(checked, f), 300); res != picked {
+		t.Fatalf("menu ended %v, want picked", res)
+	}
+	if f.value != dir || !checked[1] {
+		t.Errorf("field %q ticked %v, want %q ticked", f.value, checked[1], dir)
+	}
+	if !strings.Contains(screen.String(), "folder: "+dir) {
+		t.Errorf("the row does not show the folder it will read:\n%q", screen.String())
+	}
+}
+
+func TestAFolderThatDoesNotExistKeepsTheFieldOpenAndSaysSo(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+	checked := make([]bool, 2)
+	f := &menuField{row: 1, prompt: "Folder: ", check: importFolder}
+	var screen bytes.Buffer
+	// The j after the refused Enter is typed into the field, which is how
+	// it shows the field stayed open.
+	if _, res, _ := runPicker(typedSlowly("j\r"+missing+"\rj"), &screen, importMenu(checked, f), 80); res != cancelled {
+		t.Fatalf("menu ended %v, want it still open", res)
+	}
+	if f.value != "" || checked[1] {
+		t.Errorf("a missing folder was taken: %q ticked %v", f.value, checked[1])
+	}
+	// At 80 columns the path is longer than the line: the field shows its
+	// end, where the typing is, and the whole refusal fits under it.
+	if !strings.Contains(screen.String(), "  no folder by that name — fix it, or Esc to leave the field\r\n") || !strings.Contains(screen.String(), "/nopej█\r\n") {
+		t.Errorf("the refusal or the open field's end is not on screen:\n%q", screen.String())
+	}
+}
+
+func TestEscLeavesTheFolderFieldWithoutLeavingTheMenu(t *testing.T) {
+	checked := make([]bool, 2)
+	f := &menuField{row: 1, prompt: "Folder: ", check: importFolder}
+	var screen bytes.Buffer
+	if _, res, _ := runPicker(keysOf("j\rabc\x1b"), &screen, importMenu(checked, f), 80); res != cancelled {
+		t.Fatalf("menu ended %v, want it open until the input ran out", res)
+	}
+	if f.value != "" || checked[1] {
+		t.Errorf("Esc kept what was typed: %q ticked %v", f.value, checked[1])
+	}
+}
+
+func TestAFolderInTheImportMenuRunsEachRulesSourceOnIt(t *testing.T) {
+	dir := t.TempDir()
+	was := pickOnTerminal
+	pickOnTerminal = func(m menu) (int, pick, int, error) {
+		m.checked[0] = true
+		m.field.value, m.checked[m.field.row] = dir, true
+		return len(m.rows), picked, 0, nil
+	}
+	t.Cleanup(func() { pickOnTerminal = was })
+	chosen, ok, err := chooseImportSources()
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if got := strings.Join(fromOf(chosen), " "); got != "claude-mem claude-md cursor-rules claude-auto-memory" {
+		t.Fatalf("chose %q, want claude-mem then the three rules sources", got)
+	}
+	if chosen[0].dir != "" {
+		t.Errorf("claude-mem was given the folder %q, which it was not ticked for", chosen[0].dir)
+	}
+	for _, s := range chosen[1:] {
+		if s.dir != dir {
+			t.Errorf("%s reads %q, want the folder %q", s.from, s.dir, dir)
+		}
+	}
+}
+
+func TestAFolderDraggedIntoTheTerminalIsTakenAsTyped(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my notes")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, typed := range []string{dir, "'" + dir + "'", `"` + dir + `"`, strings.ReplaceAll(dir, " ", `\ `), "  " + dir + "  "} {
+		if got, err := importFolder(typed); err != nil || got != dir {
+			t.Errorf("%q gave %q, %v; want %q", typed, got, err, dir)
+		}
+	}
+	file := filepath.Join(dir, "f.md")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := importFolder(file); err == nil || !strings.Contains(err.Error(), "not a folder") {
+		t.Errorf("a file was taken as a folder: %v", err)
+	}
+	if got, err := importFolder("   "); err != nil || got != "" {
+		t.Errorf("an empty field gave %q, %v; want it cleared", got, err)
 	}
 }

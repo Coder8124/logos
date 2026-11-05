@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 
@@ -118,11 +120,33 @@ func pickAgent(agents []launcher) (*launcher, pick, int, error) {
 // checked, when set, makes it a checklist: Space ticks the selected row, and
 // the ticks are left in checked for the caller, which shares its backing
 // array with the copy the picker was given.
+//
+// submit, set on a checklist, adds a last row that ends the menu, and Enter
+// or a click on any other row ticks it instead. That is opt-in: in every
+// other menu Enter runs the highlighted row, and the flag menus and resume
+// depend on it.
+//
+// field makes one row a text box that Enter or a click opens, as the "other"
+// answer does in an agent's question menu. mouse turns on click reporting
+// while the menu is up.
 type menu struct {
 	title, hint string
 	rows        []string
 	sel, over   int
 	checked     []bool
+	submit      string
+	field       *menuField
+	mouse       bool
+}
+
+// menuField is a row typed into. check cleans what was typed or says what is
+// wrong with it; the menu shows the reason and stays open on the text, so a
+// mistyped folder is fixed in place rather than discovered after the run.
+// value is left set for the caller, and the row ticked when it is not empty.
+type menuField struct {
+	row           int
+	prompt, value string
+	check         func(string) (string, error)
 }
 
 // keyboard is stdin, read through one buffer for every menu. A fast typist's
@@ -149,6 +173,13 @@ var pickOnTerminal = func(m menu) (int, pick, int, error) {
 		return 0, cancelled, 0, err
 	}
 	defer term.Restore(fd, old)
+	if m.mouse {
+		// SGR reporting (1006), because the old encoding cannot say a row
+		// past 223. Off again before the shell gets the terminal back: left
+		// on, every click in it after logos exits types escape codes.
+		fmt.Print("\x1b[?1000h\x1b[?1006h")
+		defer fmt.Print("\x1b[?1000l\x1b[?1006l")
+	}
 	i, res, lines := runPicker(keyboard, os.Stdout, m, width)
 	return i, res, lines, nil
 }
@@ -173,7 +204,35 @@ const pickerWindow = 10
 // raw-mode terminal does not turn "\n" into a carriage return.
 func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, int) {
 	rows := m.rows
-	sel, top, up, drawn := min(max(m.sel, 0), len(rows)-1), 0, m.over, 0
+	n := len(rows)
+	if m.submit != "" {
+		n++ // the submit row, drawn last and never ticked
+	}
+	sel, top, up, drawn := min(max(m.sel, 0), n-1), 0, m.over, 0
+	editing, typed, msg := false, []byte(nil), ""
+	// A click says where on the screen it landed, not which row, so each
+	// frame asks the terminal where its cursor ended up. pending is the
+	// height of every frame still waiting on its answer, oldest first, and
+	// titleAt the screen row the newest answered frame put its title on.
+	var pending []int
+	titleAt := 0
+	label := func(i int) string {
+		switch {
+		case i == len(rows):
+			return m.submit
+		case m.field != nil && i == m.field.row && editing:
+			// The end of what is typed, not the start, when it is too long:
+			// a path grows on the right, and cut there the cursor is gone.
+			r := []rune(string(typed) + "█")
+			if room := width - 1 - 6 - utf8.RuneCountInString(m.field.prompt); len(r) > room && room > 1 {
+				r = append([]rune("…"), r[len(r)-room+1:]...)
+			}
+			return m.field.prompt + string(r)
+		case m.field != nil && i == m.field.row && m.field.value != "":
+			return rows[i] + ": " + m.field.value
+		}
+		return rows[i]
+	}
 	draw := func() {
 		if up > 0 {
 			fmt.Fprintf(out, "\x1b[%dA", up)
@@ -187,22 +246,25 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 		// Every line is cut to the width, the title too: the redraw moves up
 		// one row per line, and a line that wraps leaves debris behind.
 		lines := []string{text.Ellipsize(m.title+"  ("+m.hint+")", width-1)}
-		for i := top; i < len(rows) && i < top+pickerWindow; i++ {
+		for i := top; i < n && i < top+pickerWindow; i++ {
 			mark := "  "
 			if i == sel {
 				mark = "> "
 			}
-			if m.checked != nil {
+			if m.checked != nil && i < len(rows) {
 				if m.checked[i] {
 					mark += "[x] "
 				} else {
 					mark += "[ ] "
 				}
 			}
-			lines = append(lines, text.Ellipsize(mark+rows[i], width-1))
+			lines = append(lines, text.Ellipsize(mark+label(i), width-1))
 		}
-		if len(rows) > pickerWindow {
-			lines = append(lines, fmt.Sprintf("  (%d of %d)", sel+1, len(rows)))
+		if n > pickerWindow {
+			lines = append(lines, fmt.Sprintf("  (%d of %d)", sel+1, n))
+		}
+		if msg != "" {
+			lines = append(lines, text.Ellipsize("  "+msg, width-1))
 		}
 		for _, l := range lines {
 			fmt.Fprintf(out, "\x1b[2K%s\r\n", l)
@@ -212,6 +274,130 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 		// otherwise leave the old one's last lines under it.
 		fmt.Fprint(out, "\x1b[J")
 		up, drawn = len(lines), len(lines)
+		if m.mouse {
+			fmt.Fprint(out, "\x1b[6n")
+			pending = append(pending, drawn)
+		}
+	}
+	// settle reads the answers to frames drawn just before the menu ended.
+	// Left in the buffer, an answer is the first thing the next prompt reads,
+	// and "\x1b[14;1Ry" is not a yes. Enter or Ctrl-C ends the wait, so a
+	// terminal that never answers costs a keypress, not a hang.
+	settle := func() {
+		for len(pending) > 0 {
+			b, err := in.ReadByte()
+			if err != nil || b == '\r' || b == 3 {
+				return
+			}
+			if b == 0x1b {
+				if next, err := in.ReadByte(); err == nil && next == '[' {
+					if _, final := readCSI(in); final == 'R' {
+						pending = pending[1:]
+					}
+				}
+			}
+		}
+	}
+	// activate is Enter on the highlighted row, or a click on it; done is
+	// whether the menu ends with it.
+	activate := func() (done bool) {
+		switch {
+		case m.submit != "" && sel == len(rows):
+			for _, c := range m.checked {
+				if c {
+					return true
+				}
+			}
+			msg = "Tick at least one row first."
+		case m.field != nil && sel == m.field.row:
+			editing, typed = true, []byte(m.field.value)
+		case m.submit != "":
+			m.checked[sel] = !m.checked[sel]
+		default:
+			return true
+		}
+		return false
+	}
+	// accept checks what was typed; a refusal keeps the field open on it.
+	accept := func() {
+		v, err := m.field.check(string(typed))
+		if err != nil {
+			msg = err.Error() + " — fix it, or Esc to leave the field"
+			return
+		}
+		m.field.value, editing = v, false
+		m.checked[m.field.row] = v != ""
+	}
+	// escape reads what follows an ESC and handles it. It reports whether
+	// the screen changed, and how the menu ends if it does.
+	escape := func() (dirty bool, end pick, ended bool) {
+		// An arrow arrives as ESC [ A (or ESC O A in application mode) in
+		// one write, so its tail is already buffered; an ESC with nothing
+		// after it is the key itself.
+		lone := in.Buffered() == 0
+		if !lone {
+			next, _ := in.Peek(1)
+			lone = next[0] != '[' && next[0] != 'O'
+		}
+		if lone {
+			if editing {
+				editing = false
+				return true, 0, false
+			}
+			return false, wentBack, true
+		}
+		intro, _ := in.ReadByte()
+		var params string
+		var final byte
+		if intro == 'O' {
+			final, _ = in.ReadByte()
+		} else {
+			params, final = readCSI(in)
+		}
+		switch {
+		case final == 'R' && len(pending) > 0:
+			var r, c int
+			if _, err := fmt.Sscanf(params, "%d;%d", &r, &c); err == nil {
+				titleAt = r - pending[0]
+			}
+			pending = pending[1:]
+			return false, 0, false
+		case final == 'M' && strings.HasPrefix(params, "<"):
+			var b, x, y int
+			if _, err := fmt.Sscanf(params, "<%d;%d;%d", &b, &x, &y); err != nil {
+				return false, 0, false
+			}
+			switch b {
+			case 64:
+				sel = max(sel-1, 0)
+			case 65:
+				sel = min(sel+1, n-1)
+			case 0:
+				k := y - titleAt
+				if titleAt == 0 || k < 1 || k > pickerWindow || top+k-1 >= n {
+					return false, 0, false // the title, or off the menu
+				}
+				row := top + k - 1
+				if editing {
+					if row == m.field.row {
+						return false, 0, false
+					}
+					editing = false // a click elsewhere leaves the field as it was
+				}
+				sel, msg = row, ""
+				if activate() {
+					return true, picked, true
+				}
+			}
+			return true, 0, false
+		case editing:
+			return false, 0, false
+		case final == 'A':
+			sel = max(sel-1, 0)
+		case final == 'B':
+			sel = min(sel+1, n-1)
+		}
+		return true, 0, false
 	}
 	draw()
 	for {
@@ -219,39 +405,73 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 		if err != nil {
 			return 0, cancelled, drawn // input closed: nobody is there to choose
 		}
+		dirty := true
+		if b != 0x1b {
+			msg = ""
+		}
 		switch {
+		case b == 3 || b == 4: // Ctrl-C, Ctrl-D, in the field as anywhere
+			return 0, cancelled, drawn
+		case b == 0x1b:
+			d, end, ended := escape()
+			if ended {
+				if end != picked {
+					return 0, end, drawn
+				}
+				settle()
+				return sel, picked, drawn
+			}
+			dirty = d
+		case editing && (b == '\r' || b == '\n'):
+			accept()
+		case editing && (b == 0x7f || b == 8): // Backspace takes a whole character
+			if len(typed) > 0 {
+				_, size := utf8.DecodeLastRune(typed)
+				typed = typed[:len(typed)-size]
+			}
+		case editing && b >= 0x20:
+			typed = append(typed, b)
+		case editing:
 		case b == '\r' || b == '\n':
-			return sel, picked, drawn
-		case b == 'q' || b == 3 || b == 4: // q, Ctrl-C, Ctrl-D
+			if activate() {
+				settle()
+				return sel, picked, drawn
+			}
+		case b == 'q':
 			return 0, cancelled, drawn
 		case b == 'k':
 			sel = max(sel-1, 0)
 		case b == 'j':
-			sel = min(sel+1, len(rows)-1)
-		case b == ' ' && m.checked != nil:
+			sel = min(sel+1, n-1)
+		case b == ' ' && m.field != nil && sel == m.field.row && m.field.value == "":
+			activate() // nothing to tick until a folder is named
+		case b == ' ' && m.checked != nil && sel < len(rows):
 			m.checked[sel] = !m.checked[sel]
-		case b == 0x1b:
-			// An arrow arrives as ESC [ A (or ESC O A in application mode)
-			// in one write, so its tail is already buffered; an ESC with
-			// nothing after it is the key itself, which goes back.
-			if in.Buffered() == 0 {
-				return 0, wentBack, drawn
-			}
-			if next, _ := in.Peek(1); next[0] != '[' && next[0] != 'O' {
-				return 0, wentBack, drawn
-			}
-			in.Discard(1)
-			switch c, _ := in.ReadByte(); c {
-			case 'A':
-				sel = max(sel-1, 0)
-			case 'B':
-				sel = min(sel+1, len(rows)-1)
-			}
 		}
-		// Once per batch of keys, not per key: held arrows redraw once.
-		if in.Buffered() == 0 {
+		// Once per batch of keys, not per key: held arrows redraw once. A
+		// cursor report changes nothing, and redrawing for it would ask
+		// again, forever.
+		if dirty && in.Buffered() == 0 {
 			draw()
 		}
+	}
+}
+
+// readCSI reads the rest of a control sequence after ESC [: its parameters,
+// then the byte that ends it. A click and a cursor report are longer than the
+// one byte an arrow needs, and reading one byte left the rest to be taken as
+// keys.
+func readCSI(in *bufio.Reader) (string, byte) {
+	var params []byte
+	for {
+		c, err := in.ReadByte()
+		if err != nil {
+			return string(params), 0
+		}
+		if c >= 0x40 && c <= 0x7e {
+			return string(params), c
+		}
+		params = append(params, c)
 	}
 }
 
