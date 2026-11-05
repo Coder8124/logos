@@ -56,6 +56,8 @@ Flags:
   -v, --version   print the version
 
 Use "logos <command> --help" for one command, "logos help all" for every form.
+At a terminal, a bare show, stats, review, doctor, watch, config or import opens
+a menu of its forms; typing the flags still works everywhere.
 `)
 }
 
