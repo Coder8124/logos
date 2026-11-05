@@ -82,6 +82,10 @@ type SyncReport struct {
 	// and announce. Sync itself removes nothing: it is also the walk behind
 	// setup and the MCP server, where a deletion would go unsaid.
 	StaleTemps []string
+	// EmptyClaims are checkpoints and plans a killed write left empty
+	// (session.IsAbandonedClaim), vault-relative, for the caller to remove
+	// and announce, as StaleTemps are. They are not indexed.
+	EmptyClaims []string
 	// Unreadable is every path the walk could not enter or stat, with why.
 	// Skipping it is right — one bad directory must not stop the index — but
 	// silently skipping it made a missing folder of notes look indexed.
@@ -427,6 +431,14 @@ func (ix *Index) Sync() (SyncReport, error) {
 				rep.StaleTemps = append(rep.StaleTemps, ix.rel(path))
 			}
 			return nil
+		}
+		if r := ix.rel(path); session.IsClaimPath(r) {
+			// Named first, stat second: the stat is a syscall per file and
+			// only a session file can be a claim.
+			if info, err := d.Info(); err == nil && session.IsAbandonedClaim(r, info) {
+				rep.EmptyClaims = append(rep.EmptyClaims, r)
+				return nil
+			}
 		}
 		if r := ix.rel(path); strings.HasPrefix(r, ".logos/") || strings.HasPrefix(r, memory.Dir+"/") || strings.HasPrefix(r, ingest.Dir+"/") {
 			return nil

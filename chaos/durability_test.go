@@ -475,6 +475,17 @@ func TestAKilledWriteOnAnyPathIsRecoveredByTheNextIndex(t *testing.T) {
 			for _, p := range litter {
 				os.Chtimes(p, long, long)
 			}
+			// A kill between claiming a checkpoint's name and writing it
+			// leaves the claim empty (#380); index removes one as old as a
+			// temp file, for the same reason.
+			filepath.WalkDir(filepath.Join(vault, "sessions"), func(p string, d fs.DirEntry, err error) error {
+				if err == nil && !d.IsDir() {
+					if info, ierr := d.Info(); ierr == nil && info.Size() == 0 {
+						os.Chtimes(p, long, long)
+					}
+				}
+				return nil
+			})
 
 			// Recover twice: once over the existing cache, once from nothing,
 			// which is the promise every document makes.
