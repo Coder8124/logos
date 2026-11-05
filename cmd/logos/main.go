@@ -56,7 +56,17 @@ func unknownCommand(name string) {
 func main() {
 	start(os.Stderr, setup.Hosts())
 	if len(os.Args) < 2 {
-		usage()
+		// A person at a terminal gets the commands to choose from; a script
+		// or a hook still gets help on stderr and exit 2, as it always has.
+		if !pickerAllowed(false) {
+			usage()
+		}
+		migrateHint(os.Stderr)
+		if err := runHomeMenu(run); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	cmd := os.Args[1]
 	if cmd != "migrate" {

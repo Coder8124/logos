@@ -318,15 +318,22 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 		}
 		return false
 	}
-	// accept checks what was typed; a refusal keeps the field open on it.
-	accept := func() {
+	// accept checks what was typed; a refusal keeps the field open on it. In
+	// a checklist the answer ticks its row and the menu stays up for the
+	// rest; anywhere else the row was the choice, so an answer ends the menu
+	// the way Enter on any other row does.
+	accept := func() (done bool) {
 		v, err := m.field.check(string(typed))
 		if err != nil {
 			msg = err.Error() + " — fix it, or Esc to leave the field"
-			return
+			return false
 		}
 		m.field.value, editing = v, false
-		m.checked[m.field.row] = v != ""
+		if m.checked != nil {
+			m.checked[m.field.row] = v != ""
+			return false
+		}
+		return v != ""
 	}
 	// escape reads what follows an ESC and handles it. It reports whether
 	// the screen changed, and how the menu ends if it does.
@@ -423,7 +430,10 @@ func runPicker(in *bufio.Reader, out io.Writer, m menu, width int) (int, pick, i
 			}
 			dirty = d
 		case editing && (b == '\r' || b == '\n'):
-			accept()
+			if accept() {
+				settle()
+				return sel, picked, drawn
+			}
 		case editing && (b == 0x7f || b == 8): // Backspace takes a whole character
 			if len(typed) > 0 {
 				_, size := utf8.DecodeLastRune(typed)
