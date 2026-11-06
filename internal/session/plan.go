@@ -73,8 +73,15 @@ func SavePlan(vaultDir string, p Plan) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(p.Markdown()), vault.FileMode); err != nil {
-		return "", err
+	// Filled through a temp file and a rename, as a checkpoint is: a plain write
+	// over the claimed name left half a plan under a real plan's name when it
+	// was cut short (#384). The empty claim is removed on failure too, so a
+	// save that failed leaves nothing a reader could take for a plan.
+	if err := vault.WriteAtomic(path, []byte(p.Markdown())); err != nil {
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			return "", fmt.Errorf("writing plan %s: %w (and its empty placeholder could not be removed: %v)", name, err, rmErr)
+		}
+		return "", fmt.Errorf("writing plan %s: %w", name, err)
 	}
 	slug := filepath.ToSlash(filepath.Join(CheckpointDir, safeScope(p.Project), PlanDir, strings.TrimSuffix(name, ".md")))
 	return slug, nil
