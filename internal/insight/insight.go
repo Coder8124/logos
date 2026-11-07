@@ -74,11 +74,11 @@ const Degraded = "mechanical tier only — no model-augmented insight generator 
 // repeating. Insight is about a standing problem, not archaeology.
 const recurringBlockerWindow = 8
 
-// dormantAfter is how long a memory can go unused before it is worth a
+// DormantAfter is how long a memory can go unused before it is worth a
 // second look. Long enough that an ordinary lull between sessions on a
 // project doesn't trip it, short enough that it still catches something a
 // user genuinely forgot they knew.
-const dormantAfter = 60 * 24 * time.Hour
+const DormantAfter = 60 * 24 * time.Hour
 
 // blockerAkin treats two blockers as the same standing problem when they
 // share more than half their meaningful words — restated in different words
@@ -218,10 +218,26 @@ func recurringBlockers(vaultDir, project string) (found []Insight, checkpoints, 
 	return out, checkpoints, len(projects), nil
 }
 
-// dormantMemories finds a memory nobody has drawn on in dormantAfter, so it
+// dormantMemories finds a memory nobody has drawn on in DormantAfter, so it
 // can be re-confirmed, re-pinned, or forgotten rather than silently going
 // stale. A memory already excluded from recall (PinNever) is not this
 // generator's business — its owner already decided to stop hearing about it.
+// LastTouched is when a memory was last drawn on, or written if never.
+func LastTouched(m memory.Memory) int64 {
+	if m.LastUsed != 0 {
+		return m.LastUsed
+	}
+	return m.Created
+}
+
+// Dormant is the one rule for a memory taking space: not drawn on for
+// DormantAfter and not pinned out of use. `logos stats` and the usage
+// dashboard both ask it, so they never disagree about the same vault.
+func Dormant(m memory.Memory, now time.Time) bool {
+	last := LastTouched(m)
+	return m.Pin != memory.PinNever && last != 0 && last <= now.Add(-DormantAfter).Unix()
+}
+
 func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, int, error) {
 	var mems []memory.Memory
 	var err error
@@ -234,19 +250,12 @@ func dormantMemories(db *sql.DB, project string, now time.Time) ([]Insight, int,
 		return nil, 0, err
 	}
 
-	cutoff := now.Add(-dormantAfter).Unix()
 	var out []Insight
 	for _, m := range mems {
-		if m.Pin == memory.PinNever {
+		if !Dormant(m, now) {
 			continue
 		}
-		last := m.LastUsed
-		if last == 0 {
-			last = m.Created
-		}
-		if last == 0 || last > cutoff {
-			continue
-		}
+		last := LastTouched(m)
 		days := int(now.Unix()-last) / 86400
 		out = append(out, Insight{
 			Kind:    "dormant-memory",

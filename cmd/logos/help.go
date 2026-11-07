@@ -108,7 +108,9 @@ LOOKING
     logos stats [project]             patterns already in the vault: a recurring blocker, a dormant memory
     logos stats --usage [project] [--week] [--usd RATE]
                                       what the budget left out of context packs, dead
-                                      ends handed back, handoffs; --week: last 7 days
+                                      ends handed back, handoffs; --week: last 7 days.
+                                      At a terminal, a dashboard that adds agent spend
+                                      and session size from Claude Code and Codex
     logos stats --usage off | on      stop or resume counting (LOGOS_USAGE=off for one process)
     logos stats --memory              composition, growth, and what your memory leans on
     logos watch                       captures, rulings handed back and memory changes as they happen
