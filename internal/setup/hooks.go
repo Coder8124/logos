@@ -401,6 +401,20 @@ func hooksPathFor(name string) string {
 	return ""
 }
 
+// StartHookInstalled reports whether host ("Cursor" or "Codex", as
+// hooksPathFor names them) has logos's session-start hook in its hooks file, so
+// the MCP server knows the session already opened with its handoff. Read from
+// the file rather than assumed from the host's name: Cursor wired by hand, or
+// by a one-click install, has no hook and would otherwise never be handed one.
+func StartHookInstalled(host string) bool {
+	path := hooksPathFor(host)
+	if path == "" {
+		return false
+	}
+	raw, err := os.ReadFile(path)
+	return err == nil && isLogosHook(string(raw), strings.ToLower(host))
+}
+
 // removeHook takes logos's session-start hook out and leaves the rest of the
 // file as it was, reporting whether there was one and where the copy of the
 // file as it found it is. A hook left behind after uninstall runs a binary that

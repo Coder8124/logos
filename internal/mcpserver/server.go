@@ -194,6 +194,12 @@ type Session struct {
 	// saved holds the projects this session checkpointed itself, which the
 	// close path uses to leave those alone. See unsaved.go.
 	saved map[string]bool
+
+	// started is whether the model has been handed this session's resume, and
+	// startOffered whether the result now being sent carries it. See
+	// firstcall.go.
+	started      bool
+	startOffered bool
 }
 
 // checkpointOnDisk asks by stem, not path: the last checkpoint this session
@@ -398,6 +404,7 @@ func (s *Server) Serve(in io.Reader, w io.Writer) error {
 			// The nudge in this response is only spent if the response is
 			// actually sent; a cancelled call's reply is dropped unread.
 			sess.nudgeSent(!cancelled)
+			sess.startSent(!cancelled)
 			if !cancelled {
 				send(resp)
 			}
@@ -692,7 +699,14 @@ func (s *Session) callTool(req request) *response {
 	}
 
 	stalls := s.embed.Stalls()
+	handoff := s.handoffDue(p.Name)
 	text, err := s.dispatch(p.Name, args)
+	// Only on a result that worked: a failing call is already asking the model
+	// to deal with something, and a second thing to attend to competes with it.
+	// Inside the stall window, so a handoff built without embeddings says so.
+	if err == nil {
+		text += s.firstCallResume(p.Name, handoff)
+	}
 	// Falling back without embeddings is right, and doing it without a word is
 	// not: the answer is thinner than usual and the fix — the runtime — is
 	// outside Logos (invariant 3).
@@ -713,8 +727,6 @@ func (s *Session) callTool(req request) *response {
 			"isError": true,
 		})
 	}
-	// Only on a result that worked: a failing call is already asking the model
-	// to deal with something, and a second thing to attend to competes with it.
 	text += s.unsavedNudge()
 	return reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
