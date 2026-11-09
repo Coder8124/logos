@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/term"
 
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
@@ -111,8 +114,13 @@ func runReview(args []string) error {
 		return nil
 	}
 
-	in := bufio.NewReader(os.Stdin)
-	accepted, rejected, skipped, _ := reviewMemories(ix, in, memories, all)
+	answer := lineAnswers(bufio.NewReader(os.Stdin))
+	if pickerAllowed(false) {
+		// keyboard, not a reader of its own: reached from a menu, the key
+		// typed right after it may already sit in keyboard's buffer.
+		answer = keyAnswers(keyboard, rawStdin)
+	}
+	accepted, rejected, skipped, _ := reviewMemories(ix, answer, memories, all)
 
 	// No "run `logos index`" after an accept: Accept writes the database and the
 	// vault together, so the memory is recallable already.
@@ -125,7 +133,7 @@ func runReview(args []string) error {
 // flushes it to the vault; reject discards it for good. There is no
 // "evidence" view here the way rollup's now-deleted proposal review had one —
 // a memory is already the atomic fact, not a summary of events behind it.
-func reviewMemories(ix *index.Index, in *bufio.Reader, pending []memory.Memory, all bool) (accepted, rejected, skipped int, quit bool) {
+func reviewMemories(ix *index.Index, answer reviewAnswer, pending []memory.Memory, all bool) (accepted, rejected, skipped int, quit bool) {
 	fmt.Printf("%d pending memor%s · [a]ccept  [r]eject  [s]kip  [q]uit\n\n", len(pending), pluralY(len(pending)))
 
 	for i, m := range pending {
@@ -139,13 +147,13 @@ func reviewMemories(ix *index.Index, in *bufio.Reader, pending []memory.Memory, 
 
 		for {
 			fmt.Print("      > ")
-			line, err := in.ReadString('\n')
+			key, err := answer()
 			if err != nil {
 				fmt.Println()
 				return accepted, rejected, skipped, true
 			}
 
-			switch strings.TrimSpace(strings.ToLower(line)) {
+			switch key {
 			case "a", "y":
 				if err := memory.Accept(ix.DB, m.ID); err != nil {
 					fmt.Printf("      ! %v\n", err)
@@ -172,6 +180,96 @@ func reviewMemories(ix *index.Index, in *bufio.Reader, pending []memory.Memory, 
 		fmt.Println()
 	}
 	return accepted, rejected, skipped, false
+}
+
+// reviewAnswer reads the answer to one review prompt, lower-cased, with ""
+// for a bare Enter.
+type reviewAnswer func() (string, error)
+
+// lineAnswers is a review piped in or scripted: one answer per line, as it
+// has always been read, so `printf 'a\nr\n' | logos review` keeps working.
+func lineAnswers(in *bufio.Reader) reviewAnswer {
+	return func() (string, error) {
+		line, err := in.ReadString('\n')
+		return strings.TrimSpace(strings.ToLower(line)), err
+	}
+}
+
+// rawStdin puts the terminal in raw mode and returns what undoes it.
+func rawStdin() (func(), error) {
+	fd := int(os.Stdin.Fd())
+	old, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
+	}
+	return func() { term.Restore(fd, old) }, nil
+}
+
+// keyAnswers is a review at a terminal: one keypress answers, no Enter.
+// Twenty memories was forty keystrokes, and the Enter carried nothing.
+//
+// Raw mode is held for exactly one key, so what review prints between keys
+// goes through the terminal's own line handling and stays where it belongs.
+// The key is echoed, because raw mode does not, and a scrolled-back review
+// should still show what each memory got. Keys that answer nothing are
+// swallowed rather than re-prompted. An arrow key is ESC [ A, and read a
+// byte at a time its "A" would accept a memory nobody chose — so a whole
+// escape sequence is read and dropped. Ctrl-C and Ctrl-D quit with the
+// tally, as q does: raw mode turns Ctrl-C into a byte, not a signal.
+//
+// A terminal that refuses raw mode is said once on stderr and the review goes
+// on reading lines: returned as an error, it read as the end of input, and
+// review quit with "0 accepted" and exit 0 before anyone had answered.
+func keyAnswers(in *bufio.Reader, raw func() (func(), error)) reviewAnswer {
+	var lines reviewAnswer
+	return func() (string, error) {
+		if lines != nil {
+			return lines()
+		}
+		restore, err := raw()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "logos: could not read single keys (%v) — type each answer and press Enter\n", err)
+			lines = lineAnswers(in)
+			return lines()
+		}
+		for {
+			b, err := in.ReadByte()
+			if err != nil {
+				restore()
+				return "", err
+			}
+			key := ""
+			switch b = byte(unicode.ToLower(rune(b))); {
+			case b == 0x1b:
+				// A lone Esc arrives by itself; a sequence arrives whole,
+				// as ESC [ … or, in application cursor mode, ESC O A.
+				if in.Buffered() > 0 {
+					switch next, _ := in.ReadByte(); next {
+					case '[':
+						readCSI(in)
+					case 'O':
+						in.ReadByte()
+					}
+				}
+				continue
+			case b == 3 || b == 4:
+				key = "q"
+			case b == '\r' || b == '\n':
+				key = ""
+			case strings.IndexByte("ayrnsq", b) >= 0:
+				key = string(b)
+			default:
+				continue
+			}
+			restore()
+			if key == "" {
+				fmt.Println("s")
+			} else {
+				fmt.Println(key)
+			}
+			return key, nil
+		}
+	}
 }
 
 func pluralY(n int) string {

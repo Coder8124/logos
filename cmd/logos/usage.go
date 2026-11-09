@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/contextpack"
 	"github.com/Coder8124/logos/internal/index"
@@ -74,6 +76,9 @@ func runUsage(args []string) error {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
+	}
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		return usageDashboard(v, project, hasFlag(args, "--week"), usd)
 	}
 	events, bad, err := usagepkg.Read(v)
 	if err != nil {

@@ -151,6 +151,9 @@ func Run(in Input) Report {
 	if c, ok := checkOldHostPin(in.Hosts); ok {
 		r.Add(c)
 	}
+	if c, ok := checkSessionHooks(in.Hosts); ok {
+		r.Add(c)
+	}
 	if c, ok := checkPlugin(in.Version); ok {
 		r.Add(c)
 	}

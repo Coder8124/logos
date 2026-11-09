@@ -396,18 +396,33 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 	// outcomes: the most important screen in the product read as a rendering
 	// fault at exactly the moment a new user is deciding whether to trust it.
 	showPlan := opts.dryRun || !opts.yes
-	if showPlan {
-		fmt.Print(pluginPlan)
+	// At a terminal the hosts to wire are a checklist, so the roster's
+	// pending rows are the menu's rows; printed as well, they would be the
+	// same hosts twice in a row, which the comment above exists to prevent.
+	asMenu := present > 0 && !opts.yes && !opts.dryRun && pickerAllowed(false)
+	roster := func(pending bool) {
+		if pending {
+			fmt.Print(pluginPlan)
+		}
 		for _, r := range plan {
 			if r.Outcome == setup.Skipped {
-				fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
+				// A menu that could not open falls back to [Y/n] after
+				// the missing hosts were already listed above it.
+				if !(pending && asMenu) {
+					fmt.Printf("    %-*s —  not installed\n", hostColumn, r.Host)
+				}
 				continue
 			}
 			// The tier, because "connected" meant three different things:
 			// Claude Code restores context on its own, Cursor and Codex do once
 			// their hook is in, and the rest only answer when asked.
-			fmt.Printf("    %-*s →  %s (%s)\n", hostColumn, r.Host, r.Where, r.Tier)
+			if pending {
+				fmt.Printf("    %-*s →  %s (%s)\n", hostColumn, r.Host, r.Where, r.Tier)
+			}
 		}
+	}
+	if showPlan {
+		roster(!asMenu)
 	}
 
 	if present == 0 {
@@ -453,8 +468,21 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 		fmt.Println("\n  --dry-run: nothing was written.")
 		return nil, nil
 	}
-	wire := opts.yes
-	if !wire {
+	wire, asked := opts.yes, false
+	if asMenu {
+		unticked, ok, err := chooseHosts(plan, pluginLabel)
+		switch {
+		case err != nil:
+			fmt.Printf("\n  could not show the host menu (%v) — asking instead\n", err)
+			roster(true)
+		case ok:
+			asked, wire = true, true
+			hosts, pluginSteps = leaveOut(hosts, pluginSteps, unticked)
+		default:
+			asked = true
+		}
+	}
+	if !wire && !asked {
 		answer, ok := readAnswer(fmt.Sprintf("\n  wire %d host(s)? [Y/n] ", present))
 		// Nobody there to ask is not a no. Exiting 0 let a provisioning script
 		// (`brew install … && logos setup`) take a run that wired nothing as a
@@ -466,7 +494,11 @@ func wireHosts(vault string, opts wireOpts) (handedOff []string, err error) {
 	}
 	if !wire {
 		fmt.Println("  skipped; re-run `logos mcp install` when you are ready")
-		// The prompt cannot pick a subset, so the way to wire some of these is
+		if asked {
+			// The checklist that was just cancelled is the way to a subset.
+			return nil, nil
+		}
+		// [Y/n] cannot pick a subset, so the way to wire some of these is
 		// printed with each found host's spelling, ready to trim and paste.
 		var pick []string
 		for _, r := range plan {
@@ -903,6 +935,65 @@ func confirm(prompt string) bool {
 func confirmNo(prompt string) bool {
 	answer, ok := readAnswer(prompt + " [y/N] ")
 	return ok && (answer == "y" || answer == "yes")
+}
+
+// chooseHosts asks which of the hosts found to wire, all ticked to start, so
+// Enter on the last row is the old Enter at [Y/n]. A [Y/n] could only take
+// every host or none; leaving one out meant retyping the run with --host per
+// host. It returns the hosts unticked, and ok=false for a cancel, which wires
+// nothing as a no did.
+func chooseHosts(plan []setup.Result, pluginLabel string) (unticked []string, ok bool, err error) {
+	var names, rows []string
+	if pluginLabel != "" {
+		names = append(names, "Claude Code")
+		rows = append(rows, fmt.Sprintf("%-*s →  %s", hostColumn, "Claude Code", pluginLabel))
+	}
+	for _, r := range plan {
+		if r.Outcome == setup.Pending {
+			names = append(names, r.Host)
+			rows = append(rows, fmt.Sprintf("%-*s →  %s (%s)", hostColumn, r.Host, r.Where, r.Tier))
+		}
+	}
+	checked := make([]bool, len(rows))
+	for i := range checked {
+		checked[i] = true
+	}
+	fmt.Println()
+	_, res, _, err := pickOnTerminal(menu{
+		title: "Wire which hosts?", hint: "Enter or click unticks, then Wire; q wires none",
+		rows: rows, checked: checked, submit: "Wire the ticked hosts", mouse: true,
+	})
+	if err != nil || res != picked {
+		return nil, false, err
+	}
+	for i, c := range checked {
+		if !c {
+			unticked = append(unticked, names[i])
+		}
+	}
+	return unticked, true, nil
+}
+
+// leaveOut drops the unticked hosts from the run and says so, one line each,
+// so a host that was not wired is never mistaken for one that failed. The
+// Claude Code row there is the plugin: unticked, its steps do not run.
+func leaveOut(hosts []setup.Host, pluginSteps [][]string, unticked []string) ([]setup.Host, [][]string) {
+	if len(unticked) == 0 {
+		return hosts, pluginSteps
+	}
+	kept := hosts[:0:0]
+	for _, h := range hosts {
+		if !slices.Contains(unticked, h.Name) {
+			kept = append(kept, h)
+		}
+	}
+	if pluginSteps != nil && slices.Contains(unticked, "Claude Code") {
+		pluginSteps = nil
+	}
+	for _, n := range unticked {
+		fmt.Printf("    %-*s —  left alone: unticked\n", hostColumn, n)
+	}
+	return kept, pluginSteps
 }
 
 // readAnswer prints prompt and reads one answer, lowercased. ok is false when there

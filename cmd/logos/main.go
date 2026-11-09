@@ -56,7 +56,17 @@ func unknownCommand(name string) {
 func main() {
 	start(os.Stderr, setup.Hosts())
 	if len(os.Args) < 2 {
-		usage()
+		// A person at a terminal gets the commands to choose from; a script
+		// or a hook still gets help on stderr and exit 2, as it always has.
+		if !pickerAllowed(false) {
+			usage()
+		}
+		migrateHint(os.Stderr)
+		if err := runHomeMenu(run); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
 	}
 	cmd := os.Args[1]
 	if cmd != "migrate" {
@@ -80,18 +90,49 @@ func main() {
 	}
 
 	noteRenamed(os.Stderr, cmd, args)
+
+	if err := runTyped(cmd, args, run); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+// runTyped is the command line as typed. Nothing after a command whose other
+// modes hide behind flags, from a person at a terminal, shows them those
+// modes; anything typed after it, or no terminal — a hook, a script, a pipe —
+// runs exactly what was typed. The menu hands each choice to runOne, so a
+// picked form goes through the same dispatch as a typed one.
+func runTyped(cmd string, args []string, runOne func(string, []string) error) error {
+	if len(args) > 0 || !pickerAllowed(false) {
+		return runOne(cmd, args)
+	}
+	if rows, ok := flagMenus[cmd]; ok {
+		return runFlagMenu(cmd, rows, runOne)
+	}
+	if cmd == "config" {
+		return runConfigMenu(runOne)
+	}
+	return runOne(cmd, args)
+}
+
+// run is one command line after the program name, as main has always
+// dispatched it. A failure comes back — with its --json block already printed
+// for a script that asked for one — for the caller to report.
+func run(cmd string, args []string) (err error) {
 	cmd, args, form := surface(cmd, args)
 	rest := strings.Join(args, " ")
+	defer func() {
+		if err != nil {
+			printJSONFailure(cmd, args, err)
+		}
+	}()
 
 	if spec, ok := commandFlags[cmd]; ok {
 		if err := checkFlags(form, args, spec); err != nil {
-			printJSONFailure(cmd, args, err)
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+			return err
 		}
 	}
 
-	var err error
 	switch {
 	case cmd == "version", cmd == "--version", cmd == "-v":
 		fmt.Printf("logos %s %s/%s %s\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
@@ -250,12 +291,7 @@ func main() {
 	default:
 		unknownCommand(cmd)
 	}
-
-	if err != nil {
-		printJSONFailure(cmd, args, err)
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return err
 }
 
 func env(key, def string) string {

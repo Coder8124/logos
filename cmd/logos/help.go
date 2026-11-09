@@ -56,6 +56,9 @@ Flags:
   -v, --version   print the version
 
 Use "logos <command> --help" for one command, "logos help all" for every form.
+At a terminal, a bare logos opens a menu of commands, and a bare show, stats,
+review, doctor, watch, config or import a menu of its forms; typing the flags
+still works everywhere.
 `)
 }
 
@@ -105,7 +108,9 @@ LOOKING
     logos stats [project]             patterns already in the vault: a recurring blocker, a dormant memory
     logos stats --usage [project] [--week] [--usd RATE]
                                       what the budget left out of context packs, dead
-                                      ends handed back, handoffs; --week: last 7 days
+                                      ends handed back, handoffs; --week: last 7 days.
+                                      At a terminal, a dashboard that adds agent spend
+                                      and session size from Claude Code and Codex
     logos stats --usage off | on      stop or resume counting (LOGOS_USAGE=off for one process)
     logos stats --memory              composition, growth, and what your memory leans on
     logos watch                       captures, rulings handed back and memory changes as they happen
