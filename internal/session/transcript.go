@@ -96,10 +96,14 @@ func convoDirsFor(vaultDir, folder string) []string {
 		return nil
 	}
 	var out []string
+	// A folder is matched by the id its name carries, not by the name: the
+	// readable half before the id is the conversation's intent, which the
+	// transcript's caller does not know.
 	try := func(scopeDir string) {
-		d := filepath.Join(scopeDir, ConvosDir, folder)
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			out = append(out, d)
+		// An unreadable _convos is passed over like an unreadable project
+		// below: a read here must not fail for one scope's sake.
+		if f, _ := existingConvoFolder(scopeDir, folder); f != "" {
+			out = append(out, filepath.Join(scopeDir, ConvosDir, f))
 		}
 	}
 	for _, p := range projects {

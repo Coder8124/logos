@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/Coder8124/logos/internal/project"
+	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/untrusted"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -85,7 +88,7 @@ func Conversations(vaultDir, projectName string) ([]Conversation, error) {
 			flat := en.Rel == en.Name
 			id := convoFolder(c.HostSession)
 			if !flat {
-				id = strings.Split(en.Rel, "/")[1]
+				id = FolderID(strings.Split(en.Rel, "/")[1])
 			}
 			if id == UnattachedFolder {
 				id = stem
@@ -302,24 +305,83 @@ func RenderConversation(projectName string, c Conversation) string {
 // so — a migration that moved files without a number reads as one that might
 // have lost some.
 type MigrateReport struct {
-	Moved   int
+	Moved int
+	// Recovered is how many of the moved checkpoints had no host_session and
+	// were given one from their conversation's own receipt.
+	Recovered int
+	// Ambiguous names each checkpoint more than one conversation's receipt
+	// claimed. It is filed on its own rather than under a guess.
+	Ambiguous []string
+	// Unattributed is how many moved checkpoints nothing tied to a
+	// conversation, each given a folder of its own.
+	Unattributed int
+	// Named is how many conversation folders were given a readable name.
+	Named   int
 	Skipped []string // "<path>: <why>", left exactly where they were
 	Failed  []string // "<path>: <error>", the old file still readable
 }
+
+// Receipt is one host conversation's record of a checkpoint save: Logos's
+// answer, naming the file, in that conversation's transcript.
+type Receipt = transcript.Receipt
+
+// ReceiptSource reads every checkpoint receipt on the machine, keyed
+// "<scope>/<stem>". MigrateFlat calls it at most once, and only when a
+// checkpoint actually lacks a host_session: reading the host transcripts is
+// a walk of gigabytes, and a vault already migrated has nothing to ask it.
+type ReceiptSource func() (map[string][]Receipt, error)
+
+// Receipts is a ReceiptSource for receipts already in hand.
+func Receipts(m map[string][]Receipt) ReceiptSource {
+	return func() (map[string][]Receipt, error) { return m, nil }
+}
+
+// receiptsOnce memoises a ReceiptSource for one migration, error included,
+// so a failure is reported against every checkpoint it leaves unattributed
+// rather than retried for each.
+type receiptsOnce struct {
+	src  ReceiptSource
+	done bool
+	m    map[string][]Receipt
+	err  error
+}
+
+func (r *receiptsOnce) get() (map[string][]Receipt, error) {
+	if !r.done && r.src != nil {
+		r.m, r.err = r.src()
+	}
+	r.done = true
+	return r.m, r.err
+}
+
+// receiptWindow is how far a receipt may sit from its checkpoint's own
+// timestamp and still be the save that wrote it. The real gap is seconds; a
+// receipt hours away is the file being quoted later by a conversation that
+// read it, which is not the one that wrote it.
+const receiptWindow = 10 * time.Minute
 
 // removeFlat is os.Remove, swapped in tests: the half of a move that can fail
 // after the new copy exists is otherwise impossible to arrange.
 var removeFlat = os.Remove
 
-// MigrateFlat moves every checkpoint still sitting directly in a scope
-// directory — the pre-C5 layout — into the conversation folder its own
-// host_session names.
+// MigrateFlat files every checkpoint not yet in a conversation of its own —
+// one still flat in its scope (the pre-C5 layout) or one parked in
+// UnattachedFolder — into the conversation folder it belongs to, and names
+// every conversation folder after what it was for.
 //
-// Refile already does this on every `logos index`, but it stops at the first
-// error and returns a bare count. This is the explicit, reported version: it
-// carries on past a file it cannot move, and names every one it skipped or
-// failed, because one unwritable folder must not leave the rest of a vault
-// half-migrated without saying which half.
+// A checkpoint whose frontmatter has no host_session is matched against
+// receipts, keyed "<scope>/<stem>": when exactly one conversation's receipt
+// for it sits within receiptWindow of when it was written, that conversation
+// wrote it, and its host_session is written into the frontmatter — the
+// frontmatter is the truth, so the folder follows from it and survives a
+// rebuilt index. Two conversations claiming it is reported, not decided. A
+// checkpoint nothing claims gets a folder of its own, named by its stem: one
+// shared "_unattached" pile would present unrelated sittings as one.
+//
+// Refile does the frontmatter-led part on every `logos index`, but stops at
+// the first error and returns a bare count. This is the explicit, reported
+// version: it carries on past a file it cannot move, and names every one it
+// skipped or failed.
 //
 // The new copy is written before the old one is removed, so a crash or a
 // failed remove leaves the checkpoint readable twice — Conversations folds
@@ -327,8 +389,18 @@ var removeFlat = os.Remove
 // bytes is that interrupted move, finished here; a target holding different
 // bytes is a real collision, and both files are left for a person to look at
 // rather than one overwriting the other.
-func MigrateFlat(vaultDir string, dryRun bool) (MigrateReport, error) {
+func MigrateFlat(vaultDir string, dryRun bool, receipts ReceiptSource) (MigrateReport, error) {
 	var rep MigrateReport
+	if !dryRun {
+		// Migration makes and renames conversation folders, so it holds the
+		// lock every writer takes to choose one (convoFolderLock).
+		g, err := vault.Lock(vaultDir, convoFolderLock)
+		if err != nil {
+			return rep, err
+		}
+		defer g.Unlock()
+	}
+	src := &receiptsOnce{src: receipts}
 	scopes, err := Scopes(vaultDir)
 	if err != nil {
 		return rep, err
@@ -340,43 +412,279 @@ func MigrateFlat(vaultDir string, dryRun bool) (MigrateReport, error) {
 			rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", scope, err))
 			continue
 		}
-		for _, en := range entries {
-			if en.Rel != en.Name {
-				continue // already in a folder: Refile's business, not migration's
-			}
-			display := filepath.ToSlash(filepath.Join(CheckpointDir, scope, en.Name))
-			oldPath := filepath.Join(dir, en.Name)
-			raw, err := os.ReadFile(oldPath)
-			if err != nil {
-				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", display, err))
-				continue
-			}
-			c := ParseCheckpoint(string(raw))
-			if c.Empty() {
-				rep.Skipped = append(rep.Skipped, display+": empty or torn, left in place")
-				continue
-			}
-			newPath := filepath.Join(dir, ConvosDir, convoFolder(c.HostSession), en.Name)
-			if existing, err := os.ReadFile(newPath); err == nil && !bytes.Equal(existing, raw) {
-				rep.Skipped = append(rep.Skipped, display+": a different checkpoint already has its name in "+convoFolder(c.HostSession)+", both kept")
-				continue
-			} else if err != nil && !os.IsNotExist(err) {
-				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", display, err))
-				continue
-			} else if err != nil && !dryRun {
-				if err := vault.WriteAtomic(newPath, raw); err != nil {
-					rep.Failed = append(rep.Failed, fmt.Sprintf("%s: writing the new copy: %v", display, err))
-					continue
-				}
-			}
-			if !dryRun {
-				if err := removeFlat(oldPath); err != nil {
-					rep.Failed = append(rep.Failed, fmt.Sprintf("%s: the new copy is written but the old one could not be removed (both are readable; run again to finish): %v", display, err))
-					continue
-				}
-			}
-			rep.Moved++
-		}
+		migrateScope(&rep, dir, scope, entries, dryRun, src)
 	}
 	return rep, nil
+}
+
+type migrateMove struct {
+	en        CheckpointEntry
+	display   string
+	raw       []byte
+	written   time.Time // the old file's modification time, kept on the new one
+	id        string
+	recovered bool
+	ambiguous bool
+}
+
+type stemmed struct {
+	stem string
+	c    Checkpoint
+}
+
+func migrateScope(rep *MigrateReport, dir, scope string, entries []CheckpointEntry, dryRun bool, receipts *receiptsOnce) {
+	var moves []migrateMove
+	byID := map[string][]stemmed{} // every checkpoint each conversation will hold, for its name
+	folders := map[string]string{} // id -> the folder it already has
+	for _, en := range entries {
+		stem := strings.TrimSuffix(en.Name, ".md")
+		display := filepath.ToSlash(filepath.Join(CheckpointDir, scope, en.Rel))
+		folder := ""
+		if en.Rel != en.Name {
+			folder = strings.Split(en.Rel, "/")[1]
+		}
+		path := filepath.Join(dir, filepath.FromSlash(en.Rel))
+		raw, err := os.ReadFile(path)
+		var info os.FileInfo
+		if err == nil {
+			info, err = os.Stat(path)
+		}
+		if err != nil {
+			rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", display, err))
+			continue
+		}
+		c := ParseCheckpoint(string(raw))
+		if folder != "" && folder != UnattachedFolder {
+			// Already in a conversation's folder: it stays, and counts toward
+			// the folder's name.
+			id := FolderID(folder)
+			if _, ok := folders[id]; !ok {
+				folders[id] = folder
+			}
+			if !c.Empty() {
+				byID[id] = append(byID[id], stemmed{stem, c})
+			}
+			continue
+		}
+		if c.Empty() {
+			rep.Skipped = append(rep.Skipped, display+": empty or torn, left in place")
+			continue
+		}
+		mv := migrateMove{en: en, display: display, raw: raw, written: info.ModTime()}
+		if c.HostSession == "" {
+			all, err := receipts.get()
+			if err != nil {
+				// Filed on its own now, it would never be looked at again:
+				// a rerun finds it in a conversation folder and moves on.
+				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: left in place, because the host transcripts that say which conversation saved it could not be read: %v", display, err))
+				continue
+			}
+			host, claimants := hostFromReceipts(all[scope+"/"+stem], c.TS)
+			switch {
+			case claimants > 1:
+				mv.ambiguous = true
+				rep.Ambiguous = append(rep.Ambiguous, fmt.Sprintf("%s: %d conversations saved it", display, claimants))
+			case host != "":
+				fixed, ok := withHostSession(raw, host)
+				if !ok {
+					rep.Failed = append(rep.Failed, display+": its receipt names a conversation, but its frontmatter could not be found to record it")
+					continue
+				}
+				mv.raw, c.HostSession, mv.recovered = fixed, host, true
+			}
+		}
+		mv.id = convoFolder(c.HostSession)
+		if mv.id == UnattachedFolder {
+			mv.id = stem
+		}
+		moves = append(moves, mv)
+		byID[mv.id] = append(byID[mv.id], stemmed{stem, c})
+	}
+
+	// Name every conversation: an existing named folder keeps its name; a
+	// bare-id one is renamed to carry what it was for; a new one is made so.
+	names := map[string]string{}
+	for id, cs := range byID {
+		about := conversationAbout(cs)
+		have := folders[id]
+		if have == "" {
+			// A folder holding only a harvested transcript has no checkpoint
+			// to have shown it above; missing it would make a second folder
+			// for the same conversation.
+			f, err := existingConvoFolder(dir, id)
+			if err != nil {
+				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: reading its conversation folders: %v", filepath.ToSlash(filepath.Join(CheckpointDir, scope)), err))
+				return
+			}
+			have = f
+		}
+		switch {
+		case have == "":
+			names[id] = namedConvoFolder(about, id)
+		case have == id:
+			want := namedConvoFolder(about, id)
+			names[id] = have
+			if want == have {
+				break
+			}
+			if _, err := os.Lstat(filepath.Join(dir, ConvosDir, want)); err == nil {
+				rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: %s already exists, so it kept its name",
+					filepath.ToSlash(filepath.Join(CheckpointDir, scope, ConvosDir, have)), want))
+				break
+			}
+			if !dryRun {
+				if err := os.Rename(filepath.Join(dir, ConvosDir, have), filepath.Join(dir, ConvosDir, want)); err != nil {
+					rep.Failed = append(rep.Failed, fmt.Sprintf("%s: naming it %s: %v",
+						filepath.ToSlash(filepath.Join(CheckpointDir, scope, ConvosDir, have)), want, err))
+					break
+				}
+			}
+			names[id] = want
+			rep.Named++
+		default:
+			names[id] = have
+		}
+	}
+
+	unattachedEmptied := false
+	for _, mv := range moves {
+		target := names[mv.id]
+		oldPath := filepath.Join(dir, filepath.FromSlash(mv.en.Rel))
+		newPath := filepath.Join(dir, ConvosDir, target, mv.en.Name)
+		// Its sync copies go with it. A copy is set aside only while its
+		// original sits beside it, so one left behind would become a second
+		// checkpoint in every listing — and keep _unattached from emptying.
+		// Checked before anything is written: one copy must not land on
+		// another.
+		copies, err := vault.CopiesOf(filepath.Dir(oldPath), mv.en.Name)
+		if err != nil {
+			rep.Failed = append(rep.Failed, fmt.Sprintf("%s: listing its sync copies: %v", mv.display, err))
+			continue
+		}
+		clash := ""
+		for _, cp := range copies {
+			if _, err := os.Lstat(filepath.Join(filepath.Dir(newPath), cp)); err == nil {
+				clash = cp
+				break
+			}
+		}
+		if clash != "" {
+			rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: its sync copy %s is already in %s, so neither was moved", mv.display, clash, target))
+			continue
+		}
+		if existing, err := os.ReadFile(newPath); err == nil && !bytes.Equal(existing, mv.raw) {
+			rep.Skipped = append(rep.Skipped, mv.display+": a different checkpoint already has its name in "+target+", both kept")
+			continue
+		} else if err != nil && !os.IsNotExist(err) {
+			rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", mv.display, err))
+			continue
+		} else if err != nil && !dryRun {
+			if err := vault.WriteAtomic(newPath, mv.raw); err != nil {
+				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: writing the new copy: %v", mv.display, err))
+				continue
+			}
+		}
+		if !dryRun {
+			// Doctor and the status line read a checkpoint's modification time
+			// as when it was written; a copy stamped now would make the oldest
+			// checkpoint in the vault the latest. Kept before the old file goes,
+			// so a failure here leaves the move for a rerun to finish.
+			if err := os.Chtimes(newPath, mv.written, mv.written); err != nil {
+				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: the new copy is written but its time could not be kept (both are readable; run again to finish): %v", mv.display, err))
+				continue
+			}
+			moved := true
+			for _, cp := range copies {
+				if err := os.Rename(filepath.Join(filepath.Dir(oldPath), cp), filepath.Join(filepath.Dir(newPath), cp)); err != nil {
+					rep.Failed = append(rep.Failed, fmt.Sprintf("%s: the new copy is written but its sync copy %s could not follow (run again to finish): %v", mv.display, cp, err))
+					moved = false
+					break
+				}
+			}
+			if !moved {
+				continue
+			}
+			if err := removeFlat(oldPath); err != nil {
+				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: the new copy is written but the old one could not be removed (both are readable; run again to finish): %v", mv.display, err))
+				continue
+			}
+		}
+		rep.Moved++
+		if mv.recovered {
+			rep.Recovered++
+		} else if !mv.ambiguous && mv.id == strings.TrimSuffix(mv.en.Name, ".md") {
+			rep.Unattributed++
+		}
+		unattachedEmptied = unattachedEmptied || mv.en.Rel != mv.en.Name
+	}
+	// An emptied _unattached would sit there as a stray; os.Remove refuses a
+	// folder that still holds anything, so this cannot take a checkpoint.
+	if unattachedEmptied && !dryRun {
+		_ = os.Remove(filepath.Join(dir, ConvosDir, UnattachedFolder))
+	}
+}
+
+// conversationAbout is what a conversation's folder is named after: its
+// latest checkpoint's intent, inherited the way resume inherits it, else that
+// checkpoint's task.
+func conversationAbout(cs []stemmed) string {
+	sort.Slice(cs, func(i, j int) bool { return cs[i].stem > cs[j].stem })
+	chain := make([]Checkpoint, len(cs))
+	for i := range cs {
+		chain[i] = cs[i].c
+	}
+	if why, _ := IntentFor(chain[0], chain[1:]); strings.TrimSpace(why) != "" {
+		return why
+	}
+	return chain[0].Task
+}
+
+// hostFromReceipts is the one conversation whose receipt for a checkpoint
+// written at ts falls within receiptWindow, and how many distinct
+// conversations did. A checkpoint with no timestamp takes every receipt.
+func hostFromReceipts(rs []Receipt, ts int64) (string, int) {
+	hosts := map[string]bool{}
+	host := ""
+	for _, r := range rs {
+		if ts != 0 {
+			gap := r.At.Sub(time.Unix(ts, 0))
+			if gap < -receiptWindow || gap > receiptWindow {
+				continue
+			}
+		}
+		if !hosts[r.HostSession] {
+			hosts[r.HostSession] = true
+			host = r.HostSession
+		}
+	}
+	if len(hosts) != 1 {
+		host = ""
+	}
+	return host, len(hosts)
+}
+
+// emptyHostSession is a host_session key with no value, as a hand-edited
+// checkpoint may carry it.
+var emptyHostSession = regexp.MustCompile(`(?m)^host_session:[ \t]*(?:""|'')?[ \t]*$`)
+
+// withHostSession gives a checkpoint's frontmatter a host_session line: in
+// place of an empty one, since a second key would make the YAML undecodable
+// and the checkpoint read as empty; else beside its session line where
+// Markdown writes it; else first. Only the frontmatter is searched: the body
+// is someone's text and may say anything.
+func withHostSession(raw []byte, host string) ([]byte, bool) {
+	s := string(raw)
+	end, ok := frontmatterEnd(s)
+	if !ok {
+		return nil, false
+	}
+	if loc := emptyHostSession.FindStringIndex(s[:end+1]); loc != nil {
+		return []byte(s[:loc[0]] + "host_session: " + yamlStr(host) + s[loc[1]:]), true
+	}
+	line := "host_session: " + yamlStr(host) + "\n"
+	at := len("---\n")
+	if i := strings.Index(s[:end+1], "\nsession: "); i >= 0 {
+		at = i + 1 + strings.Index(s[i+1:], "\n") + 1
+	}
+	return []byte(s[:at] + line + s[at:]), true
 }

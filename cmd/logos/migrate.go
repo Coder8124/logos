@@ -10,6 +10,8 @@ import (
 
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
+	"github.com/Coder8124/logos/internal/transcript"
+	"github.com/Coder8124/logos/internal/untrusted"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -407,9 +409,16 @@ func isBrainBinary(bin string) bool {
 	return name == setup.OldName
 }
 
-// migrateSessionsCmd moves a vault's flat checkpoints — every one written
-// before conversations had folders — into the folder their own host_session
-// names, and says how many it moved, skipped and could not move.
+// migrateSessionsCmd files every checkpoint not yet in a conversation folder
+// of its own — flat ones from before conversations had folders, and the
+// _unattached pile — into one, names each folder after what the conversation
+// was for, and says how many it moved, recovered, named, skipped and could not
+// move.
+//
+// A checkpoint older than host_session cannot say which conversation wrote
+// it, but that conversation's transcript still holds Logos's receipt for it;
+// the receipts are read from this machine's Claude Code and Codex transcripts,
+// and nothing leaves it.
 //
 // Explicit, never implied by reading: an unmigrated project resumes by the
 // same ids it will have afterwards (see session.Conversations), so nothing
@@ -427,23 +436,55 @@ func migrateSessionsCmd(args []string) error {
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
 	}
-	rep, err := session.MigrateFlat(v, dryRun)
+	// The transcripts are read only if some checkpoint has no host_session:
+	// on a vault written since that was recorded, scanning gigabytes of host
+	// history would buy nothing.
+	var unreadable []string
+	receipts := func() (map[string][]session.Receipt, error) {
+		found, skipped, err := transcript.CheckpointReceipts()
+		unreadable = skipped
+		if err != nil {
+			return nil, fmt.Errorf("reading host transcripts for checkpoint receipts: %w", err)
+		}
+		return found, nil
+	}
+	rep, err := session.MigrateFlat(v, dryRun, receipts)
 	if err != nil {
 		return err
 	}
-	verb := "moved"
+	if len(unreadable) > 0 {
+		// Named, so a checkpoint left unattributed below can be traced to a
+		// transcript Logos could not open rather than read as having none.
+		fmt.Printf("%d host transcript%s could not be read and passed over:\n", len(unreadable), pluralS(len(unreadable)))
+		for _, p := range unreadable {
+			fmt.Printf("  %s\n", p)
+		}
+	}
+	verb, named := "moved", "named"
 	if dryRun {
-		verb = "would move"
+		verb, named = "would move", "would name"
 	}
 	fmt.Printf("%s %d checkpoint%s into conversation folders, skipped %d, failed %d — in %s\n",
 		verb, rep.Moved, pluralS(rep.Moved), len(rep.Skipped), len(rep.Failed), v)
+	if rep.Recovered > 0 {
+		fmt.Printf("  %d matched to their conversation by its receipt in a host transcript\n", rep.Recovered)
+	}
+	if rep.Unattributed > 0 {
+		fmt.Printf("  %d nothing ties to a conversation, each given a folder of its own\n", rep.Unattributed)
+	}
+	if rep.Named > 0 {
+		fmt.Printf("  %s %d conversation folder%s after what it was for\n", named, rep.Named, pluralS(rep.Named))
+	}
+	for _, a := range rep.Ambiguous {
+		fmt.Println("  ambiguous " + untrusted.Inline(a) + " — filed on its own rather than under a guess")
+	}
 	for _, s := range rep.Skipped {
 		fmt.Println("  skipped " + s)
 	}
 	for _, f := range rep.Failed {
 		fmt.Println("  failed  " + f)
 	}
-	if rep.Moved > 0 && !dryRun {
+	if (rep.Moved > 0 || rep.Named > 0) && !dryRun {
 		// The vault moved under the cache, which still lists the old paths
 		// until it is rebuilt. Said rather than done: an index run on a large
 		// vault is minutes, and the user should choose when to spend them.

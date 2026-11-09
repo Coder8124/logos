@@ -167,6 +167,123 @@ func convoFolder(hostSession string) string {
 	return UnattachedFolder
 }
 
+// folderNameSep joins a conversation folder's readable name to its id. A bare
+// id is unreadable in a file browser — a UUID says nothing about which chat it
+// was — so a folder is "<what it was for>--<id>". dropSymbols never writes two
+// dashes in a row, so neither half can contain the separator, and the id is
+// always recoverable from the name alone (FolderID).
+const folderNameSep = "--"
+
+// slugWords and slugMax keep the readable half to a phrase: the first words
+// of an intent are its subject, and a folder name is a label, not the intent.
+const (
+	slugWords = 6
+	slugMax   = 48
+)
+
+// intentSlug is the readable half of a conversation folder's name.
+func intentSlug(about string) string {
+	words := strings.Fields(about)
+	if len(words) > slugWords {
+		words = words[:slugWords]
+	}
+	return capAt(dropSymbols(strings.Join(words, " ")), slugMax)
+}
+
+// namedConvoFolder is the folder name for a new conversation id, named after
+// what it is about; the bare id when there is nothing to name it by.
+func namedConvoFolder(about, id string) string {
+	slug := intentSlug(about)
+	if slug == "" || id == UnattachedFolder || len(slug)+len(folderNameSep)+len(id) > maxNameLen {
+		return id
+	}
+	return slug + folderNameSep + id
+}
+
+// FolderID is the conversation id a folder name carries: everything after the
+// first separator, or the whole name for a folder written before folders were
+// named (and for UnattachedFolder). Every lookup of a conversation by id goes
+// through this, never through the folder name, because the name's readable
+// half is fixed when the folder is made and the id is what hooks, transcripts
+// and `logos resume <id>` know.
+func FolderID(name string) string {
+	if _, id, ok := strings.Cut(name, folderNameSep); ok && id != "" {
+		return id
+	}
+	return name
+}
+
+// existingConvoFolder is the folder already holding conversation id in a
+// scope, or "" when it has none yet. A scope with no _convos at all has none;
+// any other failure to read it is an error, because answering "none" would
+// have the caller make a second folder for a conversation that has one.
+func existingConvoFolder(scopeDir, id string) (string, error) {
+	entries, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.IsDir() && FolderID(e.Name()) == id {
+			return e.Name(), nil
+		}
+	}
+	return "", nil
+}
+
+// convoFolderIn is the folder a checkpoint of hostSession goes to in a scope:
+// the conversation's existing folder whatever it is called, so one
+// conversation never splits across two names when its intent is restated;
+// otherwise a new one named after about. A caller that will create the folder
+// holds convoFolderLock across the choice and the creation.
+func convoFolderIn(scopeDir, hostSession, about string) (string, error) {
+	id := convoFolder(hostSession)
+	if id == UnattachedFolder {
+		return id, nil
+	}
+	f, err := existingConvoFolder(scopeDir, id)
+	if err != nil || f != "" {
+		return f, err
+	}
+	return namedConvoFolder(about, id), nil
+}
+
+// convoFolderLock is held from choosing a conversation's folder to creating
+// it. While folders were named by id alone, two writers in a new conversation
+// agreed on its folder without talking; now the name comes from what each one
+// is about, so the Stop hook's auto record and an agent's checkpoint landing
+// together would each find no folder and make one under a different name,
+// splitting the conversation in two.
+const convoFolderLock = "convo-folders"
+
+// claimInConvo picks c's conversation folder and claims its checkpoint file
+// there, under convoFolderLock, so the folder exists before the next writer
+// looks for it.
+func claimInConvo(vaultDir string, c *Checkpoint) (convo, id, path string, err error) {
+	g, err := vault.Lock(vaultDir, convoFolderLock)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer g.Unlock()
+	convo, err = convoFolderIn(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(c.Project)), c.HostSession, c.about())
+	if err != nil {
+		return "", "", "", err
+	}
+	id, path, err = claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
+	return convo, id, path, err
+}
+
+// about is what a new conversation folder is named after: why the work
+// matters if the checkpoint says, otherwise what it was doing.
+func (c Checkpoint) about() string {
+	if strings.TrimSpace(c.Intent) != "" {
+		return c.Intent
+	}
+	return c.Task
+}
+
 func (c Checkpoint) Empty() bool {
 	return strings.TrimSpace(c.Task) == "" && strings.TrimSpace(c.State) == "" &&
 		strings.TrimSpace(c.Next) == "" && len(c.Decisions) == 0 &&
@@ -302,8 +419,7 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// which is when the session started: History sorts by name, so a long
 	// session's checkpoint sorted behind a shorter one written before it, and
 	// resume showed the older one as where work left off (#366).
-	convo := convoFolder(c.HostSession)
-	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
+	convo, id, path, err := claimInConvo(vaultDir, c)
 	if err != nil {
 		return err
 	}
@@ -647,6 +763,13 @@ func ByHostSession(vaultDir, hostSession string) ([]Checkpoint, error) {
 // It also rejoins a checkpoint filed under a cut id (see rejoinCutIDs): the
 // second count is how many of the moved ones had their host_session rewritten.
 func Refile(vaultDir string) (refiled, rejoined int, err error) {
+	// Refile creates conversation folders too, so it takes the lock a
+	// checkpoint takes to make one (convoFolderLock).
+	g, err := vault.Lock(vaultDir, convoFolderLock)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer g.Unlock()
 	scopes, err := Scopes(vaultDir)
 	if err != nil {
 		return 0, 0, err
@@ -681,10 +804,14 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 				}
 				raw, c.HostSession, wasCut = fixed, full, true
 			}
-			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolder(c.HostSession), en.Name))
-			if en.Rel == wantRel {
+			if filedRight(en, c.HostSession) {
 				continue // already filed where its own frontmatter says it belongs
 			}
+			convo, err := convoFolderIn(dir, c.HostSession, c.about())
+			if err != nil {
+				return refiled, rejoined, fmt.Errorf("re-filing %s: finding its conversation's folder: %w", en.Rel, err)
+			}
+			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convo, en.Name))
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
 			// Its sync copies go too, before the original leaves. A copy is
 			// set aside only while its original is beside it, so one left
@@ -726,6 +853,24 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 		}
 	}
 	return refiled, rejoined, nil
+}
+
+// filedRight says a checkpoint already sits in the conversation folder its
+// own frontmatter names, by whatever readable name that folder was given. A
+// checkpoint with no host session is filed right in UnattachedFolder or in a
+// folder of its own — the one `logos migrate sessions` gives it, whose id is
+// its own stem — and pulling it back out of the latter would undo the
+// migration on the next index.
+func filedRight(en CheckpointEntry, hostSession string) bool {
+	folder, ok := strings.CutPrefix(path.Dir(en.Rel), ConvosDir+"/")
+	if !ok || strings.Contains(folder, "/") {
+		return false
+	}
+	id := FolderID(folder)
+	if id == convoFolder(hostSession) {
+		return true
+	}
+	return convoFolder(hostSession) == UnattachedFolder && id == strings.TrimSuffix(en.Name, ".md")
 }
 
 // Before 0.5.8 the Stop hook's checkpoint-asked marker carried only the
@@ -776,8 +921,8 @@ func fullIDsByCut(cps []Checkpoint) map[string]string {
 // only, so a body that happens to quote the line is left alone.
 func replaceHostSession(raw []byte, from, to string) ([]byte, bool) {
 	s := string(raw)
-	end := strings.Index(s, "\n---")
-	if !strings.HasPrefix(s, "---\n") || end < 0 {
+	end, ok := frontmatterEnd(s)
+	if !ok {
 		return nil, false
 	}
 	line := "\nhost_session: " + yamlStr(from) + "\n"
@@ -786,6 +931,15 @@ func replaceHostSession(raw []byte, from, to string) ([]byte, bool) {
 		return nil, false
 	}
 	return []byte(s[:i] + "\nhost_session: " + yamlStr(to) + "\n" + s[i+len(line):]), true
+}
+
+// frontmatterEnd is the index of the newline before a checkpoint's closing
+// "---", so s[:end+1] is its frontmatter and nothing of its body; ok is false
+// for a file that does not open with frontmatter. Every in-place edit of a
+// frontmatter line bounds its search with this.
+func frontmatterEnd(s string) (end int, ok bool) {
+	end = strings.Index(s, "\n---")
+	return end, strings.HasPrefix(s, "---\n") && end >= 0
 }
 
 // ResolvePath finds a checkpoint a stored citation names, wherever it
