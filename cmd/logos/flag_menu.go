@@ -63,6 +63,7 @@ var flagMenus = map[string][]flagRow{
 		mode("", "health of the vault, index and hosts"),
 		modifier("", "--verbose", "add runtimes and tiers"),
 		modifier("", "--probe", "verify each model actually loads"),
+		modifier("", "--check-updates", "ask GitHub whether a newer release is out"),
 		mode("--integration", "prove a host can reach logos"),
 		mode("--report", "a paste-able bundle for a bug report"),
 		mode("--egress", "every address logos can contact"),

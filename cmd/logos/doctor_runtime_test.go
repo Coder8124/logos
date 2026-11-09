@@ -43,7 +43,7 @@ func TestDoctorDoesNotSayNothingDependsOnARuntimeItJustReportedDown(t *testing.T
 	t.Setenv("LOGOS_VAULT", t.TempDir())
 	t.Setenv("LOGOS_RUNTIME", "http://127.0.0.1:1")
 
-	out := captureStdout(t, func() { doctor(false, true) })
+	out := captureStdout(t, func() { doctor(false, true, nil) })
 
 	if strings.Contains(out, "nothing above depends on one") {
 		t.Errorf("doctor waved away the runtime it reported failed:\n%s", out)

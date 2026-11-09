@@ -52,6 +52,9 @@ func doctorEgress() error {
 	fmt.Println("  `logos update` — only when you run it")
 	fmt.Printf("      %s, then the release download from github.com and *.githubusercontent.com\n", selfupdate.ReleasesFrom)
 
+	fmt.Println("  `logos doctor --check-updates` — only when you run it")
+	fmt.Printf("      %s, the same one request as `logos update --check`; a plain doctor never makes it\n", selfupdate.ReleasesFrom)
+
 	fmt.Println("  `logos setup` — only when you run it")
 	fmt.Println("      the runtime's /api/pull, if you agree to download a model (the runtime fetches it)")
 	fmt.Printf("      `claude plugin marketplace add %s`, which Claude Code fetches from GitHub\n", setup.PluginSource)

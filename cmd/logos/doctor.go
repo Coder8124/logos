@@ -14,11 +14,14 @@ import (
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
 	"github.com/Coder8124/logos/internal/secretary"
+	"github.com/Coder8124/logos/internal/selfupdate"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/setup"
 )
 
-func doctor(probe, verbose bool) error {
+// updates is nil for a plain doctor, which stays offline; --check-updates
+// passes the options for the one request to GitHub (tests pass a fake one).
+func doctor(probe, verbose bool, updates *selfupdate.Options) error {
 	// The product first, the model plumbing second. This used to be the other
 	// way round — and in fact only ever reported the plumbing, so a vault that
 	// did not exist and an index a week stale both passed silently.
@@ -27,6 +30,9 @@ func doctor(probe, verbose bool) error {
 	// one command a confused user reaches for refuse to run precisely when
 	// something was wrong.
 	rep := gatherHealth()
+	if updates != nil {
+		rep.Checks = append(rep.Checks, updateCheck(version, *updates, runningInstall()))
+	}
 	fmt.Println("─── logos ───")
 	// Width from the longest check name rather than a constant. "abandoned
 	// sessions" is eighteen characters and used to push its own state out of the
@@ -49,6 +55,12 @@ func doctor(probe, verbose bool) error {
 	}
 	ok, warn, failed, unknown := rep.Counts()
 	fmt.Printf("\n  %d ok · %d to do · %d failed · %d unchecked\n", ok, warn, failed, unknown)
+	if updates == nil && !selfupdate.IsDevBuild(version) {
+		// Said rather than left out, so a doctor that never mentions the
+		// version is not read as "you are up to date". Not on a dev build,
+		// which has no release to compare with.
+		fmt.Printf("\nrun `logos doctor --check-updates` to compare logos %s with the latest release (one request to GitHub)\n", version)
+	}
 
 	// Runtimes, tiers and the web bridge are for `ask`, the rollup and the
 	// browser extension. No continuity tool uses them, and printed by default

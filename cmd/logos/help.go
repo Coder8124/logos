@@ -184,7 +184,7 @@ SETUP AND DIAGNOSTICS
     logos setup --config <path> [--vault DIR]
                                       merge logos into a config file at a location logos does not know by convention
     logos index [--watch]             sync vault into the cache and embed
-    logos doctor [--verbose] [--probe] [--integration] [--report] [--egress]
+    logos doctor [--verbose] [--probe] [--check-updates] [--integration] [--report] [--egress]
                                       health of vault, index, hosts; --verbose adds runtimes and tiers; --integration proves a host can reach it;
                                       --report prints a paste-able bundle for a bug report; --egress lists every address logos can contact
     logos update [--check]            check GitHub for a newer release, verify it, replace this binary

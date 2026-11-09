@@ -4,8 +4,9 @@
 //
 // This is the one place in the codebase that makes a network call on its own
 // initiative rather than because a user typed a command that needs one — and
-// even here, only when the user typed `logos update` specifically. It never
-// runs on a schedule, from doctor, or in the background, and the request it
+// even here, only when the user typed `logos update`, or `logos doctor
+// --check-updates`, which makes only the latest-release request. It never
+// runs on a schedule, from a plain doctor, or in the background, and the request it
 // makes carries no vault path, no machine identifier, no telemetry: a bare GET
 // with a User-Agent naming this binary and nothing else. See Update's doc
 // comment for the verification chain that runs before anything is replaced.

@@ -15,6 +15,7 @@ import (
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
+	"github.com/Coder8124/logos/internal/selfupdate"
 	"github.com/Coder8124/logos/internal/setup"
 	"github.com/Coder8124/logos/internal/vault"
 )
@@ -169,7 +170,11 @@ func run(cmd string, args []string) (err error) {
 			err = doctorEgress()
 			break
 		}
-		err = doctor(hasFlag(args, "--probe"), hasFlag(args, "--verbose"))
+		var updates *selfupdate.Options
+		if hasFlag(args, "--check-updates") {
+			updates = &selfupdate.Options{}
+		}
+		err = doctor(hasFlag(args, "--probe"), hasFlag(args, "--verbose"), updates)
 	case cmd == "key":
 		err = keyCmd(args)
 	case cmd == "update":
