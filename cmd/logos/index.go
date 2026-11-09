@@ -11,6 +11,7 @@ import (
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
+	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
@@ -308,6 +309,19 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 	if rmErr != nil {
 		fmt.Fprintf(os.Stderr, "· could not remove %d temp file%s left by an interrupted write: %v\n",
 			len(rep.StaleTemps)-len(removed), plural(len(rep.StaleTemps)-len(removed), ""), rmErr)
+	}
+
+	// The same for a checkpoint or plan a kill left empty between claiming
+	// its name and writing it (#380): nothing in it to lose, but read as a
+	// checkpoint with no frontmatter until someone deleted it by hand.
+	gone, claimErr := session.RemoveAbandonedClaims(ix.Vault, rep.EmptyClaims)
+	if len(gone) > 0 {
+		fmt.Fprintf(w, "removed %d empty checkpoint%s left by an interrupted write: %s\n",
+			len(gone), plural(len(gone), ""), strings.Join(gone, ", "))
+	}
+	if claimErr != nil {
+		fmt.Fprintf(os.Stderr, "· could not remove %d empty checkpoint%s left by an interrupted write: %v\n",
+			len(rep.EmptyClaims)-len(gone), plural(len(rep.EmptyClaims)-len(gone), ""), claimErr)
 	}
 
 	// A folder the walk could not enter is a folder of notes missing from

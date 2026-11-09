@@ -17,14 +17,17 @@ import (
 // transcript read for a harvest or an auto record, an import — and each one
 // says it kept something out, or the person cannot tell the span was honoured.
 func TestAPrivateSpanIsNeverCapturedHarvestedOrImported(t *testing.T) {
-	const pin, pw = "bank pin is 4417", "hunter2-staging"
+	// The secret carries letters: a bare secret turned up in the random digits
+	// of t.TempDir's name, which the harvest quotes as its source (#379).
+	const secret = "pin-q4417z"
+	const pin, pw = "bank " + secret, "hunter2-staging"
 
 	e, err := activity.FromHook("UserPromptSubmit",
 		[]byte(`{"session_id":"s1","cwd":"/work/shop","prompt":"<private>my `+pin+`</private> fix the checkout crash"}`), "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(e.Summary, "4417") {
+	if strings.Contains(e.Summary, secret) {
 		t.Errorf("the capture line kept the private span: %q", e.Summary)
 	}
 	if !strings.Contains(e.Summary, "fix the checkout crash") || e.Private != 1 {
@@ -53,7 +56,7 @@ func TestAPrivateSpanIsNeverCapturedHarvestedOrImported(t *testing.T) {
 	}
 
 	h := ingest.Harvest(s)
-	if md := h.Markdown(); strings.Contains(md, "4417") || strings.Contains(md, pw) {
+	if md := h.Markdown(); strings.Contains(md, secret) || strings.Contains(md, pw) {
 		t.Errorf("the harvest kept a private span:\n%s", md)
 	} else if !strings.Contains(md, "2 <private> span(s) kept out") {
 		t.Errorf("the harvest does not say what it kept out:\n%s", md)
@@ -66,7 +69,7 @@ func TestAPrivateSpanIsNeverCapturedHarvestedOrImported(t *testing.T) {
 	}
 	filepath.Walk(vault, func(p string, fi os.FileInfo, _ error) error {
 		if fi != nil && !fi.IsDir() {
-			if b, _ := os.ReadFile(p); strings.Contains(string(b), "4417") || strings.Contains(string(b), pw) {
+			if b, _ := os.ReadFile(p); strings.Contains(string(b), secret) || strings.Contains(string(b), pw) {
 				t.Errorf("a private span reached the vault in %s", p)
 			}
 		}
@@ -81,7 +84,7 @@ func TestAPrivateSpanIsNeverCapturedHarvestedOrImported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(imported.Turns[0].Text, "4417") || imported.Private != 1 {
+	if strings.Contains(imported.Turns[0].Text, secret) || imported.Private != 1 {
 		t.Errorf("the import kept the private span: %q (%d counted)", imported.Turns[0].Text, imported.Private)
 	}
 }
