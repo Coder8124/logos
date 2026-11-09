@@ -149,7 +149,7 @@ func TestAMisfiledCheckpointIsReFiledFromItsFrontmatterAndAnnounced(t *testing.T
 		t.Fatal(err)
 	}
 
-	n, err := Refile(dir)
+	n, _, err := Refile(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestAMisfiledCheckpointIsReFiledFromItsFrontmatterAndAnnounced(t *testing.T
 	}
 
 	// A second pass over an already-correct vault finds nothing left to move.
-	n, err = Refile(dir)
+	n, _, err = Refile(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestReFilingACheckpointTakesItsSyncCopiesWithIt(t *testing.T) {
 		}
 	}
 
-	if _, err := Refile(dir); err != nil {
+	if _, _, err := Refile(dir); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := CheckpointEntries(scope)
@@ -282,5 +282,65 @@ func TestReFilingACheckpointTakesItsSyncCopiesWithIt(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(filepath.Dir(correctPath), n)); err != nil {
 			t.Errorf("%s did not move with its original: %v", n, err)
 		}
+	}
+}
+
+// Before 0.5.8 a checkpoint the Stop hook asked for was filed under the
+// activity log's 8-character cut of the host's id, beside its conversation's
+// real folder, and every reader that groups on host_session — the resume
+// picker, ByHostSession, the cost report — showed one chat as two.
+func TestRefileRejoinsACheckpointFiledUnderTheCutID(t *testing.T) {
+	dir := t.TempDir()
+	full := "b8ef6d21-141a-43b2-934d-1de0b746714c"
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "fix checkout", HostSession: full})
+	cut := commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "fix checkout", State: "asked to stop", HostSession: "b8ef6d21"})
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "speed up search", HostSession: "c0ffee00"})
+
+	moved, rejoined, err := Refile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved != 1 || rejoined != 1 {
+		t.Fatalf("want 1 moved and 1 rejoined, got %d and %d", moved, rejoined)
+	}
+	if _, err := os.Stat(filepath.Dir(cut)); !os.IsNotExist(err) {
+		t.Fatalf("the cut-id folder is still there: %v", err)
+	}
+	got, err := ByHostSession(dir, full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want both checkpoints under the full id, got %d", len(got))
+	}
+	convs, err := Conversations(dir, "kestrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(convs) != 2 {
+		t.Fatalf("want 2 conversations, got %d", len(convs))
+	}
+
+	if moved, rejoined, err = Refile(dir); err != nil || moved != 0 || rejoined != 0 {
+		t.Fatalf("a second pass changed something: %d moved, %d rejoined, %v", moved, rejoined, err)
+	}
+}
+
+// A cut is only a guess at its source. Two conversations sharing the prefix,
+// or a host whose real ids are eight characters, must be left as written.
+func TestRefileLeavesACutIDAloneUnlessExactlyOneConversationOwnsIt(t *testing.T) {
+	dir := t.TempDir()
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "one", HostSession: "b8ef6d21-141a-43b2-934d-1de0b746714c"})
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "two", HostSession: "b8ef6d21-0000-4000-8000-000000000000"})
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "three", HostSession: "b8ef6d21"})
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "four", HostSession: "c0ffee00-not-a-uuid"})
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "five", HostSession: "c0ffee00"})
+
+	moved, rejoined, err := Refile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved != 0 || rejoined != 0 {
+		t.Fatalf("want nothing touched, got %d moved and %d rejoined", moved, rejoined)
 	}
 }

@@ -269,8 +269,9 @@ func (ix *Index) SyncInsights() (restored, rescued int, err error) {
 // honest after an interrupted migration, a sync conflict copy, or a hand
 // move, the same way the rest of indexPass keeps the cache honest.
 //
-// Returns how many checkpoints it moved.
-func (ix *Index) SyncCheckpointHomes() (int, error) {
+// Returns how many checkpoints it moved, and how many of those were rejoined
+// to their conversation from a cut host_session.
+func (ix *Index) SyncCheckpointHomes() (moved, rejoined int, err error) {
 	return session.Refile(ix.Vault)
 }
 

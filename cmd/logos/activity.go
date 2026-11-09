@@ -284,6 +284,14 @@ func recordActivity(args []string) error {
 // once-per-session rule needs no second store.
 const kindCheckpointAsked = "checkpoint-asked"
 
+// fullSessionID keeps only the host's uncut conversation id from e.Extra.
+func fullSessionID(e activity.Event) map[string]any {
+	if full := activity.FullSessionID(e); full != "" {
+		return map[string]any{"session_id": full}
+	}
+	return nil
+}
+
 // askForCheckpoint prints Claude Code's stop-hook decision to block the stop
 // once, when this session changed files or ran commands after its last
 // checkpoint. A session that ends without one hands nothing to the next, and
@@ -326,6 +334,10 @@ func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
 		Session: stop.Session,
 		Agent:   stop.Agent,
 		Summary: "asked the agent to checkpoint before stopping",
+		// The marker is the newest event when the agent answers it, and the
+		// checkpoint names its conversation folder from the newest event: with
+		// only the cut Session it was filed beside the real folder, not in it.
+		Extra: fullSessionID(stop),
 	}) != nil {
 		return
 	}

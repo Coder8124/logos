@@ -457,8 +457,8 @@ func (s *Session) agentFor(args map[string]any) string {
 // eight characters for a human scanning the log, and a checkpoint filed under
 // the cut id would land in a different conversation folder than the full id
 // internal/ingest's transcript-driven path uses for the very same
-// conversation. An older log line with no Extra falls back to the cut id —
-// still wrong against a full-id writer, but no worse than before this fix.
+// conversation. An older log line with no Extra falls back to the cut id;
+// `logos index` rejoins a checkpoint filed that way (session.Refile).
 //
 // Only an event the checkpointing host itself logged counts. Only Claude
 // Code's hooks write this log, so a host with none (opencode, Codex without
@@ -488,7 +488,7 @@ func (s *Session) hostSession(proj string) string {
 	if e == nil {
 		return ""
 	}
-	if full, ok := e.Extra["session_id"].(string); ok && full != "" {
+	if full := activity.FullSessionID(*e); full != "" {
 		return full
 	}
 	return e.Session

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -642,27 +643,43 @@ func ByHostSession(vaultDir, hostSession string) ([]Checkpoint, error) {
 // between the two leaves the checkpoint readable twice — the next Refile call
 // finishes the move and removes the stale copy — never a checkpoint that
 // briefly existed nowhere.
-func Refile(vaultDir string) (int, error) {
+//
+// It also rejoins a checkpoint filed under a cut id (see rejoinCutIDs): the
+// second count is how many of the moved ones had their host_session rewritten.
+func Refile(vaultDir string) (refiled, rejoined int, err error) {
 	scopes, err := Scopes(vaultDir)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	refiled := 0
 	for _, scope := range scopes {
 		dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(scope)))
 		entries, err := CheckpointEntries(dir)
 		if err != nil {
 			continue // one unreadable scope must not hide the others
 		}
-		for _, en := range entries {
-			oldPath := filepath.Join(dir, filepath.FromSlash(en.Rel))
-			raw, err := os.ReadFile(oldPath)
+		raws := make([][]byte, len(entries))
+		parsed := make([]Checkpoint, len(entries))
+		for i, en := range entries {
+			raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(en.Rel)))
 			if err != nil {
 				continue // unreadable file: nothing to refile, not a reason to stop
 			}
-			c := ParseCheckpoint(string(raw))
-			if c.Empty() {
-				continue // a torn write, not a misfiled checkpoint
+			raws[i], parsed[i] = raw, ParseCheckpoint(string(raw))
+		}
+		fullOf := fullIDsByCut(parsed)
+		for i, en := range entries {
+			oldPath := filepath.Join(dir, filepath.FromSlash(en.Rel))
+			raw, c := raws[i], parsed[i]
+			if raw == nil || c.Empty() {
+				continue // unreadable, or a torn write: not a misfiled checkpoint
+			}
+			wasCut := false
+			if full := fullOf[c.HostSession]; full != "" {
+				fixed, ok := replaceHostSession(raw, c.HostSession, full)
+				if !ok {
+					return refiled, rejoined, fmt.Errorf("re-filing %s: its host_session %q is a cut of %q, but the line could not be found to rewrite", en.Rel, c.HostSession, full)
+				}
+				raw, c.HostSession, wasCut = fixed, full, true
 			}
 			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolder(c.HostSession), en.Name))
 			if en.Rel == wantRel {
@@ -678,28 +695,97 @@ func Refile(vaultDir string) (int, error) {
 			// the checkpoint in both folders.
 			copies, err := vault.CopiesOf(filepath.Dir(oldPath), en.Name)
 			if err != nil {
-				return refiled, fmt.Errorf("re-filing %s: listing its sync copies: %w", en.Rel, err)
+				return refiled, rejoined, fmt.Errorf("re-filing %s: listing its sync copies: %w", en.Rel, err)
 			}
 			for _, cp := range copies {
 				if _, err := os.Lstat(filepath.Join(filepath.Dir(newPath), cp)); err == nil {
-					return refiled, fmt.Errorf("re-filing %s: its sync copy %s is already in %s, so neither was moved", en.Rel, cp, filepath.ToSlash(filepath.Dir(wantRel)))
+					return refiled, rejoined, fmt.Errorf("re-filing %s: its sync copy %s is already in %s, so neither was moved", en.Rel, cp, filepath.ToSlash(filepath.Dir(wantRel)))
 				}
 			}
 			if err := vault.WriteAtomic(newPath, raw); err != nil {
-				return refiled, fmt.Errorf("re-filing %s: %w", en.Rel, err)
+				return refiled, rejoined, fmt.Errorf("re-filing %s: %w", en.Rel, err)
 			}
 			for _, cp := range copies {
 				if err := os.Rename(filepath.Join(filepath.Dir(oldPath), cp), filepath.Join(filepath.Dir(newPath), cp)); err != nil {
-					return refiled, fmt.Errorf("re-filing %s: moving its sync copy %s: %w", en.Rel, cp, err)
+					return refiled, rejoined, fmt.Errorf("re-filing %s: moving its sync copy %s: %w", en.Rel, cp, err)
 				}
 			}
 			if err := os.Remove(oldPath); err != nil {
-				return refiled, fmt.Errorf("re-filing %s: removing the old copy: %w", en.Rel, err)
+				return refiled, rejoined, fmt.Errorf("re-filing %s: removing the old copy: %w", en.Rel, err)
+			}
+			// A conversation folder emptied by the move would otherwise sit
+			// there as a stray. os.Remove refuses a non-empty directory, so
+			// this cannot take anything with it.
+			if strings.HasPrefix(en.Rel, ConvosDir+"/") {
+				_ = os.Remove(filepath.Dir(oldPath))
 			}
 			refiled++
+			if wasCut {
+				rejoined++
+			}
 		}
 	}
-	return refiled, nil
+	return refiled, rejoined, nil
+}
+
+// Before 0.5.8 the Stop hook's checkpoint-asked marker carried only the
+// activity log's 8-character cut of the host's id, and a checkpoint answering
+// it was filed under that cut, beside its conversation's real folder: one chat
+// read as two everywhere a host_session is grouped on. The frontmatter is the
+// truth, so the repair is to the frontmatter.
+//
+// Only a UUID-shaped full id is a cut's source (Claude Code's and Codex's ids
+// both are), and only when exactly one in the scope starts with it: a real
+// 8-character id from another host, or two conversations sharing a prefix,
+// is left as written rather than merged on a guess.
+var (
+	cutIDShape  = regexp.MustCompile(`^[0-9a-f]{8}$`)
+	fullIDShape = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+)
+
+// fullIDsByCut maps each cut id some checkpoint here is filed under to the one
+// full id it was cut from.
+func fullIDsByCut(cps []Checkpoint) map[string]string {
+	cuts := map[string]bool{}
+	fulls := map[string]map[string]bool{}
+	for _, c := range cps {
+		switch {
+		case cutIDShape.MatchString(c.HostSession):
+			cuts[c.HostSession] = true
+		case fullIDShape.MatchString(c.HostSession):
+			p := c.HostSession[:8]
+			if fulls[p] == nil {
+				fulls[p] = map[string]bool{}
+			}
+			fulls[p][c.HostSession] = true
+		}
+	}
+	out := map[string]string{}
+	for cut := range cuts {
+		if len(fulls[cut]) != 1 {
+			continue
+		}
+		for full := range fulls[cut] {
+			out[cut] = full
+		}
+	}
+	return out
+}
+
+// replaceHostSession rewrites the host_session line inside the frontmatter
+// only, so a body that happens to quote the line is left alone.
+func replaceHostSession(raw []byte, from, to string) ([]byte, bool) {
+	s := string(raw)
+	end := strings.Index(s, "\n---")
+	if !strings.HasPrefix(s, "---\n") || end < 0 {
+		return nil, false
+	}
+	line := "\nhost_session: " + yamlStr(from) + "\n"
+	i := strings.Index(s[:end+1], line)
+	if i < 0 {
+		return nil, false
+	}
+	return []byte(s[:i] + "\nhost_session: " + yamlStr(to) + "\n" + s[i+len(line):]), true
 }
 
 // ResolvePath finds a checkpoint a stored citation names, wherever it

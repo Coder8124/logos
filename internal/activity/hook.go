@@ -72,8 +72,7 @@ func FromHook(event string, raw []byte, project string) (Event, error) {
 	// itself under the conversation's host_session needs the id the host
 	// actually gave, uncut, so it lands in the same folder a transcript-driven
 	// checkpoint of the same conversation does. Carried in Extra, not a second
-	// top-level field, because nothing else here reads it — only
-	// mcpserver.hostSession.
+	// top-level field, and read back only through FullSessionID.
 	if full := str(p, "session_id"); full != "" {
 		e.Extra = map[string]any{"session_id": full}
 	}
@@ -236,4 +235,12 @@ func oneLine(s string, max int) string {
 // every row and identifying in none of them.
 func ShortID(s string) string {
 	return text.Truncate(strings.TrimSpace(s), 8)
+}
+
+// FullSessionID is the host's uncut conversation id an event carries in Extra,
+// or "" for one written without it. Every reader goes through here so the key
+// a hook writes and the key a checkpoint files itself under cannot drift.
+func FullSessionID(e Event) string {
+	full, _ := e.Extra["session_id"].(string)
+	return full
 }

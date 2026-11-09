@@ -287,10 +287,13 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 	// and touches nothing the counts above depend on. Announced for the same
 	// reason every count above is: a rebuild that silently moved a file reads
 	// as one that might have lost it.
-	if refiled, err := ix.SyncCheckpointHomes(); err != nil {
+	if refiled, rejoined, err := ix.SyncCheckpointHomes(); err != nil {
 		fmt.Fprintln(os.Stderr, "· could not re-file checkpoints:", err)
 	} else if refiled > 0 {
 		fmt.Fprintf(w, "re-filed %d checkpoint%s to match host_session, 0 lost\n", refiled, plural(refiled, ""))
+		if rejoined > 0 {
+			fmt.Fprintf(w, "  %d of them had been filed under a cut conversation id and rejoined their conversation\n", rejoined)
+		}
 	}
 
 	printConflictCopies(w, "", rep.ConflictCopies, edits)
