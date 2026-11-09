@@ -27,7 +27,7 @@ func TestDoctorLeadsWithTheVaultHostsAndCheckpointAndHidesTheModelsUnlessAsked(t
 	t.Setenv("LOGOS_VAULT", vault)
 	emptyRuntime(t, "Ollama")
 
-	out := captureStdout(t, func() { doctor(false, false) })
+	out := captureStdout(t, func() { doctor(false, false, nil) })
 
 	rows := regexp.MustCompile(`(?m)^  (\S.*?)\s{2,}(ok|to do|FAILED|unchecked)$`).FindAllStringSubmatch(out, 3)
 	var lead []string
@@ -46,7 +46,7 @@ func TestDoctorLeadsWithTheVaultHostsAndCheckpointAndHidesTheModelsUnlessAsked(t
 		t.Errorf("doctor did not say how to see the runtimes:\n%s", out)
 	}
 
-	verbose := captureStdout(t, func() { doctor(false, true) })
+	verbose := captureStdout(t, func() { doctor(false, true, nil) })
 	for _, shown := range []string{"─── runtimes", "─── tiers", "web bridge:"} {
 		if !strings.Contains(verbose, shown) {
 			t.Errorf("doctor --verbose did not print %q:\n%s", shown, verbose)

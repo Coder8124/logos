@@ -87,7 +87,7 @@ var commandFlags = map[string]flagSpec{
 	"index":    {bare: []string{"--watch", "--auto"}},
 	"migrate":  {bare: []string{"--dry-run", "--yes", "-y"}},
 	"replay":   {bare: []string{"--peek"}},
-	"doctor":   {bare: []string{"--verbose", "--probe", "--integration", "--report", "--egress"}},
+	"doctor":   {bare: []string{"--verbose", "--probe", "--check-updates", "--integration", "--report", "--egress"}},
 	"resume":   {valued: []string{"--since"}, orDefault: []string{"--budget", "-b"}, bare: []string{"--json"}},
 	"sessions": {valued: []string{"--close"}},
 	"why":      {numeric: []string{"--limit", "-n"}},
