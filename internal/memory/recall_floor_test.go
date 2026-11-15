@@ -212,3 +212,51 @@ func TestAMemoryOnlyTheVectorReachesMustBeCloseToTheBestMatch(t *testing.T) {
 		t.Errorf("want only the embedding memory, got %v", texts(got))
 	}
 }
+
+// Without an embedder the keyword gate is all the agent has, and it only knew
+// plain inflection: "configuration" did not find "the service was configured",
+// nor "deploy" "Deployment", although each is the same word with a different
+// suffix. A derived form is the same word, provided the shared stem is long
+// enough that it is not just a shared first few letters.
+func TestRecallMatchesDerivedWordsWithoutAnEmbedder(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "the service was configured through environment variables", Fact, 0.5, nil)
+	storeVec(t, db, "Deployment happens from the main branch only", Fact, 0.5, nil)
+	storeVec(t, db, "the indexer was migrated to a single writer", Fact, 0.5, nil)
+	storeVec(t, db, "extraction stays serial because parallel runs corrupt the cache", Fact, 0.5, nil)
+
+	for query, want := range map[string]string{
+		"configuration":         "configured",
+		"how do we deploy":      "Deployment",
+		"the migration":         "migrated",
+		"is there parallelism?": "parallel",
+	} {
+		got, err := RecallInProject(db, nil, "", query, "", 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !containsText(got, want) {
+			t.Errorf("%q did not find the memory saying %q: %v", query, want, texts(got))
+		}
+	}
+}
+
+func TestSameStemKeepsDerivedFormsAndRefusesLookalikes(t *testing.T) {
+	for _, p := range [][2]string{
+		{"configuration", "configured"}, {"configure", "configuration"}, {"deploy", "deployment"},
+		{"migration", "migrated"}, {"migrate", "migration"}, {"parallelism", "parallel"},
+		{"authenticate", "authentication"}, {"create", "creation"},
+	} {
+		if !sameStem(p[0], p[1]) || !sameStem(p[1], p[0]) {
+			t.Errorf("%s and %s are one word derived and were not matched", p[0], p[1])
+		}
+	}
+	for _, p := range [][2]string{
+		{"use", "user"}, {"form", "format"}, {"car", "care"}, {"cat", "cache"},
+		{"art", "artist"}, {"man", "manage"}, {"meta", "metal"}, {"on", "onion"}, {"act", "action"},
+	} {
+		if sameStem(p[0], p[1]) || sameStem(p[1], p[0]) {
+			t.Errorf("%s and %s are different words and were matched", p[0], p[1])
+		}
+	}
+}
