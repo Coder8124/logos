@@ -40,7 +40,20 @@ func Request(prompt string) (string, bool) {
 // A bare slash command is a button, not a reply, and a line that was only a
 // kept-out <private> span is something the person hid: a want cited to either
 // would be the distiller's guess passed off as their words.
-func PersonWrote(prompt string) bool {
+func PersonWrote(prompt string) bool { return PersonsText(prompt) != "" }
+
+// PersonsText is what PersonWrote found: the person's own lines of a user-role
+// turn, folded onto one, and "" when none of it is theirs. A paste the host
+// marks as one is left out with the rest of the host's text, so this is what
+// they wrote and not what they showed; a paste the host does not mark cannot
+// be told from typing and stays in.
+func PersonsText(prompt string) string { return strings.Join(PersonsLines(prompt), " ") }
+
+// PersonsLines is PersonsText before it is folded: one entry to each line the
+// person wrote, for a reader that cares where their lines broke — an error
+// pasted from a terminal keeps its shape only here.
+func PersonsLines(prompt string) []string {
+	var kept []string
 	for _, line := range personsLines(prompt) {
 		if strings.HasPrefix(line, "/") && !strings.ContainsAny(line, " \t") {
 			continue
@@ -48,9 +61,24 @@ func PersonWrote(prompt string) bool {
 		if onlyKeptOut(line) {
 			continue
 		}
-		return true
+		kept = append(kept, line)
 	}
-	return false
+	return kept
+}
+
+// PastedLines is what the person pasted into a turn, where the host marks a
+// paste as one: the lines PersonsLines leaves out. It is what they showed, and
+// for a reader asking what came back from a terminal that is the turn.
+func PastedLines(prompt string) []string {
+	var out []string
+	for _, m := range pasted.FindAllStringSubmatch(prompt, -1) {
+		for _, line := range strings.Split(m[1], "\n") {
+			if line = strings.Join(strings.Fields(line), " "); line != "" {
+				out = append(out, line)
+			}
+		}
+	}
+	return out
 }
 
 // personsLines is what is left of a prompt once the host's text is taken out,
@@ -74,8 +102,14 @@ func personsLines(prompt string) []string {
 	for _, w := range hostWrappers {
 		prompt = w.ReplaceAllString(prompt, " ")
 	}
+	prompt = imageMarker.ReplaceAllString(prompt, " ")
 	var out []string
 	for _, line := range strings.Split(prompt, "\n") {
+		// The host's note that the person pressed escape. It marks a turn they
+		// cut short and is not a word they wrote.
+		if strings.HasPrefix(strings.TrimSpace(line), interrupted) {
+			continue
+		}
 		if line = strings.Join(strings.Fields(line), " "); line != "" {
 			out = append(out, line)
 		}
@@ -97,9 +131,16 @@ func FirstRequest(prompts []string) string {
 
 const continuedSession = "This session is being continued from a previous conversation"
 
+// interrupted opens the line Claude Code writes in the person's turn when they
+// stop the agent: "[Request interrupted by user]", "… for tool use]".
+const interrupted = "[Request interrupted by user"
+
 var (
 	commandName = regexp.MustCompile(`<command-name>\s*(/?[^<\s]+)\s*(?:</command-name>|$)`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>(.*?)(?:</command-args>|$)`)
+	pasted      = regexp.MustCompile(`(?s)<pasted_content\b[^>]*>(.*?)(?:</pasted_content>|$)`)
+	// imageMarker is where Claude Code shows an attached picture: "[Image #1]".
+	imageMarker = regexp.MustCompile(`\[Image #\d+\]`)
 	// hostWrappers are blocks a host writes into the user's turn. A paste is
 	// the person's, but it is what they showed, not what they asked; the
 	// words around it are the request.
@@ -110,6 +151,12 @@ var (
 			"command-name", "command-message", "command-args",
 			"system-reminder", "environment_context", "user_instructions",
 			"pasted_content",
+			// A command the person ran themselves with "!" and what it printed,
+			// and a background task reporting in. The command is theirs, but it
+			// was typed at the shell and asks the agent nothing: as a task line
+			// it read "<bash-input>pwd</bash-input>", and its output counted as
+			// words they wrote.
+			"bash-input", "bash-stdout", "bash-stderr", "task-notification",
 		} {
 			out = append(out, regexp.MustCompile(`(?s)<`+tag+`\b[^>]*>.*?(?:</`+tag+`>|$)`))
 		}

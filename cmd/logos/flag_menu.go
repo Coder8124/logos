@@ -49,6 +49,9 @@ var flagMenus = map[string][]flagRow{
 		mode("", "patterns in the vault: a recurring blocker, a dormant memory"),
 		mode("--usage", "what context packs left out, dead ends handed back, handoffs"),
 		modifier("--usage", "--week", "the last 7 days only"),
+		modifier("--usage", "--month", "the last 30 days, a row a day: checkpoints, handoffs, time saved (estimate)"),
+		modifier("--usage", "--each", "with every checkpoint listed (with --month)"),
+		modifier("--usage", "--sessions", "what a restore did, measured from your agents' transcripts: how each sitting began, rework, and corrections repeated"),
 		mode("--memory", "composition, growth, and what your memory leans on"),
 	},
 	"review": {

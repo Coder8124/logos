@@ -93,7 +93,7 @@ var commandFlags = map[string]flagSpec{
 	"why":      {numeric: []string{"--limit", "-n"}},
 	"ledger":   {},
 	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects", "--json"}},
-	"usage":    {valued: []string{"--usd"}, bare: []string{"--week"}},
+	"usage":    {valued: []string{"--usd", "--wpm", "--days"}, bare: []string{"--week", "--month", "--each", "--sessions"}},
 	"show":     {bare: []string{"--all"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",

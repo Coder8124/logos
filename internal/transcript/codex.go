@@ -143,7 +143,8 @@ func (codexReader) read(path string) (*Session, error) {
 			continue
 		}
 
-		if ts := parseRFC3339(ln.Timestamp); ts > 0 {
+		ts := parseRFC3339(ln.Timestamp)
+		if ts > 0 {
 			if s.Started == 0 || ts < s.Started {
 				s.Started = ts
 			}
@@ -170,7 +171,7 @@ func (codexReader) read(path string) (*Session, error) {
 				continue // developer/system: harness boilerplate, not the session
 			}
 			if t := codexText(p.Content); t != "" {
-				s.Turns = append(s.Turns, Turn{Role: p.Role, Text: t})
+				s.Turns = append(s.Turns, Turn{Role: p.Role, Text: t, TS: ts})
 			}
 		case "function_call", "custom_tool_call":
 			if p.CallID != "" && p.Name != "" {
@@ -184,6 +185,7 @@ func (codexReader) read(path string) (*Session, error) {
 				Text:   codexText(p.Output),
 				Status: codexStatus(p.Status, p.Output),
 				Input:  toolInput[p.CallID],
+				TS:     ts,
 			})
 		case "reasoning":
 			// Internal reasoning is not an observed fact; a distiller must not

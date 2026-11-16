@@ -138,6 +138,12 @@ func (in *Inference) Empty() bool {
 // put under version control alongside everything else.
 const CheckpointDir = "sessions"
 
+// NoCheckpointYet opens what resume says when a project has nothing to hand
+// over. A constant because it is read as well as written: a transcript that
+// holds a resume's answer is told apart by it — a checkpoint handed over, or
+// only context — so the sentence and its reader cannot drift.
+const NoCheckpointYet = "No checkpoint has been written for this project yet"
+
 // ConvosDir is the reserved folder name directly under a scope — a project,
 // or a project/worktree pair — that holds its conversations. Reserved, not
 // inferred: a worktree folder and a conversation folder sit at the exact same

@@ -439,3 +439,53 @@ func TestCodexSessionsAreReadFromCodexHomeWhenItIsSet(t *testing.T) {
 		t.Fatalf("discovered %d sessions under CODEX_HOME, want 1: %v", len(paths), paths)
 	}
 }
+
+// A turn carries the time its host wrote it. Without one a session has a start
+// and an end and nothing between, and "how long until the first edit" could
+// only be asked of the whole session.
+func TestATurnCarriesTheTimeItsHostWroteIt(t *testing.T) {
+	claude := filepath.Join(t.TempDir(), "s.jsonl")
+	if err := os.WriteFile(claude, []byte(`{"type":"user","sessionId":"s","timestamp":"2026-01-05T14:30:00.000Z","message":{"role":"user","content":"fix the checkout crash"}}
+{"type":"assistant","sessionId":"s","timestamp":"2026-01-05T14:30:20.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Reading it."},{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"cart.go"}}]}}
+{"type":"user","sessionId":"s","timestamp":"2026-01-05T14:31:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"user","sessionId":"s","message":{"role":"user","content":"a line with no time on it"}}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := transcript.ReadFile("claude-code", claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 5, 14, 30, 0, 0, time.UTC).Unix()
+	want := []int64{base, base + 20, base + 60, 0}
+	if len(s.Turns) != len(want) {
+		t.Fatalf("got %d turns, want %d", len(s.Turns), len(want))
+	}
+	for i, w := range want {
+		if s.Turns[i].TS != w {
+			t.Errorf("claude-code turn %d (%s): TS = %d, want %d", i, s.Turns[i].Role, s.Turns[i].TS, w)
+		}
+	}
+	// The edit's turn is its result, so its time is when the edit landed.
+	if s.Turns[2].Tool != "Edit" {
+		t.Errorf("turn 2 is %q, want the Edit's result", s.Turns[2].Tool)
+	}
+
+	t.Setenv(transcript.LogosCodexSessionsEnv, abs(t, "testdata/transcripts/codex"))
+	paths, err := transcript.Sessions("codex")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("Sessions: %v, %d found", err, len(paths))
+	}
+	c, err := transcript.ReadFile("codex", paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := c.Turns[0].TS, base+2; c.Turns[0].Role != "user" || got != want {
+		t.Errorf("codex first turn: %s at %d, want user at %d", c.Turns[0].Role, got, want)
+	}
+	for i, turn := range c.Turns {
+		if turn.TS < c.Started || turn.TS > c.Ended {
+			t.Errorf("codex turn %d: TS %d is outside the session's own %d..%d", i, turn.TS, c.Started, c.Ended)
+		}
+	}
+}

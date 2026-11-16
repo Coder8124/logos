@@ -82,7 +82,10 @@ func isShellTool(name string) bool {
 	switch strings.ToLower(name) {
 	case "bash", "shell", "exec", "sh", "terminal",
 		"exec_command", "local_shell", "shell_command",
-		"run_command", "run_terminal_cmd", "execute_command":
+		"run_command", "run_terminal_cmd", "execute_command",
+		// Cursor renamed its own: counted over one real chat database, 35
+		// commands ran under the new name and harvested as none.
+		"run_terminal_command_v2":
 		return true
 	}
 	return false
@@ -90,11 +93,27 @@ func isShellTool(name string) bool {
 
 func isFileTool(name string) bool {
 	switch strings.ToLower(name) {
+	case "read_file", "read_file_v2":
+		return true
+	}
+	return EditTool(name)
+}
+
+// ShellTool reports whether a harness calls its "run a command" tool name.
+func ShellTool(name string) bool { return isShellTool(name) }
+
+// EditTool reports whether name is a tool that changes a file. One list for
+// the harvest's file bullets and for anything else that asks when a session
+// first edited, so a harness's name added for one is known to the other.
+func EditTool(name string) bool {
+	switch strings.ToLower(name) {
 	// Cursor's names cost it the same thing Codex's exec_command cost above:
 	// search_replace and edit_file are its two commonest edits by a wide margin,
 	// and neither was recognised, so its file lists came back empty.
 	case "edit", "write", "multiedit", "notebookedit", "str_replace_editor", "apply_patch", "create_file", "update_file",
-		"edit_file", "search_replace", "delete_file", "read_file":
+		"edit_file", "search_replace", "delete_file",
+		// Cursor's newer spelling, 104 edits in the same database.
+		"edit_file_v2":
 		return true
 	}
 	return false
