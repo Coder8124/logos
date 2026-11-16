@@ -46,11 +46,12 @@ func ledgerPack(vault, via, project string, pack contextpack.Pack) {
 //
 //	logos usage [project] [--week] [--usd RATE]
 //	logos usage [project] --month [--each] [--wpm N]
+//	logos usage [project] --sessions [--days N]
 func runUsage(args []string) error {
 	if len(args) == 1 && (args[0] == "off" || args[0] == "on") {
 		return setUsageRecording(args[0] == "on")
 	}
-	var project, rate, wpmArg string
+	var project, rate, wpmArg, daysArg string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--usd":
@@ -63,7 +64,12 @@ func runUsage(args []string) error {
 				i++
 				wpmArg = args[i]
 			}
-		case "--week", "--month", "--each":
+		case "--days":
+			if i+1 < len(args) {
+				i++
+				daysArg = args[i]
+			}
+		case "--week", "--month", "--each", "--sessions":
 		default:
 			if project == "" {
 				project = args[i]
@@ -82,6 +88,17 @@ func runUsage(args []string) error {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
+	}
+	if hasFlag(args, "--sessions") {
+		days := reportDays
+		if hasFlag(args, "--days") {
+			n, err := strconv.Atoi(daysArg)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("--days needs how many days back to read, such as --days 90, not %q", daysArg)
+			}
+			days = n
+		}
+		return usageSessions(v, project, days)
 	}
 	if hasFlag(args, "--month") || hasFlag(args, "--each") {
 		wpm := usagepkg.DefaultWPM

@@ -64,6 +64,11 @@ type Turn struct {
 	// on the tool turn so a harvest can list commands run and files touched
 	// without a model. Empty when the harness did not record it.
 	Input string
+	// TS is when the host wrote the turn, in Unix seconds, and 0 where its
+	// transcript keeps no time on a message: Cursor's keeps one for the chat.
+	// A tool turn carries the time its result came back, not the time it was
+	// called.
+	TS int64
 }
 
 // reader is one harness's adapter. Native readers (Claude Code, Codex) are

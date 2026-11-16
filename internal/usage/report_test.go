@@ -174,3 +174,20 @@ func TestDoctorTestingItselfIsNotAHandoff(t *testing.T) {
 		t.Errorf("the probe's 228 tokens were priced as time saved: %v minutes", r.Total.SameMinutes)
 	}
 }
+
+func TestHandedOverKnowsTheSessionsAHookRestored(t *testing.T) {
+	hook := func(ts int64, session, from string) Event {
+		return Event{TS: ts, Kind: KindPack, Via: "cli:resume", Project: "shop", Reader: "claude-code", From: from, Session: session}
+	}
+	got := HandedOver([]Event{
+		hook(200, "aaaa1111", "claude-code"),
+		hook(100, "aaaa1111", "cursor"), // the same session, restored earlier too
+		hook(300, "bbbb2222", ""),       // the hook ran and there was nothing to hand over
+		{TS: 400, Kind: KindPack, Via: "mcp:resume", Project: "shop", Reader: "cursor", From: "claude-code"}, // no session known
+		{TS: 500, Kind: KindPack, Via: "mcp:context", Project: "shop", From: "claude-code", Session: "cccc3333"},
+		{TS: 600, Kind: KindPack, Via: "mcp:resume", From: "logos-doctor", Reader: "logos-doctor", Session: "dddd4444"},
+	})
+	if at := got["aaaa1111"]; len(got) != 1 || len(at) != 2 || at[0] != 100 || at[1] != 200 {
+		t.Errorf("got %v, want only aaaa1111, restored at 100 and again at 200", got)
+	}
+}
