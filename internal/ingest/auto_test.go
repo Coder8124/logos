@@ -212,6 +212,38 @@ func TestABareSlashCommandOrAKeptOutSpanIsNotThePersonsWords(t *testing.T) {
 	}
 }
 
+// Claude Code also writes into the person's turn a command they ran at the
+// shell with "!", what it printed, a background task reporting in, its note
+// that they pressed escape, and a marker where a picture was attached. None of
+// it was taken out: a session's task line read "<bash-input>pwd</bash-input>",
+// and a page of a command's output passed as words the person wrote.
+func TestWhatThePersonRanAtTheShellIsNotARequestOrTheirWords(t *testing.T) {
+	for _, p := range []string{
+		"<bash-input>logos stats --usage</bash-input>",
+		"<bash-stdout>12 context packs sent</bash-stdout><bash-stderr></bash-stderr>",
+		"<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>",
+		"[Request interrupted by user for tool use]",
+		"[Image #2]",
+	} {
+		if got, ok := Request(p); ok {
+			t.Errorf("Request(%q) = %q, want no request", p, got)
+		}
+		if PersonWrote(p) {
+			t.Errorf("PersonWrote(%q) = true", p)
+		}
+	}
+	// What they wrote beside it is still theirs.
+	for in, want := range map[string]string{
+		"[Request interrupted by user]\nuse the staging database":     "use the staging database",
+		"[Image #1] the dialog says the connector is on":              "the dialog says the connector is on",
+		"<bash-stdout>FAIL cart_test.go</bash-stdout>\nwhy is it red": "why is it red",
+	} {
+		if got, ok := Request(in); !ok || got != want {
+			t.Errorf("Request(%q) = %q, %v, want %q", in, got, ok, want)
+		}
+	}
+}
+
 // A first prompt that was only a kept-out span became the auto checkpoint's
 // task as "[private]", and the next agent was told the person asked for that.
 func TestAFirstPromptThatWasOnlyAKeptOutSpanIsNotTheRequest(t *testing.T) {
