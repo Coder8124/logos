@@ -7,12 +7,37 @@ import (
 	"testing"
 )
 
-func TestAVaultNobodyAskedDoesWhatLogosDidBeforeTheSwitches(t *testing.T) {
+func TestAVaultNobodyAskedHasEverySwitchOn(t *testing.T) {
 	vault := t.TempDir()
 	for _, sp := range specs {
-		if got := On(vault, sp.name); got != sp.today {
-			t.Errorf("%s is %v in a vault with no auto.md; before the switch it was %v", sp.name, got, sp.today)
+		if !On(vault, sp.name) {
+			t.Errorf("%s is off in a vault with no auto.md; nobody turns a switch on, so it ships on", sp.name)
 		}
+	}
+	for _, f := range Fixed {
+		if _, ok := known(Switch(f.Name)); ok {
+			t.Errorf("%s is never automatic yet it is a switch", f.Name)
+		}
+	}
+}
+
+func TestASwitchTurnedOffByHandStaysOffAfterTheUpgrade(t *testing.T) {
+	vault := t.TempDir()
+	// An auto.md written when dream and import were off by default and the
+	// user said so: the file is all the upgrade has to go on.
+	if err := os.WriteFile(Path(vault), []byte("- dream: off\n- import: off\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for sw, want := range map[Switch]bool{Dream: false, Import: false, Index: true, Review: true} {
+		if got := On(vault, sw); got != want {
+			t.Errorf("%s = %v after the upgrade, want %v", sw, got, want)
+		}
+	}
+	if err := SetMaster(vault, false); err != nil {
+		t.Fatal(err)
+	}
+	if On(vault, Index) || On(vault, Dream) {
+		t.Error("auto off did not turn everything off")
 	}
 }
 

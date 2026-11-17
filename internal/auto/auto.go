@@ -10,8 +10,14 @@
 // Three states per switch, as with the activity log, because there are three
 // different users. One who turned a switch off by hand meant it, and `logos
 // auto on` must not undo that. One who said `auto on` or `auto off` meant all
-// of it. One who never answered gets exactly what Logos did before the switch
-// existed, so upgrading changes nothing anybody relied on.
+// of it. One who never answered gets the default, and the default is on.
+//
+// On is the default for every switch because nobody ever turns one on: a
+// switch that shipped off was a feature that shipped dark, so Logos looked like
+// it did less than it does, and the dream, the index rebuild and the import
+// that would have helped never ran for the people they were written for. The
+// switches exist to turn things off. What is never automatic is not a switch
+// at all but Fixed, which no setting changes.
 package auto
 
 import (
@@ -53,32 +59,33 @@ const (
 type spec struct {
 	name Switch
 	what string
-	// today is what the behaviour did before it had a switch, which is what a
-	// vault nobody has asked still does.
-	today bool
+	// def is what a vault nobody has asked gets. It is on for every switch:
+	// see the package comment.
+	def bool
 }
 
 var specs = []spec{
 	{Checkpoint, "write a checkpoint for a session that ended without one", true},
 	{Distil, "offer an unclosed session's transcript to the next agent to read", true},
 	{RulingsAtEdit, "show the rulings on a file when an agent is about to edit it", true},
-	// Off until asked: a dream spends a local model's time, and nobody who
-	// installed Logos before this switch agreed to that.
-	{Dream, "run logos memory dream in the background once a day, at session start", false},
-	// Off until asked: before the switch a missing index was said, not
-	// rebuilt. A hook never rebuilds (LOGOS_HOOK), since a large vault can
-	// outlast its timeout, so `auto on` turning this on costs no hook its work.
-	{Index, "rebuild a missing index from the vault, text only, before the command that found it", false},
-	// Off until asked: it accepts memories nobody looked at. And rarely fires
-	// when on, by design: a contested proposal is never accepted for the user,
-	// and under the default an agent's proposal queues only when it is
-	// contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
-	// Off until asked: an import writes another tool's summaries into memory,
-	// and the first `logos import` asked before writing any.
-	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", false},
-	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", false},
-	// On from the start, unlike the switches above, because it is new: there
-	// is no earlier behaviour for a vault nobody asked to keep. Without a copy
+	// A dream spends a local model's time, and with no model configured it is
+	// a silent no-op, so on costs nobody who has no model anything.
+	{Dream, "run logos memory dream in the background once a day, at session start", true},
+	// On, though before this a missing index was said, not rebuilt: the
+	// rebuild is text only and cheap, and a deleted index answering "nothing
+	// matches" reads as a vault that lost everything. A hook never rebuilds
+	// (LOGOS_HOOK), since a large vault can outlast its timeout, so on costs no
+	// hook its work.
+	{Index, "rebuild a missing index from the vault, text only, before the command that found it", true},
+	// On, and rarely fires, by design: a contested proposal is never accepted
+	// for the user, and under the default an agent's proposal queues only when
+	// it is contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
+	// An import writes another tool's summaries into memory, and the first
+	// `logos import` asked before writing any; on only re-imports a store
+	// that was already imported by hand.
+	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", true},
+	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", true},
+	// Without a copy
 	// a host that prunes or rotates its sessions takes the only record of what
 	// they said, and nobody who never heard of this switch will ever turn it on.
 	{Archive, "keep a copy of each transcript Logos reads in the vault, so it outlives the host's own pruning", true},
@@ -159,7 +166,7 @@ func (c Config) On(s Switch) bool {
 		return *c.Master
 	}
 	sp, _ := known(s)
-	return sp.today
+	return sp.def
 }
 
 // Why says what decided a switch, for status.

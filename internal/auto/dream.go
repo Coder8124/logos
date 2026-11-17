@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,6 +24,13 @@ func launch(vault string, args ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	// A Go test binary re-executed with "dream --auto" is not logos: it runs
+	// the whole test suite again, which relaunches itself. With every switch
+	// on by default a test that starts a session reached this, and over a
+	// thousand copies piled up. Tests that mean to launch replace Launch.
+	if strings.HasSuffix(filepath.Base(exe), ".test") {
+		return nil
 	}
 	cmd := exec.Command(exe, args...)
 	cmd.Env = childEnv(os.Environ(), vault)

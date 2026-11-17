@@ -22,10 +22,9 @@ func reviewVault(t *testing.T, on bool) (*sql.DB, string) {
 	t.Helper()
 	vault := t.TempDir()
 	db := openIndexAt(t, vault)
-	if on {
-		if err := auto.Set(vault, string(auto.Review), true); err != nil {
-			t.Fatal(err)
-		}
+	// Set either way: the switch defaults on, so "off" has to be said.
+	if err := auto.Set(vault, string(auto.Review), on); err != nil {
+		t.Fatal(err)
 	}
 	old := readTranscript
 	readTranscript = func(harness, path string) (*transcript.Session, error) {
