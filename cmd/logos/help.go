@@ -111,6 +111,10 @@ LOOKING
                                       ends handed back, handoffs; --week: last 7 days.
                                       At a terminal, a dashboard that adds agent spend
                                       and session size from Claude Code and Codex
+    logos stats --usage [project] --month [--each] [--wpm N]
+                                      the last 30 days, a row a day: checkpoints written, handoffs
+                                      across agents and within one, and an estimated time saved
+                                      (the size handed over, typed at --wpm words a minute, 40)
     logos stats --usage off | on      stop or resume counting (LOGOS_USAGE=off for one process)
     logos stats --memory              composition, growth, and what your memory leans on
     logos watch                       captures, rulings handed back and memory changes as they happen
