@@ -85,19 +85,22 @@ func runReview(args []string) error {
 	case hasFlag(args, "--stale"):
 		return runReviewStale(ix)
 	}
-	// The review switch first, so what it would accept is not offered to the
-	// person who turned it on to be spared exactly that. Said on the spot: this
-	// is a command they are watching, and the log is for what nobody watched.
-	if _, err := ops.AutoReview(ix.DB, ix.Vault, time.Now()); err != nil {
-		fmt.Fprintf(os.Stderr, "logos: the review switch %v\n", err)
-	}
 	// Before the queue is read: a proposal whose line the user deleted is one
-	// they already rejected, and offering it again asks them twice.
+	// they already rejected, and offering it again asks them twice. Before the
+	// review switch too, whose own reconcile would adopt the edit unannounced.
 	restored, rejected, err := memory.ReconcilePending(ix.DB)
 	if err != nil {
 		return err
 	}
 	announceAdoption(memory.PendingFile, "proposal", "rejected", restored, rejected)
+
+	// The review switch before the queue is read, so what it would accept is
+	// not offered to the person who turned it on to be spared exactly that.
+	// Said on the spot: this is a command they are watching, and the log is
+	// for what nobody watched.
+	if _, err := ops.AutoReview(ix.DB, ix.Vault, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: the review switch %v\n", err)
+	}
 
 	memories, err := memory.Pending(ix.DB)
 	if err != nil {

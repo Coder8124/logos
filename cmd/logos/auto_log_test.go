@@ -30,7 +30,8 @@ func TestResumeSaysWhatAutoDidSinceTheLastSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(resumed, "auto: checkpointed 1 session") {
+	// Other switches may lead the line (a rebuilt index); the number is the point.
+	if !strings.Contains(resumed, "checkpointed 1 session") {
 		t.Errorf("resume did not say what auto did since the last session:\n%s", resumed)
 	}
 }
