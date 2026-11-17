@@ -156,8 +156,16 @@ func ImportLog(db *sql.DB, dir string) (int, error) {
 		return 0, err
 	}
 	restored := 0
+	// A line has no id, so its identity is (second, memory, kind, ref) — and a
+	// pin, an unpin and an exclude inside one second are all the same identity.
+	// "Already there" is therefore a count, not a yes/no: the file's Nth line
+	// with a given identity is restored unless the table already holds N of them.
+	// A yes/no check kept one of three and left the other two only in log.md.
+	seen := map[logKey]int{}
 	for _, e := range parseLog(string(raw)) {
-		added, err := insertLogEntry(db, e)
+		k := logKey{e.TS, e.MemID, e.Event, e.RefID}
+		seen[k]++
+		added, err := insertLogEntry(db, e, seen[k])
 		if err != nil {
 			return restored, err
 		}
@@ -212,7 +220,7 @@ func backfillCreations(db *sql.DB, dir string) (int, error) {
 	rows.Close()
 
 	for _, e := range missing {
-		if _, err := insertLogEntry(db, e); err != nil {
+		if _, err := insertLogEntry(db, e, 1); err != nil {
 			return 0, err
 		}
 		if err := appendLogLocked(dir, e); err != nil {
@@ -222,11 +230,18 @@ func backfillCreations(db *sql.DB, dir string) (int, error) {
 	return len(missing), nil
 }
 
-// insertLogEntry writes one event unless the same event is already recorded.
-// The identity of an event is when it happened, to what, and what it was —
-// there is no durable id to match on, and two genuinely distinct events with
-// all four of those equal are indistinguishable to a reader anyway.
-func insertLogEntry(db *sql.DB, e LogEntry) (bool, error) {
+type logKey struct {
+	ts    int64
+	memID int64
+	event string
+	refID int64
+}
+
+// insertLogEntry writes one event unless the table already holds `nth` events
+// with its identity: when it happened, to what, and what it was. There is no
+// durable id to match on. nth is 1 for a caller that has one event to place;
+// the restore passes the line's position among those sharing an identity.
+func insertLogEntry(db *sql.DB, e LogEntry, nth int) (bool, error) {
 	var n int
 	err := db.QueryRow(
 		`SELECT COUNT(*) FROM memory_log WHERE ts = ? AND mem_id = ? AND event = ? AND ref_id = ?`,
@@ -234,7 +249,7 @@ func insertLogEntry(db *sql.DB, e LogEntry) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if n > 0 {
+	if n >= nth {
 		return false, nil
 	}
 	_, err = db.Exec(
