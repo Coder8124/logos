@@ -144,7 +144,7 @@ func TestEachReasonARestoreWentUnmeasuredIsNamedApart(t *testing.T) {
 		t.Fatalf("lines = %q, want one per non-zero reason and no zero counts", lines)
 	}
 	got := strings.Join(lines, "\n")
-	for _, want := range []string{"1 restore had no checkpoint before it", "2 restores had a checkpoint that names no host session", "1 restore had no transcript on this machine"} {
+	for _, want := range []string{"1 restore had no earlier checkpoint", "2 restores had a checkpoint that names no host session", "1 restore had no transcript on this machine"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
@@ -173,7 +173,7 @@ func TestThePipedReceiptMeasuresRestoresOverTheLastThirtyDaysOnly(t *testing.T) 
 	if !strings.Contains(out, "restores in the last 30 days spared") || !strings.Contains(out, "across 1 restore,") {
 		t.Fatalf("the receipt does not bound the restore measure to 30 days:\n%s", out)
 	}
-	if strings.Contains(out, "no checkpoint before it") {
+	if strings.Contains(out, "no earlier checkpoint") {
 		t.Fatalf("a restore from 90 days ago was measured:\n%s", out)
 	}
 }

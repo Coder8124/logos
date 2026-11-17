@@ -194,7 +194,7 @@ func (r restoreSavings) notMeasured() []string {
 			out = append(out, fmt.Sprintf("%d restore%s %s", n, pluralS(n), format))
 		}
 	}
-	add(r.NoCheckpoint, "had no checkpoint before it")
+	add(r.NoCheckpoint, "had no earlier checkpoint")
 	add(r.NoHostSession, "had a checkpoint that names no host session (written from a shell, or by an old server)")
 	add(r.NoTranscript, "had no transcript on this machine")
 	add(r.SameSession, "resumed inside the session that wrote the checkpoint, reloading nothing")
