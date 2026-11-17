@@ -140,7 +140,7 @@ func TestACrashMidMigrationLeavesTheOldFlatFileReadable(t *testing.T) {
 	if _, err := os.Stat(flat); !os.IsNotExist(err) {
 		t.Fatal("the stale flat copy survived the rerun")
 	}
-	if _, err := os.Stat(filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, "sess-k", filepath.Base(flat))); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, "keep-me--sess-k", filepath.Base(flat))); err != nil {
 		t.Fatalf("the checkpoint is not in its folder: %v", err)
 	}
 }

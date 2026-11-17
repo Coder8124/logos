@@ -85,7 +85,7 @@ func Conversations(vaultDir, projectName string) ([]Conversation, error) {
 			flat := en.Rel == en.Name
 			id := convoFolder(c.HostSession)
 			if !flat {
-				id = strings.Split(en.Rel, "/")[1]
+				id = convoFolderID(strings.Split(en.Rel, "/")[1])
 			}
 			if id == UnattachedFolder {
 				id = stem
@@ -356,9 +356,10 @@ func MigrateFlat(vaultDir string, dryRun bool) (MigrateReport, error) {
 				rep.Skipped = append(rep.Skipped, display+": empty or torn, left in place")
 				continue
 			}
-			newPath := filepath.Join(dir, ConvosDir, convoFolder(c.HostSession), en.Name)
+			newFolder := convoFolderFor(dir, c)
+			newPath := filepath.Join(dir, ConvosDir, newFolder, en.Name)
 			if existing, err := os.ReadFile(newPath); err == nil && !bytes.Equal(existing, raw) {
-				rep.Skipped = append(rep.Skipped, display+": a different checkpoint already has its name in "+convoFolder(c.HostSession)+", both kept")
+				rep.Skipped = append(rep.Skipped, display+": a different checkpoint already has its name in "+newFolder+", both kept")
 				continue
 			} else if err != nil && !os.IsNotExist(err) {
 				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: %v", display, err))
