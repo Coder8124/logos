@@ -38,6 +38,10 @@ type restoreSavings struct {
 	Repeats       int // a second restore of one checkpoint in one reader session
 	Unread        int // could not be looked up because Err; see Err
 
+	// SelfTests are `logos doctor` resuming its own probe checkpoint: left out
+	// of Restores, since they hand nobody's work over, and said apart.
+	SelfTests int
+
 	// Other is the non-restore packs, still measured the old way: against
 	// their own uncut candidates.
 	OtherPacks int
@@ -99,6 +103,10 @@ func measureRestores(v string, events []usagepkg.Event, project string) restoreS
 	oldest := int64(0)
 	for _, e := range events {
 		if e.Kind != usagepkg.KindPack || (project != "" && !usagepkg.SameProject(e.Project, project)) {
+			continue
+		}
+		if usagepkg.SelfTest(e) {
+			rs.SelfTests++
 			continue
 		}
 		if !usagepkg.IsResume(e) {
@@ -200,6 +208,9 @@ func (r restoreSavings) notMeasured() []string {
 	add(r.SameSession, "resumed inside the session that wrote the checkpoint, reloading nothing")
 	add(r.Repeats, "repeated one already counted in the same session")
 	add(r.Unread, "could not be measured")
+	if r.SelfTests > 0 {
+		out = append(out, fmt.Sprintf("%d more left out: `logos doctor` resuming its own test checkpoint, which is nobody's work handed over", r.SelfTests))
+	}
 	return out
 }
 

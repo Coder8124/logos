@@ -177,3 +177,20 @@ func TestThePipedReceiptMeasuresRestoresOverTheLastThirtyDaysOnly(t *testing.T) 
 		t.Fatalf("a restore from 90 days ago was measured:\n%s", out)
 	}
 }
+
+// `logos doctor` resumes its own probe checkpoint to prove the server answers.
+// That is nobody's work handed over, and crediting it put a restore on every
+// day doctor ran.
+func TestDoctorResumingItsOwnProbeIsNotARestore(t *testing.T) {
+	e := newSavingsEnv(t)
+	e.checkpoint(t, "kestrel", "sess-a", 2*time.Hour)
+	probe := e.restore("kestrel", "", time.Hour)
+	probe.Reader = "logos-doctor"
+	r := measureRestores(e.vault, []usagepkg.Event{probe}, "")
+	if r.Restores != 0 || r.SelfTests != 1 {
+		t.Fatalf("restores = %+v, want doctor's probe left out of the restores and counted apart", r)
+	}
+	if got := strings.Join(r.notMeasured(), "\n"); !strings.Contains(got, "`logos doctor` resuming its own test checkpoint") {
+		t.Fatalf("the left-out probe is not said:\n%s", got)
+	}
+}
