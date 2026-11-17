@@ -45,11 +45,12 @@ func ledgerPack(vault, via, project string, pack contextpack.Pack) {
 // by a number that was true.
 //
 //	logos usage [project] [--week] [--usd RATE]
+//	logos usage [project] --month [--each] [--wpm N]
 func runUsage(args []string) error {
 	if len(args) == 1 && (args[0] == "off" || args[0] == "on") {
 		return setUsageRecording(args[0] == "on")
 	}
-	var project, rate string
+	var project, rate, wpmArg string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--usd":
@@ -57,7 +58,12 @@ func runUsage(args []string) error {
 				i++
 				rate = args[i]
 			}
-		case "--week":
+		case "--wpm":
+			if i+1 < len(args) {
+				i++
+				wpmArg = args[i]
+			}
+		case "--week", "--month", "--each":
 		default:
 			if project == "" {
 				project = args[i]
@@ -76,6 +82,17 @@ func runUsage(args []string) error {
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
+	}
+	if hasFlag(args, "--month") || hasFlag(args, "--each") {
+		wpm := usagepkg.DefaultWPM
+		if hasFlag(args, "--wpm") {
+			n, err := strconv.Atoi(wpmArg)
+			if err != nil || n <= 0 {
+				return fmt.Errorf("--wpm needs a typing speed in words a minute, such as --wpm 40, not %q", wpmArg)
+			}
+			wpm = n
+		}
+		return usageReport(v, project, wpm, hasFlag(args, "--each"))
 	}
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		return usageDashboard(v, project, hasFlag(args, "--week"), usd)

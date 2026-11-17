@@ -74,8 +74,14 @@ func personsLines(prompt string) []string {
 	for _, w := range hostWrappers {
 		prompt = w.ReplaceAllString(prompt, " ")
 	}
+	prompt = imageMarker.ReplaceAllString(prompt, " ")
 	var out []string
 	for _, line := range strings.Split(prompt, "\n") {
+		// The host's note that the person pressed escape. It marks a turn they
+		// cut short and is not a word they wrote.
+		if strings.HasPrefix(strings.TrimSpace(line), interrupted) {
+			continue
+		}
 		if line = strings.Join(strings.Fields(line), " "); line != "" {
 			out = append(out, line)
 		}
@@ -97,9 +103,15 @@ func FirstRequest(prompts []string) string {
 
 const continuedSession = "This session is being continued from a previous conversation"
 
+// interrupted opens the line Claude Code writes in the person's turn when they
+// stop the agent: "[Request interrupted by user]", "… for tool use]".
+const interrupted = "[Request interrupted by user"
+
 var (
 	commandName = regexp.MustCompile(`<command-name>\s*(/?[^<\s]+)\s*(?:</command-name>|$)`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>(.*?)(?:</command-args>|$)`)
+	// imageMarker is where Claude Code shows an attached picture: "[Image #1]".
+	imageMarker = regexp.MustCompile(`\[Image #\d+\]`)
 	// hostWrappers are blocks a host writes into the user's turn. A paste is
 	// the person's, but it is what they showed, not what they asked; the
 	// words around it are the request.
@@ -110,6 +122,12 @@ var (
 			"command-name", "command-message", "command-args",
 			"system-reminder", "environment_context", "user_instructions",
 			"pasted_content",
+			// A command the person ran themselves with "!" and what it printed,
+			// and a background task reporting in. The command is theirs, but it
+			// was typed at the shell and asks the agent nothing: as a task line
+			// it read "<bash-input>pwd</bash-input>", and its output counted as
+			// words they wrote.
+			"bash-input", "bash-stdout", "bash-stderr", "task-notification",
 		} {
 			out = append(out, regexp.MustCompile(`(?s)<`+tag+`\b[^>]*>.*?(?:</`+tag+`>|$)`))
 		}
