@@ -81,7 +81,7 @@ func TestACheckpointTwoConversationsClaimStaysUnattributedAndIsReported(t *testi
 	path, key, at := flatNoHost(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "tidy logs"})
 	rep, err := MigrateFlat(dir, false, Receipts(map[string][]Receipt{key: {
 		{HostSession: "sess-1", At: at.Add(time.Second)},
-		{HostSession: "sess-2", At: at.Add(time.Second)},
+		{HostSession: "sess-2", At: at.Add(2 * time.Second)},
 	}}))
 	// Reported once, as ambiguous: counting it unattributed as well would
 	// make the totals add up to more checkpoints than were moved.
@@ -131,7 +131,7 @@ func TestMigrateNamesABareConversationFolderByItsIntent(t *testing.T) {
 	}
 
 	dry, err := MigrateFlat(dir, true, nil)
-	if err != nil || dry.Named != 0 {
+	if err != nil || dry.Named != 1 {
 		t.Fatalf("dry run: %+v %v", dry, err)
 	}
 	if _, err := os.Stat(bareDir); err != nil {
@@ -257,14 +257,124 @@ func TestTheReceiptSourceIsNotReadWhenEveryCheckpointHasAHost(t *testing.T) {
 	dir := t.TempDir()
 	flatten(t, dir, "kestrel", commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "fix checkout", HostSession: "sess-h"}))
 	read := false
-	rep, err := MigrateFlat(dir, false, func() (map[string][]Receipt, error) {
+	rep, err := MigrateFlat(dir, false, func() (map[string][]Receipt, []string, error) {
 		read = true
-		return nil, nil
+		return nil, nil, nil
 	})
 	if err != nil || rep.Moved != 1 {
 		t.Fatalf("%+v %v", rep, err)
 	}
 	if read {
 		t.Fatal("the host transcripts were read for a vault that needed none")
+	}
+}
+
+// renameStem gives a flat checkpoint another stem, as one written by an older
+// Logos or by hand may carry; dateOnly also drops its precise `checkpointed`
+// instant so only the day-resolution first_seen is left.
+func renameStem(t *testing.T, path, stem string, dateOnly bool) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dateOnly {
+		var keep []string
+		for _, l := range strings.Split(string(raw), "\n") {
+			if !strings.HasPrefix(l, "checkpointed:") {
+				keep = append(keep, l)
+			}
+		}
+		raw = []byte(strings.Join(keep, "\n"))
+	}
+	to := filepath.Join(filepath.Dir(path), stem+".md")
+	if err := os.WriteFile(to, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	return to
+}
+
+func TestAMigratedCheckpointWithAMixedCaseStemStaysInItsFolderAfterRefile(t *testing.T) {
+	dir := t.TempDir()
+	path, _, _ := flatNoHost(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "tidy logs"})
+	path = renameStem(t, path, "20250101-120000-My_Handoff.v2", false)
+	rep, err := MigrateFlat(dir, false, nil)
+	if err != nil || rep.Moved != 1 || rep.Unattributed != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	moved, _, err := Refile(dir)
+	if err != nil || moved != 0 {
+		t.Fatalf("the next index moved %d migrated checkpoint(s) back out of their own folder (%v)", moved, err)
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, "*", filepath.Base(path))); len(m) != 1 || strings.Contains(m[0], UnattachedFolder) {
+		t.Fatalf("checkpoint is not in a folder of its own: %v", m)
+	}
+}
+
+func TestACheckpointIsLeftForALaterRunWhenAHostTranscriptCouldNotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	path, key, at := flatNoHost(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "tidy logs"})
+	unreadable := func() (map[string][]Receipt, []string, error) {
+		return map[string][]Receipt{}, []string{"/x/locked.jsonl"}, nil
+	}
+	rep, err := MigrateFlat(dir, false, unreadable)
+	if err != nil || rep.Moved != 0 || len(rep.Deferred) != 1 || len(rep.Unreadable) != 1 {
+		t.Fatalf("want it deferred, got %+v %v", rep, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("a checkpoint that may have a conversation was filed for good")
+	}
+	// The transcript is readable on the rerun: the checkpoint finds its host.
+	rep, err = MigrateFlat(dir, false, Receipts(map[string][]Receipt{key: {{HostSession: "sess-late", At: at}}}))
+	if err != nil || rep.Recovered != 1 || len(rep.Deferred) != 0 {
+		t.Fatalf("the rerun did not recover it: %+v %v", rep, err)
+	}
+}
+
+func TestADateOnlyCheckpointIsMatchedToItsReceiptByTheTimeInItsStem(t *testing.T) {
+	dir := t.TempDir()
+	path, _, _ := flatNoHost(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "tidy logs"})
+	path = renameStem(t, path, "20250101-153045-claude-code", true)
+	stamp, _ := time.ParseInLocation("20060102-150405", "20250101-153045", time.Local)
+	rep, err := MigrateFlat(dir, false, Receipts(map[string][]Receipt{"kestrel/20250101-153045-claude-code": {{HostSession: "sess-old", At: stamp.Add(2 * time.Second)}}}))
+	if err != nil || rep.Recovered != 1 {
+		t.Fatalf("a date-only checkpoint's receipt was dropped by the midnight window: %+v %v", rep, err)
+	}
+	_ = path
+}
+
+func TestTheSameReceiptCopiedIntoAForkedTranscriptIsOneClaimant(t *testing.T) {
+	at := time.Unix(1_700_000_000, 0)
+	host, n := hostFromReceipts([]Receipt{{HostSession: "orig", At: at}, {HostSession: "fork", At: at}}, at.Unix())
+	if host != "orig" || n != 1 {
+		t.Fatalf("a copied receipt read as two conversations: %q %d", host, n)
+	}
+}
+
+func TestAFolderThatCannotBeRenamedIsReportedAndTheRestAreStillNamed(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root renames anywhere")
+	}
+	dir := t.TempDir()
+	var bare []string
+	for _, proj := range []string{"alpha", "beta"} {
+		p := commitIn(t, dir, &Checkpoint{Project: proj, Agent: "a", Task: "fix " + proj, Intent: "Because " + proj, HostSession: "sess-" + proj})
+		b := filepath.Join(filepath.Dir(filepath.Dir(p)), "sess-"+proj)
+		if err := os.Rename(filepath.Dir(p), b); err != nil {
+			t.Fatal(err)
+		}
+		bare = append(bare, b)
+	}
+	locked := filepath.Dir(bare[0])
+	if err := os.Chmod(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+	rep, err := MigrateFlat(dir, false, nil)
+	if err != nil || len(rep.NameFailed) != 1 || rep.Named != 1 || len(rep.Failed) != 0 {
+		t.Fatalf("want one naming failure reported apart from checkpoint failures and the other folder named: %+v %v", rep, err)
 	}
 }

@@ -439,20 +439,18 @@ func migrateSessionsCmd(args []string) error {
 	// The transcripts are read only if some checkpoint has no host_session:
 	// on a vault written since that was recorded, scanning gigabytes of host
 	// history would buy nothing.
-	var unreadable []string
-	receipts := func() (map[string][]session.Receipt, error) {
+	receipts := func() (map[string][]session.Receipt, []string, error) {
 		found, skipped, err := transcript.CheckpointReceipts()
-		unreadable = skipped
 		if err != nil {
-			return nil, fmt.Errorf("reading host transcripts for checkpoint receipts: %w", err)
+			return nil, skipped, fmt.Errorf("reading host transcripts for checkpoint receipts: %w", err)
 		}
-		return found, nil
+		return found, skipped, nil
 	}
 	rep, err := session.MigrateFlat(v, dryRun, receipts)
 	if err != nil {
 		return err
 	}
-	if len(unreadable) > 0 {
+	if unreadable := rep.Unreadable; len(unreadable) > 0 {
 		// Named, so a checkpoint left unattributed below can be traced to a
 		// transcript Logos could not open rather than read as having none.
 		fmt.Printf("%d host transcript%s could not be read and passed over:\n", len(unreadable), pluralS(len(unreadable)))
@@ -475,6 +473,12 @@ func migrateSessionsCmd(args []string) error {
 	if rep.Named > 0 {
 		fmt.Printf("  %s %d conversation folder%s after what it was for\n", named, rep.Named, pluralS(rep.Named))
 	}
+	if len(rep.Deferred) > 0 {
+		fmt.Printf("  %d checkpoint%s left in place for a later run, not filed on a guess\n", len(rep.Deferred), pluralS(len(rep.Deferred)))
+		for _, d := range rep.Deferred {
+			fmt.Println("  deferred " + d)
+		}
+	}
 	for _, s := range rep.NameSkipped {
 		fmt.Println("  not renamed " + s)
 	}
@@ -485,6 +489,9 @@ func migrateSessionsCmd(args []string) error {
 		fmt.Println("  skipped " + s)
 	}
 	for _, f := range rep.Failed {
+		fmt.Println("  failed  " + f)
+	}
+	for _, f := range rep.NameFailed {
 		fmt.Println("  failed  " + f)
 	}
 	if (rep.Moved > 0 || rep.Named > 0) && !dryRun {
@@ -498,6 +505,12 @@ func migrateSessionsCmd(args []string) error {
 		// script that runs this does not read a partial move as a finished one.
 		return fmt.Errorf("%d checkpoint%s could not be moved and stayed in the old layout — run `logos migrate sessions` again once the cause is fixed",
 			len(rep.Failed), pluralS(len(rep.Failed)))
+	}
+	if len(rep.NameFailed) > 0 {
+		// Its own wording: every checkpoint is where it belongs; only a folder
+		// keeps its bare id until the next run.
+		return fmt.Errorf("%d conversation folder%s could not be renamed and kept the bare id — run `logos migrate sessions` again once the cause is fixed",
+			len(rep.NameFailed), pluralS(len(rep.NameFailed)))
 	}
 	return nil
 }

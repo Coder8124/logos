@@ -98,3 +98,40 @@ func TestAnUnreadableTranscriptIsPassedOverAndNamed(t *testing.T) {
 		t.Fatalf("the readable transcript's receipt is lost: %+v", got)
 	}
 }
+
+func TestAReceiptInASubagentTranscriptIsAttributedToItsParentConversation(t *testing.T) {
+	claude := t.TempDir()
+	t.Setenv(LogosClaudeProjectsEnv, claude)
+	t.Setenv(LogosCodexSessionsEnv, t.TempDir())
+	writeLines(t, filepath.Join(claude, "-Users-x-kestrel", "sess-p", "subagents", "agent-1.jsonl"),
+		`{"type":"user","sessionId":"sess-p","timestamp":"2026-09-01T10:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"checkpoint saved to logos — sessions/kestrel/20260901-100000-claude-code.md"}]}}`)
+	got, _, err := CheckpointReceipts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs := got["kestrel/20260901-100000-claude-code"]; len(rs) != 1 || rs[0].HostSession != "sess-p" {
+		t.Fatalf("subagent receipt lost: %+v", got)
+	}
+}
+
+func TestAnUnreadableClaudeProjectsRootDoesNotStopTheCodexScan(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads a mode-000 directory")
+	}
+	claude, codex := t.TempDir(), t.TempDir()
+	t.Setenv(LogosClaudeProjectsEnv, claude)
+	t.Setenv(LogosCodexSessionsEnv, codex)
+	writeLines(t, filepath.Join(codex, "2026", "rollout-x.jsonl"),
+		`{"timestamp":"2026-09-01T12:00:00Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"cdx-1","item":{"type":"McpToolCall","result":{"content":[{"type":"text","text":"checkpoint saved to logos — sessions/acme/20260901-120000-codex.md"}]}}}}`)
+	if err := os.Chmod(claude, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(claude, 0o700) })
+	got, unreadable, err := CheckpointReceipts()
+	if err != nil || len(unreadable) != 1 || unreadable[0] != claude {
+		t.Fatalf("want the root named and no error, got %v %v", unreadable, err)
+	}
+	if len(got["acme/20260901-120000-codex"]) != 1 {
+		t.Fatalf("the Codex receipt was lost: %+v", got)
+	}
+}

@@ -318,6 +318,18 @@ type MigrateReport struct {
 	// Named is how many bare-id conversation folders were given a readable
 	// name afterwards (NameConvoFolders).
 	Named int
+	// NameFailed is each conversation folder that could not be renamed. It is
+	// not a checkpoint that failed to move: every checkpoint is where it
+	// should be, only a folder keeps its bare id until a rerun.
+	NameFailed []string
+	// Deferred is each checkpoint with no host_session left in place because
+	// the transcripts that might name its conversation could not all be read.
+	// Filed now it would be filed for good: a rerun looks only at checkpoints
+	// not yet in a conversation folder.
+	Deferred []string
+	// Unreadable is every host transcript or transcript root the receipt scan
+	// could not open.
+	Unreadable []string
 	// NameSkipped is what NameConvoFolders left alone, and why.
 	NameSkipped []string
 	Skipped     []string // "<path>: <why>", left exactly where they were
@@ -332,11 +344,15 @@ type Receipt = transcript.Receipt
 // "<scope>/<stem>". MigrateFlat calls it at most once, and only when a
 // checkpoint actually lacks a host_session: reading the host transcripts is
 // a walk of gigabytes, and a vault already migrated has nothing to ask it.
-type ReceiptSource func() (map[string][]Receipt, error)
+//
+// unreadable names each transcript (or transcript root) that could not be
+// opened: a checkpoint no receipt was found for may have had its receipt in
+// one of them.
+type ReceiptSource func() (receipts map[string][]Receipt, unreadable []string, err error)
 
 // Receipts is a ReceiptSource for receipts already in hand.
 func Receipts(m map[string][]Receipt) ReceiptSource {
-	return func() (map[string][]Receipt, error) { return m, nil }
+	return func() (map[string][]Receipt, []string, error) { return m, nil, nil }
 }
 
 // receiptsOnce memoises a ReceiptSource for one migration, error included,
@@ -346,15 +362,16 @@ type receiptsOnce struct {
 	src  ReceiptSource
 	done bool
 	m    map[string][]Receipt
+	bad  []string
 	err  error
 }
 
-func (r *receiptsOnce) get() (map[string][]Receipt, error) {
+func (r *receiptsOnce) get() (map[string][]Receipt, []string, error) {
 	if !r.done && r.src != nil {
-		r.m, r.err = r.src()
+		r.m, r.bad, r.err = r.src()
 	}
 	r.done = true
-	return r.m, r.err
+	return r.m, r.bad, r.err
 }
 
 // receiptWindow is how far a receipt may sit from its checkpoint's own
@@ -420,14 +437,14 @@ func MigrateFlat(vaultDir string, dryRun bool, receipts ReceiptSource) (MigrateR
 	}(); err != nil {
 		return rep, err
 	}
-	if dryRun {
-		return rep, nil
-	}
-	// After the lock is dropped: NameConvoFolders takes it per rename.
-	named, skipped, err := NameConvoFolders(vaultDir)
+	rep.Unreadable = src.bad
+	// After the lock is dropped: naming takes it per rename. A dry run counts
+	// what the real run would rename, without renaming, so the preview and the
+	// run agree.
+	named, skipped, errs := nameConvoFolders(vaultDir, dryRun)
 	rep.Named, rep.NameSkipped = named, skipped
-	if err != nil {
-		rep.Failed = append(rep.Failed, err.Error())
+	for _, e := range errs {
+		rep.NameFailed = append(rep.NameFailed, e.Error())
 	}
 	return rep, nil
 }
@@ -468,14 +485,21 @@ func migrateScope(rep *MigrateReport, dir, scope string, entries []CheckpointEnt
 		}
 		recovered, ambiguous := false, false
 		if c.HostSession == "" {
-			all, err := receipts.get()
+			all, bad, err := receipts.get()
 			if err != nil {
 				// Filed on its own now, it would never be looked at again:
 				// a rerun finds it in a conversation folder and moves on.
 				rep.Failed = append(rep.Failed, fmt.Sprintf("%s: left in place, because the host transcripts that say which conversation saved it could not be read: %v", display, err))
 				continue
 			}
-			host, claimants := hostFromReceipts(all[scope+"/"+stem], c.TS)
+			host, claimants := hostFromReceipts(all[scope+"/"+stem], checkpointTime(c.TS, stem))
+			if host == "" && claimants == 0 && len(bad) > 0 {
+				// Its receipt may be in a transcript that could not be read.
+				// Filed on its own now, the checkpoint would never be looked
+				// at again; left here, a rerun that can read them finds it.
+				rep.Deferred = append(rep.Deferred, fmt.Sprintf("%s: left in place for a later run, because %d host transcript(s) could not be read", display, len(bad)))
+				continue
+			}
 			switch {
 			case claimants > 1:
 				ambiguous = true
@@ -492,10 +516,8 @@ func migrateScope(rep *MigrateReport, dir, scope string, entries []CheckpointEnt
 		// A checkpoint nothing ties to a conversation is keyed by its own
 		// stem for folder purposes only; its frontmatter stays as it was.
 		filing := c
-		own := convoFolder(c.HostSession) == UnattachedFolder
-		if own {
-			filing.HostSession = stem
-		}
+		filing.HostSession = filingHost(c, stem)
+		own := filing.HostSession != c.HostSession
 		target := convoFolderFor(dir, filing)
 		if dryRun {
 			id := convoFolder(filing.HostSession)
@@ -580,11 +602,44 @@ func migrateScope(rep *MigrateReport, dir, scope string, entries []CheckpointEnt
 	}
 }
 
+// filingHost is the id a checkpoint is filed under: its host_session, or,
+// when it has none, its own stem, so unrelated sittings do not share one
+// "_unattached" pile. migrateScope files by it and Refile accepts it, and
+// both must ask this one function: a second spelling of the rule (comparing
+// the raw stem where the folder carries convoFolder's normalised one) once
+// moved a migrated checkpoint straight back on the next index.
+func filingHost(c Checkpoint, stem string) string {
+	if convoFolder(c.HostSession) == UnattachedFolder {
+		return stem
+	}
+	return c.HostSession
+}
+
+// checkpointTime is when a checkpoint was written, as well as it can be told.
+// A checkpoint old enough to have only a date first_seen parses to midnight
+// UTC, which sits hours from every real receipt, so the stamp in its stem
+// (local time, seconds) is the better clock there.
+func checkpointTime(ts int64, stem string) int64 {
+	if ts != 0 && ts%86400 != 0 {
+		return ts
+	}
+	if t, err := time.ParseInLocation("20060102-150405", firstN(stem, 15), time.Local); err == nil {
+		return t.Unix()
+	}
+	return ts
+}
+
 // hostFromReceipts is the one conversation whose receipt for a checkpoint
 // written at ts falls within receiptWindow, and how many distinct
 // conversations did. A checkpoint with no timestamp takes every receipt.
+//
+// Receipts with the same instant are one receipt: a resumed or forked
+// transcript copies its history, so the same answer appears under two ids.
+// CheckpointReceipts lists the oldest transcript first, and that is the
+// conversation that kept.
 func hostFromReceipts(rs []Receipt, ts int64) (string, int) {
 	hosts := map[string]bool{}
+	seen := map[int64]bool{}
 	host := ""
 	for _, r := range rs {
 		if ts != 0 {
@@ -593,6 +648,10 @@ func hostFromReceipts(rs []Receipt, ts int64) (string, int) {
 				continue
 			}
 		}
+		if seen[r.At.UnixNano()] {
+			continue
+		}
+		seen[r.At.UnixNano()] = true
 		if !hosts[r.HostSession] {
 			hosts[r.HostSession] = true
 			host = r.HostSession
@@ -615,8 +674,8 @@ var emptyHostSession = regexp.MustCompile(`(?m)^host_session:[ \t]*(?:""|'')?[ \
 // is someone's text and may say anything.
 func withHostSession(raw []byte, host string) ([]byte, bool) {
 	s := string(raw)
-	end := strings.Index(s, "\n---")
-	if !strings.HasPrefix(s, "---\n") || end < 0 {
+	end, ok := frontmatterEnd(s)
+	if !ok {
 		return nil, false
 	}
 	if loc := emptyHostSession.FindStringIndex(s[:end+1]); loc != nil {

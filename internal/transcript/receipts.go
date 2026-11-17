@@ -57,10 +57,17 @@ func CheckpointReceipts() (out map[string][]Receipt, unreadable []string, err er
 		}
 		out[key] = append(out[key], Receipt{HostSession: host, At: at})
 	}
-	cc, err := claudeCodeReader{}.discover()
+	// Oldest transcript first, so that when one receipt turns up in two
+	// transcripts (a resumed or forked conversation copies its history) the
+	// original conversation is listed ahead of the copy.
+	cc, err := claudeCodeReader{}.receiptPaths()
 	if err != nil {
-		return nil, nil, err
+		// An unreadable projects root costs the Claude Code half of the scan,
+		// not the Codex half; the root is named so it is not read as "no
+		// receipts exist".
+		unreadable = append(unreadable, claudeCodeReader{}.root())
 	}
+	reverse(cc)
 	for _, path := range cc {
 		if err := eachReceiptLine(path, func(line []byte) {
 			var l claudeLine
@@ -83,8 +90,9 @@ func CheckpointReceipts() (out map[string][]Receipt, unreadable []string, err er
 	}
 	cx, err := codexReader{}.discover()
 	if err != nil {
-		return nil, nil, err
+		unreadable = append(unreadable, codexReader{}.root())
 	}
+	reverse(cx)
 	for _, path := range cx {
 		if err := eachReceiptLine(path, func(line []byte) {
 			var l struct {
@@ -114,6 +122,12 @@ func CheckpointReceipts() (out map[string][]Receipt, unreadable []string, err er
 		}
 	}
 	return out, unreadable, nil
+}
+
+func reverse(s []string) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
 }
 
 // receiptKey is "<scope>/<stem>" for a tool result whose first line is a
