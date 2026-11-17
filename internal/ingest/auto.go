@@ -79,6 +79,8 @@ func autoCheckpoint(vaultDir string, s *transcript.Session, project string, at i
 	if err != nil {
 		return nil, err
 	}
+	// After the record: the vault has the record whatever the copy does.
+	written.Archive, written.ArchiveKept = ArchiveForRecord(vaultDir, s)
 	return &written, nil
 }
 

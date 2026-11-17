@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -292,6 +293,7 @@ func growRecord(vaultDir string, history []session.Checkpoint, rec session.Check
 	if err != nil {
 		return nil, err
 	}
+	grown.Archive, grown.ArchiveKept = ArchiveForRecord(vaultDir, s)
 	return &grown, nil
 }
 
@@ -351,6 +353,26 @@ func SweepNotice(wrote, grew []session.Checkpoint, problems []string) string {
 	if len(found) > 0 {
 		fmt.Fprintf(&b, "_%s_\n\n", secret.Summary(found))
 	}
+	// One line, capped like the problems below: a first resume after an
+	// upgrade can sweep dozens of sessions, and a line per copy buries the
+	// handoff. Newlines are folded so the italics hold across the line.
+	var archived []string
+	for _, c := range append(slices.Clone(wrote), grew...) {
+		if c.Archive != "" {
+			archived = append(archived, c.Session+": "+strings.ReplaceAll(c.Archive, "\n", " "))
+		}
+	}
+	if n := len(archived); n > 0 {
+		shown := archived
+		if len(shown) > 3 {
+			shown = shown[:3]
+		}
+		more := ""
+		if n > len(shown) {
+			more = fmt.Sprintf("; and %d more", n-len(shown))
+		}
+		fmt.Fprintf(&b, "_%s%s_\n\n", strings.Join(shown, "; "), more)
+	}
 	if n := len(problems); n > 0 {
 		// A few are enough to act on; a broken harness can fail on every file
 		// it ever wrote, and the list would bury the handoff.
@@ -373,4 +395,37 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// ResumeSweep sweeps project and returns what resume says about it, with the
+// one-time archive notice on a line of its own. It rode on the first kept
+// record's receipt once, and the receipts are capped at three: behind three
+// refusals it was cut from the line after it was recorded as said. And it
+// waited for this sweep to keep a copy, which a session the MCP server
+// archived at shutdown never gives, so it is due whenever a copy exists and
+// it has not been said. Resume is read by a person; a server log is not.
+func ResumeSweep(vaultDir, project string, now time.Time) string {
+	wrote, grew, problems := Sweep(vaultDir, project, now)
+	out := SweepNotice(wrote, grew, problems)
+	if archiveNoticeDue(vaultDir, wrote, grew) {
+		if msg := ArchiveNotice(vaultDir); msg != "" {
+			out += "_" + strings.ReplaceAll(msg, "\n", " ") + "_\n\n"
+		}
+	}
+	return out
+}
+
+// archiveNoticeDue says whether a copy exists to tell the user about, asked
+// only after one does so a failed archive does not spend the notice. The vault
+// is walked only while the notice is unsaid and nothing this sweep kept.
+func archiveNoticeDue(vaultDir string, wrote, grew []session.Checkpoint) bool {
+	if auto.Said(vaultDir, ArchiveNoticeTopic) {
+		return false
+	}
+	for _, c := range append(slices.Clone(wrote), grew...) {
+		if c.ArchiveKept {
+			return true
+		}
+	}
+	return KeepsTranscripts(vaultDir) && anyArchivedCopy(vaultDir)
 }

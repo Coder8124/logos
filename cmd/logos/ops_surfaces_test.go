@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/Coder8124/logos/internal/auto"
 	"io"
 	"os"
 	"path/filepath"
@@ -34,6 +35,12 @@ func noRuntime(t *testing.T) {
 func recallFixture(t *testing.T) string {
 	t.Helper()
 	vault := t.TempDir()
+	// The index here is written by commands, never synced, so the index
+	// switch (on by default) would rebuild it and read pending.md as truth
+	// before the hand edit could be announced.
+	if err := auto.Set(vault, string(auto.Index), false); err != nil {
+		t.Fatal(err)
+	}
 	ix, err := index.Open(vault)
 	if err != nil {
 		t.Fatal(err)

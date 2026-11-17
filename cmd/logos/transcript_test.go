@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/health"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,58 +82,96 @@ func TestTranscriptCommandReadsTheArchivedCopyNotTheHostPath(t *testing.T) {
 	}
 }
 
-func TestTranscriptCommandSaysNothingIsArchivedAndHowToArchiveIt(t *testing.T) {
+func TestTranscriptCommandSaysNothingIsArchivedAndHowArchivingIsSwitched(t *testing.T) {
 	scratchIngest(t)
 	err := runTranscript([]string{"no-such-session"})
-	if err == nil || !strings.Contains(err.Error(), "no transcript is archived") || !strings.Contains(err.Error(), "--keep-transcripts") {
-		t.Errorf("err = %v, want it to say nothing is archived and how to keep one", err)
+	if err == nil || !strings.Contains(err.Error(), "no transcript is archived") || !strings.Contains(err.Error(), "archive off") {
+		t.Errorf("err = %v, want it to say nothing is archived and name the archive switch", err)
 	}
 }
 
-// The default harvest is the one every user consented to: a candidate and
-// nothing of the transcript.
-func TestAHarvestWithoutKeepingTurnedOnArchivesNothing(t *testing.T) {
+// Archiving is on by default, so the harvest that archives nothing is the one
+// of a user who turned the archive switch off: a candidate and nothing of the
+// transcript.
+func TestAHarvestWithArchiveTurnedOffArchivesNothing(t *testing.T) {
 	v := scratchIngest(t)
+	if err := auto.Set(v, "archive", false); err != nil {
+		t.Fatal(err)
+	}
 	out := captureStdout(t, func() {
 		if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
 			t.Fatalf("ingest: %v", err)
 		}
 	})
 	if strings.Contains(out, "archived") {
-		t.Errorf("a default harvest talks about archiving:\n%s", out)
+		t.Errorf("a harvest with archive off talks about archiving:\n%s", out)
 	}
 	_ = filepath.WalkDir(filepath.Join(v, "sessions"), func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && session.IsTranscriptFile(d.Name()) {
-			t.Errorf("a default harvest put %s in the vault", p)
+			t.Errorf("a harvest with archive off put %s in the vault", p)
 		}
 		return nil
 	})
 }
 
-func TestTurningKeepingOnWarnsOnceAndTheHarvestNamesEachCopysSize(t *testing.T) {
+func TestTheFirstHarvestSaysTranscriptsAreKeptOnceAndNamesEachCopysSize(t *testing.T) {
 	scratchIngest(t)
 	ownedHostCopy(t)
 	out := captureStdout(t, func() {
-		if err := runIngest([]string{"--all-projects", "--yes", "--keep-transcripts"}); err != nil {
+		if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
 			t.Fatalf("ingest: %v", err)
 		}
 	})
-	if !strings.Contains(out, "Store the vault as") {
-		t.Errorf("turning keeping on did not warn what the copy is:\n%s", out)
+	if !strings.Contains(out, "Logos now keeps a copy of each transcript") {
+		t.Errorf("the first archive did not say what the copy is:\n%s", out)
 	}
-	if !strings.Contains(out, "1 raw transcript(s) archived into the vault (") {
+	if !strings.Contains(out, "1 transcript(s) archived into the vault (") {
 		t.Errorf("the summary does not count and size the copies:\n%s", out)
 	}
-	if !strings.Contains(out, "(raw, ") {
-		t.Errorf("the per-transcript line does not size the copy:\n%s", out)
+	if strings.Contains(out, ", raw") {
+		t.Errorf("a redacted copy was reported as raw:\n%s", out)
 	}
 
 	again := captureStdout(t, func() {
-		if err := runIngest([]string{"--all-projects", "--yes", "--keep-transcripts"}); err != nil {
+		if err := runIngest([]string{"--all-projects", "--yes"}); err != nil {
 			t.Fatalf("ingest: %v", err)
 		}
 	})
-	if strings.Contains(again, "Store the vault as") {
-		t.Errorf("the warning repeated on a run that changed nothing:\n%s", again)
+	if strings.Contains(again, "Logos now keeps a copy of each transcript") {
+		t.Errorf("the notice repeated on a run that changed nothing:\n%s", again)
+	}
+}
+
+// A copy kept while redact was off holds whatever the tool printed. Doctor
+// counts it, the command rewrites it and says how many, and doctor then stops
+// counting it.
+func TestDoctorCountsRawCopiesAndTranscriptRedactRewritesThem(t *testing.T) {
+	v := scratchIngest(t)
+	token := "ghp_" + strings.Repeat("a1B2c3", 6)
+	dir := filepath.Join(v, "sessions", "widgets", "_convos", "s1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"type":"user","message":{"role":"user","content":"token ` + token + `"}}` + "\n"
+	p := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(p, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c := rawTranscriptsCheck(v); c.State == health.OK || c.Fix != "logos transcript redact" {
+		t.Fatalf("doctor check = %+v, want a warning with the fix", c)
+	}
+	out := captureStdout(t, func() {
+		if err := runTranscript([]string{"redact"}); err != nil {
+			t.Errorf("transcript redact: %v", err)
+		}
+	})
+	if !strings.Contains(out, "1 archived transcript(s) redacted") {
+		t.Errorf("redact did not print the count:\n%s", out)
+	}
+	if b, _ := os.ReadFile(p); strings.Contains(string(b), token) {
+		t.Error("the copy still holds the token")
+	}
+	if c := rawTranscriptsCheck(v); c.State != health.OK {
+		t.Errorf("doctor still warns after redacting: %+v", c)
 	}
 }
