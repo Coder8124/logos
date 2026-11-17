@@ -3,9 +3,13 @@
 // to an agent about to retry it.
 //
 // Every number here is a receipt, never an estimate of something Logos cannot
-// see. It cannot see a host's API usage, so "tokens saved" is a pack's size
-// against its own uncut candidates, both measured by contextpack on the same
-// estimate. It cannot tell whether an agent heeded a dead end, so the count is
+// see. It cannot see a host's API usage, so a context pack's "tokens saved" is
+// its size against its own uncut candidates, both measured by contextpack on
+// the same estimate. A restore (a resume) is the exception, and the ledger
+// records it as sent == full, so Totals.Saved is zero for it by construction:
+// what a restore spares is the reload of the session it continues, which is
+// the host's to know. The stats dashboard measures that at read time, against
+// the largest context the host recorded for the restored session, and says so. It cannot tell whether an agent heeded a dead end, so the count is
 // of dead ends returned, not of mistakes avoided.
 //
 // JSONL in the vault, one file per month, for the reasons internal/activity
@@ -355,6 +359,12 @@ func Within(events []Event, from int64) []Event {
 	}
 	return out
 }
+
+// IsResume reports whether e is a restore: a pack built by a resume.
+func IsResume(e Event) bool { return isResume(e) }
+
+// ProjectKey is the one name e's project is filed under; see projectKey.
+func ProjectKey(p string) string { return projectKey(p) }
 
 func isResume(e Event) bool { return e.Kind == KindPack && strings.HasSuffix(e.Via, ":resume") }
 

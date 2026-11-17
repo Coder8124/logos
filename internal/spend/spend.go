@@ -62,8 +62,11 @@ func (b *Bucket) add(model string, u Usage) {
 	}
 }
 
-// Session is one agent session's largest context, for the session-size panel.
+// Session is one agent session's largest context. ID is the id the host
+// itself uses for the conversation — what a checkpoint records as its
+// host_session — so a restore can be matched to the session it continues.
 type Session struct {
+	ID          string
 	Host, Model string
 	Start       int64
 	Peak        int64
@@ -85,6 +88,12 @@ type Report struct {
 	Files, Unreadable, Skipped int
 	// Hosts names the hosts whose transcripts were found.
 	Hosts []string
+
+	// onlySessions, when set, keeps just those host session ids and reads
+	// each of them whole, whatever the window; modFrom then bounds which
+	// files are opened. See Peaks.
+	onlySessions map[string]bool
+	modFrom      time.Time
 }
 
 func newReport(from time.Time) *Report {
@@ -113,6 +122,33 @@ func (r *Report) add(ts int64, model, project string, u Usage) {
 // should not blank a month of figures, and the count says what is missing.
 func Read(from time.Time, project string) (*Report, error) {
 	r := newReport(from)
+	r.modFrom = from
+	return read(r, project)
+}
+
+// Peaks is the largest context each of the named host sessions reached, by
+// session id; a session with no transcript on this machine is absent. A
+// restore continues a session that began before any dashboard window, so the
+// lines are not cut at a start time — only files last written before
+// writtenSince are left unopened, since a session cannot have ended before its
+// file was last touched.
+func Peaks(writtenSince time.Time, ids map[string]bool) (map[string]int64, error) {
+	out := map[string]int64{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	r := newReport(time.Unix(0, 0))
+	r.onlySessions, r.modFrom = ids, writtenSince
+	if _, err := read(r, ""); err != nil {
+		return nil, err
+	}
+	for _, s := range r.Sessions {
+		out[s.ID] = max(out[s.ID], s.Peak)
+	}
+	return out, nil
+}
+
+func read(r *Report, project string) (*Report, error) {
 	if root := transcript.ClaudeProjectsRoot(); root != "" {
 		r.Hosts = append(r.Hosts, "Claude Code")
 		if err := readClaude(r, root, project); err != nil {
@@ -231,7 +267,43 @@ type claudeReq struct {
 	ts             int64
 	model, project string
 	session        string
+	id             string // the host's own session id, for matching a checkpoint
 	u              Usage
+}
+
+// claudeSessionID is the id Claude Code records in a checkpoint's host_session:
+// the line's sessionId, or, when a line carries none, its file's stem, which
+// Claude Code names after the session.
+func claudeSessionID(id, path string) string {
+	if id != "" {
+		return id
+	}
+	return strings.TrimSuffix(filepath.Base(path), ".jsonl")
+}
+
+// rawSessionID reads a line's sessionId without parsing the line.
+func rawSessionID(b []byte) (string, bool) {
+	const key = `"sessionId":"`
+	i := bytes.Index(b, []byte(key))
+	if i < 0 {
+		return "", false
+	}
+	rest := b[i+len(key):]
+	j := bytes.IndexByte(rest, '"')
+	if j < 0 {
+		return "", false
+	}
+	return string(rest[:j]), true
+}
+
+// codexSessionID pulls the uuid tail out of rollout-<ts>-<uuid>.jsonl, the
+// fallback for a file whose session_meta line has not been read.
+func codexSessionID(path string) string {
+	name := strings.TrimPrefix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), "rollout-")
+	if parts := strings.Split(name, "-"); len(parts) >= 5 {
+		return strings.Join(parts[len(parts)-5:], "-")
+	}
+	return name
 }
 
 // readClaude counts each API request once. Claude Code writes one transcript
@@ -241,7 +313,7 @@ type claudeReq struct {
 // together name the request, wherever it was written, and the last line
 // written for it carries its final output count.
 func readClaude(r *Report, root, project string) error {
-	files, err := transcripts(root, r.From)
+	files, err := transcripts(root, r.modFrom)
 	if err != nil {
 		return err
 	}
@@ -252,6 +324,14 @@ func readClaude(r *Report, root, project string) error {
 		err := scanLines(path, func(n int, b []byte) {
 			if !bytes.Contains(b, []byte(`"usage"`)) || !bytes.Contains(b, []byte(`"assistant"`)) {
 				return
+			}
+			// Looking up named sessions, most lines belong to others; reading
+			// the id off the raw line first spares parsing them. A line with
+			// no id at all falls through to the full parse.
+			if r.onlySessions != nil {
+				if id, ok := rawSessionID(b); ok && !r.onlySessions[id] {
+					return
+				}
 			}
 			var ln claudeLine
 			if json.Unmarshal(b, &ln) != nil {
@@ -269,6 +349,9 @@ func readClaude(r *Report, root, project string) error {
 			}
 			p := projectOf(ln.Cwd)
 			if ts < from || !wanted(p, project) {
+				return
+			}
+			if r.onlySessions != nil && !r.onlySessions[claudeSessionID(ln.SessionID, path)] {
 				return
 			}
 			u := Usage{Input: m.Usage.Input, CacheRead: m.Usage.CacheRead, Output: m.Usage.Output}
@@ -290,7 +373,7 @@ func readClaude(r *Report, root, project string) error {
 			if sess == "" {
 				sess = path
 			}
-			reqs[key] = claudeReq{ts: ts, model: baseModel(m.Model), project: p, session: sess, u: u}
+			reqs[key] = claudeReq{ts: ts, model: baseModel(m.Model), project: p, session: sess, id: claudeSessionID(ln.SessionID, path), u: u}
 		})
 		if err != nil {
 			r.Skipped++
@@ -301,7 +384,7 @@ func readClaude(r *Report, root, project string) error {
 		r.add(q.ts, q.model, q.project, q.u)
 		s := peaks[q.session]
 		if s == nil {
-			s = &Session{Host: "Claude Code", Start: q.ts}
+			s = &Session{ID: q.id, Host: "Claude Code", Start: q.ts}
 			peaks[q.session] = s
 		}
 		if q.ts < s.Start {
@@ -324,6 +407,7 @@ type codexLine struct {
 		Type  string `json:"type"`
 		Cwd   string `json:"cwd"`
 		Model string `json:"model"`
+		ID    string `json:"id"`
 		Info  *struct {
 			Total codexUsage `json:"total_token_usage"`
 			Last  codexUsage `json:"last_token_usage"`
@@ -344,7 +428,7 @@ type codexUsage struct {
 // were spent. Its input count includes the cached part, unlike Claude's, so
 // the cached and written parts are taken out to leave uncached input.
 func readCodex(r *Report, root, project string) error {
-	files, err := transcripts(root, r.From)
+	files, err := transcripts(root, r.modFrom)
 	if err != nil {
 		return err
 	}
@@ -353,7 +437,7 @@ func readCodex(r *Report, root, project string) error {
 		r.Files++
 		var model, cwd string
 		var prev codexUsage
-		sess := Session{Host: "Codex"}
+		sess := Session{ID: codexSessionID(path), Host: "Codex"}
 		err := scanLines(path, func(_ int, b []byte) {
 			isCtx := bytes.Contains(b, []byte(`"turn_context"`)) || bytes.Contains(b, []byte(`"session_meta"`))
 			if !isCtx && !bytes.Contains(b, []byte(`"token_count"`)) {
@@ -372,6 +456,9 @@ func readCodex(r *Report, root, project string) error {
 				if ln.Payload.Cwd != "" {
 					cwd = ln.Payload.Cwd
 				}
+				if ln.Type == "session_meta" && ln.Payload.ID != "" {
+					sess.ID = ln.Payload.ID
+				}
 			case ln.Payload.Type == "token_count" && ln.Payload.Info != nil:
 				t := ln.Payload.Info.Total
 				d := codexUsage{t.Input - prev.Input, t.Cached - prev.Cached, t.CacheWrite - prev.CacheWrite, t.Output - prev.Output}
@@ -386,6 +473,9 @@ func readCodex(r *Report, root, project string) error {
 				}
 				p := projectOf(cwd)
 				if ts < from || !wanted(p, project) {
+					return
+				}
+				if r.onlySessions != nil && !r.onlySessions[sess.ID] {
 					return
 				}
 				model := model

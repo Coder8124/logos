@@ -156,6 +156,21 @@ func runUsage(args []string) error {
 	fmt.Printf("· %d restore%s, %d of them a handoff — a checkpoint one agent wrote, resumed by another\n",
 		t.Restores, pluralS(t.Restores), t.Handoffs)
 	fmt.Println("  (a resume whose reader is not named — a shell with no LOGOS_AGENT — is never counted as one)")
+	// A restore's pack records sent == full, so the "left out" above is zero for
+	// it; what it spares is the restored session's reload, measured here.
+	if r := measureRestores(v, events, project); r.Restores > 0 {
+		switch {
+		case r.Measured > 0:
+			fmt.Printf("· restores spared ~%s tokens of reloading across %d restore%s, each ~%s sent against a ~%s session context (medians)\n",
+				thousands(int(r.Saved)), r.Measured, pluralS(r.Measured), thousands(int(r.Sent)), thousands(int(r.Baseline)))
+			fmt.Println("  (the restored session's largest context as the host recorded it — not your API bill)")
+		default:
+			fmt.Println("· restores spared: not measured — none has a transcript on this machine")
+		}
+		if r.Measured > 0 && r.NoBaseline > 0 {
+			fmt.Printf("  %d restore%s had no transcript on this machine\n", r.NoBaseline, pluralS(r.NoBaseline))
+		}
+	}
 	printAccepted(v, from, project)
 	printUnreadable(bad, v)
 	return nil

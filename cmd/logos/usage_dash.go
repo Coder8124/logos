@@ -16,7 +16,6 @@ import (
 	"github.com/Coder8124/logos/internal/insight"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/scope"
-	"github.com/Coder8124/logos/internal/spend"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
 )
 
@@ -28,13 +27,11 @@ type dash struct {
 	now         time.Time
 
 	saved      usagepkg.Totals
+	restores   restoreSavings
 	savedDaily []float64
 	rate       float64
 	recording  bool
 	bad        int
-
-	spend    *spend.Report
-	spendErr error
 
 	used, dormant []memory.Memory
 	dormantN      int
@@ -92,17 +89,10 @@ func gatherDash(v, project string, n int, rate float64, now time.Time) (dash, er
 	d.bad = bad
 	events = usagepkg.Within(events, start.Unix())
 	d.saved = usagepkg.Sum(events, project)
-	daily := map[string]float64{}
-	for _, e := range events {
-		if e.Kind == usagepkg.KindPack && (project == "" || usagepkg.SameProject(e.Project, project)) {
-			daily[time.Unix(e.TS, 0).Format("2006-01-02")] += float64(e.Full - e.Sent)
-		}
-	}
+	d.restores = measureRestores(v, events, project)
 	for _, day := range d.days {
-		d.savedDaily = append(d.savedDaily, daily[day])
+		d.savedDaily = append(d.savedDaily, d.restores.Daily[day])
 	}
-
-	d.spend, d.spendErr = spend.Read(start, project)
 
 	if _, err := os.Stat(filepath.Join(v, ".logos", "index.db")); err != nil {
 		d.memNote = "no index yet — `logos index` builds it"
@@ -191,7 +181,7 @@ func gatherRecall(d *dash, v string, ix *index.Index, project string, events []u
 	}
 }
 
-// renderDash lays the panels out two to a row when the terminal is wide
+// renderDash lays the panels out, below the full-width headline two to a row when the terminal is wide
 // enough to read them side by side, one to a row when it is not.
 func renderDash(d dash, width int) string {
 	width = min(max(width, 40), 140)
@@ -211,10 +201,8 @@ func renderDash(d dash, width int) string {
 	}
 	panels := []panel{
 		{"Tokens saved", d.savedPanel},
-		{"Agent spend", d.spendPanel},
 		{"Memories", d.memoryPanel},
 		{"Longest recall", d.recallPanel},
-		{"Session size", d.sessionPanel},
 	}
 	if width < 100 {
 		for _, p := range panels {
@@ -222,6 +210,11 @@ func renderDash(d dash, width int) string {
 			b.WriteString("\n")
 		}
 	} else {
+		// Tokens saved is the headline and runs the full width; the two
+		// panels under it share a row.
+		b.WriteString(strings.Join(box(panels[0].title, panels[0].body(width-4), width), "\n"))
+		b.WriteString("\n")
+		panels = panels[1:]
 		colW := (width - 1) / 2
 		for i := 0; i < len(panels); i += 2 {
 			left := box(panels[i].title, panels[i].body(colW-4), colW)
@@ -332,23 +325,39 @@ func ago(from, to int64) string {
 }
 
 func (d dash) savedPanel(w int) []string {
-	t := d.saved
+	t, r := d.saved, d.restores
 	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Restores == 0 && t.Handoffs == 0 && t.Avoided == 0 && t.Procedures == 0 {
 		return []string{"nothing recorded in " + d.window, "", "fills as context packs are sent (resume, context)", "and dead ends are handed back (before_you_try, tried, why)"}
 	}
-	out := []string{
-		fmt.Sprintf("~%s tokens left out of %d pack%s", human(int64(t.Saved())), t.Packs, pluralS(t.Packs)),
-		fmt.Sprintf("sent ~%s of ~%s drawn from", human(int64(t.Sent)), human(int64(t.Full))),
+	var out []string
+	switch {
+	case r.Measured > 0:
+		out = append(out,
+			fmt.Sprintf("~%s tokens not reloaded across %d restore%s", human(r.Saved), r.Measured, pluralS(r.Measured)),
+			fmt.Sprintf("each sent ~%s in place of a ~%s session context (medians)", human(r.Sent), human(r.Baseline)))
+		if d.rate > 0 {
+			out = append(out, fmt.Sprintf("≈ %s at $%g per million, the rate you gave", dollars(float64(r.Saved)*d.rate/1e6), d.rate))
+		}
+		out = append(out, "")
+		out = append(out, daily(d.savedDaily, d.days, w)...)
+	case r.Restores > 0:
+		out = append(out, fmt.Sprintf("%d restore%s, none with a session size to measure against", r.Restores, pluralS(r.Restores)))
+	default:
+		out = append(out, "no restores in "+d.window)
 	}
-	if d.rate > 0 {
-		out = append(out, fmt.Sprintf("≈ %s at $%g per million, the rate you gave", dollars(float64(t.Saved())*d.rate/1e6), d.rate))
+	if r.NoBaseline > 0 {
+		out = append(out, fmt.Sprintf("%d restore%s had no transcript on this machine", r.NoBaseline, pluralS(r.NoBaseline)))
 	}
-	out = append(out, "")
-	out = append(out, daily(d.savedDaily, d.days, w)...)
+	if r.Err != nil {
+		out = append(out, "could not read the hosts' transcripts: "+r.Err.Error())
+	}
+	if r.OtherPacks > 0 {
+		out = append(out, "", fmt.Sprintf("+ ~%s left out of %d context pack%s, against their own candidates", human(r.OtherSaved), r.OtherPacks, pluralS(r.OtherPacks)))
+	}
 	out = append(out, "",
-		fmt.Sprintf("%d dead end%s handed back before a retry; %d restore%s, %d handoff%s",
-			t.Rulings, pluralS(t.Rulings), t.Restores, pluralS(t.Restores), t.Handoffs, pluralS(t.Handoffs)),
-		"each pack against its own candidates — not your API bill")
+		fmt.Sprintf("%d dead end%s handed back before a retry; %d handoff%s",
+			t.Rulings, pluralS(t.Rulings), t.Handoffs, pluralS(t.Handoffs)),
+		"baseline: the restored session's largest context as the host recorded it — not your API bill")
 	return out
 }
 
@@ -377,69 +386,6 @@ func daily(vs []float64, days []string, w int) []string {
 		axis = a + strings.Repeat(" ", gap) + z
 	}
 	return []string{bars.String(), axis}
-}
-
-func (d dash) spendPanel(w int) []string {
-	if d.spendErr != nil {
-		return []string{"could not read the hosts' transcripts:", d.spendErr.Error()}
-	}
-	r := d.spend
-	if r == nil || len(r.Hosts) == 0 {
-		return []string{"no Claude Code or Codex transcripts found on this machine"}
-	}
-	if r.Total.Total() == 0 {
-		return []string{fmt.Sprintf("no agent requests in %s (%s)", d.window, strings.Join(r.Hosts, ", "))}
-	}
-	out := []string{fmt.Sprintf("%s across %s tokens", dollars(r.Total.USD), human(r.Total.Total()))}
-	if r.Total.Unpriced > 0 {
-		out = append(out, fmt.Sprintf("+ %s tokens from models with no list price", human(r.Total.Unpriced)))
-	}
-	var perDay []float64
-	for _, day := range d.days {
-		if b := r.Days[day]; b != nil {
-			perDay = append(perDay, b.USD+float64(b.Unpriced)*1e-12) // an unpriced day still shows a bar
-		} else {
-			perDay = append(perDay, 0)
-		}
-	}
-	out = append(out, "")
-	out = append(out, daily(perDay, d.days, w)...)
-	out = append(out, "", "Top models")
-	out = append(out, spendRows(r.Models, w)...)
-	out = append(out, "", "Top projects")
-	out = append(out, spendRows(r.Projects, w)...)
-	out = append(out, "", "Tokens the hosts recorded ("+strings.Join(r.Hosts, ", ")+"), priced at")
-	out = append(out, wrap(spend.PriceSource, w)...)
-	if r.Unreadable > 0 {
-		out = append(out, fmt.Sprintf("%d unreadable transcript line%s skipped", r.Unreadable, pluralS(r.Unreadable)))
-	}
-	if r.Skipped > 0 {
-		out = append(out, fmt.Sprintf("%d transcript%s could not be read to the end; the totals are missing the rest", r.Skipped, pluralS(r.Skipped)))
-	}
-	return out
-}
-
-func spendRows(m map[string]*spend.Bucket, w int) []string {
-	var out []string
-	for _, k := range spend.Top(m, 5) {
-		b := m[k]
-		// A "+" marks a row whose dollars leave some of its tokens out — a
-		// project that ran on an unpriced model too — so it is not read as
-		// the whole cost.
-		price := dollars(b.USD)
-		switch {
-		case b.Unpriced == b.Total():
-			price = "no list price"
-		case b.Unpriced > 0:
-			price += "+"
-		}
-		right := fmt.Sprintf("%13s %8s", price, human(b.Total()))
-		n := max(w-2-utf8.RuneCountInString(right)-1, 4)
-		// Model and project names come from the hosts' transcripts, which a
-		// repository's folder name can reach.
-		out = append(out, "  "+fit(terminalSafe(k, n), n)+" "+right)
-	}
-	return out
 }
 
 func (d dash) memoryPanel(w int) []string {
@@ -485,37 +431,6 @@ func (d dash) recallPanel(w int) []string {
 	out = append(out, "",
 		fmt.Sprintf("ruled out%s on %s", who, time.Unix(r.ruled, 0).Format("2 Jan 2006")),
 		"handed back on "+time.Unix(r.shown, 0).Format("2 Jan 2006"))
-	return out
-}
-
-func (d dash) sessionPanel(w int) []string {
-	if d.spend == nil || len(d.spend.Sessions) == 0 {
-		return []string{"no agent sessions in " + d.window}
-	}
-	by := map[string][]float64{}
-	for _, s := range d.spend.Sessions {
-		by[s.Model] = append(by[s.Model], float64(s.Peak))
-	}
-	models := make([]string, 0, len(by))
-	for m := range by {
-		models = append(models, m)
-	}
-	sort.Slice(models, func(i, j int) bool {
-		if len(by[models[i]]) != len(by[models[j]]) {
-			return len(by[models[i]]) > len(by[models[j]])
-		}
-		return models[i] < models[j]
-	})
-	out := []string{"largest context per session, oldest to newest;", "then the median and how many sessions", ""}
-	for _, m := range models[:min(len(models), 5)] {
-		peaks := by[m]
-		sorted := append([]float64(nil), peaks...)
-		sort.Float64s(sorted)
-		right := fmt.Sprintf("%6s · %d", human(int64(sorted[len(sorted)/2])), len(peaks))
-		name := 18
-		sw := max(w-name-utf8.RuneCountInString(right)-4, 4)
-		out = append(out, fmt.Sprintf("  %s %s %s", fit(terminalSafe(m, name), name), fit(spark(peaks, sw), sw), right))
-	}
 	return out
 }
 

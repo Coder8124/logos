@@ -271,3 +271,22 @@ func TestTwoRequestsWithNoMessageIdInOneSecondAreBothCounted(t *testing.T) {
 		t.Fatalf("input = %d, want both requests' 3000", r.Total.Input)
 	}
 }
+
+func TestPeaksFindsASessionThatBeganBeforeAnyWindowByItsHostId(t *testing.T) {
+	claude, codex := hosts(t)
+	now := time.Now()
+	write(t, filepath.Join(claude, "-p", "a.jsonl"),
+		claudeReqLine(now.AddDate(0, 0, -40), "/w/proj", "s-old", "m1", "r1", "claude-opus-5-5", 9000, 0, 0, 0, 1),
+		claudeReqLine(now.Add(-time.Hour), "/w/proj", "s-old", "m2", "r2", "claude-opus-5-5", 120000, 0, 0, 0, 1),
+		claudeReqLine(now, "/w/proj", "s-else", "m3", "r3", "claude-opus-5-5", 999999, 0, 0, 0, 1))
+	write(t, filepath.Join(codex, "2026", "rollout-2026-01-01T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl"),
+		`{"timestamp":"`+stamp(now)+`","type":"session_meta","payload":{"id":"codex-1","cwd":"/w/proj"}}`,
+		`{"timestamp":"`+stamp(now)+`","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":70000,"output_tokens":5},"last_token_usage":{"input_tokens":70000}}}}`)
+	got, err := Peaks(now.Add(-time.Hour*3), map[string]bool{"s-old": true, "codex-1": true, "s-missing": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["s-old"] != 120000 || got["codex-1"] != 70000 || len(got) != 2 {
+		t.Fatalf("Peaks = %v, want s-old at 120000, codex-1 at 70000 and nothing for the others", got)
+	}
+}
