@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -35,30 +36,58 @@ func convoFolderID(name string) string {
 }
 
 // convoSlug is the decoration half of a folder name: the first checkpoint's
-// Intent, or its Task when no intent was given, cut at a word boundary. It is
-// derived from checkpoint frontmatter and stored nowhere else, so nothing is
-// lost by deleting it: Refile (NameConvoFolders) recomputes it from the
+// Task, or its Intent when the task says nothing a person would navigate by,
+// cut at a word boundary. Task first because it is the short "what" a person
+// scans a folder list for; Intent is the "why", a sentence that truncates
+// badly. A task that is a host slash command ("/model opus") names the
+// command, not the work, so it is skipped. It is derived from checkpoint
+// frontmatter and stored nowhere else: NameConvoFolders recomputes it from the
 // markdown. "" means there is nothing to name the folder after.
 func convoSlug(c Checkpoint) string {
-	text := strings.TrimSpace(c.Intent)
-	if text == "" {
-		text = c.Task
+	for _, text := range []string{c.Task, c.Intent} {
+		text = strings.TrimSpace(text)
+		if text == "" || strings.HasPrefix(text, "/") {
+			continue
+		}
+		if s := cutSlug(slugWords(text)); s != "" {
+			return s
+		}
 	}
-	s := safe(text)
-	for strings.Contains(s, convoSep) {
-		s = strings.ReplaceAll(s, convoSep, "-")
+	return ""
+}
+
+// slugWords keeps letters and digits and turns every other run into one dash.
+// Not safe(): safe spells a symbol out as its code point so two titles stay
+// distinct, which put "u-7e" for a "~" in the middle of a folder name. The id
+// beside the slug already keeps folders distinct, so the slug only has to read
+// well. One dash per run also means it can never hold convoSep.
+func slugWords(text string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(text) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
 	}
+	return strings.Trim(b.String(), "-")
+}
+
+func cutSlug(s string) string {
 	if utf8.RuneCountInString(s) <= maxConvoSlug {
-		return strings.Trim(s, "-")
+		return s
 	}
 	runes := []rune(s)
-	cut := maxConvoSlug
+	window := string(runes[:maxConvoSlug+1])
 	// A word boundary if there is one in the window; a single unbroken word
 	// longer than the window is cut mid-word rather than dropped.
-	if i := strings.LastIndex(string(runes[:cut+1]), "-"); i > 0 {
-		return strings.Trim(string(runes[:cut+1])[:i], "-")
+	if i := strings.LastIndex(window, "-"); i > 0 {
+		return strings.Trim(window[:i], "-")
 	}
-	return strings.Trim(string(runes[:cut]), "-")
+	return strings.Trim(string(runes[:maxConvoSlug]), "-")
 }
 
 // convoFoldersFor lists the folders under a scope's ConvosDir that stand for

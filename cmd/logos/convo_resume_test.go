@@ -58,7 +58,7 @@ func TestASessionFolderSurvivesDeletingTheIndex(t *testing.T) {
 			t.Errorf("resume %q after deleting the index is not that one conversation:\n%s", q, out)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(vault, session.CheckpointDir, "kestrel", session.ConvosDir, "checkout-crashes-lose-orders--sess-checkout")); err != nil {
+	if _, err := os.Stat(filepath.Join(vault, session.CheckpointDir, "kestrel", session.ConvosDir, "fix-checkout--sess-checkout")); err != nil {
 		t.Errorf("the conversation folder is gone after reindexing: %v", err)
 	}
 }
