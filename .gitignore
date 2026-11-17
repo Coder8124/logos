@@ -63,3 +63,6 @@ plans/
 /cmd/logos/testdata/
 # The same, for scripts/first-run.sh.
 /.first-run/
+
+# The same, for scripts/offline-proof.sh.
+/.offline-proof/

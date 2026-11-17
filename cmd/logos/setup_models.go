@@ -200,7 +200,7 @@ func pullModel(baseURL, model string, progress func(pct int)) error {
 	// The default client has no timeout, so an Ollama that accepted the
 	// connection and never answered held setup forever.
 	client := &http.Client{Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: pullTimeout}).DialContext,
+		DialContext:           provider.DialLoopback(&net.Dialer{Timeout: pullTimeout}),
 		ResponseHeaderTimeout: pullTimeout,
 	}}
 	resp, err := client.Post(root+"/api/pull", "application/json", strings.NewReader(string(body)))
