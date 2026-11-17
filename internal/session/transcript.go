@@ -97,9 +97,11 @@ func convoDirsFor(vaultDir, folder string) []string {
 	}
 	var out []string
 	try := func(scopeDir string) {
-		d := filepath.Join(scopeDir, ConvosDir, folder)
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			out = append(out, d)
+		// By id, not by name: the folder may be <slug>--<id> or the legacy
+		// bare id, and a lookup that only knew one would lose the other's
+		// transcript the day the folder was renamed.
+		for _, n := range convoFoldersFor(scopeDir, folder) {
+			out = append(out, filepath.Join(scopeDir, ConvosDir, n))
 		}
 	}
 	for _, p := range projects {

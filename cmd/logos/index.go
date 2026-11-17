@@ -296,6 +296,20 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		}
 	}
 
+	// After the re-file, so a checkpoint just moved into a bare-id folder is
+	// named from it in the same pass. Said with the number, and what was left
+	// alone said too: a folder that stays unnamed looks like a missed one.
+	named, skippedNames, err := ix.SyncConvoNames()
+	if named > 0 {
+		fmt.Fprintf(w, "named %d conversation folder%s after their intent\n", named, plural(named, ""))
+	}
+	for _, sk := range skippedNames {
+		fmt.Fprintln(w, "  left unnamed:", sk)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "· could not name conversation folders:", err)
+	}
+
 	printConflictCopies(w, "", rep.ConflictCopies, edits)
 
 	// A killed write leaves its temp file behind for good, since the deferred

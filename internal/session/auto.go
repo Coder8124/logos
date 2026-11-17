@@ -86,7 +86,7 @@ func WriteAuto(vaultDir string, c Checkpoint) (Checkpoint, error) {
 	} else if prev, _ := Latest(vaultDir, asGiven); prev != nil {
 		follows = prev.Session
 	}
-	convo := convoFolder(c.HostSession)
+	convo := convoFolderFor(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(c.Project)), c)
 	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
 	if err != nil {
 		return Checkpoint{}, err

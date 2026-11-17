@@ -275,6 +275,14 @@ func (ix *Index) SyncCheckpointHomes() (moved, rejoined int, err error) {
 	return session.Refile(ix.Vault)
 }
 
+// SyncConvoNames renames conversation folders still named by their bare host
+// id to <intent slug>--<id>. Derived layout like SyncCheckpointHomes: the slug
+// is recomputed from checkpoint frontmatter, nothing is stored only here.
+// Returns how many it renamed and what it left alone and why.
+func (ix *Index) SyncConvoNames() (named int, skipped []string, err error) {
+	return session.NameConvoFolders(ix.Vault)
+}
+
 // deadAmbientTables held ambient-capture state — events, rollup proposals,
 // the presence daemon's own bookkeeping — cut in 0.3.0 along with the
 // internal/{capture,rollup,presence} packages that wrote them. None of it had

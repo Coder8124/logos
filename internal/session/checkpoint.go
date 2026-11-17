@@ -302,7 +302,7 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// which is when the session started: History sorts by name, so a long
 	// session's checkpoint sorted behind a shorter one written before it, and
 	// resume showed the older one as where work left off (#366).
-	convo := convoFolder(c.HostSession)
+	convo := convoFolderFor(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(c.Project)), *c)
 	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
 	if err != nil {
 		return err
@@ -681,9 +681,16 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 				}
 				raw, c.HostSession, wasCut = fixed, full, true
 			}
-			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolder(c.HostSession), en.Name))
-			if en.Rel == wantRel {
+			// Compared by the folder's id part, not its name: a folder
+			// called <slug>--<id> is the right home for id's checkpoints,
+			// and comparing names would "misfile" every one of them.
+			if parts := strings.Split(en.Rel, "/"); len(parts) == 3 && parts[0] == ConvosDir &&
+				convoFolderID(parts[1]) == convoFolder(c.HostSession) {
 				continue // already filed where its own frontmatter says it belongs
+			}
+			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolderFor(dir, c), en.Name))
+			if en.Rel == wantRel {
+				continue
 			}
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
 			// Its sync copies go too, before the original leaves. A copy is

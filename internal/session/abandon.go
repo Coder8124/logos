@@ -168,7 +168,7 @@ func CloseAbandoned(db *sql.DB, vaultDir, id string) (Checkpoint, error) {
 	// reads the activity log the way the auto-close-from-transcript path does
 	// — so this always files to UnattachedFolder, which is the honest answer:
 	// no id, no folder named after data nobody gave us.
-	convo := convoFolder(c.HostSession)
+	convo := convoFolderFor(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(s.Project)), c)
 	cpID, path, err := claimCheckpoint(vaultDir, s.Project, s.Agent, s.ID, convo)
 	if err != nil {
 		return Checkpoint{}, err
