@@ -28,6 +28,9 @@ import (
 // way the host's own file would; where it came from goes to stderr, so the
 // line announcing it never lands inside what is being piped.
 func runTranscript(args []string) error {
+	if len(args) > 0 && args[0] == "redact" {
+		return runTranscriptRedact()
+	}
 	id := firstNonFlag(args)
 	if id == "" {
 		return fmt.Errorf("usage: logos transcript <session-id>")
@@ -38,7 +41,7 @@ func runTranscript(args []string) error {
 	}
 	p := session.FindTranscript(v, id)
 	if p == "" {
-		return fmt.Errorf("no transcript is archived for session %q — a harvest keeps one only after `logos import --from transcripts --keep-transcripts` (the id must match exactly)", id)
+		return fmt.Errorf("no transcript is archived for session %q — Logos keeps one when it reads a session's transcript, unless `logos config auto config archive off` (the id must match exactly)", id)
 	}
 	f, err := os.Open(p)
 	if err != nil {
@@ -54,6 +57,46 @@ func runTranscript(args []string) error {
 	}
 	if _, err := io.Copy(os.Stdout, f); err != nil {
 		return fmt.Errorf("printing the archived transcript %s: %w", rel, err)
+	}
+	return nil
+}
+
+// runTranscriptRedact is `logos transcript redact`: rewrite the archived copies
+// that were kept raw — before redaction existed, or while `redact` was off —
+// so they hold no secret and no <private> span. Atomic per copy, and it says
+// the count, because a command that rewrote files and printed nothing would
+// read as one that did nothing. A copy it cannot rewrite is named and the exit
+// is non-zero: the vault is then not as clean as the count suggests.
+func runTranscriptRedact() error {
+	v := vaultPath()
+	if _, err := os.Stat(v); err != nil {
+		return missingVaultError(v)
+	}
+	raw, problems, err := ingest.RawCopies(v)
+	if err != nil {
+		return fmt.Errorf("scanning archived transcripts: %w", err)
+	}
+	var secrets, private, failed int
+	rewritten := 0
+	for _, r := range raw {
+		st, err := ingest.RedactCopy(v, r.Path)
+		if err != nil {
+			failed++
+			fmt.Printf("  not redacted  %s: %v\n", r.Path, err)
+			continue
+		}
+		rewritten++
+		secrets += st.Secrets
+		private += st.Private
+		fmt.Printf("  redacted  %s  (%d secret(s), %d <private> span(s))\n", r.Path, st.Secrets, st.Private)
+	}
+	for _, p := range problems {
+		fmt.Printf("  unreadable  %s\n", p)
+	}
+	fmt.Printf("%d archived transcript(s) redacted (%d secret(s), %d <private> span(s) masked) · %d could not be redacted · %d unreadable\n",
+		rewritten, secrets, private, failed, len(problems))
+	if failed+len(problems) > 0 {
+		return fmt.Errorf("%d archived transcript(s) are still raw", failed+len(problems))
 	}
 	return nil
 }

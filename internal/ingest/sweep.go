@@ -292,6 +292,7 @@ func growRecord(vaultDir string, history []session.Checkpoint, rec session.Check
 	if err != nil {
 		return nil, err
 	}
+	grown.Archive = ArchiveForRecord(vaultDir, s)
 	return &grown, nil
 }
 
@@ -350,6 +351,11 @@ func SweepNotice(wrote, grew []session.Checkpoint, problems []string) string {
 	}
 	if len(found) > 0 {
 		fmt.Fprintf(&b, "_%s_\n\n", secret.Summary(found))
+	}
+	for _, c := range append(slices.Clone(wrote), grew...) {
+		if c.Archive != "" {
+			fmt.Fprintf(&b, "_%s: %s_\n\n", c.Session, c.Archive)
+		}
 	}
 	if n := len(problems); n > 0 {
 		// A few are enough to act on; a broken harness can fail on every file

@@ -167,3 +167,24 @@ func TestASwitchWrittenTwiceByHandIsChangedEverywhere(t *testing.T) {
 		t.Errorf("auto config changed the first line and left the one that counts:\n%s", raw)
 	}
 }
+
+// A notice that said it was shown but forgot on the next write would repeat on
+// every command, which reads as a broken product.
+func TestASaidNoticeSurvivesSwitchesBeingChangedAfterIt(t *testing.T) {
+	v := t.TempDir()
+	if Said(v, "archive") {
+		t.Fatal("a vault nobody told anything counts as told")
+	}
+	if err := MarkSaid(v, "archive"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(v, string(Dream), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMaster(v, false); err != nil {
+		t.Fatal(err)
+	}
+	if !Said(v, "archive") {
+		t.Error("a switch change erased the record that the notice was shown")
+	}
+}

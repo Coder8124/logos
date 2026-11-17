@@ -12,89 +12,110 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
 )
 
-// Keeping the transcript a harvest read — when the user turned it on.
+// Keeping the transcript a harvest read.
 //
 // A candidate points back at its source, and the source is not ours: Claude
 // Code prunes old sessions, Codex rotates its rollouts, and a user clearing
 // space deletes them. Once the file is gone nothing on the machine still says
-// what the conversation actually said. So a harvest can copy the file, byte for
-// byte, into the conversation's own folder in the vault — where everything else
-// about that conversation already is.
+// what the conversation actually said. So Logos copies the file into the
+// conversation's own folder in the vault — where everything else about that
+// conversation already is.
 //
-// Off unless asked for. The ingest grant every user gave says a candidate is
-// written to the vault and "never the transcript itself", and vaults get put
-// in git: a default that started copying raw transcripts, pasted secrets and
-// all, into a version-controlled folder would break the promise they agreed
-// to without asking them again. So the setting rides in the same machine-local
-// marker as that grant (ConsentPath), is set only by an explicit flag, and the
-// flag says what it does the moment it is turned on.
+// On unless turned off, and redacted unless that is turned off too. It was an
+// opt-in, and an opt-in nobody knew about kept nothing: the conversation a
+// user most wanted back was the one their host had already pruned. What made
+// the copy safe to default on is that it no longer holds what the user pasted
+// into the session. Vaults get put in git, and a raw copy would have put a
+// pasted token in a version-controlled folder; so the `redact` switch (also on
+// by default, see internal/auto) masks secrets and <private> spans on the way
+// in (redactcopy.go). Redaction fails closed: a transcript that cannot be
+// redacted is not kept at all, never kept raw instead.
 //
-// Verbatim, not redacted and not stripped of <private> spans: both edits are
-// text surgery on a JSONL file, and one unclosed span or one mask that lands
-// across a JSON string boundary turns the rest of the file into something no
-// reader parses — a corrupted archive is worse than none, because it looks
-// like one. The copy is written 0600 like the rest of the vault; the index
-// never reads it (it is not markdown), and anything that parses it as a
-// transcript applies keepPrivateOut exactly as it does to the host's own file.
+// The copy is written 0600 like the rest of the vault; the index never reads
+// it (it is not markdown), and anything that parses it as a transcript applies
+// keepPrivateOut exactly as it does to the host's own file.
 
-// KeepTranscriptsWarning is said once, when keeping is turned on: after that
-// every receipt names the copy, but this is the one place that says what the
-// copy is.
-const KeepTranscriptsWarning = "Harvests now keep a raw, unredacted copy of each transcript in its conversation's\n" +
-	"folder in the vault — anything pasted into a session is in it. Store the vault as\n" +
-	"you'd store the original transcripts: if it is in git, so are they.\n" +
-	"Turn it off with `logos import --from transcripts --no-keep-transcripts`."
+// KeepTranscriptsWarning is said when keeping is turned on by hand, and is the
+// one place that says what the copy is.
+const KeepTranscriptsWarning = "Logos keeps a copy of each transcript it reads in its conversation's folder in the\n" +
+	"vault, with secrets and <private> spans masked (`logos config auto config redact off`\n" +
+	"keeps it raw). Store the vault as you'd store the original transcripts: if it is in\n" +
+	"git, so are they. Turn it off with `logos import --from transcripts --no-keep-transcripts`."
 
-// KeepsTranscripts reports whether harvests on this machine copy the
-// transcript into the vault. Anything short of an explicit yes in the marker —
-// no marker, an unreadable one, a grant from before the setting existed, the
-// setting without the grant it narrows — is no, because no is what those users
-// agreed to.
+// ArchiveNoticeTopic is the "said:" line in auto.md for the one-time notice a
+// user who agreed to the old wording gets on the first archive.
+const ArchiveNoticeTopic = "archive"
+
+// ArchiveNotice is the one-time notice, empty once shown. Someone who granted
+// ingest when it said "never the transcript itself" has not been told that
+// transcripts are now kept, and finding a copy later is the surprise to avoid.
+// Shown on the first archive; recorded in the vault (auto.md), not the index.
+func ArchiveNotice(vaultDir string) string {
+	if auto.Said(vaultDir, ArchiveNoticeTopic) {
+		return ""
+	}
+	msg := "Logos now keeps a copy of each transcript it reads in the vault, with secrets and <private> spans masked,\n" +
+		"so a conversation outlives the host's own pruning. `logos config auto config archive off` stops it;\n" +
+		"`... redact off` keeps copies raw. This is shown once."
+	if err := auto.MarkSaid(vaultDir, ArchiveNoticeTopic); err != nil {
+		msg += fmt.Sprintf("\n(could not record that this was shown, so it will repeat: %v)", err)
+	}
+	return msg
+}
+
+// KeepsTranscripts reports whether transcripts are copied into the vault. A
+// switch set by hand in auto.md wins; then an old explicit opt-in in the
+// consent marker, which must keep meaning on even under `auto off`; then the
+// default, which is on. An unreadable auto.md is no, as it is for every
+// switch: the answer is somebody's, and cannot be seen.
 func KeepsTranscripts(vaultDir string) bool {
-	m, err := readConsent(vaultDir)
+	c, err := auto.Load(vaultDir)
 	if err != nil {
 		return false
 	}
-	granted, _ := m["granted"].(string)
-	on, _ := m[keepKey].(string)
-	return granted != "" && on != ""
+	if v, ok := c.Hand[auto.Archive]; ok {
+		return v
+	}
+	if m, err := readConsent(vaultDir); err == nil {
+		if on, _ := m[keepKey].(string); on != "" {
+			return true
+		}
+	}
+	return c.On(auto.Archive)
 }
 
-// SetKeepTranscripts turns keeping on or off, and reports whether that changed
-// anything, so the caller warns on the turn and not on every run that repeats
-// the flag. It refuses without the ingest grant: keeping is a narrowing of
-// what the grant allowed, and a setting sitting in a marker that does not
-// grant reading would read as permission nobody gave.
+// SetKeepTranscripts turns keeping on or off (the `archive` switch) and reports
+// whether that changed anything, so the caller warns on the turn and not on
+// every run that repeats the flag. It no longer needs the ingest grant: the
+// setting narrows nothing, the CLI asks for the grant before it gets here, and
+// the other readers of a transcript carry their own gates. The old marker key
+// is dropped, or turning keeping off would be undone by it.
 func SetKeepTranscripts(vaultDir string, on bool, now time.Time) (changed bool, err error) {
+	was := KeepsTranscripts(vaultDir)
+	if err := auto.Set(vaultDir, string(auto.Archive), on); err != nil {
+		return false, fmt.Errorf("recording the setting in %s: %w", auto.Path(vaultDir), err)
+	}
 	m, err := readConsent(vaultDir)
 	if err != nil {
 		return false, fmt.Errorf("reading %s: %w", ConsentPath(vaultDir), err)
 	}
-	if g, _ := m["granted"].(string); g == "" {
-		return false, errors.New("transcript ingest was never granted on this machine (`logos import --from transcripts` asks once)")
-	}
-	was, _ := m[keepKey].(string)
-	if (was != "") == on {
-		return false, nil
-	}
-	if on {
-		m[keepKey] = now.UTC().Format(time.RFC3339)
-	} else {
+	if _, ok := m[keepKey]; ok {
 		delete(m, keepKey)
+		b, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		if err := vault.WriteAtomic(ConsentPath(vaultDir), b); err != nil {
+			return false, fmt.Errorf("recording the setting in %s: %w", ConsentPath(vaultDir), err)
+		}
 	}
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return false, err
-	}
-	if err := vault.WriteAtomic(ConsentPath(vaultDir), b); err != nil {
-		return false, fmt.Errorf("recording the setting in %s: %w", ConsentPath(vaultDir), err)
-	}
-	return true, nil
+	return was != on, nil
 }
 
 // keepKey holds when keeping was turned on, not a bare true, for the same
@@ -125,6 +146,10 @@ type Archived struct {
 	Path      string // vault-relative, slash-separated
 	Bytes     int64
 	Unchanged bool // the vault already held exactly these bytes
+	Raw       bool // written with `redact` off: byte for byte what the host wrote
+	Replaced  bool // an earlier raw copy was replaced by the redacted one
+	Secrets   int
+	Private   int
 	Err       error
 	// Why is Err without the file names in it, so a harvest of two hundred
 	// sessions whose host pruned them all prints one line with a count, not
@@ -134,18 +159,37 @@ type Archived struct {
 
 func refused(why string, err error) Archived { return Archived{Err: err, Why: why} }
 
+func countOf(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
 // Receipt is the archive's half of a harvest receipt, sized so the reader can
-// see the vault grew, and saying "raw" every time so nobody mistakes the copy
-// for the redacted candidate beside it.
+// see the vault grew, saying how many secrets were masked, and saying "raw"
+// when it was not, so nobody mistakes an unmasked copy for a masked one.
 func (a Archived) Receipt() string {
+	kind := "transcript"
+	if a.Raw {
+		kind = "raw transcript"
+	}
 	switch {
 	case a.Err != nil:
-		return "raw transcript not archived: " + a.Err.Error()
+		return "transcript not archived: " + a.Err.Error()
 	case a.Unchanged:
-		return fmt.Sprintf("raw transcript already archived (%s), unchanged", Size(a.Bytes))
-	default:
+		return fmt.Sprintf("%s already archived (%s), unchanged", kind, Size(a.Bytes))
+	case a.Raw:
 		return fmt.Sprintf("raw transcript archived (%s)", Size(a.Bytes))
 	}
+	r := fmt.Sprintf("transcript archived (%s), %s redacted", Size(a.Bytes), countOf(a.Secrets, "secret", "secrets"))
+	if a.Private > 0 {
+		r += ", " + countOf(a.Private, "<private> span", "<private> spans") + " kept out"
+	}
+	if a.Replaced {
+		r += ", replacing the earlier raw copy"
+	}
+	return r
 }
 
 // ArchiveTranscript copies c's source transcript into its conversation folder
@@ -206,20 +250,84 @@ func ArchiveTranscript(vaultDir string, c Candidate) Archived {
 		}
 		return refused(why, fmt.Errorf("reading %s: %w", src, err))
 	}
-	switch held := heldPrefix(src, dst); {
-	case held == prefixEqual:
-		return Archived{Path: rel, Bytes: info.Size(), Unchanged: true}
-	case held == prefixDiffers:
-		return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
-	}
 	if err := vault.MkdirPrivate(dir); err != nil {
 		return refused("the vault folder could not be created", fmt.Errorf("creating %s: %w", vaultRel(vaultDir, dir), err))
+	}
+	if !auto.On(vaultDir, auto.Redact) {
+		return archiveRaw(vaultDir, src, dst, rel, info.Size())
+	}
+
+	// Redacted. The redacted stream of the source is built first, in a temp
+	// file, and only a finished one is ever renamed into place: a failure
+	// anywhere in redacting leaves the copy that was there as it was and keeps
+	// nothing new, and never falls back to the raw bytes, because the raw
+	// bytes are the thing that was not to be kept.
+	tmp, st, n, err := redactToTemp(src, dir, filepath.Base(dst))
+	if err != nil {
+		return refused("it could not be redacted, so nothing was kept", fmt.Errorf("redacting %s failed, so no copy was kept: %w", src, err))
+	}
+	defer os.Remove(tmp)
+	a := Archived{Path: rel, Bytes: n, Secrets: st.Secrets, Private: st.Private}
+	switch heldRedacted(tmp, dst) {
+	case prefixEqual:
+		a.Unchanged = true
+		return a
+	case prefixDiffers:
+		// Not our redacted copy. An earlier raw copy of a source that still
+		// extends it is the one case to replace: it is what this change is
+		// here to stop keeping. Anything else is a host that rewrote its
+		// file, and the copy is then the only record of what it said.
+		if h := heldPrefix(src, dst); h != prefixGrown && h != prefixEqual {
+			return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
+		}
+		a.Replaced = true
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return refused("the copy failed", fmt.Errorf("moving the redacted copy into %s: %w", rel, err))
+	}
+	return a
+}
+
+// archiveRaw is the `redact off` path: the host's bytes, as they were.
+func archiveRaw(vaultDir, src, dst, rel string, size int64) Archived {
+	switch held := heldPrefix(src, dst); {
+	case held == prefixEqual:
+		return Archived{Path: rel, Bytes: size, Unchanged: true, Raw: true}
+	case held == prefixDiffers:
+		if tmp, _, _, err := redactToTemp(src, filepath.Dir(dst), filepath.Base(dst)); err == nil {
+			made := heldRedacted(tmp, dst)
+			os.Remove(tmp)
+			if made != prefixDiffers {
+				return refused("the earlier copy was made with redaction on and is kept", fmt.Errorf("the copy at %s was made with redaction on; it is kept as it is (turn redact back on to extend it)", rel))
+			}
+		}
+		return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
 	}
 	n, err := copyFile(src, dst)
 	if err != nil {
 		return refused("the copy failed", fmt.Errorf("copying %s to %s: %w", src, rel, err))
 	}
-	return Archived{Path: rel, Bytes: n}
+	return Archived{Path: rel, Bytes: n, Raw: true}
+}
+
+// ArchiveForRecord keeps the transcript a session-end record was just built
+// from, and returns the line that says so ("" when keeping is off). This is the
+// one transcript-reading path that archives without the ingest grant: it
+// already reads the transcript, gated by the `checkpoint` switch, and keeping
+// is now on by default, so it is the path that fires for a user who never ran
+// `logos import`. Only a session that had a record written or grown comes
+// here, so a transcript the user never worked in is not copied. A refusal is
+// returned as text, not dropped (invariant 4).
+func ArchiveForRecord(vaultDir string, s *transcript.Session) string {
+	if s == nil || !KeepsTranscripts(vaultDir) {
+		return ""
+	}
+	a := ArchiveTranscript(vaultDir, Candidate{Harness: s.Harness, SessionID: s.ID, Source: s.Path, Project: s.Project})
+	out := a.Receipt()
+	if msg := ArchiveNotice(vaultDir); msg != "" && a.Err == nil {
+		out += "\n" + msg
+	}
+	return out
 }
 
 // What an existing copy is, relative to the source.
@@ -230,17 +338,26 @@ const (
 	prefixDiffers        // the copy is longer, or differs inside its length
 )
 
-// heldPrefix compares dst against the start of src. Length first, so a copy
-// longer than its source is caught without reading a byte; otherwise the
-// copy's bytes are compared against the same span of the source, because a
-// rewritten file can keep or grow its length and still not be the copy we hold.
+// heldPrefix compares dst against the start of src.
 func heldPrefix(src, dst string) int {
 	di, err := os.Stat(dst)
 	if err != nil {
 		return prefixNone
 	}
+	return heldPrefixN(src, dst, di.Size())
+}
+
+// heldPrefixN compares the first n bytes of dst against the start of src.
+// Length first, so a copy longer than its source is caught without reading a
+// byte; otherwise the copy's bytes are compared against the same span of the
+// source, because a rewritten file can keep or grow its length and still not
+// be the copy we hold.
+func heldPrefixN(src, dst string, n int64) int {
+	if _, err := os.Stat(dst); err != nil {
+		return prefixNone
+	}
 	si, err := os.Stat(src)
-	if err != nil || di.Size() > si.Size() {
+	if err != nil || n > si.Size() {
 		return prefixDiffers
 	}
 	a, err := os.Open(src)
@@ -254,23 +371,23 @@ func heldPrefix(src, dst string) int {
 	}
 	defer b.Close()
 	bufA, bufB := make([]byte, 64<<10), make([]byte, 64<<10)
-	for left := di.Size(); left > 0; {
-		n := int64(len(bufB))
-		if left < n {
-			n = left
+	for left := n; left > 0; {
+		k := int64(len(bufB))
+		if left < k {
+			k = left
 		}
-		if _, err := io.ReadFull(a, bufA[:n]); err != nil {
+		if _, err := io.ReadFull(a, bufA[:k]); err != nil {
 			return prefixDiffers
 		}
-		if _, err := io.ReadFull(b, bufB[:n]); err != nil {
+		if _, err := io.ReadFull(b, bufB[:k]); err != nil {
 			return prefixDiffers
 		}
-		if !bytes.Equal(bufA[:n], bufB[:n]) {
+		if !bytes.Equal(bufA[:k], bufB[:k]) {
 			return prefixDiffers
 		}
-		left -= n
+		left -= k
 	}
-	if di.Size() == si.Size() {
+	if n == si.Size() {
 		return prefixEqual
 	}
 	return prefixGrown

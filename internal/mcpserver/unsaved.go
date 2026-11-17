@@ -99,6 +99,9 @@ func (s *Session) recordUnsaved() {
 	if c != nil && len(c.Redactions) > 0 {
 		fmt.Fprintf(os.Stderr, "logos: %s\n", secret.Summary(c.Redactions))
 	}
+	if c != nil && c.Archive != "" {
+		fmt.Fprintf(os.Stderr, "logos: %s\n", c.Archive)
+	}
 }
 
 // ranDuring reports whether a transcript was still being written while this

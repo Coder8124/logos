@@ -6,10 +6,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/dream"
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/mcpserver"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/router"
@@ -362,7 +364,37 @@ func gatherHealth() health.Report {
 	}
 	in.Configured = os.Getenv("LOGOS_RUNTIME")
 
-	return health.Run(in)
+	rep := health.Run(in)
+	if _, err := os.Stat(vault); err == nil {
+		rep.Checks = append(rep.Checks, rawTranscriptsCheck(vault))
+	}
+	return rep
+}
+
+// rawTranscriptsCheck counts archived transcript copies that still hold what
+// redaction would mask, while redaction is on. It reads the copies themselves:
+// nothing is recorded beside them, so there is no marker to be out of date.
+func rawTranscriptsCheck(vault string) health.Check {
+	c := health.Check{Name: "archived transcripts"}
+	if !auto.On(vault, auto.Redact) {
+		c.State, c.Detail = health.OK, "redact is off, so copies are kept raw on purpose"
+		return c
+	}
+	raw, problems, err := ingest.RawCopies(vault)
+	switch {
+	case err != nil:
+		c.State, c.Detail = health.Unknown, fmt.Sprintf("could not scan archived transcripts: %v", err)
+	case len(problems) > 0:
+		c.State = health.Warn
+		c.Detail = fmt.Sprintf("%d archived copy(ies) could not be read, e.g. %s", len(problems), problems[0])
+	case len(raw) > 0:
+		c.State = health.Warn
+		c.Detail = fmt.Sprintf("%d archived transcript copy(ies) still hold secrets or <private> spans", len(raw))
+		c.Fix = "logos transcript redact"
+	default:
+		c.State, c.Detail = health.OK, "no archived copy holds a secret"
+	}
+	return c
 }
 
 func renderState(s health.State) string {

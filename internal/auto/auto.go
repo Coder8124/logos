@@ -43,6 +43,11 @@ const (
 	Index         Switch = "index"
 	Review        Switch = "review"
 	Import        Switch = "import"
+	// Archive keeps a copy of each transcript Logos reads, in the vault, so the
+	// conversation outlives the host's own pruning. Redact decides whether
+	// that copy has its secrets and <private> spans masked on the way in.
+	Archive Switch = "archive"
+	Redact  Switch = "redact"
 )
 
 type spec struct {
@@ -72,6 +77,15 @@ var specs = []spec{
 	// and the first `logos import` asked before writing any.
 	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", false},
 	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", false},
+	// On from the start, unlike the switches above, because it is new: there
+	// is no earlier behaviour for a vault nobody asked to keep. Without a copy
+	// a host that prunes or rotates its sessions takes the only record of what
+	// they said, and nobody who never heard of this switch will ever turn it on.
+	{Archive, "keep a copy of each transcript Logos reads in the vault, so it outlives the host's own pruning", true},
+	// On for the same reason, and because the copy is the one place a pasted
+	// secret would otherwise land in a folder that is often under version
+	// control. Off keeps the copy raw, byte for byte.
+	{Redact, "mask secrets and <private> spans in the archived copy of a transcript", true},
 }
 
 // Switches lists every switch, in the order status prints them.
@@ -127,8 +141,12 @@ func fixedWhy(name string) (string, bool) {
 // `auto off`; Hand holds the switches set one at a time. Problems are lines the
 // file holds that mean nothing, each one said by status rather than dropped.
 type Config struct {
-	Master   *bool
-	Hand     map[Switch]bool
+	Master *bool
+	Hand   map[Switch]bool
+	// Said holds the notices already shown for this vault ("said: <topic>"
+	// lines). They live here and not in the index so that deleting the index
+	// cannot make Logos repeat a notice, or forget one it owes (invariant 1).
+	Said     map[string]bool
 	Problems []string
 }
 
@@ -161,6 +179,7 @@ func hasKey(m map[Switch]bool, s Switch) bool { _, ok := m[s]; return ok }
 
 var (
 	masterLine = regexp.MustCompile(`^auto:\s*(\S+)\s*$`)
+	saidLine   = regexp.MustCompile(`^said:\s*([A-Za-z][\w-]*)\b.*$`)
 	switchLine = regexp.MustCompile(`^[-*]\s*([A-Za-z][\w-]*)\s*:\s*(\S+)\s*$`)
 )
 
@@ -177,7 +196,7 @@ func parseValue(v string) (bool, bool) {
 // Load reads a vault's switches. A missing file is a vault nobody has asked,
 // not an error. An unreadable one is an error, which status reports.
 func Load(vault string) (Config, error) {
-	c := Config{Hand: map[Switch]bool{}}
+	c := Config{Hand: map[Switch]bool{}, Said: map[string]bool{}}
 	raw, err := os.ReadFile(Path(vault))
 	if errors.Is(err, os.ErrNotExist) {
 		return c, nil
@@ -194,6 +213,10 @@ func Load(vault string) (Config, error) {
 				continue
 			}
 			c.Master = &v
+			continue
+		}
+		if m := saidLine.FindStringSubmatch(line); m != nil {
+			c.Said[strings.ToLower(m[1])] = true
 			continue
 		}
 		m := switchLine.FindStringSubmatch(line)
@@ -261,6 +284,22 @@ func SetMaster(vault string, on bool) error {
 	})
 }
 
+// Said reports whether the notice named topic was already shown in this vault.
+func Said(vault, topic string) bool {
+	c, err := Load(vault)
+	return err == nil && c.Said[strings.ToLower(topic)]
+}
+
+// MarkSaid records that a notice was shown, as a line in auto.md. Written
+// after the notice is printed, so a crash between the two repeats a notice
+// rather than losing one.
+func MarkSaid(vault, topic string) error {
+	return edit(vault, func(c *Config) error {
+		c.Said[strings.ToLower(topic)] = true
+		return nil
+	})
+}
+
 // Set records one switch by hand.
 func Set(vault, name string, on bool) error {
 	name = strings.ToLower(strings.TrimSpace(name))
@@ -315,6 +354,7 @@ the ` + "`auto:`" + ` line; ` + "`logos config auto status`" + ` says what each 
 func render(raw string, c Config) string {
 	lines := strings.Split(raw, "\n")
 	seen := map[Switch]bool{}
+	saidSeen := map[string]bool{}
 	sawMaster := false
 	inFront := strings.HasPrefix(raw, "---\n")
 	for i, line := range lines {
@@ -325,6 +365,10 @@ func render(raw string, c Config) string {
 			continue
 		}
 		t := strings.TrimSpace(line)
+		if m := saidLine.FindStringSubmatch(t); m != nil {
+			saidSeen[strings.ToLower(m[1])] = true
+			continue
+		}
 		if masterLine.MatchString(t) && c.Master != nil {
 			lines[i] = "auto: " + onOff(*c.Master)
 			sawMaster = true
@@ -343,6 +387,16 @@ func render(raw string, c Config) string {
 	out := strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"
 	if c.Master != nil && !sawMaster {
 		out += "\nauto: " + onOff(*c.Master) + "\n"
+	}
+	var told []string
+	for topic := range c.Said {
+		if !saidSeen[topic] {
+			told = append(told, "said: "+topic)
+		}
+	}
+	sort.Strings(told)
+	if len(told) > 0 {
+		out += "\n" + strings.Join(told, "\n") + "\n"
 	}
 	var missing []string
 	for s, v := range c.Hand {

@@ -70,23 +70,27 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		"\n\n" + ev.Render(), nil
 }
 
-// archiveServed keeps a copy of the transcript a harvest just read, when the
-// user turned keeping on, and says what happened in words the receipt can
-// carry: the size when it was kept, the reason when it was not. It rides on the
-// receipt line rather than below it because hosts collapse tool output and the
-// receipt is the line an agent is told to relay — a vault that grew by a raw
-// transcript is something the user is owed hearing about.
+// archiveServed keeps a redacted copy of the transcript a harvest just read,
+// unless keeping is off, and says what happened in words the receipt can
+// carry: the size and the number of secrets masked when it was kept, the
+// reason when it was not. It rides on the receipt line rather than below it
+// because hosts collapse tool output and the receipt is the line an agent is
+// told to relay.
 //
-// With keeping off it adds nothing at all, so the receipt is the one every
-// user who never asked for this already knows. KeepsTranscripts also answers
-// no without the ingest grant, which covers an auto record harvested with no
-// grant: serving turns to the agent here is a read, and copying the file into
-// the vault is a write only the grant plus the flag allow.
+// The ingest grant is still required here, as it was: serving turns to the
+// agent is a read the auto record needs no grant for, but copying the file into
+// the vault from a tool call is a write that only a user who granted reading
+// transcripts has agreed to. (The session-end path has its own gate, the
+// checkpoint switch.)
 func (s *Session) archiveServed(c ingest.Candidate) string {
-	if !ingest.KeepsTranscripts(s.vault) {
+	if !ingest.HasConsent(s.vault) || !ingest.KeepsTranscripts(s.vault) {
 		return ""
 	}
-	return " · " + ingest.ArchiveTranscript(s.vault, c).Receipt()
+	notice := ""
+	if msg := ingest.ArchiveNotice(s.vault); msg != "" {
+		notice = " · " + strings.ReplaceAll(msg, "\n", " ")
+	}
+	return " · " + ingest.ArchiveTranscript(s.vault, c).Receipt() + notice
 }
 
 // ingestDistil takes the distillation back, filters it, and rewrites the
