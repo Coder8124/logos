@@ -696,9 +696,17 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 			// Compared by the folder's id part, not its name: a folder
 			// called <slug>--<id> is the right home for id's checkpoints,
 			// and comparing names would "misfile" every one of them.
-			if parts := strings.Split(en.Rel, "/"); len(parts) == 3 && parts[0] == ConvosDir &&
-				convoFolderID(parts[1]) == convoFolder(c.HostSession) {
-				continue // already filed where its own frontmatter says it belongs
+			//
+			// A checkpoint with no host_session that `logos migrate sessions`
+			// gave a folder of its own sits in the folder keyed by its stem;
+			// pulling it back into _unattached would undo the migration on
+			// the next index.
+			if parts := strings.Split(en.Rel, "/"); len(parts) == 3 && parts[0] == ConvosDir {
+				id := convoFolderID(parts[1])
+				if id == convoFolder(c.HostSession) ||
+					(convoFolder(c.HostSession) == UnattachedFolder && id == strings.TrimSuffix(en.Name, ".md")) {
+					continue // already filed where its own frontmatter says it belongs
+				}
 			}
 			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolderFor(dir, c), en.Name))
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
