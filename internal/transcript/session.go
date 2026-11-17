@@ -92,6 +92,7 @@ func init() {
 	register(claudeCodeReader{})
 	register(codexReader{})
 	register(cursorReader{})
+	register(opencodeReader{})
 	registerTxcriptReaders()
 }
 
