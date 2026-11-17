@@ -6,6 +6,7 @@
 #   scripts/offline-proof.sh                       # builds, then runs (not offline: see below)
 #   LOGOS_BIN=./logos unshare -rn scripts/offline-proof.sh   # Linux: really offline
 #   OFFLINE_REQUIRE=1 ...                          # fail unless the network is verifiably gone
+#   TRACE_CONNECT=1 ...                            # strace every connect(); fail on one past loopback
 #
 # On its own the script only checks that the sequence works against a scratch
 # vault and a scratch HOME; it proves nothing about the network. The proof is
@@ -20,6 +21,12 @@
 # env -i keeps an inherited LOGOS_VAULT from pointing the walk at a real vault.
 # Like first-run.sh the scratch directory is inside the checkout: setup refuses
 # to record a vault under a temporary directory.
+#
+# Exit codes alone are not the proof: a command that tries the network, fails,
+# and carries on (an update check, a runtime probe) exits 0 offline too. With
+# TRACE_CONNECT every logos process runs under strace, and any connect() to an
+# address other than loopback fails the run, whether or not the command
+# noticed. Loopback is the user's local model runtime; unix sockets are IPC.
 #
 # Build the binary before entering the namespace (LOGOS_BIN): the toolchain and
 # its module cache are not part of what is being proved.
@@ -68,6 +75,11 @@ else
 fi
 
 failures=()
+traced=0
+if [ -n "${TRACE_CONNECT:-}" ] && ! command -v strace >/dev/null; then
+	echo "TRACE_CONNECT is set and strace is not installed; refusing to claim a proof"
+	exit 1
+fi
 
 # Every command must exit 0: a command that tried the network and gave up would
 # say so by failing, and a success here is the claim. LOGOS_RUNTIME is left to
@@ -77,8 +89,14 @@ run() {
 	local what=$1
 	shift
 	printf '\n\033[1m$ logos %s\033[0m\n' "$what"
+	local trace=()
+	if [ -n "${TRACE_CONNECT:-}" ]; then
+		traced=$((traced + 1))
+		trace=(strace -f -qq -e trace=connect -o "$WORK/connect.$traced")
+	fi
+	# The ${a+...} form: bash 3.2 (macOS) treats an empty array as unset under -u.
 	env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" LOGOS_VAULT="$VAULT" \
-		PATH="$HOME_DIR/.path:/usr/bin:/bin" TERM="${TERM:-dumb}" "$BIN" "$@"
+		PATH="$HOME_DIR/.path:/usr/bin:/bin" TERM="${TERM:-dumb}" ${trace[@]+"${trace[@]}"} "$BIN" "$@"
 	local got=$?
 	printf '\033[2m[exit %d]\033[0m\n' $got
 	[ $got -eq 0 ] || failures+=("logos $what exited $got, want 0")
@@ -93,11 +111,15 @@ run "memory recall" memory recall "prove nothing leaves"
 
 printf '\n\033[1m$ MCP initialize + tools/list\033[0m\n'
 if ! env -i HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" LOGOS_VAULT="$VAULT" \
-	PATH="$HOME_DIR/.path:/usr/bin:/bin" BIN="$BIN" python3 -I - <<'PY'
+	PATH="$HOME_DIR/.path:/usr/bin:/bin" BIN="$BIN" \
+	TRACE_OUT="${TRACE_CONNECT:+$WORK/connect.mcp}" python3 -I - <<'PY'
 import json, os, subprocess, sys
 
 # A pipeline into `mcp serve` hangs, so this writes one line and reads one back.
-proc = subprocess.Popen([os.environ["BIN"], "mcp", "serve"], stdin=subprocess.PIPE,
+argv = [os.environ["BIN"], "mcp", "serve"]
+if os.environ.get("TRACE_OUT"):
+    argv = ["strace", "-f", "-qq", "-e", "trace=connect", "-o", os.environ["TRACE_OUT"]] + argv
+proc = subprocess.Popen(argv, stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE, text=True)
 
 def ask(method, params, id=None):
@@ -132,6 +154,20 @@ finally:
 PY
 then
 	failures+=("the MCP stdio round trip failed")
+fi
+
+if [ -n "${TRACE_CONNECT:-}" ]; then
+	printf '\n\033[1m$ connect() calls past loopback\033[0m\n'
+	all=$(cat "$WORK"/connect.* 2>/dev/null | grep 'connect(' || true)
+	outward=$(printf '%s\n' "$all" | grep -E 'AF_INET6?' |
+		grep -vE 'inet_addr\("127\.|"::1"|"::ffff:127\.' || true)
+	printf '%d connect() calls traced, %d to an address past loopback\n' \
+		"$(printf '%s' "$all" | grep -c 'connect(' || true)" \
+		"$(printf '%s' "$outward" | grep -c 'connect(' || true)"
+	if [ -n "$outward" ]; then
+		printf '%s\n' "$outward"
+		failures+=("a logos process tried to connect past loopback (above)")
+	fi
 fi
 
 if [ ${#failures[@]} -gt 0 ]; then

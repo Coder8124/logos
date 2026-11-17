@@ -279,7 +279,8 @@ jobs:
 
   # Invariant 5, "nothing leaves the machine", run rather than asserted: the
   # everyday commands and an MCP round trip inside a network namespace with no
-  # interfaces up, not even loopback, so any connection attempt fails the job.
+  # interfaces up, not even loopback, with every connect() traced: one past
+  # loopback fails the job even when the command shrugged it off and exited 0.
   # TestOnlyAllowListedPackagesImportTheNetwork is the other half: it keeps the
   # code that could reach out to the few packages named there. The binary is
   # built outside the namespace, because the toolchain is not what is being
@@ -298,10 +299,12 @@ jobs:
         run: go build -o "$RUNNER_TEMP/logos" ./cmd/logos
       # ubuntu 24.04 stops unprivileged processes making a user namespace
       # (AppArmor); older images have no such key, hence the `|| true`.
+      - name: Install strace
+        run: command -v strace || (sudo apt-get update -q && sudo apt-get install -y -q strace)
       - name: Allow user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Commands with no network
-        run: unshare -rn env LOGOS_BIN="$RUNNER_TEMP/logos" OFFLINE_REQUIRE=1 scripts/offline-proof.sh
+        run: unshare -rn env LOGOS_BIN="$RUNNER_TEMP/logos" OFFLINE_REQUIRE=1 TRACE_CONNECT=1 scripts/offline-proof.sh
 
   # The rules in CONTRIBUTING.md that a diff can be checked against, for each
   # commit the PR adds. Each script runs the same way locally against
