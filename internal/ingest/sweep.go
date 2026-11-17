@@ -187,6 +187,19 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 		cache[project] = kept
 		saveSwept(vaultDir, cache)
 	}
+	// The one-time archive notice rides on the first record whose transcript
+	// was kept: resume is read by a person, and asked only after a copy exists
+	// so a failed archive does not spend it.
+	for _, cs := range [][]session.Checkpoint{wrote, grew} {
+		for i := range cs {
+			if cs[i].ArchiveKept {
+				if msg := ArchiveNotice(vaultDir); msg != "" {
+					cs[i].Archive += " · " + strings.ReplaceAll(msg, "\n", " ")
+				}
+				return wrote, grew, problems
+			}
+		}
+	}
 	return wrote, grew, problems
 }
 
@@ -292,7 +305,7 @@ func growRecord(vaultDir string, history []session.Checkpoint, rec session.Check
 	if err != nil {
 		return nil, err
 	}
-	grown.Archive = ArchiveForRecord(vaultDir, s)
+	grown.Archive, grown.ArchiveKept = ArchiveForRecord(vaultDir, s)
 	return &grown, nil
 }
 
@@ -352,10 +365,25 @@ func SweepNotice(wrote, grew []session.Checkpoint, problems []string) string {
 	if len(found) > 0 {
 		fmt.Fprintf(&b, "_%s_\n\n", secret.Summary(found))
 	}
+	// One line, capped like the problems below: a first resume after an
+	// upgrade can sweep dozens of sessions, and a line per copy buries the
+	// handoff. Newlines are folded so the italics hold across the line.
+	var archived []string
 	for _, c := range append(slices.Clone(wrote), grew...) {
 		if c.Archive != "" {
-			fmt.Fprintf(&b, "_%s: %s_\n\n", c.Session, c.Archive)
+			archived = append(archived, c.Session+": "+strings.ReplaceAll(c.Archive, "\n", " "))
 		}
+	}
+	if n := len(archived); n > 0 {
+		shown := archived
+		if len(shown) > 3 {
+			shown = shown[:3]
+		}
+		more := ""
+		if n > len(shown) {
+			more = fmt.Sprintf("; and %d more", n-len(shown))
+		}
+		fmt.Fprintf(&b, "_%s%s_\n\n", strings.Join(shown, "; "), more)
 	}
 	if n := len(problems); n > 0 {
 		// A few are enough to act on; a broken harness can fail on every file

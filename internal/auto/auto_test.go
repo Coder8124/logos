@@ -66,7 +66,10 @@ func TestAutoOffTurnsOffEverySwitchNotSetByHand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range Switches() {
-		want := s == Distil
+		// Redact is what an archive is kept under, not something Logos does on
+		// its own: auto off turning it off kept raw secrets wherever archive
+		// was still on by hand.
+		want := s == Distil || s == Redact
 		if On(vault, s) != want {
 			t.Errorf("after auto off, %s is %v; want %v", s, On(vault, s), want)
 		}
@@ -163,6 +166,13 @@ func TestAnAutoFileThatCannotBeReadRunsNothing(t *testing.T) {
 		t.Skip("running as a user who can read a 0000 file")
 	}
 	for _, s := range Switches() {
+		if s == Redact {
+			// Off is the unsafe answer here: it is what keeps a copy raw.
+			if !On(vault, s) {
+				t.Error("an auto.md nobody could read turned redaction off")
+			}
+			continue
+		}
 		if On(vault, s) {
 			t.Errorf("%s ran under an auto.md nobody could read", s)
 		}

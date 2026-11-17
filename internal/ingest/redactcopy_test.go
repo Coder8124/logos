@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,15 +111,13 @@ func TestAVaultNobodyAskedArchivesItsTranscripts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line := ingest.ArchiveForRecord(v, s)
-	if !strings.Contains(line, "transcript archived") {
-		t.Fatalf("the session-end path archived nothing: %q", line)
+	line, kept := ingest.ArchiveForRecord(v, s)
+	if !kept || !strings.Contains(line, "transcript archived") {
+		t.Fatalf("the session-end path archived nothing (kept %v): %q", kept, line)
 	}
-	if !strings.Contains(line, "kept in the vault") && !strings.Contains(line, "keeps a copy") {
-		t.Errorf("the first archive did not carry the one-time notice: %q", line)
-	}
-	if again := ingest.ArchiveForRecord(v, s); strings.Contains(again, "keeps a copy") {
-		t.Errorf("the notice was shown twice: %q", again)
+	// The notice is the sweep's to add: this receipt can end in a server log.
+	if strings.Contains(line, "keeps a copy") {
+		t.Errorf("the record path spent the one-time notice itself: %q", line)
 	}
 }
 
@@ -139,7 +138,7 @@ func TestArchiveOffInAutoMdKeepsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if line := ingest.ArchiveForRecord(v, s); line != "" {
+	if line, kept := ingest.ArchiveForRecord(v, s); line != "" || kept {
 		t.Errorf("archive off, yet %q", line)
 	}
 	if _, err := os.Stat(filepath.Join(v, "sessions")); !os.IsNotExist(err) {
@@ -232,7 +231,7 @@ func TestARawCopyFromBeforeRedactionIsReplacedAndTheReceiptSaysSo(t *testing.T) 
 		t.Fatalf("RawCopies = %v %v %v, want the one raw copy", copies, problems, err)
 	}
 	ar := ingest.ArchiveTranscript(v, c)
-	if ar.Err != nil || !ar.Replaced || !strings.Contains(ar.Receipt(), "replacing the earlier raw copy") {
+	if ar.Err != nil || !ar.Replaced || !strings.Contains(ar.Receipt(), "replacing an earlier copy that held what is now masked") {
 		t.Fatalf("archiving over a raw copy = %+v (%s)", ar, ar.Receipt())
 	}
 	if copies, _, _ := ingest.RawCopies(v); len(copies) != 0 {
@@ -305,4 +304,79 @@ func assertNoCopy(t *testing.T, v string) {
 		}
 		return nil
 	})
+}
+
+// A copy an older redactor made, before a detector learned a token's shape,
+// is neither today's redacted stream nor a raw copy of the source. It was
+// refused as a host rewrite, so the token it holds stayed in the vault for
+// good. Redacting it again is where today's stream begins: it is replaced.
+func TestACopyMaskedBeforeADetectorLearnedATokenIsMaskedAgain(t *testing.T) {
+	v := t.TempDir()
+	src := hostTranscript(t, claudeSession())
+	first := ingest.ArchiveTranscript(v, candidateFor(src))
+	if first.Err != nil || first.Secrets != 1 {
+		t.Fatalf("first archive = %+v", first)
+	}
+	dst := filepath.Join(v, filepath.FromSlash(first.Path))
+	masked, _ := os.ReadFile(dst)
+	// What the older redactor left: the private span masked, the token not
+	// (the token is on the third line, the span on the first).
+	lines := strings.SplitAfter(string(masked), "\n")
+	lines[2] = strings.SplitAfter(claudeSession(), "\n")[2]
+	older := strings.Join(lines, "")
+	if !strings.Contains(older, fakeToken()) || strings.Contains(older, "my diary") {
+		t.Fatal("could not build the older copy")
+	}
+	if err := os.WriteFile(dst, []byte(older), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ar := ingest.ArchiveTranscript(v, candidateFor(src))
+	if ar.Err != nil || !ar.Replaced {
+		t.Fatalf("a less-masked copy was refused as a rewrite: %+v (%s)", ar, ar.Receipt())
+	}
+	if got, _ := os.ReadFile(dst); strings.Contains(string(got), fakeToken()) {
+		t.Error("the token is still in the copy")
+	}
+}
+
+// The record path extends a copy rather than redacting the whole transcript
+// again. What it appends must be exactly what the full pass would have kept.
+func TestARecordExtendsItsCopyWithTheSameBytesAFullPassKeeps(t *testing.T) {
+	v := t.TempDir()
+	body := claudeSession()
+	src := hostTranscript(t, body)
+	read := func() *transcript.Session {
+		s, err := transcript.ReadFile("claude-code", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if _, kept := ingest.ArchiveForRecord(v, read()); !kept {
+		t.Fatal("first record kept nothing")
+	}
+	more := `{"type":"user","sessionId":"s1","cwd":"/work/kestrel","timestamp":"2026-11-01T10:00:04Z","message":{"role":"user","content":"and ` + fakeToken() + ` <private>again</private>"}}` + "\n"
+	f, err := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(more)
+	f.Close()
+	line, kept := ingest.ArchiveForRecord(v, read())
+	if !kept || !strings.Contains(line, "1 secret") {
+		t.Fatalf("the grown record = %q (kept %v), want the appended secret counted", line, kept)
+	}
+	if again, _ := ingest.ArchiveForRecord(v, read()); !strings.Contains(again, "unchanged") {
+		t.Errorf("a record of an unchanged transcript = %q", again)
+	}
+	full := t.TempDir()
+	want := ingest.ArchiveTranscript(full, candidateFor(src))
+	if want.Err != nil {
+		t.Fatal(want.Err)
+	}
+	a, _ := os.ReadFile(filepath.Join(v, filepath.FromSlash(want.Path)))
+	b, _ := os.ReadFile(filepath.Join(full, filepath.FromSlash(want.Path)))
+	if !bytes.Equal(a, b) {
+		t.Errorf("extended copy differs from a full pass:\n%s\n---\n%s", a, b)
+	}
 }

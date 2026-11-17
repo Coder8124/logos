@@ -76,7 +76,7 @@ func runIngest(args []string) error {
 		}
 		switch {
 		case changed && keepOn:
-			fmt.Println(ingest.KeepTranscriptsWarning)
+			fmt.Println(ingest.KeepTranscriptsWarning(v))
 		case changed:
 			fmt.Println("Harvests no longer keep a copy of the transcript; copies already in the vault stay where they are.")
 		}

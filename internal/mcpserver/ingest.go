@@ -86,11 +86,14 @@ func (s *Session) archiveServed(c ingest.Candidate) string {
 	if !ingest.HasConsent(s.vault) || !ingest.KeepsTranscripts(s.vault) {
 		return ""
 	}
-	notice := ""
-	if msg := ingest.ArchiveNotice(s.vault); msg != "" {
-		notice = " · " + strings.ReplaceAll(msg, "\n", " ")
+	a := ingest.ArchiveTranscript(s.vault, c)
+	out := " · " + a.Receipt()
+	if a.Err == nil {
+		if msg := ingest.ArchiveNotice(s.vault); msg != "" {
+			out += " · " + strings.ReplaceAll(msg, "\n", " ")
+		}
 	}
-	return " · " + ingest.ArchiveTranscript(s.vault, c).Receipt() + notice
+	return out
 }
 
 // ingestDistil takes the distillation back, filters it, and rewrites the

@@ -162,7 +162,10 @@ func (c Config) On(s Switch) bool {
 	if v, ok := c.Hand[s]; ok {
 		return v
 	}
-	if c.Master != nil {
+	// Redact is not automatic behaviour but the condition the archive is kept
+	// on, so `auto off` does not reach it: with archive still on by hand, or
+	// by the old keep_transcripts opt-in, it would have kept raw secrets.
+	if c.Master != nil && s != Redact {
 		return *c.Master
 	}
 	sp, _ := known(s)
@@ -174,6 +177,8 @@ func (c Config) Why(s Switch) string {
 	switch {
 	case hasKey(c.Hand, s):
 		return "set by hand"
+	case s == Redact:
+		return "default; only turned off by hand"
 	case c.Master != nil && *c.Master:
 		return "auto on"
 	case c.Master != nil:
@@ -273,10 +278,12 @@ func stripFrontmatter(s string) string {
 // read is somebody's answer that cannot be seen, so every switch reads as off
 // until it can: guessing the defaults is how a user who turned everything off
 // finds it running. Status reports the read failure.
+//
+// Redact is the exception and reads as on: off there is the unsafe answer.
 func On(vault string, s Switch) bool {
 	c, err := Load(vault)
 	if err != nil {
-		return false
+		return s == Redact
 	}
 	return c.On(s)
 }

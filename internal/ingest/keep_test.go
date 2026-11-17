@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -279,5 +280,22 @@ func TestAMissingTranscriptsReasonDoesNotNameTheFile(t *testing.T) {
 	b := ingest.ArchiveTranscript(v, ingest.Candidate{Harness: "claude-code", SessionID: "s2", Source: "/gone/b.jsonl", Project: "kestrel"})
 	if a.Why == "" || a.Why != b.Why {
 		t.Errorf("two missing files group as %q and %q, want one shared reason", a.Why, b.Why)
+	}
+}
+
+// Someone who turned redaction off and is then told their copies are masked
+// commits secrets to git on Logos's word.
+func TestTheNoticesSayACopyIsRawWhenRedactIsOff(t *testing.T) {
+	v := t.TempDir()
+	if err := auto.Set(v, "redact", false); err != nil {
+		t.Fatal(err)
+	}
+	for name, msg := range map[string]string{"notice": ingest.ArchiveNotice(v), "warning": ingest.KeepTranscriptsWarning(v)} {
+		if strings.Contains(msg, "masked,") || strings.Contains(msg, "with secrets and") {
+			t.Errorf("the %s claims masking with redact off: %q", name, msg)
+		}
+		if !strings.Contains(msg, "raw") {
+			t.Errorf("the %s does not say the copy is raw: %q", name, msg)
+		}
 	}
 }

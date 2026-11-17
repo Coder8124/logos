@@ -109,8 +109,11 @@ type Checkpoint struct {
 	// say ("transcript archived (41 KB), 2 secrets redacted"). Not written to
 	// the file: the copy is its own file in the conversation's folder.
 	Archive string `json:"-"`
-	Slug    string `json:"slug,omitempty"` // vault slug, set once written
-	TS      int64  `json:"ts,omitempty"`
+	// ArchiveKept is whether that kept a copy, so the one-time notice about
+	// keeping copies is said only once there is one.
+	ArchiveKept bool   `json:"-"`
+	Slug        string `json:"slug,omitempty"` // vault slug, set once written
+	TS          int64  `json:"ts,omitempty"`
 }
 
 // Inference is a distillation of an auto record's transcript. By and At say

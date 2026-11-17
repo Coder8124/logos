@@ -363,3 +363,74 @@ func TestLosingTheSweepCacheCostsAReadNotASecondRecord(t *testing.T) {
 		t.Errorf("after the cache went: wrote %+v, problems %v", wrote, problems)
 	}
 }
+
+// sweptWithCopy is a swept session whose transcript is a real file, so the
+// record path has something to keep.
+func sweptWithCopy(t *testing.T, now time.Time) *transcript.Session {
+	t.Helper()
+	s := endedAgo(now, 2*time.Hour)
+	s.Harness, s.ID = "claude-code", "4b1e9c2a"
+	s.Path = filepath.Join(t.TempDir(), "4b1e9c2a.jsonl")
+	if err := os.WriteFile(s.Path, []byte(`{"type":"user","message":{"role":"user","content":"fix the checkout crash"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The session-end path used to spend the one-time notice inside the record,
+// and the MCP shutdown writes that record to a server log: the one person the
+// notice is for never saw it, and it was never shown again. Resume is read.
+func TestTheFirstKeptCopyTellsResumeOnceThatCopiesAreKept(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	onMachine(t, sweptWithCopy(t, now))
+
+	wrote, _, problems := Sweep(vault, "shop", now)
+	if len(problems) != 0 || len(wrote) != 1 {
+		t.Fatalf("wrote %d, problems %v", len(wrote), problems)
+	}
+	out := SweepNotice(wrote, nil, nil)
+	if !strings.Contains(out, "keeps a copy") {
+		t.Fatalf("resume after the first kept copy does not say copies are kept:\n%s", out)
+	}
+	if again := ArchiveNotice(vault); again != "" {
+		t.Errorf("the notice would be shown again: %q", again)
+	}
+}
+
+// A notice spent on an archive that failed tells nobody anything when the
+// first copy is finally kept.
+func TestARefusedArchiveDoesNotSpendTheNotice(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	onMachine(t, endedAgo(now, 2*time.Hour)) // its transcript is not on disk
+
+	wrote, _, _ := Sweep(vault, "shop", now)
+	for _, c := range wrote {
+		if strings.Contains(c.Archive, "keeps a copy") {
+			t.Fatalf("a refused archive carried the notice: %q", c.Archive)
+		}
+	}
+	if ArchiveNotice(vault) == "" {
+		t.Error("the notice was spent though no copy was kept")
+	}
+}
+
+// A first resume after an upgrade can sweep dozens of sessions; a line per
+// copy buried the handoff under receipts.
+func TestManyArchivedSessionsTakeOneCappedLineOfResume(t *testing.T) {
+	var wrote []session.Checkpoint
+	for i := range 7 {
+		wrote = append(wrote, session.Checkpoint{Session: "s" + string(rune('a'+i)), Archive: "transcript archived\nsecond line"})
+	}
+	out := SweepNotice(wrote, nil, nil)
+	if n := strings.Count(out, "transcript archived"); n != 3 {
+		t.Errorf("%d archive receipts shown, want 3:\n%s", n, out)
+	}
+	if !strings.Contains(out, "and 4 more") {
+		t.Errorf("the rest are not counted:\n%s", out)
+	}
+	if strings.Contains(out, "archived\nsecond") {
+		t.Errorf("a receipt broke the line:\n%s", out)
+	}
+}

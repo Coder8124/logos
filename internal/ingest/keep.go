@@ -42,11 +42,20 @@ import (
 // keepPrivateOut exactly as it does to the host's own file.
 
 // KeepTranscriptsWarning is said when keeping is turned on by hand, and is the
-// one place that says what the copy is.
-const KeepTranscriptsWarning = "Logos keeps a copy of each transcript it reads in its conversation's folder in the\n" +
-	"vault, with secrets and <private> spans masked (`logos config auto config redact off`\n" +
-	"keeps it raw). Store the vault as you'd store the original transcripts: if it is in\n" +
-	"git, so are they. Turn it off with `logos import --from transcripts --no-keep-transcripts`."
+// one place that says what the copy is. It reads the redact switch: telling a
+// user with redact off that their copies are masked is the one claim here that
+// would put a secret in git on Logos's word.
+func KeepTranscriptsWarning(vaultDir string) string {
+	how := "with secrets and <private> spans masked (`logos config auto config redact off`\n" +
+		"keeps it raw)"
+	if !auto.On(vaultDir, auto.Redact) {
+		how = "raw, because redact is off (`logos config auto config redact on` masks\n" +
+			"secrets in new copies)"
+	}
+	return "Logos keeps a copy of each transcript it reads in its conversation's folder in the\n" +
+		"vault, " + how + ". Store the vault as you'd store the original transcripts: if it is in\n" +
+		"git, so are they. Turn it off with `logos import --from transcripts --no-keep-transcripts`."
+}
 
 // ArchiveNoticeTopic is the "said:" line in auto.md for the one-time notice a
 // user who agreed to the old wording gets on the first archive.
@@ -55,7 +64,10 @@ const ArchiveNoticeTopic = "archive"
 // ArchiveNotice is the one-time notice, empty once shown. Someone who granted
 // ingest when it said "never the transcript itself" has not been told that
 // transcripts are now kept, and finding a copy later is the surprise to avoid.
-// Shown on the first archive; recorded in the vault (auto.md), not the index.
+// Shown on the first archive that kept something — callers ask only after one
+// did, since a notice spent on a failed archive is one nobody acted on — and
+// only where a person reads it, never a server log. Recorded in the vault
+// (auto.md), not the index.
 func ArchiveNotice(vaultDir string) string {
 	if auto.Said(vaultDir, ArchiveNoticeTopic) {
 		return ""
@@ -63,6 +75,11 @@ func ArchiveNotice(vaultDir string) string {
 	msg := "Logos now keeps a copy of each transcript it reads in the vault, with secrets and <private> spans masked,\n" +
 		"so a conversation outlives the host's own pruning. `logos config auto config archive off` stops it;\n" +
 		"`... redact off` keeps copies raw. This is shown once."
+	if !auto.On(vaultDir, auto.Redact) {
+		msg = "Logos now keeps a copy of each transcript it reads in the vault, raw, because redact is off,\n" +
+			"so a conversation outlives the host's own pruning. `logos config auto config archive off` stops it;\n" +
+			"`... redact on` masks secrets in new copies. This is shown once."
+	}
 	if err := auto.MarkSaid(vaultDir, ArchiveNoticeTopic); err != nil {
 		msg += fmt.Sprintf("\n(could not record that this was shown, so it will repeat: %v)", err)
 	}
@@ -159,13 +176,6 @@ type Archived struct {
 
 func refused(why string, err error) Archived { return Archived{Err: err, Why: why} }
 
-func countOf(n int, one, many string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, one)
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
 // Receipt is the archive's half of a harvest receipt, sized so the reader can
 // see the vault grew, saying how many secrets were masked, and saying "raw"
 // when it was not, so nobody mistakes an unmasked copy for a masked one.
@@ -182,12 +192,12 @@ func (a Archived) Receipt() string {
 	case a.Raw:
 		return fmt.Sprintf("raw transcript archived (%s)", Size(a.Bytes))
 	}
-	r := fmt.Sprintf("transcript archived (%s), %s redacted", Size(a.Bytes), countOf(a.Secrets, "secret", "secrets"))
+	r := fmt.Sprintf("transcript archived (%s), %s redacted", Size(a.Bytes), fmt.Sprintf("%d secret%s", a.Secrets, plural(a.Secrets)))
 	if a.Private > 0 {
-		r += ", " + countOf(a.Private, "<private> span", "<private> spans") + " kept out"
+		r += ", " + fmt.Sprintf("%d <private> span%s kept out", a.Private, plural(a.Private))
 	}
 	if a.Replaced {
-		r += ", replacing the earlier raw copy"
+		r += ", replacing an earlier copy that held what is now masked"
 	}
 	return r
 }
@@ -204,6 +214,12 @@ func (a Archived) Receipt() string {
 // record of what it said before. Replacing it would make the archive lose
 // exactly what it exists to keep, so that is refused and said.
 func ArchiveTranscript(vaultDir string, c Candidate) Archived {
+	return archiveTranscript(vaultDir, c, false)
+}
+
+// archiveTranscript is ArchiveTranscript, and with quick an existing redacted
+// copy is extended rather than rebuilt (extendRedacted) when it can be.
+func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	src := c.Source
 	switch {
 	case transcript.IsTxcriptSource(src):
@@ -257,6 +273,12 @@ func ArchiveTranscript(vaultDir string, c Candidate) Archived {
 		return archiveRaw(vaultDir, src, dst, rel, info.Size())
 	}
 
+	if quick {
+		if a, ok := extendRedacted(src, dst, rel); ok {
+			return a
+		}
+	}
+
 	// Redacted. The redacted stream of the source is built first, in a temp
 	// file, and only a finished one is ever renamed into place: a failure
 	// anywhere in redacting leaves the copy that was there as it was and keeps
@@ -273,12 +295,14 @@ func ArchiveTranscript(vaultDir string, c Candidate) Archived {
 		a.Unchanged = true
 		return a
 	case prefixDiffers:
-		// Not our redacted copy. An earlier raw copy of a source that still
-		// extends it is the one case to replace: it is what this change is
-		// here to stop keeping. Anything else is a host that rewrote its
-		// file, and the copy is then the only record of what it said.
-		if h := heldPrefix(src, dst); h != prefixGrown && h != prefixEqual {
-			return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
+		// Not today's redacted copy. An earlier raw copy, or one an older
+		// redactor made before a detector learned a new shape, is the same
+		// conversation masked less, and replacing it masks more: what
+		// redacting it again gives is where today's stream begins. Anything
+		// else is a host that rewrote its file (or a rule that now masks
+		// less), and the copy is then the only record of what it said.
+		if !extendsOnceRedacted(tmp, dst) {
+			return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it, or a redaction rule changed); the copy is kept as it is", src, rel))
 		}
 		a.Replaced = true
 	}
@@ -318,16 +342,16 @@ func archiveRaw(vaultDir, src, dst, rel string, size int64) Archived {
 // `logos import`. Only a session that had a record written or grown comes
 // here, so a transcript the user never worked in is not copied. A refusal is
 // returned as text, not dropped (invariant 4).
-func ArchiveForRecord(vaultDir string, s *transcript.Session) string {
+//
+// Quick, because the sweep runs it inside resume. No one-time notice: the
+// session-end path writes to a server log nobody reads, so Sweep adds it to
+// what resume prints, and kept says whether there is anything to add it to.
+func ArchiveForRecord(vaultDir string, s *transcript.Session) (receipt string, kept bool) {
 	if s == nil || !KeepsTranscripts(vaultDir) {
-		return ""
+		return "", false
 	}
-	a := ArchiveTranscript(vaultDir, Candidate{Harness: s.Harness, SessionID: s.ID, Source: s.Path, Project: s.Project})
-	out := a.Receipt()
-	if msg := ArchiveNotice(vaultDir); msg != "" && a.Err == nil {
-		out += "\n" + msg
-	}
-	return out
+	a := archiveTranscript(vaultDir, Candidate{Harness: s.Harness, SessionID: s.ID, Source: s.Path, Project: s.Project}, true)
+	return a.Receipt(), a.Err == nil
 }
 
 // What an existing copy is, relative to the source.

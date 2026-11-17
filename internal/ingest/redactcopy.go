@@ -206,7 +206,7 @@ func redactStream(r io.Reader, w io.Writer) (RedactStats, int64, error) {
 			if body[len(body)-1] == '\n' {
 				body, term = line[:len(line)-1], line[len(line)-1:]
 				if len(body) > 0 && body[len(body)-1] == '\r' {
-					body, term = body[:len(body)-1], line[len(body):]
+					body, term = body[:len(body)-1], line[len(line)-2:]
 				}
 			}
 			out, st := redactLine(body)
@@ -278,6 +278,11 @@ func heldRedacted(tmp, dst string) int {
 	if err != nil {
 		return prefixDiffers
 	}
+	// An identical copy is the copy, whether or not it ends mid-line: read as
+	// grown, it would be rewritten, and counted as archived, on every run.
+	if h := heldPrefixN(tmp, dst, di.Size()); h == prefixEqual {
+		return h
+	}
 	last := make([]byte, 1)
 	_, rerr := f.ReadAt(last, di.Size()-1)
 	f.Close()
@@ -305,6 +310,103 @@ func heldRedacted(tmp, dst string) int {
 	return prefixGrown
 }
 
+// extendsOnceRedacted reports whether dst, redacted as it would be today, is
+// where tmp (today's redacted stream of the source) begins.
+func extendsOnceRedacted(tmp, dst string) bool {
+	again, _, _, err := redactToTemp(dst, filepath.Dir(dst), filepath.Base(dst))
+	if err != nil {
+		return false
+	}
+	defer os.Remove(again)
+	h := heldRedacted(tmp, again)
+	return h == prefixGrown || h == prefixEqual
+}
+
+// extendRedacted appends to a redacted copy only the source lines after it.
+// The sweep grows a record inside resume, and redacting a 90 MB transcript from
+// its first byte took three seconds of a hook's ten. A copy is a line-for-line
+// image of its source, so the lines it holds are checked rather than redacted
+// again: one the copy holds byte for byte had nothing to mask when it was
+// kept, and one that differs must be what redacting the source line gives
+// today. A raw copy passes the first test, which is why only the record path
+// takes this: a harvest takes the full pass and replaces it, and doctor's
+// archived-transcripts check finds one either way.
+//
+// false sends the caller to the full pass, which decides what the copy is: a
+// copy ending mid-line, a source shorter than the copy, a line that matches
+// neither way. Once it has decided, the result is final and true.
+func extendRedacted(src, dst, rel string) (Archived, bool) {
+	d, err := os.Open(dst)
+	if err != nil {
+		return Archived{}, false
+	}
+	defer d.Close()
+	di, err := d.Stat()
+	if err != nil || di.Size() == 0 {
+		return Archived{}, false
+	}
+	last := make([]byte, 1)
+	if _, err := d.ReadAt(last, di.Size()-1); err != nil || last[0] != '\n' {
+		return Archived{}, false
+	}
+	s, err := os.Open(src)
+	if err != nil {
+		return Archived{}, false
+	}
+	defer s.Close()
+	sr, dr := bufio.NewReaderSize(s, 64<<10), bufio.NewReaderSize(d, 64<<10)
+	for {
+		dl, derr := dr.ReadBytes('\n')
+		if len(dl) == 0 && derr == io.EOF {
+			break
+		}
+		if derr != nil {
+			return Archived{}, false
+		}
+		sl, serr := sr.ReadBytes('\n')
+		if (serr != nil && serr != io.EOF) || len(sl) == 0 || sl[len(sl)-1] != '\n' {
+			return Archived{}, false
+		}
+		if bytes.Equal(sl, dl) {
+			continue
+		}
+		var out bytes.Buffer
+		if _, _, err := redactStream(bytes.NewReader(sl), &out); err != nil || !bytes.Equal(out.Bytes(), dl) {
+			return Archived{}, false
+		}
+	}
+	if _, err := sr.Peek(1); err == io.EOF {
+		return Archived{Path: rel, Bytes: di.Size(), Unchanged: true}, true
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+".*.partial")
+	if err != nil {
+		return refused("the copy failed", fmt.Errorf("extending the copy at %s: %w", rel, err)), true
+	}
+	defer os.Remove(tmp.Name())
+	var st RedactStats
+	var n int64
+	_, err = d.Seek(0, io.SeekStart)
+	if err == nil {
+		_, err = io.Copy(tmp, d)
+	}
+	if err == nil {
+		st, n, err = redactStream(sr, tmp)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), dst)
+	}
+	if err != nil {
+		return refused("the copy failed", fmt.Errorf("extending the copy at %s: %w", rel, err)), true
+	}
+	return Archived{Path: rel, Bytes: di.Size() + n, Secrets: st.Secrets, Private: st.Private}, true
+}
+
 // copyIsRaw says whether redacting the file at path would change it, and how
 // many secrets it holds. That is the whole test for "this archived copy is
 // still raw": nothing is recorded beside the copy, so nothing can go stale.
@@ -322,7 +424,7 @@ func copyIsRaw(path string) (RedactStats, error) {
 // whether or not the host's own file still exists.
 func ArchivedCopies(vaultDir string) ([]string, error) {
 	var out []string
-	root := filepath.Join(vaultDir, "sessions")
+	root := filepath.Join(vaultDir, session.CheckpointDir)
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -330,11 +432,7 @@ func ArchivedCopies(vaultDir string) ([]string, error) {
 			}
 			return err
 		}
-		if d.IsDir() || filepath.Base(filepath.Dir(filepath.Dir(p))) != "_convos" {
-			return nil
-		}
-		name := d.Name()
-		if !strings.HasPrefix(name, session.TranscriptStem+".") || strings.HasSuffix(name, ".partial") {
+		if d.IsDir() || filepath.Base(filepath.Dir(filepath.Dir(p))) != session.ConvosDir || !session.IsTranscriptFile(d.Name()) {
 			return nil
 		}
 		out = append(out, vaultRel(vaultDir, p))
