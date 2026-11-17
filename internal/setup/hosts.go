@@ -24,6 +24,8 @@ func Hosts() []Host {
 		claudeCode(), claudeDesktop(), cursor(), codex(),
 		cline("Cline", "Code"), cline("Cline in Cursor", "Cursor"), cline("Cline in Windsurf", "Windsurf"), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
 		opencode(), amp(), grokBuild(),
+		geminiCLI(), qwenCode(), kiro(), windsurf(),
+		rooLike("Roo Code", "rooveterinaryinc.roo-cline"), rooLike("Kilo Code", "kilocode.kilo-code"),
 	}
 }
 
@@ -732,4 +734,53 @@ func LogosPluginRecord() PluginRecord {
 		found = r
 	}
 	return found
+}
+
+// geminiCLI keeps servers under mcpServers in ~/.gemini/settings.json, next to
+// the user's auth and UI settings, which the merge leaves alone.
+func geminiCLI() Host {
+	path := inHome(".gemini", "settings.json")
+	return jsonHost("Gemini CLI", path, "mcpServers", func() bool {
+		return onPath("gemini") || exists(parent(path))
+	}, plainEntry)
+}
+
+// qwenCode is a Gemini CLI fork and reads the same shape from ~/.qwen.
+func qwenCode() Host {
+	path := inHome(".qwen", "settings.json")
+	return jsonHost("Qwen Code", path, "mcpServers", func() bool {
+		return onPath("qwen") || exists(parent(path))
+	}, plainEntry)
+}
+
+// kiro reads user-level servers from ~/.kiro/settings/mcp.json.
+func kiro() Host {
+	path := inHome(".kiro", "settings", "mcp.json")
+	return jsonHost("Kiro", path, "mcpServers", func() bool {
+		return onPath("kiro") || exists(inHome(".kiro"))
+	}, plainEntry)
+}
+
+// windsurf is the editor itself; "Cline in Windsurf" is the extension and
+// keeps its own file.
+func windsurf() Host {
+	path := inHome(".codeium", "windsurf", "mcp_config.json")
+	return jsonHost("Windsurf", path, "mcpServers", func() bool {
+		return exists(parent(path))
+	}, plainEntry)
+}
+
+// rooLike is a Cline-derived VS Code extension (Roo Code, Kilo Code): the same
+// mcpServers block, in the extension's global storage as mcp_settings.json.
+// The storage directory appears once the extension has run.
+func rooLike(name, extension string) Host {
+	ext := ""
+	if dir := editorUserDir("Code"); dir != "" {
+		ext = joinPath(dir, "globalStorage", extension)
+	}
+	path := ""
+	if ext != "" {
+		path = joinPath(ext, "settings", "mcp_settings.json")
+	}
+	return jsonHost(name, path, "mcpServers", func() bool { return exists(ext) }, plainEntry)
 }
