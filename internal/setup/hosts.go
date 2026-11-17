@@ -23,7 +23,7 @@ func Hosts() []Host {
 	return []Host{
 		claudeCode(), claudeDesktop(), cursor(), codex(),
 		cline("Cline", "Code"), cline("Cline in Cursor", "Cursor"), cline("Cline in Windsurf", "Windsurf"), clineCLI(), devin(), copilotCLI(), copilotVSCode(),
-		opencode(), amp(), grokBuild(),
+		opencode(), amp(), grokBuild(), museCode(),
 	}
 }
 
@@ -732,4 +732,44 @@ func LogosPluginRecord() PluginRecord {
 		found = r
 	}
 	return found
+}
+
+// museCode is Meta's terminal agent. `muse mcp add --user` writes mcpServers in
+// <config>/muse/settings.json with an explicit type, so that is the file and
+// shape written here (found by running it, not from its docs). It does not
+// take effect in a session that is already open.
+func museCode() Host {
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		dir = inHome(".config")
+	}
+	path := ""
+	if dir != "" {
+		path = joinPath(dir, "muse", "settings.json")
+	}
+	h := jsonHost("Muse Code", path, "mcpServers", func() bool {
+		return onPath("muse") || exists(parent(path))
+	}, func(s Server) any {
+		return struct {
+			Type string `json:"type"`
+			serverEntry
+		}{"stdio", serverEntry{Command: s.Bin, Args: s.Args, Env: s.Env}}
+	})
+	register := h.Register
+	h.Register = func(s Server) (Outcome, error) {
+		// A settings.json without schema_version is refused whole by `muse exec`
+		// (though `muse mcp list` reads it), which would break every Muse
+		// setting the user has, not only logos. A file that exists is the
+		// user's and keeps what it has.
+		if !exists(path) {
+			if err := os.MkdirAll(parent(path), 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(path, []byte("{\"schema_version\": 1}\n"), 0o600); err != nil {
+				return "", err
+			}
+		}
+		return register(s)
+	}
+	return h
 }
