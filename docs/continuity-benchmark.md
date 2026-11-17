@@ -2,7 +2,10 @@
 
 **Nine memory systems, thirty-two hand-authored scenarios, one machine, no
 network.** Run 2026-08-29 on an M-series Mac, every system embedding with
-`nomic-embed-text` through the same local Ollama.
+`nomic-embed-text` through the same local Ollama. The logos row is from a
+later run of the same 32 scenarios against logos at 11b4d83 (2026-09-26),
+after a fix that stopped a superseded value from being returned; the other
+eight systems were not re-run.
 
 Reproduce it:
 
