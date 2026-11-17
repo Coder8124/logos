@@ -82,7 +82,7 @@ func printAutoSwitches(w io.Writer, vault string) error {
 	}
 	switch {
 	case c.Master == nil:
-		fmt.Fprintln(w, "auto: not set — every switch is on until turned off; `logos config auto off` turns them all off")
+		fmt.Fprintln(w, "auto: not set — every switch is on until turned off; `logos config auto off` turns off all but redact")
 	case *c.Master:
 		fmt.Fprintln(w, "auto: on")
 	default:

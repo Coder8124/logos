@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -186,19 +187,6 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 	if !maps.Equal(judged, kept) {
 		cache[project] = kept
 		saveSwept(vaultDir, cache)
-	}
-	// The one-time archive notice rides on the first record whose transcript
-	// was kept: resume is read by a person, and asked only after a copy exists
-	// so a failed archive does not spend it.
-	for _, cs := range [][]session.Checkpoint{wrote, grew} {
-		for i := range cs {
-			if cs[i].ArchiveKept {
-				if msg := ArchiveNotice(vaultDir); msg != "" {
-					cs[i].Archive += " · " + strings.ReplaceAll(msg, "\n", " ")
-				}
-				return wrote, grew, problems
-			}
-		}
 	}
 	return wrote, grew, problems
 }
@@ -407,4 +395,37 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+// ResumeSweep sweeps project and returns what resume says about it, with the
+// one-time archive notice on a line of its own. It rode on the first kept
+// record's receipt once, and the receipts are capped at three: behind three
+// refusals it was cut from the line after it was recorded as said. And it
+// waited for this sweep to keep a copy, which a session the MCP server
+// archived at shutdown never gives, so it is due whenever a copy exists and
+// it has not been said. Resume is read by a person; a server log is not.
+func ResumeSweep(vaultDir, project string, now time.Time) string {
+	wrote, grew, problems := Sweep(vaultDir, project, now)
+	out := SweepNotice(wrote, grew, problems)
+	if archiveNoticeDue(vaultDir, wrote, grew) {
+		if msg := ArchiveNotice(vaultDir); msg != "" {
+			out += "_" + strings.ReplaceAll(msg, "\n", " ") + "_\n\n"
+		}
+	}
+	return out
+}
+
+// archiveNoticeDue says whether a copy exists to tell the user about, asked
+// only after one does so a failed archive does not spend the notice. The vault
+// is walked only while the notice is unsaid and nothing this sweep kept.
+func archiveNoticeDue(vaultDir string, wrote, grew []session.Checkpoint) bool {
+	if auto.Said(vaultDir, ArchiveNoticeTopic) {
+		return false
+	}
+	for _, c := range append(slices.Clone(wrote), grew...) {
+		if c.ArchiveKept {
+			return true
+		}
+	}
+	return KeepsTranscripts(vaultDir) && anyArchivedCopy(vaultDir)
 }

@@ -385,11 +385,7 @@ func TestTheFirstKeptCopyTellsResumeOnceThatCopiesAreKept(t *testing.T) {
 	now := time.Now()
 	onMachine(t, sweptWithCopy(t, now))
 
-	wrote, _, problems := Sweep(vault, "shop", now)
-	if len(problems) != 0 || len(wrote) != 1 {
-		t.Fatalf("wrote %d, problems %v", len(wrote), problems)
-	}
-	out := SweepNotice(wrote, nil, nil)
+	out := ResumeSweep(vault, "shop", now)
 	if !strings.Contains(out, "keeps a copy") {
 		t.Fatalf("resume after the first kept copy does not say copies are kept:\n%s", out)
 	}
@@ -432,5 +428,72 @@ func TestManyArchivedSessionsTakeOneCappedLineOfResume(t *testing.T) {
 	}
 	if strings.Contains(out, "archived\nsecond") {
 		t.Errorf("a receipt broke the line:\n%s", out)
+	}
+}
+
+// sweptWithCopyID is sweptWithCopy under its own id, so one sweep can keep
+// several copies.
+func sweptWithCopyID(t *testing.T, now time.Time, id string) *transcript.Session {
+	t.Helper()
+	s := sweptWithCopy(t, now)
+	s.ID = id
+	s.Path = filepath.Join(filepath.Dir(s.Path), id+".jsonl")
+	if err := os.WriteFile(s.Path, []byte(`{"type":"user","message":{"role":"user","content":"fix the checkout crash"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// The notice rode on the first kept record's receipt, and the receipts are
+// capped at three: behind three refused archives it was cut from the line
+// while it was recorded as said, so nobody was ever told.
+func TestTheArchiveNoticeIsShownWhenThreeRefusalsComeFirst(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	var found []*transcript.Session
+	for _, id := range []string{"aa01", "aa02", "aa03"} {
+		s := sweptWithCopyID(t, now, id)
+		// A copy the host's file does not extend: refused as a rewrite.
+		dir, err := session.TranscriptDir(vault, "shop", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, session.TranscriptStem+".jsonl"), []byte("something else entirely, and longer than the source\n\n\n\n\n\n\n\n\n\n\n\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		found = append(found, s)
+	}
+	found = append(found, sweptWithCopyID(t, now, "aa04"))
+	onMachine(t, found...)
+
+	out := ResumeSweep(vault, "shop", now)
+	if !strings.Contains(out, "rewrote") {
+		t.Fatalf("the three refusals were not reached:\n%s", out)
+	}
+	if !strings.Contains(out, "keeps a copy") {
+		t.Fatalf("the notice was spent behind the cap and never shown:\n%s", out)
+	}
+}
+
+// The MCP server records and archives a session as it shuts down, and writes
+// that to a log. The sweep then finds the session recorded and keeps nothing,
+// so the notice that copies are kept waited for a copy that never came.
+func TestACopyKeptAtShutdownIsAnnouncedOnTheNextResume(t *testing.T) {
+	vault := t.TempDir()
+	now := time.Now()
+	s := sweptWithCopy(t, now)
+	if _, kept := ArchiveForRecord(vault, s); !kept {
+		t.Fatal("the shutdown archive kept nothing")
+	}
+	onMachine(t)
+
+	if out := ResumeSweep(vault, "shop", now); !strings.Contains(out, "keeps a copy") {
+		t.Fatalf("resume after a shutdown archive does not say copies are kept:\n%q", out)
+	}
+	if again := ResumeSweep(vault, "shop", now); strings.Contains(again, "keeps a copy") {
+		t.Errorf("the notice was shown twice: %q", again)
 	}
 }

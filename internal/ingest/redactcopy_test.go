@@ -380,3 +380,40 @@ func TestARecordExtendsItsCopyWithTheSameBytesAFullPassKeeps(t *testing.T) {
 		t.Errorf("extended copy differs from a full pass:\n%s\n---\n%s", a, b)
 	}
 }
+
+// The record path trusted every copy line that matched its source byte for
+// byte, so a copy kept raw while redact was off grew on that path forever
+// with the token it already held.
+func TestARecordDoesNotGrowARawCopyWithoutMaskingIt(t *testing.T) {
+	v := t.TempDir()
+	src := hostTranscript(t, claudeSession())
+	read := func() *transcript.Session {
+		s, err := transcript.ReadFile("claude-code", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	if err := auto.Set(v, "redact", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := ingest.ArchiveForRecord(v, read()); !kept {
+		t.Fatal("the raw record kept nothing")
+	}
+	if err := auto.Set(v, "redact", true); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"type":"user","sessionId":"s1","message":{"role":"user","content":"more"}}` + "\n")
+	f.Close()
+	line, kept := ingest.ArchiveForRecord(v, read())
+	if !kept {
+		t.Fatalf("the grown record kept nothing: %s", line)
+	}
+	if raw, _, _ := ingest.RawCopies(v); len(raw) != 0 {
+		t.Fatalf("the record grew a raw copy and left it raw (%s): %v", line, raw)
+	}
+}

@@ -249,7 +249,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		// in a host with no hooks they were never recorded, and after a week
 		// they were gone (#193). If the sweep recorded one, the project exists
 		// now and there is nothing to fall back from.
-		swept, sweptFor = ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now())), project
+		swept, sweptFor = ingest.ResumeSweep(s.vault, project, time.Now()), project
 	}
 	// #169 made an unknown folder name fall all the way back to the most
 	// recently checkpointed project in the whole vault, on the theory that an
@@ -287,7 +287,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	// Before the pack, so a session whose host was killed before the shutdown
 	// path could record it is in the handoff it is missing from (#134).
 	if sweep && project != sweptFor {
-		swept += ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
+		swept += ingest.ResumeSweep(s.vault, project, time.Now())
 	}
 	pack, err := contextpack.Build(s.index(), s.embed, s.embedModel, contextpack.Request{
 		Task: "resume work on " + project, Hint: project, Worktree: worktree, Dir: s.repoDir(project),
@@ -349,7 +349,7 @@ func (s *Session) resumeConversation(projectArg, query string) (string, error) {
 	// here, and it exists only once the sweep has recorded it.
 	swept := ""
 	if auto.On(s.vault, auto.Checkpoint) {
-		swept = ingest.SweepNotice(ingest.Sweep(s.vault, project, time.Now()))
+		swept = ingest.ResumeSweep(s.vault, project, time.Now())
 	}
 	// A misspelt project has no conversations either, and "nothing matches"
 	// would send the agent looking for the wrong thing.

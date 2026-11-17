@@ -192,9 +192,9 @@ func (a Archived) Receipt() string {
 	case a.Raw:
 		return fmt.Sprintf("raw transcript archived (%s)", Size(a.Bytes))
 	}
-	r := fmt.Sprintf("transcript archived (%s), %s redacted", Size(a.Bytes), fmt.Sprintf("%d secret%s", a.Secrets, plural(a.Secrets)))
+	r := fmt.Sprintf("transcript archived (%s), %d secret%s redacted", Size(a.Bytes), a.Secrets, plural(a.Secrets))
 	if a.Private > 0 {
-		r += ", " + fmt.Sprintf("%d <private> span%s kept out", a.Private, plural(a.Private))
+		r += fmt.Sprintf(", %d <private> span%s kept out", a.Private, plural(a.Private))
 	}
 	if a.Replaced {
 		r += ", replacing an earlier copy that held what is now masked"
@@ -274,7 +274,7 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	}
 
 	if quick {
-		if a, ok := extendRedacted(src, dst, rel); ok {
+		if a, ok := extendRedacted(vaultDir, src, dst, rel); ok {
 			return a
 		}
 	}
@@ -292,6 +292,7 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	a := Archived{Path: rel, Bytes: n, Secrets: st.Secrets, Private: st.Private}
 	switch heldRedacted(tmp, dst) {
 	case prefixEqual:
+		stampRedacted(vaultDir, rel, n)
 		a.Unchanged = true
 		return a
 	case prefixDiffers:
@@ -309,6 +310,7 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	if err := os.Rename(tmp, dst); err != nil {
 		return refused("the copy failed", fmt.Errorf("moving the redacted copy into %s: %w", rel, err))
 	}
+	stampRedacted(vaultDir, rel, n)
 	return a
 }
 
@@ -328,6 +330,7 @@ func archiveRaw(vaultDir, src, dst, rel string, size int64) Archived {
 		return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
 	}
 	n, err := copyFile(src, dst)
+	stampRedacted(vaultDir, rel, -1)
 	if err != nil {
 		return refused("the copy failed", fmt.Errorf("copying %s to %s: %w", src, rel, err))
 	}

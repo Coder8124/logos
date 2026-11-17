@@ -64,3 +64,58 @@ func TestACopyIdenticalToTheStreamIsUnchangedEvenMidLine(t *testing.T) {
 		t.Errorf("heldRedacted = %d, want prefixEqual (%d)", h, prefixEqual)
 	}
 }
+
+// A release whose detectors did not know a token's shape left it in the copy,
+// the copy matches its source on that line, and the quick path trusted it: an
+// upgrade never masked it. A stamp from another release is a full pass.
+func TestACopyStampedByAnOlderReleaseIsNotGrownOnTheQuickPath(t *testing.T) {
+	v := t.TempDir()
+	tok := "ghp_" + strings.Repeat("a1B2c3", 6)
+	tokLine := `{"type":"user","sessionId":"s1","message":{"role":"user","content":"GITHUB_TOKEN=` + tok + `"}}` + "\n"
+	src := filepath.Join(t.TempDir(), "s1.jsonl")
+	if err := os.WriteFile(src, []byte(`{"type":"user","sessionId":"s1","message":{"role":"user","content":"hi"}}`+"\n"+tokLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Candidate{Harness: "claude-code", SessionID: "s1", Source: src, Project: "kestrel"}
+	was := redactRules
+	t.Cleanup(func() { redactRules = was })
+
+	redactRules = "v0.5.8"
+	first := archiveTranscript(v, c, true)
+	if first.Err != nil {
+		t.Fatal(first.Err)
+	}
+	// What v0.5.8 kept, had it not known the shape: the line as the host wrote it.
+	dst := filepath.Join(v, filepath.FromSlash(first.Path))
+	held, _ := os.ReadFile(dst)
+	lines := strings.SplitAfter(string(held), "\n")
+	lines[1] = tokLine
+	older := strings.Join(lines, "")
+	if err := os.WriteFile(dst, []byte(older), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stampRedacted(v, first.Path, int64(len(older)))
+
+	redactRules = "v0.5.10"
+	f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString(`{"type":"user","sessionId":"s1","message":{"role":"user","content":"more"}}` + "\n")
+	f.Close()
+	if a := archiveTranscript(v, c, true); a.Err != nil {
+		t.Fatal(a.Err)
+	}
+	if got, _ := os.ReadFile(dst); strings.Contains(string(got), tok) {
+		t.Fatal("the quick path grew a copy an older release left a token in")
+	}
+	if !stampHolds(v, first.Path, fileSize(t, dst)) {
+		t.Error("the full pass did not stamp the copy it made")
+	}
+}
+
+func fileSize(t *testing.T, p string) int64 {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
+}

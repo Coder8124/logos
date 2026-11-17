@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // Redacting a transcript on its way into the vault.
@@ -191,6 +193,19 @@ func redactLine(line []byte) ([]byte, RedactStats) {
 	return []byte(out), st
 }
 
+// splitTerminator cuts a line from its "\n" or "\r\n", which redacting keeps
+// as the host wrote it.
+func splitTerminator(line []byte) (body, term []byte) {
+	if len(line) == 0 || line[len(line)-1] != '\n' {
+		return line, nil
+	}
+	body, term = line[:len(line)-1], line[len(line)-1:]
+	if len(body) > 0 && body[len(body)-1] == '\r' {
+		body, term = body[:len(body)-1], line[len(line)-2:]
+	}
+	return body, term
+}
+
 // redactStream writes the redacted form of r to w, a line at a time, keeping
 // every line terminator, and reports what it masked and how many bytes it wrote.
 func redactStream(r io.Reader, w io.Writer) (RedactStats, int64, error) {
@@ -202,13 +217,7 @@ func redactStream(r io.Reader, w io.Writer) (RedactStats, int64, error) {
 	for {
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 {
-			body, term := line, []byte(nil)
-			if body[len(body)-1] == '\n' {
-				body, term = line[:len(line)-1], line[len(line)-1:]
-				if len(body) > 0 && body[len(body)-1] == '\r' {
-					body, term = body[:len(body)-1], line[len(line)-2:]
-				}
-			}
+			body, term := splitTerminator(line)
 			out, st := redactLine(body)
 			total.Secrets += st.Secrets
 			total.Private += st.Private
@@ -274,14 +283,15 @@ func heldRedacted(tmp, dst string) int {
 	if di.Size() == 0 {
 		return prefixGrown
 	}
+	// An identical copy is the copy, whether or not it ends mid-line: read as
+	// grown, it would be rewritten, and counted as archived, on every run.
+	whole := heldPrefixN(tmp, dst, di.Size())
+	if whole == prefixEqual {
+		return whole
+	}
 	f, err := os.Open(dst)
 	if err != nil {
 		return prefixDiffers
-	}
-	// An identical copy is the copy, whether or not it ends mid-line: read as
-	// grown, it would be rewritten, and counted as archived, on every run.
-	if h := heldPrefixN(tmp, dst, di.Size()); h == prefixEqual {
-		return h
 	}
 	last := make([]byte, 1)
 	_, rerr := f.ReadAt(last, di.Size()-1)
@@ -290,7 +300,7 @@ func heldRedacted(tmp, dst string) int {
 		return prefixDiffers
 	}
 	if last[0] == '\n' {
-		return heldPrefixN(tmp, dst, di.Size())
+		return whole
 	}
 	all, err := os.ReadFile(dst)
 	if err != nil {
@@ -322,27 +332,79 @@ func extendsOnceRedacted(tmp, dst string) bool {
 	return h == prefixGrown || h == prefixEqual
 }
 
+// The redaction stamp: .logos/redacted.json names each copy a full pass made,
+// the size it had, and the release whose detectors made it. The quick path
+// below trusts a copy line that matches its source byte for byte, and that is
+// only true of a copy a full pass made, under today's detectors: a copy kept
+// while redact was off, or by a release that did not know a token's shape,
+// matches its source exactly where it holds what is now masked, and grew on
+// the quick path for good with it. A cache, because losing it costs one full
+// pass and nothing else; a dev build's stamps carry over between dev builds,
+// which is the price of a version that says "dev".
+var redactRules = buildinfo.Version
+
+type redactStamp struct {
+	Size  int64  `json:"size"`
+	Rules string `json:"rules"`
+}
+
+func redactStampsPath(vaultDir string) string {
+	return filepath.Join(vaultDir, ".logos", "redacted.json")
+}
+
+func loadRedactStamps(vaultDir string) map[string]redactStamp {
+	out := map[string]redactStamp{}
+	if raw, err := os.ReadFile(redactStampsPath(vaultDir)); err == nil {
+		// One that will not parse stamps nothing: every copy takes a full pass.
+		_ = json.Unmarshal(raw, &out)
+	}
+	return out
+}
+
+// stampRedacted records that the copy at rel, size bytes, is a full pass's
+// work; a negative size forgets it. The error is dropped as saveSwept's is: a
+// stamp that is not written costs the next record a full pass, never a secret.
+func stampRedacted(vaultDir, rel string, size int64) {
+	m := loadRedactStamps(vaultDir)
+	if size < 0 {
+		if _, ok := m[rel]; !ok {
+			return
+		}
+		delete(m, rel)
+	} else {
+		m[rel] = redactStamp{Size: size, Rules: redactRules}
+	}
+	if raw, err := json.Marshal(m); err == nil {
+		_ = vault.WriteAtomic(redactStampsPath(vaultDir), raw)
+	}
+}
+
+func stampHolds(vaultDir, rel string, size int64) bool {
+	st, ok := loadRedactStamps(vaultDir)[rel]
+	return ok && st.Size == size && st.Rules == redactRules
+}
+
 // extendRedacted appends to a redacted copy only the source lines after it.
 // The sweep grows a record inside resume, and redacting a 90 MB transcript from
 // its first byte took three seconds of a hook's ten. A copy is a line-for-line
 // image of its source, so the lines it holds are checked rather than redacted
 // again: one the copy holds byte for byte had nothing to mask when it was
 // kept, and one that differs must be what redacting the source line gives
-// today. A raw copy passes the first test, which is why only the record path
-// takes this: a harvest takes the full pass and replaces it, and doctor's
-// archived-transcripts check finds one either way.
+// today. A raw copy, or one older detectors made, passes the first test, so
+// only a copy the stamp says a full pass made under today's rules is taken
+// this way; any other goes to the full pass, which replaces it.
 //
 // false sends the caller to the full pass, which decides what the copy is: a
 // copy ending mid-line, a source shorter than the copy, a line that matches
 // neither way. Once it has decided, the result is final and true.
-func extendRedacted(src, dst, rel string) (Archived, bool) {
+func extendRedacted(vaultDir, src, dst, rel string) (Archived, bool) {
 	d, err := os.Open(dst)
 	if err != nil {
 		return Archived{}, false
 	}
 	defer d.Close()
 	di, err := d.Stat()
-	if err != nil || di.Size() == 0 {
+	if err != nil || di.Size() == 0 || !stampHolds(vaultDir, rel, di.Size()) {
 		return Archived{}, false
 	}
 	last := make([]byte, 1)
@@ -370,8 +432,9 @@ func extendRedacted(src, dst, rel string) (Archived, bool) {
 		if bytes.Equal(sl, dl) {
 			continue
 		}
-		var out bytes.Buffer
-		if _, _, err := redactStream(bytes.NewReader(sl), &out); err != nil || !bytes.Equal(out.Bytes(), dl) {
+		body, term := splitTerminator(sl)
+		out, _ := redactLine(body)
+		if !bytes.Equal(append(out[:len(out):len(out)], term...), dl) {
 			return Archived{}, false
 		}
 	}
@@ -404,6 +467,7 @@ func extendRedacted(src, dst, rel string) (Archived, bool) {
 	if err != nil {
 		return refused("the copy failed", fmt.Errorf("extending the copy at %s: %w", rel, err)), true
 	}
+	stampRedacted(vaultDir, rel, di.Size()+n)
 	return Archived{Path: rel, Bytes: di.Size() + n, Secrets: st.Secrets, Private: st.Private}, true
 }
 
@@ -424,8 +488,28 @@ func copyIsRaw(path string) (RedactStats, error) {
 // whether or not the host's own file still exists.
 func ArchivedCopies(vaultDir string) ([]string, error) {
 	var out []string
+	err := walkCopies(vaultDir, func(rel string) bool {
+		out = append(out, rel)
+		return true
+	})
+	return out, err
+}
+
+// anyArchivedCopy stops at the first copy. An unreadable vault is no: the
+// notice it gates is said later, never wrongly.
+func anyArchivedCopy(vaultDir string) bool {
+	found := false
+	_ = walkCopies(vaultDir, func(string) bool {
+		found = true
+		return false
+	})
+	return found
+}
+
+// walkCopies calls fn with each copy until fn returns false.
+func walkCopies(vaultDir string, fn func(rel string) bool) error {
 	root := filepath.Join(vaultDir, session.CheckpointDir)
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
@@ -435,10 +519,11 @@ func ArchivedCopies(vaultDir string) ([]string, error) {
 		if d.IsDir() || filepath.Base(filepath.Dir(filepath.Dir(p))) != session.ConvosDir || !session.IsTranscriptFile(d.Name()) {
 			return nil
 		}
-		out = append(out, vaultRel(vaultDir, p))
+		if !fn(vaultRel(vaultDir, p)) {
+			return fs.SkipAll
+		}
 		return nil
 	})
-	return out, err
 }
 
 // RawCopy is an archived copy that still holds what redaction would mask.
@@ -471,7 +556,7 @@ func RawCopies(vaultDir string) (raw []RawCopy, problems []string, err error) {
 // RedactCopy rewrites one archived copy in place, atomically.
 func RedactCopy(vaultDir, rel string) (RedactStats, error) {
 	p := filepath.Join(vaultDir, filepath.FromSlash(rel))
-	tmp, st, _, err := redactToTemp(p, filepath.Dir(p), filepath.Base(p))
+	tmp, st, n, err := redactToTemp(p, filepath.Dir(p), filepath.Base(p))
 	if err != nil {
 		return st, err
 	}
@@ -479,5 +564,6 @@ func RedactCopy(vaultDir, rel string) (RedactStats, error) {
 		os.Remove(tmp)
 		return st, err
 	}
+	stampRedacted(vaultDir, rel, n)
 	return st, nil
 }
