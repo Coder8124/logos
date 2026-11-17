@@ -387,6 +387,18 @@ func (ix *Index) rel(path string) string {
 	return path
 }
 
+// DisplayPath is the vault-relative path of a note without ".md", for showing
+// a user. The slug folds "_" into "-" so it can be a link key, which makes it
+// a path that does not exist on disk; anything a person may copy prints this
+// instead. An unknown slug falls back to itself rather than hiding the hit.
+func (ix *Index) DisplayPath(slug string) string {
+	var p string
+	if err := ix.DB.QueryRow(`SELECT path FROM notes WHERE slug = ?`, slug).Scan(&p); err != nil || p == "" {
+		return slug
+	}
+	return strings.TrimSuffix(ix.rel(p), ".md")
+}
+
 // Sync reads every note in the vault and reconciles it against the cache. Only
 // notes whose content hash changed are re-parsed and marked for re-embedding.
 func (ix *Index) Sync() (SyncReport, error) {
