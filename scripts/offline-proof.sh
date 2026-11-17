@@ -6,7 +6,7 @@
 #   scripts/offline-proof.sh                       # builds, then runs (not offline: see below)
 #   LOGOS_BIN=./logos unshare -rn scripts/offline-proof.sh   # Linux: really offline
 #   OFFLINE_REQUIRE=1 ...                          # fail unless the network is verifiably gone
-#   TRACE_CONNECT=1 ...                            # strace every connect(); fail on one past loopback
+#   TRACE_CONNECT=1 ...                            # strace every connect(); fail on one past loopback or to DNS
 #
 # On its own the script only checks that the sequence works against a scratch
 # vault and a scratch HOME; it proves nothing about the network. The proof is
@@ -25,8 +25,8 @@
 # Exit codes alone are not the proof: a command that tries the network, fails,
 # and carries on (an update check, a runtime probe) exits 0 offline too. With
 # TRACE_CONNECT every logos process runs under strace, and any connect() to an
-# address other than loopback fails the run, whether or not the command
-# noticed. Loopback is the user's local model runtime; unix sockets are IPC.
+# address other than loopback, or to port 53 anywhere, fails the run, whether
+# or not the command noticed. Loopback is the user's local model runtime; unix sockets are IPC.
 #
 # Build the binary before entering the namespace (LOGOS_BIN): the toolchain and
 # its module cache are not part of what is being proved.
@@ -37,18 +37,26 @@ if [ -n "${LOGOS_BIN:-}" ]; then
 fi
 cd "$(dirname "$0")/.." || exit 1
 
-# A connection attempt that succeeds means the namespace is not doing its job.
-# It also catches a runner whose unshare quietly did nothing.
+# A connection attempt that succeeds, or fails any way but "network
+# unreachable", means the namespace is not doing its job. It also catches a
+# runner whose unshare quietly did nothing.
 if [ -n "${OFFLINE_REQUIRE:-}" ]; then
 	if python3 -I - <<'PY'
-import socket, sys
-for host in ("1.1.1.1", "127.0.0.1"):
+import errno, socket, sys
+# Only ENETUNREACH is proof. ECONNREFUSED on loopback is what every ordinary
+# machine with no model runtime says, and a timeout is a slow or filtered
+# network: both passed this check once and would have green-lit a runner whose
+# unshare did nothing.
+for host, port in (("1.1.1.1", 53), ("127.0.0.1", 11434)):
     s = socket.socket()
     s.settimeout(2)
     try:
-        s.connect((host, 53 if host != "127.0.0.1" else 11434))
-    except OSError:
-        continue
+        s.connect((host, port))
+    except OSError as e:
+        if e.errno == errno.ENETUNREACH:
+            continue
+        print("%s:%d failed with %s, not 'network unreachable': this shell is not proven offline" % (host, port, e))
+        sys.exit(1)
     print("connected to %s: this shell is not offline" % host)
     sys.exit(1)
 PY
@@ -157,16 +165,20 @@ then
 fi
 
 if [ -n "${TRACE_CONNECT:-}" ]; then
-	printf '\n\033[1m$ connect() calls past loopback\033[0m\n'
+	printf '\n\033[1m$ connect() calls past loopback, or to DNS\033[0m\n'
 	all=$(cat "$WORK"/connect.* 2>/dev/null | grep 'connect(' || true)
-	outward=$(printf '%s\n' "$all" | grep -E 'AF_INET6?' |
-		grep -vE 'inet_addr\("127\.|"::1"|"::ffff:127\.' || true)
-	printf '%d connect() calls traced, %d to an address past loopback\n' \
+	# Port 53 counts wherever it goes: a lookup by hostname connects to the
+	# resolver on loopback (127.0.0.53, or Go's 127.0.0.1:53 fallback) and fails
+	# there, before any connect() past loopback is made, so a fail-soft call to
+	# a named host would otherwise leave no outward trace at all.
+	outward=$(printf '%s\n' "$all" |
+		awk '/AF_INET/ && (/htons\(53\)/ || !/inet_addr\("127\.|"::1"|"::ffff:127\./)' || true)
+	printf '%d connect() calls traced, %d past loopback or to DNS\n' \
 		"$(printf '%s' "$all" | grep -c 'connect(' || true)" \
 		"$(printf '%s' "$outward" | grep -c 'connect(' || true)"
 	if [ -n "$outward" ]; then
 		printf '%s\n' "$outward"
-		failures+=("a logos process tried to connect past loopback (above)")
+		failures+=("a logos process tried to connect past loopback or to DNS (above)")
 	fi
 fi
 
