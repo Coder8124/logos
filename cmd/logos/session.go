@@ -52,6 +52,22 @@ func runNote(args []string) (err error) {
 	if (ifUncommitted || os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1") && deniedHere() {
 		return nil
 	}
+	// --at is taken only as a whole word with a value after it, so a note that
+	// merely mentions "--at" inside a quoted sentence keeps its words.
+	var at int64
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--at" {
+			continue
+		}
+		if i+1 >= len(args) {
+			return fmt.Errorf("--at needs a value: %s", atUsage)
+		}
+		if at, err = parseAt(args[i+1], time.Now()); err != nil {
+			return err
+		}
+		args = append(append([]string{}, args[:i]...), args[i+2:]...)
+		break
+	}
 	var project, text string
 	switch {
 	case len(args) >= 2:
@@ -129,11 +145,15 @@ func runNote(args []string) (err error) {
 			return nil
 		}
 	}
-	n, err := session.AddNote(ix.DB, project, agentName(), text)
+	add := func() (session.Note, error) { return session.AddNote(ix.DB, project, agentName(), text) }
+	if at != 0 {
+		add = func() (session.Note, error) { return session.AddNoteAt(ix.DB, project, agentName(), text, at) }
+	}
+	n, err := add()
 	if err != nil {
 		return err
 	}
-	fmt.Println("noted — uncommitted until you checkpoint.")
+	fmt.Println("noted — uncommitted until you checkpoint." + datedSuffix(at))
 	if said := secret.Summary(n.Redactions); said != "" {
 		fmt.Println(said + ".")
 	}
@@ -148,7 +168,7 @@ func runCheckpoint(args []string) error {
 	if project == "" {
 		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--intent ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
-			"[--question ...] [--file ...] [--handoff <agent>]\n" +
+			"[--question ...] [--file ...] [--handoff <agent>] [--at <time>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
 	}
 	c := &session.Checkpoint{Project: project, Agent: agentName()}
@@ -188,6 +208,12 @@ func runCheckpoint(args []string) error {
 			c.HandoffTo = val()
 		case "--agent":
 			c.Agent = val()
+		case "--at":
+			ts, err := parseAt(val(), time.Now())
+			if err != nil {
+				return err
+			}
+			c.TS = ts
 		default:
 			return fmt.Errorf("unknown flag %q", rest[i])
 		}
@@ -239,10 +265,16 @@ func runCheckpoint(args []string) error {
 	if stranded == "" {
 		stranded = session.Split(ix.Vault, c.Project)
 	}
+	// Read before Commit, which stamps the time on an undated checkpoint.
+	dated := c.TS != 0
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
-	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	if dated {
+		fmt.Printf("checkpoint written: %s.md.%s\n", c.Slug, datedSuffix(c.TS))
+	} else {
+		fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	}
 	if said := secret.Summary(c.Redactions); said != "" {
 		fmt.Println(said + ".")
 	}

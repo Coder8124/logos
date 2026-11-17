@@ -81,8 +81,16 @@ func memoryCmd(args []string) error {
 		// Any other flag would fall through into the fact: `--kind fact` is
 		// the MCP tool's parameter and the vault's file layout, so it is the
 		// one a user reaches for, and it was stored as the start of the fact.
-		if err := checkFlags("logos memory add", args[1:], flagSpec{valued: []string{"--project"}}); err != nil {
+		if err := checkFlags("logos memory add", args[1:], flagSpec{valued: []string{"--project", "--at"}}); err != nil {
 			return err
+		}
+		created, at := time.Now().Unix(), int64(0)
+		if v := flagStr(args, "--at", ""); v != "" || hasFlag(args, "--at") {
+			var err error
+			if at, err = parseAt(v, time.Now()); err != nil {
+				return err
+			}
+			created = at
 		}
 		// A path is reduced to the project it names, as the MCP server does:
 		// `--project ../etc` was filed under a project literally called "../etc".
@@ -91,9 +99,9 @@ func memoryCmd(args []string) error {
 		// *inside* the fact: "the build runs on arm only --project harrier" was
 		// stored verbatim, and the memory then belonged to no project while
 		// reading as though it did.
-		text := strings.TrimSpace(strings.Join(dropFlag(args[1:], "--project"), " "))
+		text := strings.TrimSpace(strings.Join(dropFlag(dropFlag(args[1:], "--project"), "--at"), " "))
 		if text == "" {
-			return fmt.Errorf("usage: logos memory add <fact> [--project <name>]")
+			return fmt.Errorf("usage: logos memory add <fact> [--project <name>] [--at <time>]")
 		}
 		local, embed, err := memoryEmbedder()
 		if err != nil {
@@ -102,7 +110,7 @@ func memoryCmd(args []string) error {
 		res, err := ops.Remember(ix.DB, ops.RememberRequest{
 			Memory: memory.Memory{
 				Text: text, Kind: memory.Fact, Salience: 0.7, Source: "manual",
-				Project: project, Created: time.Now().Unix(),
+				Project: project, Created: created,
 			},
 			Embed: local, Model: embed,
 			Dir: repoHere(project),
@@ -120,7 +128,7 @@ func memoryCmd(args []string) error {
 		}
 		switch {
 		case r.Created():
-			fmt.Printf("remembered%s — memory #%d.\n", where, r.ID)
+			fmt.Printf("remembered%s — memory #%d.%s\n", where, r.ID, datedSuffix(at))
 		case r.StillQueued:
 			fmt.Printf("still queued%s — memory #%d is waiting for review; accept it with logos review.\n", where, r.Ref)
 		case r.Outcome == memory.EvReinforced:
