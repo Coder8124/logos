@@ -24,7 +24,7 @@ func sampleDash() dash {
 	}
 	d.saved = usagepkg.Totals{Packs: 12, Sent: 40_000, Full: 1_240_000, DeadEndChecks: 3, Rulings: 5}
 	d.savedDaily = []float64{0, 100, 0, 5000, 200_000, 0, 9000}
-	d.restores = restoreSavings{Restores: 4, Measured: 3, NoBaseline: 1, Saved: 540_000, Sent: 1_500, Baseline: 180_000, OtherPacks: 8, OtherSaved: 700_000}
+	d.restores = restoreSavings{Restores: 4, Measured: 3, NoTranscript: 1, Saved: 540_000, Sent: 1_500, Baseline: 180_000, OtherPacks: 8, OtherSaved: 700_000}
 	d.used = []memory.Memory{{Text: "the vault is truth\x1b[2J; the index is a cache", Uses: 14}}
 	d.dormant = []memory.Memory{{Text: "an old note", Created: now.AddDate(0, 0, -90).Unix()}}
 	d.dormantN = 1
@@ -199,7 +199,7 @@ func TestARestoresSavingIsMeasuredAgainstTheRestoredSessionsPeakContext(t *testi
 		t.Fatal(err)
 	}
 	r := d.restores
-	if r.Measured != 1 || r.NoBaseline != 0 || r.Saved != 200_000-1_500 || r.Baseline != 200_000 {
+	if r.Measured != 1 || r.NoTranscript != 0 || r.Saved != 200_000-1_500 || r.Baseline != 200_000 {
 		t.Fatalf("restores = %+v, want one measured against the 200K peak (not the other session's 900K), saving 198.5K", r)
 	}
 	if out := renderDash(d, 120); !strings.Contains(out, "~198K tokens not reloaded across 1 restore") {
@@ -213,7 +213,7 @@ func TestARestoreWithNoTranscriptCountsAsNoBaselineAndSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := d.restores; r.Measured != 0 || r.NoBaseline != 1 || r.Saved != 0 {
+	if r := d.restores; r.Measured != 0 || r.NoTranscript != 1 || r.Saved != 0 {
 		t.Fatalf("restores = %+v, want no saving and one with no baseline", r)
 	}
 	out := renderDash(d, 120)

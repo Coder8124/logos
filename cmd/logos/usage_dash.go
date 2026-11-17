@@ -48,11 +48,15 @@ type recallFact struct {
 	ruled, shown int64
 }
 
+// dashDays is the dashboard's default window, and the bound the piped receipt
+// puts on its restore measure when it was not given --week.
+const dashDays = 30
+
 // usageDashboard draws `logos stats --usage` at a terminal. Piped, the command
 // prints the text receipts instead; those carry each number's method in full,
 // and a script reading them must not get box-drawing characters.
 func usageDashboard(v, project string, week bool, rate float64) error {
-	n := 30
+	n := dashDays
 	if week {
 		n = 7
 	}
@@ -341,15 +345,13 @@ func (d dash) savedPanel(w int) []string {
 		out = append(out, "")
 		out = append(out, daily(d.savedDaily, d.days, w)...)
 	case r.Restores > 0:
-		out = append(out, fmt.Sprintf("%d restore%s, none with a session size to measure against", r.Restores, pluralS(r.Restores)))
+		out = append(out, fmt.Sprintf("%d restore%s, none measurable against a session size", r.Restores, pluralS(r.Restores)))
 	default:
 		out = append(out, "no restores in "+d.window)
 	}
-	if r.NoBaseline > 0 {
-		out = append(out, fmt.Sprintf("%d restore%s had no transcript on this machine", r.NoBaseline, pluralS(r.NoBaseline)))
-	}
+	out = append(out, r.notMeasured()...)
 	if r.Err != nil {
-		out = append(out, "could not read the hosts' transcripts: "+r.Err.Error())
+		out = append(out, "error: "+r.Err.Error())
 	}
 	if r.OtherPacks > 0 {
 		out = append(out, "", fmt.Sprintf("+ ~%s left out of %d context pack%s, against their own candidates", human(r.OtherSaved), r.OtherPacks, pluralS(r.OtherPacks)))

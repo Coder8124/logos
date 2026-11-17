@@ -2,7 +2,6 @@ package spend
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,160 +39,65 @@ func claudeReqLine(ts time.Time, cwd, session, id, req, model string, in, w5, w1
 		stamp(ts), cwd, session, req, id, model, in, w5+w1, read, out, w5, w1)
 }
 
-func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+func ids(names ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
+}
 
-func TestARequestWrittenAsSeveralLinesIsCountedOnce(t *testing.T) {
+func TestARequestWrittenAsSeveralLinesIsOneSample(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	// One response of three content blocks, then the same request copied
 	// into a resumed session's file: still one request.
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
 		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 10),
-		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 20),
-		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 30))
+		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 20))
 	write(t, filepath.Join(claude, "-p", "b.jsonl"),
-		claudeReqLine(now, "/w/proj", "s2", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 30))
-	r, err := Read(now.Add(-time.Hour), "")
+		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 30))
+	got, err := Samples(now.Add(-time.Hour), ids("s1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Total.Input != 1000 || r.Total.Output != 30 {
-		t.Fatalf("total = %+v, want one request of 1000 in and 30 out", r.Total.Usage)
+	if len(got["s1"]) != 1 || got["s1"][0].Context != 1000 {
+		t.Fatalf("samples = %v, want the one request once", got["s1"])
 	}
 }
 
-func TestClaudeCodesSyntheticMessagesAreNotRequests(t *testing.T) {
+func TestClaudeCodesSyntheticMessagesAreNotSamples(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
-		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "<synthetic>", 5000, 0, 0, 0, 5))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Total.Total() != 0 {
-		t.Fatalf("a <synthetic> line was counted: %+v", r.Total.Usage)
+		claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "<synthetic>", 5000, 0, 0, 0, 10))
+	got, err := Samples(now.Add(-time.Hour), ids("s1"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Samples = %v, %v; want nothing for a placeholder", got, err)
 	}
 }
 
-func TestEachTokenKindIsPricedAtItsOwnRate(t *testing.T) {
-	// claude-opus-5-5: $4 in, $20 out, $0.20 cache read; writes 1.25× and 2× input.
-	usd, ok := Cost("claude-opus-5-5[1m]", Usage{Input: 1e6, CacheWrite5m: 1e6, CacheWrite1h: 1e6, CacheRead: 1e6, Output: 1e6})
-	if !ok || !near(usd, 4+5+8+0.20+20) {
-		t.Fatalf("Cost = %v, %v; want 37.20", usd, ok)
-	}
-}
-
-func TestAHaikuPromptPastTheLongThresholdUsesTheLongRateCard(t *testing.T) {
-	short, _ := Cost("claude-haiku-5-5", Usage{Input: 100_000, Output: 1e6})
-	long, _ := Cost("claude-haiku-5-5", Usage{Input: 100_001, Output: 1e6})
-	if !near(short, 0.01+0.50) {
-		t.Fatalf("at the threshold = %v, want the standard card (0.51)", short)
-	}
-	if !near(long, 100_001*0.50/1e6+2.50) {
-		t.Fatalf("past the threshold = %v, want the long card", long)
-	}
-}
-
-func TestAModelWithNoListPriceKeepsItsTokensButNoDollars(t *testing.T) {
+func TestAContextCountsEveryInputKindTheModelRead(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
-		claudeReqLine(now, "/w/proj", "s1", "m1", "r1", "flint", 400, 0, 0, 0, 100),
-		claudeReqLine(now, "/w/proj", "s1", "m2", "r2", "claude-sonnet-5", 1e6, 0, 0, 0, 0))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f := r.Models["flint"]; f == nil || f.USD != 0 || f.Unpriced != 500 {
-		t.Fatalf("flint = %+v, want 500 unpriced tokens and no dollars", f)
-	}
-	if !near(r.Total.USD, 2) || r.Total.Unpriced != 500 {
-		t.Fatalf("total = $%v with %d unpriced, want $2 and 500", r.Total.USD, r.Total.Unpriced)
-	}
-}
-
-func TestASubagentWorktreeCountsAsTheProjectItWorksOn(t *testing.T) {
-	for cwd, want := range map[string]string{
-		"/u/brain/.claude/worktrees/agent-a2ed589c": "brain",
-		"/u/brain":           "brain",
-		"/u/worktrees/brain": "brain",
-		"":                   "(no project)",
-	} {
-		if got := projectOf(cwd); got != want {
-			t.Errorf("projectOf(%q) = %q, want %q", cwd, got, want)
-		}
-	}
-}
-
-func TestARequestBeforeTheWindowIsLeftOut(t *testing.T) {
-	claude, _ := hosts(t)
-	now := time.Now()
-	write(t, filepath.Join(claude, "-p", "a.jsonl"),
-		claudeReqLine(now.Add(-48*time.Hour), "/w/proj", "s1", "m1", "r1", "claude-sonnet-5", 999, 0, 0, 0, 0),
-		claudeReqLine(now, "/w/proj", "s1", "m2", "r2", "claude-sonnet-5", 1, 0, 0, 0, 0))
-	r, err := Read(now.Add(-24*time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Total.Input != 1 {
-		t.Fatalf("input = %d, want only the request inside the window", r.Total.Input)
-	}
-}
-
-func TestAProjectFilterKeepsOnlyThatProject(t *testing.T) {
-	claude, _ := hosts(t)
-	now := time.Now()
-	write(t, filepath.Join(claude, "-p", "a.jsonl"),
-		claudeReqLine(now, "/w/alpha", "s1", "m1", "r1", "claude-sonnet-5", 7, 0, 0, 0, 0),
-		claudeReqLine(now, "/w/beta", "s2", "m2", "r2", "claude-sonnet-5", 9, 0, 0, 0, 0))
-	r, err := Read(now.Add(-time.Hour), "alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Total.Input != 7 || len(r.Projects) != 1 {
-		t.Fatalf("total %d over %v, want alpha's 7 alone", r.Total.Input, r.Projects)
-	}
-}
-
-func codexCount(ts time.Time, in, cached, out, lastIn int64) string {
-	return fmt.Sprintf(`{"timestamp":%q,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":%d,"cached_input_tokens":%d,"output_tokens":%d},"last_token_usage":{"input_tokens":%d}}}}`,
-		stamp(ts), in, cached, out, lastIn)
-}
-
-func TestCodexCountsGrowthNotEveryRepeatedTokenCount(t *testing.T) {
-	_, codex := hosts(t)
-	now := time.Now()
-	write(t, filepath.Join(codex, "2026", "rollout.jsonl"),
-		fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{"cwd":"/w/proj"}}`, stamp(now)),
-		fmt.Sprintf(`{"timestamp":%q,"type":"turn_context","payload":{"cwd":"/w/proj","model":"gpt-6-luna"}}`, stamp(now)),
-		codexCount(now, 1000, 600, 50, 1000),
-		codexCount(now, 1000, 600, 50, 1000), // a rate-limit refresh: nothing spent
-		codexCount(now, 3000, 2400, 80, 2000))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 3000 in of which 2400 cached: 600 uncached, 2400 read, 80 out.
-	got := r.Total.Usage
-	if got.Input != 600 || got.CacheRead != 2400 || got.Output != 80 {
-		t.Fatalf("total = %+v, want 600 uncached, 2400 cached, 80 out", got)
-	}
-	if len(r.Sessions) != 1 || r.Sessions[0].Peak != 2000 || r.Sessions[0].Model != "gpt-6-luna" {
-		t.Fatalf("sessions = %+v, want one gpt-6-luna session peaking at 2000", r.Sessions)
+		claudeReqLine(now, "/w/proj", "s1", "m1", "r1", "claude-opus-5-5", 10, 200, 30, 4000, 99))
+	got, _ := Samples(now.Add(-time.Hour), ids("s1"))
+	if len(got["s1"]) != 1 || got["s1"][0].Context != 4240 {
+		t.Fatalf("samples = %v, want 10 + 230 cache written + 4000 cache read, not the output", got["s1"])
 	}
 }
 
 func TestAMissingHostDirectoryIsSkippedNotAnError(t *testing.T) {
 	t.Setenv(transcript.LogosClaudeProjectsEnv, filepath.Join(t.TempDir(), "absent"))
 	t.Setenv(transcript.LogosCodexSessionsEnv, filepath.Join(t.TempDir(), "absent"))
-	r, err := Read(time.Now().Add(-time.Hour), "")
-	if err != nil || len(r.Hosts) != 0 {
-		t.Fatalf("Read = %+v, %v; want no hosts and no error", r, err)
+	got, err := Samples(time.Now().Add(-time.Hour), ids("s1"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Samples = %v, %v; want nothing and no error", got, err)
 	}
 }
 
-func TestATranscriptThatCannotBeOpenedIsCountedNotFatal(t *testing.T) {
+func TestATranscriptThatCannotBeOpenedDoesNotHideTheOthers(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
@@ -203,76 +107,49 @@ func TestATranscriptThatCannotBeOpenedIsCountedNotFatal(t *testing.T) {
 	if err := os.Symlink(filepath.Join(claude, "gone"), filepath.Join(claude, "-p", "b.jsonl")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatalf("one unreadable file failed the whole report: %v", err)
-	}
-	if r.Skipped != 1 || r.Total.Input != 1000 {
-		t.Fatalf("skipped = %d, input = %d; want 1 file skipped and the other's 1000 counted", r.Skipped, r.Total.Input)
+	got, err := Samples(now.Add(-time.Hour), ids("s1"))
+	if err != nil || len(got["s1"]) != 1 {
+		t.Fatalf("Samples = %v, %v; want the readable file's request", got, err)
 	}
 }
 
-func TestALineWithABadTimestampIsCountedUnreadable(t *testing.T) {
+func TestALineWithABadTimestampIsNotASample(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	line := strings.Replace(claudeReqLine(now, "/w/proj", "s1", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 10), stamp(now), "yesterday-ish", 1)
 	write(t, filepath.Join(claude, "-p", "a.jsonl"), line)
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Unreadable != 1 {
-		t.Fatalf("unreadable = %d, want the bad-timestamp line counted", r.Unreadable)
+	got, err := Samples(now.Add(-time.Hour), ids("s1"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Samples = %v, %v; want the line dropped, not read as the epoch", got, err)
 	}
 }
 
-func TestCodexTokensBeforeAnyModelIsNamedAreKeptUnpriced(t *testing.T) {
-	_, codex := hosts(t)
-	now := time.Now()
-	write(t, filepath.Join(codex, "2026", "rollout.jsonl"),
-		codexCount(now, 1000, 0, 50, 1000))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := r.Models[unknownModel]
-	if b == nil || b.Total() != 1050 || r.Total.Unpriced != 1050 {
-		t.Fatalf("models = %v, unpriced = %d; want 1050 tokens under %q", r.Models, r.Total.Unpriced, unknownModel)
-	}
-}
-
-func TestClaudeLinesWithNoSessionIdAreOneSessionPerFile(t *testing.T) {
+func TestClaudeLinesWithNoSessionIdAreNamedByTheirFile(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
-	write(t, filepath.Join(claude, "-p", "a.jsonl"),
+	write(t, filepath.Join(claude, "-p", "abc.jsonl"),
 		claudeReqLine(now, "/w/proj", "", "msg_1", "req_1", "claude-opus-5-5", 1000, 0, 0, 0, 10))
-	write(t, filepath.Join(claude, "-p", "b.jsonl"),
+	write(t, filepath.Join(claude, "-p", "def.jsonl"),
 		claudeReqLine(now, "/w/proj", "", "msg_2", "req_2", "claude-opus-5-5", 2000, 0, 0, 0, 10))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(r.Sessions) != 2 {
-		t.Fatalf("sessions = %d, want one per file", len(r.Sessions))
+	got, _ := Samples(now.Add(-time.Hour), ids("abc", "def"))
+	if got["abc"][0].Context != 1000 || got["def"][0].Context != 2000 {
+		t.Fatalf("samples = %v, want each file its own session", got)
 	}
 }
 
-func TestTwoRequestsWithNoMessageIdInOneSecondAreBothCounted(t *testing.T) {
+func TestTwoRequestsWithNoMessageIdInOneSecondAreBothSampled(t *testing.T) {
 	claude, _ := hosts(t)
 	now := time.Now()
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
 		claudeReqLine(now, "/w/proj", "s1", "", "", "claude-opus-5-5", 1000, 0, 0, 0, 10),
 		claudeReqLine(now, "/w/proj", "s1", "", "", "claude-opus-5-5", 2000, 0, 0, 0, 10))
-	r, err := Read(now.Add(-time.Hour), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Total.Input != 3000 {
-		t.Fatalf("input = %d, want both requests' 3000", r.Total.Input)
+	got, _ := Samples(now.Add(-time.Hour), ids("s1"))
+	if len(got["s1"]) != 2 {
+		t.Fatalf("samples = %v, want both requests", got["s1"])
 	}
 }
 
-func TestPeaksFindsASessionThatBeganBeforeAnyWindowByItsHostId(t *testing.T) {
+func TestSamplesFindASessionThatBeganBeforeAnyWindowByItsHostId(t *testing.T) {
 	claude, codex := hosts(t)
 	now := time.Now()
 	write(t, filepath.Join(claude, "-p", "a.jsonl"),
@@ -281,12 +158,26 @@ func TestPeaksFindsASessionThatBeganBeforeAnyWindowByItsHostId(t *testing.T) {
 		claudeReqLine(now, "/w/proj", "s-else", "m3", "r3", "claude-opus-5-5", 999999, 0, 0, 0, 1))
 	write(t, filepath.Join(codex, "2026", "rollout-2026-01-01T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl"),
 		`{"timestamp":"`+stamp(now)+`","type":"session_meta","payload":{"id":"codex-1","cwd":"/w/proj"}}`,
+		`{"timestamp":"`+stamp(now)+`","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":70000,"output_tokens":5},"last_token_usage":{"input_tokens":70000}}}}`,
 		`{"timestamp":"`+stamp(now)+`","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":70000,"output_tokens":5},"last_token_usage":{"input_tokens":70000}}}}`)
-	got, err := Peaks(now.Add(-time.Hour*3), map[string]bool{"s-old": true, "codex-1": true, "s-missing": true})
+	got, err := Samples(now.Add(-time.Hour*3), ids("s-old", "codex-1", "s-missing"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got["s-old"] != 120000 || got["codex-1"] != 70000 || len(got) != 2 {
-		t.Fatalf("Peaks = %v, want s-old at 120000, codex-1 at 70000 and nothing for the others", got)
+	if PeakAt(got["s-old"], now.Unix()) != 120000 || PeakAt(got["codex-1"], now.Unix()) != 70000 || len(got) != 2 {
+		t.Fatalf("Samples = %v, want s-old at 120000, codex-1 at 70000 and nothing for the others", got)
+	}
+	if len(got["codex-1"]) != 1 {
+		t.Fatalf("codex samples = %v, want a repeated token_count counted once", got["codex-1"])
+	}
+}
+
+func TestAPeakStopsAtTheCutoff(t *testing.T) {
+	s := []Sample{{TS: 10, Context: 5}, {TS: 20, Context: 90}, {TS: 30, Context: 400}}
+	if got := PeakAt(s, 20); got != 90 {
+		t.Fatalf("PeakAt = %d, want 90: the 400 came after the cutoff", got)
+	}
+	if got := PeakAt(s, 5); got != 0 {
+		t.Fatalf("PeakAt before the first sample = %d, want 0", got)
 	}
 }
