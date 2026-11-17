@@ -353,6 +353,31 @@ func checkFreshness(dir string, db *sql.DB) Check {
 	return c
 }
 
+// Lag is how far the newest note in the vault is ahead of the last finished
+// index, or zero when the index is current, was never built (checkIndex says
+// that one) or cannot be read. Search calls it so an answer drawn from a
+// cache that has not seen a note says so, instead of reading as a miss.
+func Lag(dir string, db *sql.DB) time.Duration {
+	if db == nil {
+		return 0
+	}
+	var synced sql.NullInt64
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'last_sync'").Scan(&synced); err != nil || !synced.Valid || synced.Int64 == 0 {
+		return 0
+	}
+	newest, err := newestMarkdown(dir)
+	if err != nil || newest.IsZero() {
+		return 0
+	}
+	if lag := newest.Sub(time.Unix(synced.Int64, 0)); lag > staleBy {
+		return lag
+	}
+	return 0
+}
+
+// RoughLag is Lag in the words doctor uses.
+func RoughLag(d time.Duration) string { return roughly(d) }
+
 func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 	c := Check{Name: "embeddings"}
 	if db == nil {
