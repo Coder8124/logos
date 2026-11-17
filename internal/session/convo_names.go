@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/Coder8124/logos/internal/vault"
 )
 
 // convoSep joins a conversation folder's intent slug to the host's id. Neither
@@ -62,18 +63,7 @@ func convoSlug(c Checkpoint) string {
 // beside the slug already keeps folders distinct, so the slug only has to read
 // well. One dash per run also means it can never hold convoSep.
 func slugWords(text string) string {
-	var b strings.Builder
-	dash := false
-	for _, r := range strings.ToLower(text) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-			dash = false
-		} else if !dash && b.Len() > 0 {
-			b.WriteByte('-')
-			dash = true
-		}
-	}
-	return strings.Trim(b.String(), "-")
+	return dashRuns(text, func(rune) bool { return true })
 }
 
 func cutSlug(s string) string {
@@ -129,10 +119,43 @@ func convoFolderFor(scopeDir string, c Checkpoint) string {
 	if have := convoFoldersFor(scopeDir, id); len(have) > 0 {
 		return have[0]
 	}
-	if slug := convoSlug(c); slug != "" {
-		return slug + convoSep + id
+	return convoName(convoSlug(c), id)
+}
+
+// convoName joins a slug to an id, held to maxNameLen bytes. The slug is cut
+// to what room the id leaves, at a word boundary where there is one and at a
+// rune boundary otherwise, and dropped entirely when the id alone fills the
+// name: a 255-byte host id plus any slug is a name the filesystem refuses, and
+// the id is the identity, so it is the slug that gives way. The cap matters on
+// lookup too — a name that could never have been written must not be looked for.
+func convoName(slug, id string) string {
+	room := maxNameLen - len(id) - len(convoSep)
+	if slug == "" || room < 1 {
+		return id
 	}
-	return id
+	if len(slug) > room {
+		cut := capAt(slug, room)
+		if len(cut) < len(slug) && slug[len(cut)] != '-' {
+			if i := strings.LastIndex(cut, "-"); i > 0 {
+				cut = cut[:i]
+			}
+		}
+		slug = strings.Trim(cut, "-")
+	}
+	if slug == "" {
+		return id
+	}
+	return slug + convoSep + id
+}
+
+// lockConvoFolders serialises choosing, creating and renaming conversation
+// folders across processes. It is its own lock, not auto-records: that one
+// guards rewrites of auto record files and is held for the whole of a grow, so
+// taking it on every checkpoint would stall each Commit behind an unrelated
+// distil. Order, where both are held: auto-records first, then this one, which
+// is how NameConvoFolders takes them.
+func lockConvoFolders(vaultDir string) (*vault.Guard, error) {
+	return vault.Lock(vaultDir, "convo-folders")
 }
 
 // NameConvoFolders renames every conversation folder still named by its bare
@@ -141,11 +164,17 @@ func convoFolderFor(scopeDir string, c Checkpoint) string {
 // transcript and any sync copies go with it. It is derived layout: the slug
 // comes from checkpoint frontmatter, so it is rebuildable from markdown.
 //
-// Nothing is renamed over an existing path, and an id that already has two
-// folders is left alone: merging them means choosing between two copies of
-// possibly different checkpoints, and a wrong guess destroys one. Both stay
-// readable (lookups group by id) and the skip is returned for the caller to
-// say, so the repair is a person's call, not a silent one.
+// Nothing is renamed over an existing path, and an id that already has more
+// than one folder — a bare one beside a slugged one, or two slugged ones — is
+// left alone: merging them means choosing between two copies of possibly
+// different checkpoints, and a wrong guess destroys one. All stay readable
+// (lookups group by id) and the id is returned once for the caller to say, so
+// the repair is a person's call, not a silent one.
+//
+// Each rename holds auto-records and then convo-folders, and re-checks under
+// them. convo-folders keeps a checkpoint being filed from choosing the old
+// name and recreating it after the move; auto-records keeps a grow or distil
+// of an auto record from having its folder moved mid-rewrite.
 func NameConvoFolders(vaultDir string) (named int, skipped []string, err error) {
 	scopes, err := Scopes(vaultDir)
 	if err != nil {
@@ -157,36 +186,81 @@ func NameConvoFolders(vaultDir string) (named int, skipped []string, err error) 
 		if e != nil {
 			continue
 		}
+		byID := map[string][]string{}
+		for _, en := range entries {
+			if en.IsDir() && en.Name() != UnattachedFolder {
+				id := convoFolderID(en.Name())
+				byID[id] = append(byID[id], en.Name())
+			}
+		}
 		for _, en := range entries {
 			name := en.Name()
-			if !en.IsDir() || name == UnattachedFolder || convoFolderID(name) != name {
+			if !en.IsDir() || name == UnattachedFolder {
 				continue
 			}
+			id := convoFolderID(name)
 			shown := filepath.ToSlash(filepath.Join(CheckpointDir, scope, ConvosDir, name))
-			if len(convoFoldersFor(dir, name)) > 1 {
-				skipped = append(skipped, shown+": another folder already stands for this conversation, left both")
+			if len(byID[id]) > 1 {
+				// Said once per id, at its first folder in listing order.
+				if byID[id][0] == name {
+					skipped = append(skipped, shown+": more than one folder stands for this conversation ("+
+						strings.Join(byID[id], ", ")+"), left all")
+				}
 				continue
 			}
-			c, ok := earliestIn(filepath.Join(dir, ConvosDir, name))
-			if !ok {
-				continue
+			if id != name {
+				continue // already named
 			}
-			slug := convoSlug(c)
-			if slug == "" {
-				continue
-			}
-			target := filepath.Join(dir, ConvosDir, slug+convoSep+name)
-			if _, e := os.Lstat(target); e == nil {
-				skipped = append(skipped, shown+": "+slug+convoSep+name+" already exists, not renamed over it")
-				continue
-			}
-			if e := os.Rename(filepath.Join(dir, ConvosDir, name), target); e != nil {
+			ok, why, e := nameOne(vaultDir, dir, name)
+			if e != nil {
 				return named, skipped, fmt.Errorf("naming conversation folder %s after its intent: %w", shown, e)
 			}
-			named++
+			if why != "" {
+				skipped = append(skipped, shown+": "+why)
+			}
+			if ok {
+				named++
+			}
 		}
 	}
 	return named, skipped, nil
+}
+
+// nameOne renames one bare folder under the locks, re-reading everything the
+// unlocked scan in NameConvoFolders only guessed: a checkpoint filed in the
+// meantime may already have created a slugged sibling.
+func nameOne(vaultDir, scopeDir, name string) (renamed bool, why string, err error) {
+	ar, err := lockAutoRecords(vaultDir)
+	if err != nil {
+		return false, "", err
+	}
+	defer ar.Unlock()
+	cf, err := lockConvoFolders(vaultDir)
+	if err != nil {
+		return false, "", err
+	}
+	defer cf.Unlock()
+	if have := convoFoldersFor(scopeDir, name); len(have) != 1 || have[0] != name {
+		if len(have) > 1 {
+			return false, "another folder now stands for this conversation, left both", nil
+		}
+		return false, "", nil
+	}
+	c, ok := earliestIn(filepath.Join(scopeDir, ConvosDir, name))
+	if !ok {
+		return false, "", nil
+	}
+	target := convoName(convoSlug(c), name)
+	if target == name {
+		return false, "", nil
+	}
+	if _, e := os.Lstat(filepath.Join(scopeDir, ConvosDir, target)); e == nil {
+		return false, target + " already exists, not renamed over it", nil
+	}
+	if e := os.Rename(filepath.Join(scopeDir, ConvosDir, name), filepath.Join(scopeDir, ConvosDir, target)); e != nil {
+		return false, "", e
+	}
+	return true, "", nil
 }
 
 // earliestIn parses the oldest readable, non-empty checkpoint in one

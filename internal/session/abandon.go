@@ -168,6 +168,18 @@ func CloseAbandoned(db *sql.DB, vaultDir, id string) (Checkpoint, error) {
 	// reads the activity log the way the auto-close-from-transcript path does
 	// — so this always files to UnattachedFolder, which is the honest answer:
 	// no id, no folder named after data nobody gave us.
+	// Chosen, created and written under one lock (convo-folders), because
+	// NameConvoFolders renames bare folders under the same lock: a rename
+	// landing between the choice and the mkdir resurrected a bare folder beside
+	// the slugged one, and two first checkpoints of one id with different tasks
+	// each saw no folder and made two. Held through the write, not just the
+	// mkdir, because the placeholder claimCheckpoint leaves is renamed over
+	// there and a folder moved before that would be recreated bare.
+	g, err := lockConvoFolders(vaultDir)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer g.Unlock()
 	convo := convoFolderFor(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(s.Project)), c)
 	cpID, path, err := claimCheckpoint(vaultDir, s.Project, s.Agent, s.ID, convo)
 	if err != nil {

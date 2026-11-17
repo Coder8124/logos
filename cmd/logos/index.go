@@ -150,6 +150,24 @@ func ask(question string) error {
 // w: stdout for `logos index`, stderr for a rebuild auto runs ahead of another
 // command whose stdout is its answer. A nil p indexes text only.
 func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string) error {
+	// Before the sync, not after: the vault is truth and the index is its
+	// cache, so a rename is written first and the sync then records the paths
+	// as they now are. Run after, the index held every renamed checkpoint at a
+	// path that no longer existed until some later pass. A checkpoint a
+	// re-file moves into a bare folder later in this pass is named on the next
+	// one. Said with the number, and what was left alone said too: a folder
+	// that stays unnamed looks like a missed one.
+	named, skippedNames, nameErr := ix.SyncConvoNames()
+	if named > 0 {
+		fmt.Fprintf(w, "named %d conversation folder%s after their intent\n", named, plural(named, ""))
+	}
+	for _, sk := range skippedNames {
+		fmt.Fprintln(w, "  left unnamed:", sk)
+	}
+	if nameErr != nil {
+		fmt.Fprintln(os.Stderr, "· could not name conversation folders:", nameErr)
+	}
+
 	rep, err := ix.Sync()
 	if err != nil {
 		return err
@@ -294,20 +312,6 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		if rejoined > 0 {
 			fmt.Fprintf(w, "  %d of them had been filed under a cut conversation id and rejoined their conversation\n", rejoined)
 		}
-	}
-
-	// After the re-file, so a checkpoint just moved into a bare-id folder is
-	// named from it in the same pass. Said with the number, and what was left
-	// alone said too: a folder that stays unnamed looks like a missed one.
-	named, skippedNames, err := ix.SyncConvoNames()
-	if named > 0 {
-		fmt.Fprintf(w, "named %d conversation folder%s after their intent\n", named, plural(named, ""))
-	}
-	for _, sk := range skippedNames {
-		fmt.Fprintln(w, "  left unnamed:", sk)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "· could not name conversation folders:", err)
 	}
 
 	printConflictCopies(w, "", rep.ConflictCopies, edits)

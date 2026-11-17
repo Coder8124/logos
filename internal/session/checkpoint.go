@@ -302,6 +302,18 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// which is when the session started: History sorts by name, so a long
 	// session's checkpoint sorted behind a shorter one written before it, and
 	// resume showed the older one as where work left off (#366).
+	// Chosen, created and written under one lock (convo-folders), because
+	// NameConvoFolders renames bare folders under the same lock: a rename
+	// landing between the choice and the mkdir resurrected a bare folder beside
+	// the slugged one, and two first checkpoints of one id with different tasks
+	// each saw no folder and made two. Held through the write, not just the
+	// mkdir, because the placeholder claimCheckpoint leaves is renamed over
+	// there and a folder moved before that would be recreated bare.
+	g, err := lockConvoFolders(vaultDir)
+	if err != nil {
+		return err
+	}
+	defer g.Unlock()
 	convo := convoFolderFor(filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(c.Project)), *c)
 	id, path, err := claimCheckpoint(vaultDir, c.Project, c.Agent, idFor(c.Agent, time.Unix(c.TS, 0)), convo)
 	if err != nil {
@@ -689,9 +701,6 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 				continue // already filed where its own frontmatter says it belongs
 			}
 			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolderFor(dir, c), en.Name))
-			if en.Rel == wantRel {
-				continue
-			}
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
 			// Its sync copies go too, before the original leaves. A copy is
 			// set aside only while its original is beside it, so one left
@@ -818,6 +827,27 @@ func ResolvePath(vaultDir, slug string) (string, error) {
 	if i := strings.LastIndexByte(rel, '/'); i >= 0 {
 		stem = rel[i+1:]
 		scopeHint = strings.TrimPrefix(rel[:i], CheckpointDir+"/")
+	}
+	// A citation names its conversation folder, and the folder is the one part
+	// of the path that renaming changes: "…/_convos/sess-2/<stem>" is a stale
+	// address once Refile has made it "…/_convos/<slug>--sess-2/". Left in the
+	// hint, "kestrel/_convos/sess-2" was read as a scope that does not exist
+	// and every citation written before the rename stopped resolving. The
+	// folder is mapped by its id to whichever folder stands for that id in the
+	// scope now — slugged for a bare citation, bare for a slugged one — and the
+	// hint is cut back to the scope for the stem search.
+	if j := strings.Index(scopeHint, "/"+ConvosDir+"/"); j >= 0 {
+		scope, folder := scopeHint[:j], scopeHint[j+len(ConvosDir)+2:]
+		if !strings.Contains(folder, "/") {
+			scopeDir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(scope))
+			for _, f := range convoFoldersFor(scopeDir, convoFolderID(folder)) {
+				p := filepath.Join(scopeDir, ConvosDir, f, stem+".md")
+				if _, err := os.Stat(p); err == nil {
+					return p, nil
+				}
+			}
+		}
+		scopeHint = scope
 	}
 	name := stem + ".md"
 	if !IsCheckpointFile(name) {

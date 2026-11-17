@@ -508,22 +508,31 @@ func symbolWord(r rune) string {
 // those were never merged with each other, and spelling their symbols would
 // only move a conversation's folder or an agent's files partway through.
 func dropSymbols(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
+	return capName(dashRuns(s, func(r rune) bool {
+		return r == '-' || r == '_' || r == ' ' || r == '/' || r == '.'
+	}))
+}
+
+// dashRuns lowercases s, keeps letters and digits, and turns each run of
+// runes that isSep accepts into a single dash. Any other rune is dropped
+// without breaking the run. It is the one loop behind both dropSymbols and
+// slugWords, which differ only in what counts as a separator.
+func dashRuns(s string, isSep func(rune) bool) string {
 	var b strings.Builder
 	lastDash := false
-	for _, r := range s {
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
 		switch {
 		case unicode.IsLetter(r), unicode.IsDigit(r):
 			b.WriteRune(r)
 			lastDash = false
-		case r == '-' || r == '_' || r == ' ' || r == '/' || r == '.':
+		case isSep(r):
 			if !lastDash && b.Len() > 0 {
 				b.WriteByte('-')
 				lastDash = true
 			}
 		}
 	}
-	return capName(strings.Trim(b.String(), "-"))
+	return strings.Trim(b.String(), "-")
 }
 
 // maxNameLen caps one path segment. Every filesystem in play refuses a name

@@ -4,20 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+	"unicode/utf8"
 )
 
 func convoNames(t *testing.T, dir, project string) []string {
 	t.Helper()
-	es, err := os.ReadDir(filepath.Join(dir, CheckpointDir, project, ConvosDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, e := range es {
-		out = append(out, e.Name())
-	}
-	return out
+	return convoNamesOf(t, filepath.Join(dir, CheckpointDir, project, ConvosDir))
 }
 
 // legacyBare renames a conversation's folder back to the bare id, which is
@@ -35,6 +30,7 @@ func legacyBare(t *testing.T, dir, project, id string) {
 }
 
 func convoNamesOf(t *testing.T, root string) []string {
+	t.Helper()
 	es, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
@@ -163,5 +159,140 @@ func TestABareAndASluggedFolderForOneIDAreReportedNotMerged(t *testing.T) {
 	}
 	if got := convoFoldersFor(filepath.Join(dir, CheckpointDir, "kestrel"), "sess-1"); got[0] != "fix-checkout--sess-1" {
 		t.Fatalf("lookup order = %v", got)
+	}
+}
+
+func TestACitationTakenBeforeTheRenameStillResolvesAfterIt(t *testing.T) {
+	dir := t.TempDir()
+	path := commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "Fix checkout", HostSession: "sess-2"})
+	stem := strings.TrimSuffix(filepath.Base(path), ".md")
+	bareCite := "sessions/kestrel/_convos/sess-2/" + stem
+	legacyBare(t, dir, "kestrel", "sess-2")
+	if _, _, err := NameConvoFolders(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolvePath(dir, bareCite)
+	if err != nil {
+		t.Fatalf("a citation written before the rename no longer resolves: %v", err)
+	}
+	if !strings.Contains(got, "fix-checkout--sess-2") {
+		t.Fatalf("resolved to %s", got)
+	}
+}
+
+func TestASluggedCitationStillResolvesWhenItsFolderIsBare(t *testing.T) {
+	dir := t.TempDir()
+	path := commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "Fix checkout", HostSession: "sess-2"})
+	stem := strings.TrimSuffix(filepath.Base(path), ".md")
+	cite := "sessions/kestrel/_convos/fix-checkout--sess-2/" + stem
+	legacyBare(t, dir, "kestrel", "sess-2")
+	got, err := ResolvePath(dir, cite)
+	if err != nil || !strings.HasSuffix(got, "/sess-2/"+stem+".md") {
+		t.Fatalf("resolved %q, %v", got, err)
+	}
+}
+
+func TestTwoSluggedFoldersForOneIDAreReportedNotRenamed(t *testing.T) {
+	dir := t.TempDir()
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "Fix checkout", HostSession: "sess-1"})
+	root := filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir)
+	if err := os.MkdirAll(filepath.Join(root, "other-name--sess-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	named, skipped, err := NameConvoFolders(dir)
+	if err != nil || named != 0 || len(skipped) != 1 || !strings.Contains(skipped[0], "sess-1") {
+		t.Fatalf("named %d skipped %v err %v", named, skipped, err)
+	}
+}
+
+func TestNamingFoldersWaitsForAConversationBeingFiled(t *testing.T) {
+	dir := t.TempDir()
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "Fix checkout", HostSession: "sess-1"})
+	legacyBare(t, dir, "kestrel", "sess-1")
+	g, err := lockConvoFolders(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, _, err := NameConvoFolders(dir); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+		g.Unlock()
+		t.Fatal("a rename went ahead while a checkpoint held the folder lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+	g.Unlock()
+	<-done
+	if got := convoNames(t, dir, "kestrel"); len(got) != 1 || got[0] != "fix-checkout--sess-1" {
+		t.Fatalf("folders = %v", got)
+	}
+}
+
+func TestAnAutoRecordBeingGrownIsNotHavingItsFolderMoved(t *testing.T) {
+	dir := t.TempDir()
+	commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "Fix checkout", HostSession: "sess-1"})
+	legacyBare(t, dir, "kestrel", "sess-1")
+	g, err := lockAutoRecords(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = NameConvoFolders(dir)
+	}()
+	select {
+	case <-done:
+		g.Unlock()
+		t.Fatal("a folder was renamed while an auto record was being rewritten")
+	case <-time.After(300 * time.Millisecond):
+	}
+	g.Unlock()
+	<-done
+}
+
+func TestFirstCheckpointsOfOneConversationWithDifferentTasksMakeOneFolder(t *testing.T) {
+	for round := range 8 {
+		dir := t.TempDir()
+		var wg sync.WaitGroup
+		for i := range 6 {
+			db := testDB(t) // one per writer, as separate processes have
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c := &Checkpoint{Project: "kestrel", Agent: "a", Task: "task number " + string(rune('a'+i)), HostSession: "sess-1", State: "s"}
+				if err := Commit(db, dir, c); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		wg.Wait()
+		if got := convoNames(t, dir, "kestrel"); len(got) != 1 {
+			t.Fatalf("round %d: one conversation made %d folders: %v", round, len(got), got)
+		}
+	}
+}
+
+func TestAFolderNameNeverExceedsWhatTheFilesystemAccepts(t *testing.T) {
+	id := strings.Repeat("a", 230)
+	for _, task := range []string{strings.Repeat("字", 60), "a long task with many words " + strings.Repeat("word ", 30)} {
+		got := convoName(convoSlug(Checkpoint{Task: task}), id)
+		if len(got) > maxNameLen || convoFolderID(got) != id {
+			t.Fatalf("name is %d bytes, id part %q", len(got), convoFolderID(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("name %q is not valid UTF-8", got)
+		}
+	}
+	if got := convoName("some-slug", strings.Repeat("b", 254)); got != strings.Repeat("b", 254) {
+		t.Fatalf("a slug with no room was kept: %d bytes", len(got))
+	}
+	if got := convoName(convoSlug(Checkpoint{Task: strings.Repeat("字", 60)}), "sess-1"); len(got) > maxNameLen || !strings.HasSuffix(got, "--sess-1") {
+		t.Fatalf("CJK name %q", got)
 	}
 }
