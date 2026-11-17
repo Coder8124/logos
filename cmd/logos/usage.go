@@ -173,6 +173,30 @@ func runUsage(args []string) error {
 	fmt.Printf("· %d restore%s, %d of them a handoff — a checkpoint one agent wrote, resumed by another\n",
 		t.Restores, pluralS(t.Restores), t.Handoffs)
 	fmt.Println("  (a resume whose reader is not named — a shell with no LOGOS_AGENT — is never counted as one)")
+	// A restore's pack records sent == full, so the "left out" above is zero for
+	// it; what it spares is the restored session's reload, measured here. The
+	// measure reads transcripts back to the oldest restored checkpoint, so a
+	// whole-ledger receipt bounds it to the dashboard's 30 days rather than
+	// scan months of host files on every pipe.
+	restoreEvents, within := events, ""
+	if !week {
+		restoreEvents, within = usagepkg.Within(events, time.Now().AddDate(0, 0, -dashDays).Unix()), fmt.Sprintf(" in the last %d days", dashDays)
+	}
+	if r := measureRestores(v, restoreEvents, project); r.Restores > 0 {
+		if r.Measured > 0 {
+			fmt.Printf("· restores%s spared ~%s tokens of reloading across %d restore%s, each ~%s sent against a ~%s session context (medians)\n",
+				within, thousands(int(r.Saved)), r.Measured, pluralS(r.Measured), thousands(int(r.Sent)), thousands(int(r.Baseline)))
+			fmt.Println("  (the restored session's largest context at its checkpoint, as the host recorded it — not your API bill)")
+		} else {
+			fmt.Printf("· restores%s spared: not measured — %d restore%s, none measurable\n", within, r.Restores, pluralS(r.Restores))
+		}
+		for _, l := range r.notMeasured() {
+			fmt.Println("  " + l)
+		}
+		if r.Err != nil {
+			fmt.Println("  error: " + r.Err.Error())
+		}
+	}
 	printAccepted(v, from, project)
 	printUnreadable(bad, v)
 	return nil
