@@ -104,11 +104,13 @@ func convoDirsFor(vaultDir, folder string) []string {
 		// The bare id is one stat, and most conversations still have just it;
 		// the directory listing that finds a slugged folder is what a vault
 		// with thousands of conversations cannot pay for in every scope on
-		// every lookup. A bare hit stops there: a second, slugged folder for
-		// the same id is the duplicate NameConvoFolders reports, and the bare
-		// one is where its transcript was filed first.
+		// every lookup. A bare hit stops there only when the transcript is in
+		// it: a bare folder can reappear beside a renamed one (an older Logos
+		// on another machine, a sync client restoring the old name), and
+		// stopping at it then hid the renamed folder's transcript and filed a
+		// second copy in the bare one.
 		bare := filepath.Join(scopeDir, ConvosDir, folder)
-		if fi, err := os.Stat(bare); err == nil && fi.IsDir() {
+		if fi, err := os.Stat(bare); err == nil && fi.IsDir() && transcriptIn(bare) != "" {
 			out = append(out, bare)
 			return
 		}
