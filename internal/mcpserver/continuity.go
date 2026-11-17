@@ -282,7 +282,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 			untrusted.Inline(project), s.knownProjects())
 	}
 	if err := session.Init(s.DB); err != nil {
-		return "", err
+		return "", withSwept(swept, err)
 	}
 	// Before the pack, so a session whose host was killed before the shutdown
 	// path could record it is in the handoff it is missing from (#134).
@@ -294,7 +294,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 		Agent: s.agentFor(map[string]any{"agent": agent}), Budget: budget, Since: since,
 	})
 	if err != nil {
-		return "", err
+		return "", withSwept(swept, err)
 	}
 	// First, above the pack: the pack's own last word on an unmatched name is
 	// "say so rather than inferring", and an agent that stops there reports
@@ -354,16 +354,16 @@ func (s *Session) resumeConversation(projectArg, query string) (string, error) {
 	// A misspelt project has no conversations either, and "nothing matches"
 	// would send the agent looking for the wrong thing.
 	if !s.projectExists(project) {
-		return "", fmt.Errorf("there is no project %s in this vault%s", untrusted.Inline(project), s.knownProjects())
+		return "", withSwept(swept, fmt.Errorf("there is no project %s in this vault%s", untrusted.Inline(project), s.knownProjects()))
 	}
 	convs, err := session.Conversations(s.vault, project)
 	if err != nil {
-		return "", err
+		return "", withSwept(swept, err)
 	}
 	c, candidates, err := session.FindConversation(convs, query)
 	if err != nil {
 		if len(candidates) == 0 {
-			return "", fmt.Errorf("%v in %s — call resume without conversation to see the whole project", err, untrusted.Inline(project))
+			return "", withSwept(swept, fmt.Errorf("%v in %s — call resume without conversation to see the whole project", err, untrusted.Inline(project)))
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "%v. Nothing was resumed; the candidates in %s:\n", err, untrusted.Inline(project))
@@ -371,7 +371,7 @@ func (s *Session) resumeConversation(projectArg, query string) (string, error) {
 			fmt.Fprintf(&b, "- %s\n", session.ConversationLine(cand))
 		}
 		b.WriteString("Call resume again with one id as conversation.")
-		return "", errors.New(b.String())
+		return "", withSwept(swept, errors.New(b.String()))
 	}
 	out := s.receipt("resumed conversation "+untrusted.Inline(c.ID)+" in "+untrusted.Inline(project)) + "\n\n"
 	if t := strings.TrimSpace(swept); t != "" {
@@ -596,4 +596,15 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	// No "run `logos index`": resume and before_you_try read the checkpoint off
 	// disk, so it is usable the moment this returns. See cmd/logos/session.go.
 	return msg + staleNotice(), nil
+}
+
+// withSwept keeps what the resume sweep said when the resume then fails. The
+// sweep has already happened by then: its checkpoints are written and a
+// one-time notice is spent, so an error that drops its text is a feature
+// that ran and was never announced.
+func withSwept(swept string, err error) error {
+	if t := strings.TrimSpace(swept); t != "" {
+		return fmt.Errorf("%w\n\n%s", err, t)
+	}
+	return err
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type failingReader struct {
@@ -94,7 +95,7 @@ func TestACopyStampedByAnOlderReleaseIsNotGrownOnTheQuickPath(t *testing.T) {
 	if err := os.WriteFile(dst, []byte(older), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stampRedacted(v, first.Path, int64(len(older)))
+	stampRedacted(v, first.Path, fileInfo(t, dst))
 
 	redactRules = "v0.5.10"
 	f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0)
@@ -106,16 +107,48 @@ func TestACopyStampedByAnOlderReleaseIsNotGrownOnTheQuickPath(t *testing.T) {
 	if got, _ := os.ReadFile(dst); strings.Contains(string(got), tok) {
 		t.Fatal("the quick path grew a copy an older release left a token in")
 	}
-	if !stampHolds(v, first.Path, fileSize(t, dst)) {
+	if !stampHolds(v, first.Path, fileInfo(t, dst)) {
 		t.Error("the full pass did not stamp the copy it made")
 	}
 }
 
-func fileSize(t *testing.T, p string) int64 {
+func fileInfo(t *testing.T, p string) os.FileInfo {
 	t.Helper()
 	fi, err := os.Stat(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fi.Size()
+	return fi
+}
+
+// A stamp names a path, and a path is not bytes: a raw copy written over a
+// stamped one, or a copy a sync brought back from another machine, can land
+// at the same size. Growing it on the quick path would keep whatever the
+// replacement held unmasked.
+func TestAStampDoesNotVouchForACopyWrittenOverItAtTheSameSize(t *testing.T) {
+	v := t.TempDir()
+	src := filepath.Join(t.TempDir(), "s1.jsonl")
+	if err := os.WriteFile(src, []byte(`{"type":"user","sessionId":"s1","message":{"role":"user","content":"hi"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := Candidate{Harness: "claude-code", SessionID: "s1", Source: src, Project: "kestrel"}
+	a := archiveTranscript(v, c, true)
+	if a.Err != nil {
+		t.Fatal(a.Err)
+	}
+	dst := filepath.Join(v, filepath.FromSlash(a.Path))
+	if !stampHolds(v, a.Path, fileInfo(t, dst)) {
+		t.Fatal("a full pass did not stamp the copy it made")
+	}
+	held, _ := os.ReadFile(dst)
+	if err := os.WriteFile(dst, held, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := fileInfo(t, dst).ModTime().Add(time.Second)
+	if err := os.Chtimes(dst, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if stampHolds(v, a.Path, fileInfo(t, dst)) {
+		t.Fatal("the stamp vouched for a copy written after it, at the same size")
+	}
 }

@@ -3,6 +3,9 @@ package ingest
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/vault"
@@ -332,56 +334,76 @@ func extendsOnceRedacted(tmp, dst string) bool {
 	return h == prefixGrown || h == prefixEqual
 }
 
-// The redaction stamp: .logos/redacted.json names each copy a full pass made,
-// the size it had, and the release whose detectors made it. The quick path
-// below trusts a copy line that matches its source byte for byte, and that is
-// only true of a copy a full pass made, under today's detectors: a copy kept
-// while redact was off, or by a release that did not know a token's shape,
-// matches its source exactly where it holds what is now masked, and grew on
-// the quick path for good with it. A cache, because losing it costs one full
-// pass and nothing else; a dev build's stamps carry over between dev builds,
-// which is the price of a version that says "dev".
-var redactRules = buildinfo.Version
+// A stamp records that one archived copy is a full pass's work: which file
+// (its size and modification time, read from the finished temp file before
+// it was renamed into place) and under which rules. The quick path below
+// trusts a copy line that matches its source byte for byte, and that is only
+// true of a copy a full pass made under today's rules: a copy kept while
+// redact was off, or under rules that did not know a token's shape, matches
+// its source exactly where it holds what is now masked, and grew on the quick
+// path for good with it. The modification time is what makes a stamp vouch
+// for bytes rather than a path: a raw copy written over a stamped one, or a
+// copy another machine rewrote and a sync brought back, is a different file
+// even at the same size.
+//
+// One file per copy under .logos/redacted, so a sweep over many copies reads
+// and writes only the stamps it touches, and two processes stamping
+// different copies cannot undo each other. A cache: losing it costs one full
+// pass and nothing else. A stamp for a copy that no longer exists is never
+// read again.
+var redactRules = secret.Rules + "." + ingestRules()
+
+//go:embed redactcopy.go
+var redactcopySrc []byte
+
+// ingestRules hashes this file because rewriteValue, which decides what in a
+// JSON transcript line is masked, lives here and not in package secret.
+func ingestRules() string {
+	h := sha256.Sum256(redactcopySrc)
+	return hex.EncodeToString(h[:])[:16]
+}
 
 type redactStamp struct {
-	Size  int64  `json:"size"`
-	Rules string `json:"rules"`
+	Rel     string `json:"rel"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mtime_ns"`
+	Rules   string `json:"rules"`
 }
 
-func redactStampsPath(vaultDir string) string {
-	return filepath.Join(vaultDir, ".logos", "redacted.json")
+func redactStampPath(vaultDir, rel string) string {
+	h := sha256.Sum256([]byte(rel))
+	return filepath.Join(vaultDir, ".logos", "redacted", hex.EncodeToString(h[:])[:24]+".json")
 }
 
-func loadRedactStamps(vaultDir string) map[string]redactStamp {
-	out := map[string]redactStamp{}
-	if raw, err := os.ReadFile(redactStampsPath(vaultDir)); err == nil {
-		// One that will not parse stamps nothing: every copy takes a full pass.
-		_ = json.Unmarshal(raw, &out)
+// stampRedacted records that the copy at rel is the file fi describes and a
+// full pass's work; a nil fi forgets it. Errors are dropped as saveSwept's
+// are: a stamp that is not written costs the next record a full pass, and one
+// that is not removed no longer matches the file written over it.
+func stampRedacted(vaultDir, rel string, fi os.FileInfo) {
+	p := redactStampPath(vaultDir, rel)
+	if fi == nil {
+		_ = os.Remove(p)
+		return
 	}
-	return out
-}
-
-// stampRedacted records that the copy at rel, size bytes, is a full pass's
-// work; a negative size forgets it. The error is dropped as saveSwept's is: a
-// stamp that is not written costs the next record a full pass, never a secret.
-func stampRedacted(vaultDir, rel string, size int64) {
-	m := loadRedactStamps(vaultDir)
-	if size < 0 {
-		if _, ok := m[rel]; !ok {
-			return
-		}
-		delete(m, rel)
-	} else {
-		m[rel] = redactStamp{Size: size, Rules: redactRules}
+	raw, err := json.Marshal(redactStamp{Rel: rel, Size: fi.Size(), ModTime: fi.ModTime().UnixNano(), Rules: redactRules})
+	if err != nil {
+		return
 	}
-	if raw, err := json.Marshal(m); err == nil {
-		_ = vault.WriteAtomic(redactStampsPath(vaultDir), raw)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err == nil {
+		_ = vault.WriteAtomic(p, raw)
 	}
 }
 
-func stampHolds(vaultDir, rel string, size int64) bool {
-	st, ok := loadRedactStamps(vaultDir)[rel]
-	return ok && st.Size == size && st.Rules == redactRules
+func stampHolds(vaultDir, rel string, fi os.FileInfo) bool {
+	raw, err := os.ReadFile(redactStampPath(vaultDir, rel))
+	if err != nil {
+		return false
+	}
+	var st redactStamp
+	if json.Unmarshal(raw, &st) != nil {
+		return false
+	}
+	return st.Rel == rel && st.Size == fi.Size() && st.ModTime == fi.ModTime().UnixNano() && st.Rules == redactRules
 }
 
 // extendRedacted appends to a redacted copy only the source lines after it.
@@ -404,7 +426,7 @@ func extendRedacted(vaultDir, src, dst, rel string) (Archived, bool) {
 	}
 	defer d.Close()
 	di, err := d.Stat()
-	if err != nil || di.Size() == 0 || !stampHolds(vaultDir, rel, di.Size()) {
+	if err != nil || di.Size() == 0 || !stampHolds(vaultDir, rel, di) {
 		return Archived{}, false
 	}
 	last := make([]byte, 1)
@@ -458,6 +480,10 @@ func extendRedacted(vaultDir, src, dst, rel string) (Archived, bool) {
 	if err == nil {
 		err = tmp.Sync()
 	}
+	var made os.FileInfo
+	if err == nil {
+		made, err = tmp.Stat()
+	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
@@ -467,7 +493,7 @@ func extendRedacted(vaultDir, src, dst, rel string) (Archived, bool) {
 	if err != nil {
 		return refused("the copy failed", fmt.Errorf("extending the copy at %s: %w", rel, err)), true
 	}
-	stampRedacted(vaultDir, rel, di.Size()+n)
+	stampRedacted(vaultDir, rel, made)
 	return Archived{Path: rel, Bytes: di.Size() + n, Secrets: st.Secrets, Private: st.Private}, true
 }
 
@@ -556,14 +582,18 @@ func RawCopies(vaultDir string) (raw []RawCopy, problems []string, err error) {
 // RedactCopy rewrites one archived copy in place, atomically.
 func RedactCopy(vaultDir, rel string) (RedactStats, error) {
 	p := filepath.Join(vaultDir, filepath.FromSlash(rel))
-	tmp, st, n, err := redactToTemp(p, filepath.Dir(p), filepath.Base(p))
+	tmp, st, _, err := redactToTemp(p, filepath.Dir(p), filepath.Base(p))
 	if err != nil {
 		return st, err
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	made, err := os.Stat(tmp)
+	if err == nil {
+		err = os.Rename(tmp, p)
+	}
+	if err != nil {
 		os.Remove(tmp)
 		return st, err
 	}
-	stampRedacted(vaultDir, rel, n)
+	stampRedacted(vaultDir, rel, made)
 	return st, nil
 }

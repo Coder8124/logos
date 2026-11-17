@@ -290,9 +290,14 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	}
 	defer os.Remove(tmp)
 	a := Archived{Path: rel, Bytes: n, Secrets: st.Secrets, Private: st.Private}
+	before, _ := os.Stat(dst)
 	switch heldRedacted(tmp, dst) {
 	case prefixEqual:
-		stampRedacted(vaultDir, rel, n)
+		// Stamped only if nothing wrote the copy while it was being compared,
+		// so the stamp names the bytes that were checked.
+		if after, err := os.Stat(dst); err == nil && sameFile(before, after) {
+			stampRedacted(vaultDir, rel, after)
+		}
 		a.Unchanged = true
 		return a
 	case prefixDiffers:
@@ -307,10 +312,14 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 		}
 		a.Replaced = true
 	}
-	if err := os.Rename(tmp, dst); err != nil {
+	made, err := os.Stat(tmp)
+	if err == nil {
+		err = os.Rename(tmp, dst)
+	}
+	if err != nil {
 		return refused("the copy failed", fmt.Errorf("moving the redacted copy into %s: %w", rel, err))
 	}
-	stampRedacted(vaultDir, rel, n)
+	stampRedacted(vaultDir, rel, made)
 	return a
 }
 
@@ -329,8 +338,10 @@ func archiveRaw(vaultDir, src, dst, rel string, size int64) Archived {
 		}
 		return refused("the host rewrote it, so the earlier copy is kept as it is", fmt.Errorf("%s no longer extends the copy at %s (the host rewrote it); the copy is kept as it is", src, rel))
 	}
+	// Forgotten first: a crash after the raw bytes land must not leave a
+	// stamp vouching for them.
+	stampRedacted(vaultDir, rel, nil)
 	n, err := copyFile(src, dst)
-	stampRedacted(vaultDir, rel, -1)
 	if err != nil {
 		return refused("the copy failed", fmt.Errorf("copying %s to %s: %w", src, rel, err))
 	}
@@ -449,4 +460,10 @@ func Size(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
 	}
+}
+
+// sameFile says whether two looks at one path saw the same bytes, as far as
+// size and modification time can tell.
+func sameFile(a, b os.FileInfo) bool {
+	return a != nil && b != nil && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
