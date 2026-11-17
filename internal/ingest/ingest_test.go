@@ -383,6 +383,32 @@ func TestAHarvestKnowsCursorsNamesForEditingAFile(t *testing.T) {
 	}
 }
 
+// Cursor has since renamed its tools, and the new names were unknown the same
+// way: over one real chat database, 35 commands and 104 edits were made under
+// them and harvested as nothing having run.
+func TestAHarvestKnowsCursorsRenamedTools(t *testing.T) {
+	s := &transcript.Session{
+		Harness: "cursor", ID: "c2", Path: "state.vscdb#c2",
+		Turns: []transcript.Turn{
+			{Role: "user", Text: "get the worker running"},
+			{Role: "tool", Tool: "run_terminal_command_v2", Status: "error", Input: "kubectl rollout restart deploy/worker"},
+			// No slash and no extension, as above: found only by the tool's name.
+			{Role: "tool", Tool: "edit_file_v2", Status: "ok", Input: "Dockerfile"},
+			{Role: "tool", Tool: "read_file_v2", Status: "ok", Input: "Makefile"},
+		},
+	}
+	c := ingest.Harvest(s)
+
+	for _, f := range []string{"Dockerfile", "Makefile"} {
+		if !slicesContains(c.Files, f) {
+			t.Errorf("harvest lost %q — files were %v", f, c.Files)
+		}
+	}
+	if len(c.Commands) != 1 || !strings.Contains(c.Commands[0], "kubectl rollout restart deploy/worker — failed") {
+		t.Errorf("commands = %v, want the kubectl run marked failed", c.Commands)
+	}
+}
+
 func slicesContains(hay []string, need string) bool {
 	for _, h := range hay {
 		if h == need {
