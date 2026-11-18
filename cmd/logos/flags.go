@@ -81,7 +81,7 @@ type flagSpec struct {
 var commandFlags = map[string]flagSpec{
 	"version":  {},
 	"deny":     {bare: []string{"--undo"}},
-	"note":     {},
+	"note":     {valued: []string{"--at"}},
 	"reflect":  {},
 	"watch":    {},
 	"index":    {bare: []string{"--watch", "--auto"}},

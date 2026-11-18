@@ -136,6 +136,12 @@ func memoryCmd(args []string) error {
 		default:
 			fmt.Println("nothing to remember.")
 		}
+		// --at dates a new memory only. One already held keeps the date it was
+		// first recorded with, and a receipt that said nothing let the caller
+		// believe the date had taken.
+		if at != 0 && !r.Created() && (r.StillQueued || r.Outcome == memory.EvReinforced) {
+			fmt.Printf("--at was not applied: memory #%d keeps the date it was first recorded with.\n", r.Ref)
+		}
 		for _, n := range res.Outcome.Notes {
 			if !n.Failed {
 				fmt.Println(n.Text)
