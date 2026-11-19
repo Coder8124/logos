@@ -1563,11 +1563,21 @@ func Exclude(db *sql.DB, id int64) error { return setPin(db, id, PinNever, "excl
 // pin worked and then spent the session wondering why the fact never appeared.
 func setPin(db *sql.DB, id int64, pin int, verb string) error {
 	var text, kind string
-	if err := db.QueryRow("SELECT text, kind FROM memories WHERE id = ?", id).Scan(&text, &kind); err != nil {
+	var superseded int
+	var by int64
+	if err := db.QueryRow("SELECT text, kind, superseded, superseded_by FROM memories WHERE id = ?", id).Scan(&text, &kind, &superseded, &by); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("no memory #%d", id)
 		}
 		return err
+	}
+	// A superseded memory is history: recall and context packs skip it, so a pin
+	// or an exclude on it would report success and change nothing anyone sees.
+	if superseded != 0 {
+		if by != 0 {
+			return fmt.Errorf("memory #%d was superseded by #%d, so %s has no effect on it — use #%d", id, by, verb, by)
+		}
+		return fmt.Errorf("memory #%d is superseded, so %s has no effect on it", id, verb)
 	}
 	// The update, the per-memory file and the digest rewrite are one
 	// operation, held under one lock — same reason as Store.
