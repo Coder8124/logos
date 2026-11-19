@@ -68,6 +68,10 @@ type Index struct {
 
 type SyncReport struct {
 	Added, Updated, Removed, Unchanged int
+	// Rerooted counts unchanged notes whose stored path named a location the
+	// vault no longer lives at (it was copied or moved) and was rewritten to
+	// the current one. Counted so the caller can say it happened.
+	Rerooted int
 	// Skipped counts files the walk found but did not index: symlinks,
 	// derived ledgers, and files that could not be read. They are reported rather than silently
 	// dropped, because "the index is missing a note" is otherwise invisible.
@@ -404,7 +408,14 @@ func (ix *Index) DisplayPath(slug string) string {
 	if err := ix.DB.QueryRow(`SELECT path FROM notes WHERE slug = ?`, slug).Scan(&p); err != nil || p == "" {
 		return slug
 	}
-	return strings.TrimSuffix(ix.rel(p), ".md")
+	r := ix.rel(p)
+	// A path that climbs out of the vault is a row written when the vault lived
+	// elsewhere and not yet rewritten by an index; nobody can open it, so the
+	// slug is the more honest thing to print until `logos index` re-roots it.
+	if r == ".." || strings.HasPrefix(r, "../") {
+		return slug
+	}
+	return strings.TrimSuffix(r, ".md")
 }
 
 // Sync reads every note in the vault and reconciles it against the cache. Only
@@ -545,8 +556,8 @@ func (ix *Index) Sync() (SyncReport, error) {
 		n := vault.Parse(ix.Vault, path, string(raw))
 		seen[n.Slug] = true
 
-		var existing string
-		err = tx.QueryRow("SELECT hash FROM notes WHERE slug = ?", n.Slug).Scan(&existing)
+		var existing, storedPath string
+		err = tx.QueryRow("SELECT hash, path FROM notes WHERE slug = ?", n.Slug).Scan(&existing, &storedPath)
 		switch {
 		case err == sql.ErrNoRows:
 			rep.Added++
@@ -554,6 +565,15 @@ func (ix *Index) Sync() (SyncReport, error) {
 			return rep, err
 		case existing == n.Hash:
 			rep.Unchanged++
+			// Unchanged content does not mean an unchanged place: a vault that
+			// was copied or moved keeps every row's old absolute path, and
+			// skipping the row here left search printing "../../.." for it.
+			if storedPath != n.Path {
+				if _, err := tx.Exec("UPDATE notes SET path = ? WHERE slug = ?", n.Path, n.Slug); err != nil {
+					return rep, err
+				}
+				rep.Rerooted++
+			}
 			continue
 		default:
 			rep.Updated++

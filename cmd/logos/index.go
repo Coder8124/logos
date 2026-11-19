@@ -366,6 +366,13 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintf(os.Stderr, "· could not read %s — its notes are not indexed\n", terminalSafe(u, 400))
 	}
 
+	// The vault was copied or moved since the index was built. Said, because
+	// 306 rows changing underneath an "=306" would otherwise be silent work.
+	if rep.Rerooted > 0 {
+		fmt.Fprintf(w, "· the vault moved: re-pointed %d note%s at %s\n",
+			rep.Rerooted, plural(rep.Rerooted, ""), ix.Vault)
+	}
+
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
 			rep.Added, rep.Updated, rep.Removed, rep.Unchanged, notes, edges, mems)

@@ -321,3 +321,74 @@ func TestALedgerUnderAnotherNameIsNotIndexedButAUsersOwnSessionsLedgerIs(t *test
 		t.Errorf("indexed %v, want only the user's own sessions/ledger.md", paths)
 	}
 }
+
+// A vault that was copied or moved carries an index whose notes.path rows
+// still name the old location. Sync skipped an unchanged note without looking
+// at its path, so DisplayPath made it relative to the new root and printed
+// "../../../old/place/notes/a" — a path nobody can open — for every note the
+// move had not touched.
+func TestAMovedVaultShowsEveryNotePathInsideTheVault(t *testing.T) {
+	parent := t.TempDir()
+	old := filepath.Join(parent, "old")
+	if err := os.MkdirAll(filepath.Join(old, "notes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntype: note\ntitle: a note\nfirst_seen: 2020-01-01\n---\n\nsomething\n"
+	if err := os.WriteFile(filepath.Join(old, "notes", "a.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Open(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	moved := filepath.Join(parent, "deeper", "new")
+	if err := os.MkdirAll(filepath.Dir(moved), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(old, moved); err != nil {
+		t.Fatal(err)
+	}
+
+	ix, err = Open(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	rep, err := ix.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Unchanged != 1 {
+		t.Fatalf("the note should be unchanged by the move, got %+v", rep)
+	}
+	if rep.Rerooted != 1 {
+		t.Errorf("Sync re-pointed %d notes at the new vault root, want 1, and must say so", rep.Rerooted)
+	}
+	if got := ix.DisplayPath("notes/a"); got != "notes/a" {
+		t.Errorf("DisplayPath = %q after the vault moved, want notes/a", got)
+	}
+}
+
+// Before an index has re-rooted a moved vault, a row can still name the old
+// place. Printing a path that climbs out of the vault is worse than printing
+// the slug, which at least names the note.
+func TestDisplayPathNeverClimbsOutOfTheVault(t *testing.T) {
+	v := t.TempDir()
+	ix, err := Open(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	outside := filepath.Join(filepath.Dir(v), "elsewhere", "notes", "a.md")
+	if _, err := ix.DB.Exec(`INSERT INTO notes (slug, path, title, kind, body, hash, first_seen) VALUES ('notes/a', ?, 't', 'note', 'b', 'h', '2020-01-01')`, outside); err != nil {
+		t.Fatal(err)
+	}
+	if got := ix.DisplayPath("notes/a"); strings.Contains(got, "..") {
+		t.Errorf("DisplayPath = %q, a path outside the vault", got)
+	}
+}
