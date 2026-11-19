@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,5 +183,49 @@ func TestTheFirstRememberOnAFreshVaultLeavesTheMemoryDirectoryPrivate(t *testing
 	}
 	if perm := st.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("memories/ was created %o; other users on the machine can list it", perm)
+	}
+}
+
+// Events dedupe on (second, memory, kind, ref) because a log line has no id of
+// its own. Pin, unpin and exclude are all "updated", so three of them inside
+// one second are one identity: the rebuild restored one and dropped the rest
+// while log.md still held every line — "delete the index, lose nothing" broken
+// for the history, silently.
+func TestEventsInTheSameSecondAllSurviveDeletingTheIndex(t *testing.T) {
+	db, dir := vaultDB(t)
+
+	m := Memory{Text: "pin me then change my mind", Kind: Fact, Source: "manual", Project: "billing"}
+	if _, err := Store(db, nil, "", &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []func(*sql.DB, int64) error{Pin, Unpin, Exclude} {
+		if err := step(db, m.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := Timeline(db, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wiped := testDB(t)
+	SetVault(wiped, dir)
+	t.Cleanup(func() { SetVault(wiped, "") })
+	if _, _, err := Import(wiped, nil, "", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ImportLog(wiped, dir); err != nil {
+		t.Fatal(err)
+	}
+	after, err := Timeline(wiped, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("timeline had %d events, %d after the rebuild:\n%+v", len(before), len(after), after)
+	}
+	// A second rebuild adds nothing: count-based restore must stay idempotent.
+	if n, err := ImportLog(wiped, dir); err != nil || n != 0 {
+		t.Errorf("re-importing restored %d events (err %v); want 0", n, err)
 	}
 }

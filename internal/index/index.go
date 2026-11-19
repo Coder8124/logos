@@ -275,6 +275,14 @@ func (ix *Index) SyncCheckpointHomes() (moved, rejoined int, err error) {
 	return session.Refile(ix.Vault)
 }
 
+// SyncConvoNames renames conversation folders still named by their bare host
+// id to <intent slug>--<id>. Derived layout like SyncCheckpointHomes: the slug
+// is recomputed from checkpoint frontmatter, nothing is stored only here.
+// Returns how many it renamed and what it left alone and why.
+func (ix *Index) SyncConvoNames() (named int, skipped []string, err error) {
+	return session.NameConvoFolders(ix.Vault)
+}
+
 // deadAmbientTables held ambient-capture state — events, rollup proposals,
 // the presence daemon's own bookkeeping — cut in 0.3.0 along with the
 // internal/{capture,rollup,presence} packages that wrote them. None of it had
@@ -385,6 +393,18 @@ func (ix *Index) rel(path string) string {
 		return filepath.ToSlash(r)
 	}
 	return path
+}
+
+// DisplayPath is the vault-relative path of a note without ".md", for showing
+// a user. The slug folds "_" into "-" so it can be a link key, which makes it
+// a path that does not exist on disk; anything a person may copy prints this
+// instead. An unknown slug falls back to itself rather than hiding the hit.
+func (ix *Index) DisplayPath(slug string) string {
+	var p string
+	if err := ix.DB.QueryRow(`SELECT path FROM notes WHERE slug = ?`, slug).Scan(&p); err != nil || p == "" {
+		return slug
+	}
+	return strings.TrimSuffix(ix.rel(p), ".md")
 }
 
 // Sync reads every note in the vault and reconciles it against the cache. Only

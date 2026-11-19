@@ -106,7 +106,7 @@ func search(query string) error {
 		return nil
 	}
 	for _, h := range hits {
-		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)
+		fmt.Printf("%.3f  %-28s %s\n", h.Score, ix.DisplayPath(h.Slug), h.Title)
 	}
 	return nil
 }
@@ -152,9 +152,9 @@ func ask(question string) error {
 	fmt.Println("─── context ───")
 	for _, h := range hits {
 		if h.Via != "" {
-			fmt.Printf("  %-28s via %s\n", h.Slug, h.Via)
+			fmt.Printf("  %-28s via %s\n", ix.DisplayPath(h.Slug), h.Via)
 		} else {
-			fmt.Printf("  %-28s %.3f\n", h.Slug, h.Score)
+			fmt.Printf("  %-28s %.3f\n", ix.DisplayPath(h.Slug), h.Score)
 		}
 	}
 	return nil
@@ -164,6 +164,24 @@ func ask(question string) error {
 // w: stdout for `logos index`, stderr for a rebuild auto runs ahead of another
 // command whose stdout is its answer. A nil p indexes text only.
 func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string) error {
+	// Before the sync, not after: the vault is truth and the index is its
+	// cache, so a rename is written first and the sync then records the paths
+	// as they now are. Run after, the index held every renamed checkpoint at a
+	// path that no longer existed until some later pass. A checkpoint a
+	// re-file moves into a bare folder later in this pass is named on the next
+	// one. Said with the number, and what was left alone said too: a folder
+	// that stays unnamed looks like a missed one.
+	named, skippedNames, nameErr := ix.SyncConvoNames()
+	if named > 0 {
+		fmt.Fprintf(w, "named %d conversation folder%s after their intent\n", named, plural(named, ""))
+	}
+	for _, sk := range skippedNames {
+		fmt.Fprintln(w, "  left unnamed:", sk)
+	}
+	if nameErr != nil {
+		fmt.Fprintln(os.Stderr, "· could not name conversation folders:", nameErr)
+	}
+
 	rep, err := ix.Sync()
 	if err != nil {
 		return err

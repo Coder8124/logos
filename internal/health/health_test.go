@@ -1414,3 +1414,26 @@ func TestAHostStillPinnedAsBrainVaultIsFlagged(t *testing.T) {
 		}
 	}
 }
+
+// With embeddings off by choice, "run `logos index` to embed the rest" is advice
+// that cannot work: index embeds nothing while LOGOS_EMBED is off, so the user
+// is sent round a loop.
+func TestDoctorDoesNotTellAUserWithEmbeddingsOffToIndexToEmbed(t *testing.T) {
+	dir := t.TempDir()
+	ix, err := index.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# a note\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Sync(); err != nil {
+		t.Fatal(err)
+	}
+
+	c := find(t, Run(Input{Vault: dir, DB: ix.DB, EmbedModel: "off"}), "embeddings")
+	if strings.Contains(c.Fix, "to embed the rest") || !strings.Contains(c.Detail, "off") {
+		t.Errorf("embeddings check with LOGOS_EMBED=off = %q / fix %q, want it to say embeddings are off by choice", c.Detail, c.Fix)
+	}
+}

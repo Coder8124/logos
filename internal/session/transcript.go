@@ -97,9 +97,25 @@ func convoDirsFor(vaultDir, folder string) []string {
 	}
 	var out []string
 	try := func(scopeDir string) {
-		d := filepath.Join(scopeDir, ConvosDir, folder)
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			out = append(out, d)
+		// By id, not by name: the folder may be <slug>--<id> or the legacy
+		// bare id, and a lookup that only knew one would lose the other's
+		// transcript the day the folder was renamed.
+		//
+		// The bare id is one stat, and most conversations still have just it;
+		// the directory listing that finds a slugged folder is what a vault
+		// with thousands of conversations cannot pay for in every scope on
+		// every lookup. A bare hit stops there only when the transcript is in
+		// it: a bare folder can reappear beside a renamed one (an older Logos
+		// on another machine, a sync client restoring the old name), and
+		// stopping at it then hid the renamed folder's transcript and filed a
+		// second copy in the bare one.
+		bare := filepath.Join(scopeDir, ConvosDir, folder)
+		if fi, err := os.Stat(bare); err == nil && fi.IsDir() && transcriptIn(bare) != "" {
+			out = append(out, bare)
+			return
+		}
+		for _, n := range convoFoldersFor(scopeDir, folder) {
+			out = append(out, filepath.Join(scopeDir, ConvosDir, n))
 		}
 	}
 	for _, p := range projects {

@@ -58,7 +58,7 @@ func TestASessionFolderSurvivesDeletingTheIndex(t *testing.T) {
 			t.Errorf("resume %q after deleting the index is not that one conversation:\n%s", q, out)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(vault, session.CheckpointDir, "kestrel", session.ConvosDir, "sess-checkout")); err != nil {
+	if _, err := os.Stat(filepath.Join(vault, session.CheckpointDir, "kestrel", session.ConvosDir, "fix-checkout--sess-checkout")); err != nil {
 		t.Errorf("the conversation folder is gone after reindexing: %v", err)
 	}
 }
@@ -209,5 +209,55 @@ func TestAnAmbiguousNameInJSONCarriesItsCandidates(t *testing.T) {
 	}
 	if len(doc.Candidates) != 2 {
 		t.Fatalf("want both candidate ids, got %+v", doc.Candidates)
+	}
+}
+
+// The vault is truth and the index its cache: the rename has to land before
+// the sync records paths, or the first index after upgrading holds every
+// renamed checkpoint at an address that no longer exists.
+func TestTheIndexPointsAtTheFoldersNamedInTheSamePass(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vault)
+	t.Setenv("LOGOS_EMBED", "off")
+	t.Setenv("LOGOS_PROJECT", "kestrel")
+	commitConversation(t, vault, &session.Checkpoint{Project: "kestrel", Agent: "a", Task: "fix checkout", Next: "replay the failed order queue", HostSession: "sess-checkout"})
+	root := filepath.Join(vault, session.CheckpointDir, "kestrel", session.ConvosDir)
+	if err := os.Rename(filepath.Join(root, "fix-checkout--sess-checkout"), filepath.Join(root, "sess-checkout")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(vault, ".logos")); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := runIndex(false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "named 1 conversation folder after their intent") {
+		t.Fatalf("the rename was not announced:\n%s", out)
+	}
+	ix, err := index.Open(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	rows, err := ix.DB.Query(`SELECT path FROM notes WHERE path LIKE '%sess-checkout%'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		seen++
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("the index points at %s, which is not on disk: %v", p, err)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("the checkpoint was not indexed at all")
 	}
 }

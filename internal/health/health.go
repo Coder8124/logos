@@ -132,7 +132,7 @@ func Run(in Input) Report {
 	r.Add(checkNotes(in.Vault, in.DB))
 	r.Add(checkDurability(in.DB))
 	r.Add(checkFreshness(in.Vault, in.DB))
-	r.Add(checkEmbeddings(in.DB, in.Runtime))
+	r.Add(checkEmbeddings(in.DB, in.Runtime, embedOff(in.EmbedModel)))
 	r.Add(checkRuntime(in.Runtime, in.Configured, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
 	r.Add(checkIngest(in.Vault))
@@ -378,7 +378,17 @@ func Lag(dir string, db *sql.DB) time.Duration {
 // RoughLag is Lag in the words doctor uses.
 func RoughLag(d time.Duration) string { return roughly(d) }
 
-func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
+// embedOff mirrors the CLI's reading of LOGOS_EMBED: these words mean "no
+// embeddings", not a model to look for.
+func embedOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "none", "no", "false", "disabled":
+		return true
+	}
+	return false
+}
+
+func checkEmbeddings(db *sql.DB, rt *provider.Provider, off bool) Check {
 	c := Check{Name: "embeddings"}
 	if db == nil {
 		c.State, c.Detail = Unknown, "no index open"
@@ -394,6 +404,12 @@ func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 		return c
 	}
 	switch {
+	case off:
+		// Asked for: index embeds nothing while this is set, so the usual "run
+		// logos index to embed the rest" would send the user round a loop.
+		c.State = OK
+		c.Detail = fmt.Sprintf("off — LOGOS_EMBED=off, %d of %d notes embedded; search is lexical", embedded, notes)
+		c.Fix = "unset LOGOS_EMBED for semantic search, then re-index"
 	case notes == 0:
 		c.State, c.Detail = OK, "nothing to embed"
 	case embedded == 0 && rt == nil:
