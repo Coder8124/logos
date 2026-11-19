@@ -150,7 +150,7 @@ func gatherMemories(d *dash, ix *index.Index, project string) {
 func gatherRecall(d *dash, v string, ix *index.Index, project string, events []usagepkg.Event) {
 	shown := map[string]int64{} // ref -> first time shown in the window
 	for _, e := range events {
-		if e.Kind != usagepkg.KindDeadEnd && e.Kind != usagepkg.KindAtEdit {
+		if e.Kind != usagepkg.KindDeadEnd && e.Kind != usagepkg.KindAtEdit && e.Kind != usagepkg.KindAtPrompt {
 			continue
 		}
 		if project != "" && !usagepkg.SameProject(e.Project, project) {
@@ -330,7 +330,7 @@ func ago(from, to int64) string {
 
 func (d dash) savedPanel(w int) []string {
 	t, r := d.saved, d.restores
-	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Restores == 0 && t.Handoffs == 0 && t.Avoided == 0 && t.Procedures == 0 {
+	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.AtPrompt == 0 && t.Restores == 0 && t.Handoffs == 0 && t.Avoided == 0 && t.Procedures == 0 {
 		return []string{"nothing recorded in " + d.window, "", "fills as context packs are sent (resume, context)", "and dead ends are handed back (before_you_try, tried, why)"}
 	}
 	var out []string
