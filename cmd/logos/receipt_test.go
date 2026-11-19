@@ -413,3 +413,27 @@ func TestTheSessionReceiptCountsUnreadableLedgerLines(t *testing.T) {
 		t.Errorf("the receipt did not say it skipped an unreadable ledger line:\n%s", out)
 	}
 }
+
+// A ruling the prompt hook showed is as much in front of the session as one
+// before_you_try handed back, and the session staying away from its file is
+// the same evidence.
+func TestARulingShownAtThePromptCountsTowardTheAvoidedReceipt(t *testing.T) {
+	standIn(t, "elsewhere")
+	commitRulings(t, &session.Checkpoint{
+		Project: "shop", Agent: "codex", Task: "speed up checkout", TS: time.Now().Add(-time.Hour).Unix(),
+		Failed: []string{"caching the cart — internal/cart/cache.go evicts on every write, so it never hits"},
+	})
+	rulings, err := deadend.Collect(vaultPath(), nil, "shop")
+	if err != nil || len(rulings) != 1 {
+		t.Fatalf("collect: %v, %d rulings", err, len(rulings))
+	}
+	if err := usagepkg.Record(vaultPath(), usagepkg.Event{
+		Kind: usagepkg.KindAtPrompt, Via: "claude-code", Project: "shop", Session: "s-prompt",
+		Rulings: 1, Refs: usagepkg.RulingRefs(rulings),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if out := endSession(t, "s-prompt"); !strings.Contains(out, "may have avoided: caching the cart") {
+		t.Errorf("a ruling shown at the prompt was left off the receipt:\n%s", out)
+	}
+}

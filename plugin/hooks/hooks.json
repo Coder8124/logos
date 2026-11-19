@@ -29,6 +29,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record.sh UserPromptSubmit",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ruling-at-prompt.sh",
+            "timeout": 5
           }
         ]
       }
