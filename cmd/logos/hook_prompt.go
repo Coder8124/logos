@@ -89,7 +89,7 @@ func promptHookCmd(in io.Reader, out io.Writer, vaultDir string) {
 	fmt.Fprintln(out, string(raw))
 	// Counts and fingerprints only, as every ledger line: never the prompt.
 	if err := usagepkg.Record(vaultDir, usagepkg.Event{
-		Kind: usagepkg.KindAtPrompt, Project: r.project, Via: "claude-code",
+		Kind: usagepkg.KindAtPrompt, Project: r.project, Via: "claude-code", Session: r.session,
 		Rulings: len(shown), Refs: usagepkg.RulingRefs(shown),
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "logos: showed a ruling at the prompt but could not record it in the usage ledger: %v\n", err)
@@ -106,9 +106,11 @@ type atPrompt struct {
 
 // promptShownKey is the cursor key for one ruling shown at the prompt. The
 // edit hook keys by file; a prompt names no file, so the ruling itself is the
-// key, prefixed so the two hooks never mark each other's showings.
+// key, prefixed so the two hooks never mark each other's showings. The whole
+// record, as the ledger fingerprints it, so the key and the ledger name the
+// same ruling.
 func promptShownKey(r deadend.Ruling) string {
-	return "prompt:" + usagepkg.Ref(r.Text)
+	return "prompt:" + usagepkg.Ref(r.Record.Raw)
 }
 
 // rulingsAtPrompt finds the rulings this prompt restates and this session has
@@ -118,7 +120,9 @@ func rulingsAtPrompt(in io.Reader, vaultDir string) *atPrompt {
 	if err := json.NewDecoder(io.LimitReader(in, 1<<20)).Decode(&p); err != nil {
 		return nil
 	}
-	if strings.TrimSpace(p.Prompt) == "" || p.Cwd == "" || vaultDir == "" {
+	// No session id is nowhere to remember a showing: every prompt would
+	// carry the same ruling again.
+	if strings.TrimSpace(p.Prompt) == "" || p.Cwd == "" || vaultDir == "" || p.SessionID == "" {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(vaultDir, ".logos", "index.db")); err != nil {

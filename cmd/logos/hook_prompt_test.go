@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -99,6 +100,87 @@ func TestARulingsWordsScatteredAcrossAPromptAreNotARestatement(t *testing.T) {
 	if got := prompt(t, vault, repo, "s1", scattered); got != "" {
 		t.Errorf("a prompt that only shares the ruling's words across unrelated sentences was shown it:\n%s", got)
 	}
+}
+
+// The same scattered words joined by commas are still separate thoughts; a
+// clause that ends at a sentence mark only would read them as one proposal.
+func TestARulingsWordsScatteredAcrossCommasAreNotARestatement(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, exportRuling)
+
+	scattered := "the vendor changed their pricing page, streaming of the demo video is broken on Safari, " +
+		"the export button on the dashboard needs a tooltip, and check row spacing in the table"
+	if got := prompt(t, vault, repo, "s1", scattered); got != "" {
+		t.Errorf("a comma-joined list of unrelated requests was shown the ruling:\n%s", got)
+	}
+}
+
+// A person pastes a long log and types the request under it. The request is
+// the part that says what they want; a cap that keeps the first clauses reads
+// the log and drops the request.
+func TestARequestTypedBelowAPastedLogIsStillRead(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, exportRuling)
+
+	var b strings.Builder
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&b, "worker %d processed batch without errors\n", i)
+	}
+	b.WriteString("Try streaming the vendor export row by row instead.")
+	if got := prompt(t, vault, repo, "s1", b.String()); got == "" {
+		t.Error("a request typed below a pasted log was not read")
+	}
+}
+
+// Without a session id there is nowhere to remember the showing, so every
+// prompt would carry the same ruling again.
+func TestAPromptWithoutASessionIsShownNothing(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, exportRuling)
+
+	if got := prompt(t, vault, repo, "", "Try streaming the vendor export row by row."); got != "" {
+		t.Errorf("a prompt with no session id was shown a ruling it can never mark as shown:\n%s", got)
+	}
+}
+
+// `logos tried --ruled-out` files a ruling as a note before any checkpoint
+// exists. A project with no checkpoint directory yet still has that ruling.
+func TestARulingFiledOnlyAsANoteIsShownAtThePrompt(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	if _, err := session.AddNote(db, projectFor(repo), "codex", exportRuling); err != nil {
+		t.Fatal(err)
+	}
+	if got := prompt(t, vault, repo, "s1", "Try streaming the vendor export row by row."); !strings.Contains(got, "streaming the vendor export") {
+		t.Errorf("a ruling recorded only as a note was not shown at the prompt:\n%q", got)
+	}
+}
+
+// The ledger names a ruling by the fingerprint of its whole record, and the
+// session-end receipt credits only what this session was shown. An at-prompt
+// event with no session, or a ref of the route alone, is never credited.
+func TestTheAtPromptLedgerLineNamesTheSessionAndTheRecord(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	ruleOut(t, db, vault, repo, exportRuling)
+	if got := prompt(t, vault, repo, "s1", "Try streaming the vendor export row by row."); got == "" {
+		t.Fatal("the ruling was not shown")
+	}
+	events, _, err := usagepkg.Read(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind != usagepkg.KindAtPrompt {
+			continue
+		}
+		if e.Session != "s1" {
+			t.Errorf("the at-prompt event names session %q, want s1", e.Session)
+		}
+		if len(e.Refs) != 1 || e.Refs[0] != usagepkg.Ref(exportRuling) {
+			t.Errorf("the at-prompt event refs %v, want the record's fingerprint %s", e.Refs, usagepkg.Ref(exportRuling))
+		}
+		return
+	}
+	t.Fatal("no at-prompt event was recorded")
 }
 
 // Containment over the shorter side made a short request contained in any

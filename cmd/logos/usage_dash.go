@@ -359,6 +359,7 @@ func (d dash) savedPanel(w int) []string {
 	out = append(out, "",
 		fmt.Sprintf("%d dead end%s handed back before a retry; %d handoff%s",
 			t.Rulings, pluralS(t.Rulings), t.Handoffs, pluralS(t.Handoffs)),
+		fmt.Sprintf("%d ruling%s shown at the prompt", t.AtPrompt, pluralS(t.AtPrompt)),
 		"baseline: the restored session's largest context as the host recorded it — not your API bill")
 	return out
 }

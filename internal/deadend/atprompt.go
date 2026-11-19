@@ -38,6 +38,8 @@ const routeCoverage = 0.75
 // promptClauseLimit caps how much of a pasted prompt is read. A prompt with a
 // log pasted into it is mostly not the user's intent, and scoring every line
 // of it against every ruling is the part of the hook that grows without bound.
+// The last clauses are the ones kept: people paste the log first and type
+// what they want under it.
 const promptClauseLimit = 40
 
 // AtPrompt returns the rulings in project and its worktree scopes that one
@@ -113,7 +115,10 @@ func AtPrompt(vaultDir string, db *sql.DB, project, prompt string, k int) ([]Rul
 func promptClauses(prompt string) []map[string]bool {
 	parts := strings.FieldsFunc(prompt, func(r rune) bool {
 		switch r {
-		case '\n', '.', '?', '!', ';':
+		// Commas too: a list of requests run together with commas is still
+		// separate requests, and read as one clause their words add up to a
+		// restatement none of them makes.
+		case '\n', '.', '?', '!', ';', ',':
 			return true
 		}
 		return false
@@ -122,10 +127,10 @@ func promptClauses(prompt string) []map[string]bool {
 	for _, p := range parts {
 		if s := textmatch.Subject(p); len(s) >= 2 {
 			out = append(out, s)
-			if len(out) == promptClauseLimit {
-				break
-			}
 		}
+	}
+	if len(out) > promptClauseLimit {
+		out = out[len(out)-promptClauseLimit:]
 	}
 	return out
 }
