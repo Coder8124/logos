@@ -103,7 +103,7 @@ func search(query string) error {
 		return nil
 	}
 	for _, h := range hits {
-		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)
+		fmt.Printf("%.3f  %-28s %s\n", h.Score, ix.DisplayPath(h.Slug), h.Title)
 	}
 	return nil
 }
@@ -138,9 +138,9 @@ func ask(question string) error {
 	fmt.Println("─── context ───")
 	for _, h := range hits {
 		if h.Via != "" {
-			fmt.Printf("  %-28s via %s\n", h.Slug, h.Via)
+			fmt.Printf("  %-28s via %s\n", ix.DisplayPath(h.Slug), h.Via)
 		} else {
-			fmt.Printf("  %-28s %.3f\n", h.Slug, h.Score)
+			fmt.Printf("  %-28s %.3f\n", ix.DisplayPath(h.Slug), h.Score)
 		}
 	}
 	return nil
