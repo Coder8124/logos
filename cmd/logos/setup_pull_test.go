@@ -92,3 +92,23 @@ func TestAPullShowsHowFarAlongItIs(t *testing.T) {
 		t.Errorf("the pull did not show its progress and then finish:\n%q", out)
 	}
 }
+
+// LOGOS_EMBED=off means "no embeddings"; setup read it as a model called "off"
+// and printed a failed pull for a choice the user made on purpose.
+func TestSetupWithEmbeddingsOffDoesNotTryToPullAModelCalledOff(t *testing.T) {
+	t.Setenv("LOGOS_EMBED", "off")
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	pulls := emptyRuntime(t, "Ollama")
+
+	out := captureStdout(t, func() { checkRuntime(true, false) })
+
+	if pulls.Load() != 0 {
+		t.Errorf("setup asked Ollama to pull a model with embeddings off:\n%s", out)
+	}
+	if strings.Contains(out, "pulling off") || strings.Contains(out, "off ✗") {
+		t.Errorf("setup reported the off setting as a missing model:\n%s", out)
+	}
+	if !strings.Contains(out, "embedding  off (LOGOS_EMBED)") {
+		t.Errorf("setup did not say embeddings are off by choice:\n%s", out)
+	}
+}

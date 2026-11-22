@@ -57,9 +57,15 @@ func checkRuntime(yes, dryRun bool) {
 	// tool touches, so a coding agent needs none of it. Offering all three in one
 	// prompt asked people to download 26GB to get 274MB of product, with no way
 	// to say "just the useful one" and no sizes to judge by.
-	embed := env("LOGOS_EMBED", defaultEmbedModel)
-	fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
-	if !have[embed] {
+	embed, embedOn := embedModel()
+	if !embedOn {
+		// An explicit choice, not a missing model: reading "off" as a model name
+		// printed a failed pull for something the user asked for.
+		fmt.Println("  embedding  off (LOGOS_EMBED) — retrieval stays lexical")
+	} else {
+		fmt.Printf("  embedding  %s %s\n", embed, tick(have[embed]))
+	}
+	if embedOn && !have[embed] {
 		if !canPull {
 			fmt.Printf("             load %s in %s for semantic search — logos can only pull through Ollama\n", embed, runtimeName(p))
 		} else if dryRun {

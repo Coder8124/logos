@@ -82,7 +82,10 @@ func isShellTool(name string) bool {
 	switch strings.ToLower(name) {
 	case "bash", "shell", "exec", "sh", "terminal",
 		"exec_command", "local_shell", "shell_command",
-		"run_command", "run_terminal_cmd", "execute_command":
+		"run_command", "run_terminal_cmd", "execute_command",
+		// Cursor renamed its own: counted over one real chat database, 35
+		// commands ran under the new name and harvested as none.
+		"run_terminal_command_v2":
 		return true
 	}
 	return false
@@ -94,7 +97,9 @@ func isFileTool(name string) bool {
 	// search_replace and edit_file are its two commonest edits by a wide margin,
 	// and neither was recognised, so its file lists came back empty.
 	case "edit", "write", "multiedit", "notebookedit", "str_replace_editor", "apply_patch", "create_file", "update_file",
-		"edit_file", "search_replace", "delete_file", "read_file":
+		"edit_file", "search_replace", "delete_file", "read_file",
+		// Cursor's newer spellings: 104 edits in the same database.
+		"edit_file_v2", "read_file_v2":
 		return true
 	}
 	return false

@@ -132,7 +132,7 @@ func Run(in Input) Report {
 	r.Add(checkNotes(in.Vault, in.DB))
 	r.Add(checkDurability(in.DB))
 	r.Add(checkFreshness(in.Vault, in.DB))
-	r.Add(checkEmbeddings(in.DB, in.Runtime))
+	r.Add(checkEmbeddings(in.DB, in.Runtime, embedOff(in.EmbedModel)))
 	r.Add(checkRuntime(in.Runtime, in.Configured, in.EmbedModel))
 	r.Add(checkContinuity(in.Vault))
 	r.Add(checkIngest(in.Vault))
@@ -353,7 +353,42 @@ func checkFreshness(dir string, db *sql.DB) Check {
 	return c
 }
 
-func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
+// Lag is how far the newest note in the vault is ahead of the last finished
+// index, or zero when the index is current, was never built (checkIndex says
+// that one) or cannot be read. Search calls it so an answer drawn from a
+// cache that has not seen a note says so, instead of reading as a miss.
+func Lag(dir string, db *sql.DB) time.Duration {
+	if db == nil {
+		return 0
+	}
+	var synced sql.NullInt64
+	if err := db.QueryRow("SELECT value FROM meta WHERE key = 'last_sync'").Scan(&synced); err != nil || !synced.Valid || synced.Int64 == 0 {
+		return 0
+	}
+	newest, err := newestMarkdown(dir)
+	if err != nil || newest.IsZero() {
+		return 0
+	}
+	if lag := newest.Sub(time.Unix(synced.Int64, 0)); lag > staleBy {
+		return lag
+	}
+	return 0
+}
+
+// RoughLag is Lag in the words doctor uses.
+func RoughLag(d time.Duration) string { return roughly(d) }
+
+// embedOff mirrors the CLI's reading of LOGOS_EMBED: these words mean "no
+// embeddings", not a model to look for.
+func embedOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "none", "no", "false", "disabled":
+		return true
+	}
+	return false
+}
+
+func checkEmbeddings(db *sql.DB, rt *provider.Provider, off bool) Check {
 	c := Check{Name: "embeddings"}
 	if db == nil {
 		c.State, c.Detail = Unknown, "no index open"
@@ -369,6 +404,12 @@ func checkEmbeddings(db *sql.DB, rt *provider.Provider) Check {
 		return c
 	}
 	switch {
+	case off:
+		// Asked for: index embeds nothing while this is set, so the usual "run
+		// logos index to embed the rest" would send the user round a loop.
+		c.State = OK
+		c.Detail = fmt.Sprintf("off — LOGOS_EMBED=off, %d of %d notes embedded; search is lexical", embedded, notes)
+		c.Fix = "unset LOGOS_EMBED for semantic search, then re-index"
 	case notes == 0:
 		c.State, c.Detail = OK, "nothing to embed"
 	case embedded == 0 && rt == nil:

@@ -81,7 +81,7 @@ type flagSpec struct {
 var commandFlags = map[string]flagSpec{
 	"version":  {},
 	"deny":     {bare: []string{"--undo"}},
-	"note":     {},
+	"note":     {valued: []string{"--at"}},
 	"reflect":  {},
 	"watch":    {},
 	"index":    {bare: []string{"--watch", "--auto"}},
@@ -93,7 +93,7 @@ var commandFlags = map[string]flagSpec{
 	"why":      {numeric: []string{"--limit", "-n"}},
 	"ledger":   {},
 	"recall":   {valued: []string{"--project"}, numeric: []string{"--limit"}, bare: []string{"--all-projects", "--json"}},
-	"usage":    {valued: []string{"--usd"}, bare: []string{"--week"}},
+	"usage":    {valued: []string{"--usd", "--wpm"}, bare: []string{"--week", "--month", "--each"}},
 	"show":     {bare: []string{"--all"}},
 	"graph":    {orDefault: []string{"--hops"}, bare: []string{"--similar", "--list"}},
 	"tried": {valued: []string{"--project", "--ruled-out", "--layer", "--scope", "--degree",
