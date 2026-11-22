@@ -415,6 +415,18 @@ func notesIn(db *sql.DB, ids []string) ([]Note, error) {
 	return scanNotes(db.Query(q, args...))
 }
 
+// dropNotes removes notes a checkpoint has taken from sessions it left open,
+// so the next checkpoint does not record them a second time. The vault copy
+// follows at the flush Commit ends with.
+func dropNotes(db *sql.DB, ids []int64) error {
+	for _, id := range ids {
+		if _, err := db.Exec(`DELETE FROM session_notes WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // closeSessions marks the given sessions committed and points them at the
 // checkpoint that captured them. Only the ones whose notes that checkpoint
 // actually took: a session left open by foldableSessions still holds its notes,

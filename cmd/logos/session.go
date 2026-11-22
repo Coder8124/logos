@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,6 +53,27 @@ func runNote(args []string) (err error) {
 	if (ifUncommitted || os.Getenv("LOGOS_AUTO_CHECKPOINT") == "1") && deniedHere() {
 		return nil
 	}
+	// --at comes before the note's words — `logos note --at T "..."` or
+	// `logos note <project> --at T "..."` — and nowhere else, so a note typed
+	// unquoted that mentions the flag (`logos note brain fixed the --at
+	// parser`) is refused rather than losing two of its words to a date.
+	var at int64
+	for i, a := range args {
+		if a != "--at" {
+			continue
+		}
+		if i > 1 {
+			return fmt.Errorf("--at goes before the note's text: logos note [project] --at <time> <what you did>; nothing was noted")
+		}
+		if i+1 >= len(args) {
+			return fmt.Errorf("--at needs a value: %s", atUsage)
+		}
+		if at, err = parseAt(args[i+1], time.Now()); err != nil {
+			return err
+		}
+		args = append(append([]string{}, args[:i]...), args[i+2:]...)
+		break
+	}
 	var project, text string
 	switch {
 	case len(args) >= 2:
@@ -60,7 +82,7 @@ func runNote(args []string) (err error) {
 		project, text = projectHere(), args[0]
 	}
 	if text == "" || project == "" {
-		return fmt.Errorf("usage: logos note [project] <what you did>")
+		return fmt.Errorf("usage: logos note [project] [--at <time>] <what you did>")
 	}
 	// LOGOS_AUTO_CHECKPOINT is the SessionEnd hook asking, with its payload on
 	// stdin, for a labelled checkpoint when the session did work and never
@@ -129,11 +151,15 @@ func runNote(args []string) (err error) {
 			return nil
 		}
 	}
-	n, err := session.AddNote(ix.DB, project, agentName(), text)
+	add := func() (session.Note, error) { return session.AddNote(ix.DB, project, agentName(), text) }
+	if at != 0 {
+		add = func() (session.Note, error) { return session.AddNoteAt(ix.DB, project, agentName(), text, at) }
+	}
+	n, err := add()
 	if err != nil {
 		return err
 	}
-	fmt.Println("noted — uncommitted until you checkpoint.")
+	fmt.Println("noted — uncommitted until you checkpoint." + datedSuffix(at))
 	if said := secret.Summary(n.Redactions); said != "" {
 		fmt.Println(said + ".")
 	}
@@ -148,7 +174,7 @@ func runCheckpoint(args []string) error {
 	if project == "" {
 		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--intent ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
-			"[--question ...] [--file ...] [--handoff <agent>]\n" +
+			"[--question ...] [--file ...] [--handoff <agent>] [--at <time>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
 	}
 	c := &session.Checkpoint{Project: project, Agent: agentName()}
@@ -188,6 +214,12 @@ func runCheckpoint(args []string) error {
 			c.HandoffTo = val()
 		case "--agent":
 			c.Agent = val()
+		case "--at":
+			ts, err := parseAt(val(), time.Now())
+			if err != nil {
+				return err
+			}
+			c.TS = ts
 		default:
 			return fmt.Errorf("unknown flag %q", rest[i])
 		}
@@ -226,11 +258,25 @@ func runCheckpoint(args []string) error {
 	}
 	var dropped int
 	c.Failed, dropped = session.DropPlaceholders(c.Failed)
-	// Read before the commit, so the history is what came before this checkpoint.
+	// A dated checkpoint (--at) describes a moment that has passed; read before
+	// Commit, which stamps the time on an undated one.
+	dated := c.TS != 0
+	// Read before the commit, so the history is what came before this checkpoint
+	// — for a dated one, only what came before its date, or the advice below
+	// compares it with work that happened after it.
 	earlier, _ := session.History(ix.Vault, c.Project, session.IntentDepth)
+	if dated {
+		earlier = slices.DeleteFunc(earlier, func(p session.Checkpoint) bool { return p.TS > c.TS })
+	}
 	// Before the commit, so the mark is in the file and not only on stdout.
-	claimed, claimErr := claims.Check(ix.Vault, c.Project, c.Verified)
-	c.Unseen = claimed.Unseen
+	// Not for a dated checkpoint: the activity log is what this machine ran
+	// lately, which says nothing about whether a claim from then was run then.
+	var claimed claims.Report
+	var claimErr error
+	if !dated {
+		claimed, claimErr = claims.Check(ix.Vault, c.Project, c.Verified)
+		c.Unseen = claimed.Unseen
+	}
 	// Before the commit: once this checkpoint is in the new folder, nothing
 	// finds the old one any more. Split covers a folder an auto record already
 	// took over, which nobody has been told about yet. The name is kept as
@@ -242,7 +288,14 @@ func runCheckpoint(args []string) error {
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
-	fmt.Printf("checkpoint written: %s.md\n", c.Slug)
+	written := "checkpoint written: " + c.Slug + ".md"
+	if dated {
+		written += "." + datedSuffix(c.TS)
+	}
+	fmt.Println(written)
+	if dated && len(c.Verified) > 0 {
+		fmt.Println("--verified was not checked against the activity log: it records what ran lately, not on the date given.")
+	}
 	if said := secret.Summary(c.Redactions); said != "" {
 		fmt.Println(said + ".")
 	}
@@ -282,6 +335,12 @@ func runCheckpoint(args []string) error {
 	// just did: resume reads this file off disk, so the handoff already works.
 	// Reading it as "your checkpoint is not finished yet" sent people to a
 	// command they did not need.
+	// A dated checkpoint older than the newest one is history filed in place,
+	// not where work left off; saying resume picks it up would be false.
+	if latest, _ := session.Latest(ix.Vault, c.Project); latest != nil && latest.Slug != c.Slug {
+		fmt.Printf("filed in the history before %s, which is still where `logos resume` starts.\n", latest.Slug)
+		return nil
+	}
 	fmt.Println("`logos resume` picks it up now — indexing only affects wider search.")
 	return nil
 }

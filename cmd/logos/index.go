@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/dream"
+	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -79,6 +80,8 @@ func search(query string) error {
 	}
 	defer ix.Close()
 
+	warnIfBehind(ix)
+
 	// No runtime is not a failure: FTS5 is in the index either way, so fall back
 	// to the lexical arm alone. Exact terms — names, error codes, IDs — are found
 	// as well as they ever were; only paraphrase suffers.
@@ -108,6 +111,16 @@ func search(query string) error {
 	return nil
 }
 
+// warnIfBehind says when the vault holds a note newer than the last index, so
+// a search that comes back empty cannot be mistaken for a word that was never
+// written. On stderr, like the other index notices; it does not rebuild, since
+// a search that silently takes minutes is its own surprise.
+func warnIfBehind(ix *index.Index) {
+	if lag := health.Lag(ix.Vault, ix.DB); lag > 0 {
+		fmt.Fprintf(os.Stderr, "· the vault has notes newer than the index (by %s) — `logos index` to include them\n", health.RoughLag(lag))
+	}
+}
+
 func ask(question string) error {
 	ix, err := openIndex()
 	if err != nil {
@@ -119,6 +132,7 @@ func ask(question string) error {
 	if err != nil {
 		return err
 	}
+	warnIfBehind(ix)
 
 	// ask still needs a chat model to synthesise the answer; an empty embed
 	// model (LOGOS_EMBED=off) only sends retrieval down the lexical arm inside

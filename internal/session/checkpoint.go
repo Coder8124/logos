@@ -207,7 +207,12 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if strings.TrimSpace(c.Agent) == "" {
 		c.Agent = "agent"
 	}
-	if c.TS == 0 {
+	// dated is a checkpoint the caller dated to when it happened (--at, an
+	// import) rather than to now. It describes that moment, so nothing that is
+	// only true now may be folded into it: not today's git state, not notes
+	// written after it, not a newer checkpoint as the one it follows.
+	dated := c.TS != 0
+	if !dated {
 		c.TS = time.Now().Unix()
 	}
 
@@ -233,7 +238,9 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	// Only filled when the caller did not set it, so a replayed or imported
 	// checkpoint keeps the state it was recorded with instead of being
 	// overwritten by whatever the working tree happens to look like now.
-	if c.Git.Empty() {
+	// A dated checkpoint is not read at all: the working tree now is not what
+	// it was then, and recording it would put today's branch under last week.
+	if c.Git.Empty() && !dated {
 		c.Git = gitstate.Read(workingDir())
 	}
 
@@ -257,6 +264,26 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	notes, err := notesIn(db, folded)
 	if err != nil {
 		return err
+	}
+	// A dated checkpoint takes only the notes from before its date. A note
+	// written after it is work the checkpoint never saw: folding it in put a
+	// later finding under an earlier date, and closing its session lost it
+	// from "not yet checkpointed" while it was still open work. Such a
+	// session stays open, and the notes taken from it are removed from it
+	// (below, after the write) so the next checkpoint does not take them twice.
+	var taken []int64
+	keepOpen := map[string]bool{}
+	if dated {
+		before := notes[:0:0]
+		for _, n := range notes {
+			if n.TS <= c.TS {
+				before = append(before, n)
+				taken = append(taken, n.ID)
+			} else {
+				keepOpen[n.Session] = true
+			}
+		}
+		notes = before
 	}
 	if len(notes) > 0 {
 		lines := make([]string, 0, len(notes))
@@ -285,9 +312,19 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 		return fmt.Errorf("nothing to checkpoint — record some progress first")
 	}
 
-	prev, _ := Latest(vaultDir, c.Project)
+	// follows names the checkpoint this one continues: for a dated one, the
+	// newest written before its date, not the newest on disk, or a backdated
+	// checkpoint claims to come after work that happened later.
 	var follows string
-	if prev != nil {
+	if dated {
+		all, _ := History(vaultDir, c.Project, 0)
+		for _, p := range all {
+			if p.TS <= c.TS {
+				follows = p.Session
+				break
+			}
+		}
+	} else if prev, _ := Latest(vaultDir, c.Project); prev != nil {
 		follows = prev.Session
 	}
 
@@ -324,7 +361,19 @@ func Commit(db *sql.DB, vaultDir string, c *Checkpoint) error {
 	if err := vault.WriteAtomic(path, []byte(c.Markdown(follows))); err != nil {
 		return err
 	}
-	if err := closeSessions(db, folded, c.Slug); err != nil {
+	closing := folded
+	if len(keepOpen) > 0 {
+		closing = nil
+		for _, id := range folded {
+			if !keepOpen[id] {
+				closing = append(closing, id)
+			}
+		}
+		if err := dropNotes(db, taken); err != nil {
+			return fmt.Errorf("checkpoint written to %s, but the notes it took are still listed as uncommitted: %w", c.Slug, err)
+		}
+	}
+	if err := closeSessions(db, closing, c.Slug); err != nil {
 		return err
 	}
 	// Rewritten from the sessions still open, not deleted outright. The folded
