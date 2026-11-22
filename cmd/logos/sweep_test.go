@@ -16,7 +16,7 @@ func TestCLIResumeRecordsAndAnnouncesASessionThatEndedWithoutACheckpoint(t *test
 	standIn(t, "elsewhere")
 	ended := time.Now().Add(-2 * time.Hour).Unix()
 	was := ingest.RecentTranscripts
-	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool) ([]*transcript.Session, []string) {
+	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool, func(string, time.Time) bool) ([]*transcript.Session, []string) {
 		return []*transcript.Session{{
 			Harness: "codex", ID: "lost-1", Project: "shop",
 			Started: ended - 1200, Ended: ended,

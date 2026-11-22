@@ -17,7 +17,7 @@ import (
 // the test's vault whenever a project name matched a folder they worked in. A
 // test that wants a sweep supplies its own transcripts.
 func TestMain(m *testing.M) {
-	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool) ([]*transcript.Session, []string) {
+	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool, func(string, time.Time) bool) ([]*transcript.Session, []string) {
 		return nil, nil
 	}
 	os.Exit(m.Run())
@@ -31,7 +31,7 @@ func sweepable(t *testing.T, project string) {
 	s.Ended = time.Now().Add(-2 * time.Hour).Unix()
 	s.Started = s.Ended - 1200
 	was := ingest.RecentTranscripts
-	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool) ([]*transcript.Session, []string) {
+	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool, func(string, time.Time) bool) ([]*transcript.Session, []string) {
 		return []*transcript.Session{s}, nil
 	}
 	t.Cleanup(func() { ingest.RecentTranscripts = was })

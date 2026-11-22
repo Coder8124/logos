@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/procedure"
 	"github.com/Coder8124/logos/internal/secret"
@@ -99,7 +100,7 @@ func autoAcceptable(db *sql.DB, vault string, m memory.Memory, turns map[string]
 	if m.Contests != 0 || strings.Contains(m.Text, secret.Marker) || !decisionOrTrap(m) {
 		return false
 	}
-	if !turnExists(m.Turn, turns) && !(m.Source == memory.SourceCheckpoints && checkpointsExist(vault, m.Turn)) {
+	if !turnExists(vault, m.Turn, turns) && !(m.Source == memory.SourceCheckpoints && checkpointsExist(vault, m.Turn)) {
 		return false
 	}
 	_, contested := memory.ContestedNow(db, m.ID, m.Text)
@@ -117,7 +118,7 @@ func decisionOrTrap(m memory.Memory) bool {
 	return false
 }
 
-func turnExists(ref string, turns map[string]int) bool {
+func turnExists(vault, ref string, turns map[string]int) bool {
 	harness, path, n, ok := parseTurnRef(ref)
 	if !ok {
 		return false
@@ -126,8 +127,16 @@ func turnExists(ref string, turns map[string]int) bool {
 	have, seen := turns[key]
 	if !seen {
 		have = -1
-		if ts, err := readTranscript(harness, path); err == nil && ts != nil {
-			have = len(ts.Turns)
+		// An excluded session's transcript is not opened to check a claim
+		// against it: the memory stays queued for a person, who can look.
+		var written time.Time
+		if fi, err := os.Stat(transcript.SourceFile(path)); err == nil {
+			written = fi.ModTime()
+		}
+		if exclude.CheckFile(vault, path, written) == "" {
+			if ts, err := readTranscript(harness, path); err == nil && ts != nil {
+				have = len(ts.Turns)
+			}
 		}
 		turns[key] = have
 	}

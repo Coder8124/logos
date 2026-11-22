@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
@@ -83,7 +84,7 @@ func runIngest(args []string) error {
 	}
 	keep := !dryRun && ingest.KeepsTranscripts(v)
 
-	sessions, readErrs, err := collectSessions(harness, explicit)
+	sessions, readErrs, excluded, err := collectSessions(harness, explicit)
 	if err != nil {
 		return err
 	}
@@ -200,6 +201,9 @@ func runIngest(args []string) error {
 		}
 	}
 
+	if excluded.N() > 0 {
+		fmt.Printf("\n%s — `logos exclude --list` shows why\n", excluded.Line())
+	}
 	switch {
 	case dryRun:
 		fmt.Printf("\n%d transcript(s) read · %d would be queued · %d skipped (other project) · %d unreadable · nothing written\n",
@@ -324,16 +328,36 @@ func ingestDecide(v, ref string, promote bool) error {
 // collectSessions reads every discoverable transcript, or one explicit file.
 // The second return is the list of per-file skip reasons — reported, not
 // swallowed.
-func collectSessions(harness, explicit string) ([]*transcript.Session, []string, error) {
+//
+// The exclusion check runs before each file is opened: an excluded session is
+// counted and never read, so its text cannot reach a candidate or an archive.
+func collectSessions(harness, explicit string) ([]*transcript.Session, []string, exclude.Skips, error) {
+	var excluded exclude.Skips
+	vaultDir := vaultPath()
+	// skip reports whether the file is excluded, counting it when it is.
+	skip := func(p string) bool {
+		var last time.Time
+		if fi, err := os.Stat(p); err == nil {
+			last = fi.ModTime()
+		}
+		if why := exclude.CheckFile(vaultDir, p, last); why != "" {
+			excluded.Add(why)
+			return true
+		}
+		return false
+	}
 	if explicit != "" {
 		if harness == "" {
-			return nil, nil, fmt.Errorf("--path needs --harness to say how to read the file")
+			return nil, nil, excluded, fmt.Errorf("--path needs --harness to say how to read the file")
+		}
+		if skip(explicit) {
+			return nil, nil, excluded, nil
 		}
 		s, err := transcript.ReadFile(harness, explicit)
 		if err != nil {
-			return nil, []string{err.Error()}, nil
+			return nil, []string{err.Error()}, excluded, nil
 		}
-		return []*transcript.Session{s}, nil, nil
+		return []*transcript.Session{s}, nil, excluded, nil
 	}
 
 	harnesses := transcript.Harnesses()
@@ -354,6 +378,9 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 			continue
 		}
 		for _, p := range paths {
+			if skip(p) {
+				continue
+			}
 			s, err := transcript.ReadFile(h, p)
 			if err != nil {
 				skips = append(skips, fmt.Sprintf("%s: %s: %v", h, filepath.Base(p), err))
@@ -376,7 +403,7 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 		}
 		return a.Path < b.Path
 	})
-	return out, skips, nil
+	return out, skips, excluded, nil
 }
 
 // --- consent marker ---------------------------------------------------------

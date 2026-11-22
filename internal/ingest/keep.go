@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
@@ -231,6 +232,21 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 		return refused("a chat in a database shared with every other chat", errors.New("this chat lives in a database shared with every other chat, which is not copied per conversation"))
 	case src == "":
 		return refused("no source file recorded", errors.New("the harvest recorded no source file"))
+	}
+
+	// Before the first byte of the source is opened for copying. The sweep and
+	// the import gate the sessions they discover, but this is the one place
+	// every copy passes through, so a path that was not gated upstream (a
+	// harvest handed an explicit file, an MCP call) is still refused here.
+	var written time.Time
+	if fi, err := os.Stat(src); err == nil {
+		written = fi.ModTime()
+	}
+	if why := exclude.CheckFile(vaultDir, src, written); why != "" {
+		return refused(why, errors.New(why))
+	}
+	if why := exclude.CheckID(vaultDir, c.SessionID); why != "" {
+		return refused(why, errors.New(why))
 	}
 
 	if rejected(vaultDir, c) {

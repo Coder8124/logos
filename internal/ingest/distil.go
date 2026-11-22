@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/transcript"
 	"github.com/Coder8124/logos/internal/vault"
@@ -222,6 +224,18 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 		return Evidence{}, fmt.Errorf("candidate %s is %s, not pending", shortRef(c.SessionID), c.Status)
 	}
 
+	// The candidate was queued before the exclusion; serving its turns now is a
+	// read of a conversation the person has since asked not to have read.
+	var written time.Time
+	if fi, err := os.Stat(transcript.SourceFile(c.Source)); err == nil {
+		written = fi.ModTime()
+	}
+	if why := exclude.CheckFile(vaultDir, c.Source, written); why != "" {
+		return Evidence{}, &exclude.Skipped{Reason: why}
+	}
+	if why := exclude.CheckID(vaultDir, c.SessionID); why != "" {
+		return Evidence{}, &exclude.Skipped{Reason: why}
+	}
 	s, err := transcript.ReadFile(c.Harness, c.Source)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("reading the source recorded on the candidate (%s): %w", c.Source, err)
