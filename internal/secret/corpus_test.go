@@ -122,9 +122,9 @@ func TestAHighEntropyValueBesideAKeyNameIsStillMasked(t *testing.T) {
 	}
 }
 
-// TestCorpusReport prints what each strength catches and falsely masks, so a
+// TestTheCorpusReportPrintsWhatEachStrengthCatchesAndFalselyMasks prints what each strength catches and falsely masks, so a
 // change to the rules is measured rather than asserted. Run with -v.
-func TestCorpusReport(t *testing.T) {
+func TestTheCorpusReportPrintsWhatEachStrengthCatchesAndFalselyMasks(t *testing.T) {
 	toks := corpusLines(t, "tokens.txt")
 	ord := corpusLines(t, "ordinary.txt")
 	known := corpusLines(t, "known_false_masks.txt")
