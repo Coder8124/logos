@@ -118,7 +118,7 @@ var (
 // anything else: masking only the BEGIN line would leave the base64 body, which
 // is the key, on the lines under it — and in Mask nothing else would catch it.
 // An unterminated block (a paste cut short) is masked to the end of the text.
-var privateKeyBlock = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----(?s:.*?)(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
+var privateKeyBlock = regexp.MustCompile(`-----BEG` + `IN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----(?s:.*?)(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\z)`)
 
 // These contain a separator the token pass splits on (a colon, a URL's
 // slashes), so they are matched on the whole line instead. The AWS secret
@@ -148,6 +148,9 @@ var secretPrefixes = []string{
 	"xox", // Slack tokens (xoxb-, xoxp-, xoxa-, ...)
 }
 
+// tokenShapes are the narrow shapes kept for MaskAll's entropy path; the
+// gitleaks table in gitleaks.go is the wider net that both strengths run.
+//
 // tokenShapes are credential formats whose prefix alone is too common to
 // trust — npm_config_cache, key-value, hf_ in a variable name — so each also
 // pins the body's length and alphabet, and must match the whole token.
@@ -213,6 +216,9 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 			}
 			line = replaceCounting(ls.re, line, ls.repl, field, ls.reason, &found, nil)
 		}
+		hits := scanner().scan(line)
+		line = maskTokenRules(line, &hits, field, &found)
+		line = maskPersonal(line, &hits, field, &found)
 		lines[i], found = redactTokens(field, line, entropy, found)
 	}
 	return strings.Join(lines, "\n"), found
@@ -254,7 +260,11 @@ func redactTokens(field, line string, entropy bool, found []Redaction) (string, 
 				return
 			}
 			part := w[start:end]
-			if reason := secretReason(part, entropy); reason != "" {
+			// A data URI's payload is base64 by definition and never a
+			// credential, but is as random-looking as one: an image pasted
+			// into a transcript was masked as a high-entropy token.
+			e := entropy && !strings.HasSuffix(w[:start], ";base64,")
+			if reason := secretReason(part, e); reason != "" {
 				b.WriteString(Marker)
 				found = append(found, Redaction{Field: field, Reason: reason})
 				changed = true
