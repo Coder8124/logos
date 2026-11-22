@@ -56,7 +56,12 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return s.receipt(fmt.Sprintf("served turns %d-%d of the transcript behind %s, read from %s", sp.From, sp.To, c.Slug, sp.Source)) +
+		sp = sp.Cap(maxTurns)
+		cut := ""
+		if sp.Omitted > 0 {
+			cut = fmt.Sprintf(" (the first %d turns of its span left out by max_turns)", sp.Omitted)
+		}
+		return s.receipt(fmt.Sprintf("served turns %d-%d of the transcript behind %s, read from %s%s", sp.From, sp.To, c.Slug, sp.Source, cut)) +
 			"\n\n" + sp.Render("checkpoint "+c.Slug), nil
 	}
 

@@ -2,6 +2,11 @@ package session
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/Coder8124/logos/internal/vault"
 
 	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/untrusted"
@@ -29,7 +34,11 @@ func TurnSpan(c Checkpoint, others []Checkpoint) (from, to int, ok bool) {
 	}
 	start := 0
 	for _, o := range others {
-		if o.Slug == c.Slug || !sameConversation(c, o) {
+		// Only an agent's own checkpoint is a predecessor. An auto record's
+		// count is how far a sweep read, not where an agent stopped
+		// writing, and starting after it would skip turns the lines came
+		// from.
+		if o.Auto || o.Slug == c.Slug || !sameConversation(c, o) {
 			continue
 		}
 		if o.Turns > start && o.Turns < c.Turns {
@@ -68,4 +77,56 @@ func SourcePointer(c Checkpoint, others []Checkpoint) string {
 	}
 	return fmt.Sprintf("source: %s of session %s, `logos transcript %s`",
 		span, text.Truncate(untrusted.Inline(c.HostSession), 8), untrusted.Inline(c.Slug))
+}
+
+// ConversationCheckpoints is every checkpoint filed in the folders of one host
+// conversation, read from those folders alone. A span needs one predecessor,
+// and loading the project's whole history to find it made every receipt, every
+// transcript read and every resume pay for a year of checkpoints. A
+// checkpoint from before conversation folders existed is not here, which can
+// only make a span start earlier (see TurnSpan), never later.
+func ConversationCheckpoints(vaultDir, hostSession string) []Checkpoint {
+	folder := dropSymbols(hostSession)
+	if folder == "" {
+		return nil
+	}
+	var out []Checkpoint
+	for _, dir := range convoDirsFor(vaultDir, folder) {
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, f := range files {
+			if f.IsDir() || !IsCheckpointFile(f.Name()) || vault.IsConflictCopy(dir, f.Name()) {
+				continue
+			}
+			full := filepath.Join(dir, f.Name())
+			raw, err := os.ReadFile(full)
+			if err != nil {
+				continue
+			}
+			c := ParseCheckpoint(string(raw))
+			if c.Empty() {
+				continue
+			}
+			rel, err := filepath.Rel(vaultDir, full)
+			if err != nil {
+				continue
+			}
+			c.Slug = strings.TrimSuffix(filepath.ToSlash(rel), ".md")
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// Predecessors is what TurnSpan should look through for c: its conversation's
+// folder when it names a host session, else its project's history (an auto
+// record built before the hook named a session is matched on its state).
+func Predecessors(vaultDir string, c Checkpoint) []Checkpoint {
+	if c.HostSession != "" {
+		return ConversationCheckpoints(vaultDir, c.HostSession)
+	}
+	all, _ := History(vaultDir, c.Project, 0)
+	return all
 }

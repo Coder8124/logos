@@ -107,6 +107,11 @@ type Checkpoint struct {
 	// where each of its lines came from (see TurnSpan). Zero there when the
 	// host's transcript could not be found — never an estimate.
 	Turns int `json:"turns,omitempty"`
+	// Harness is the host whose reader counted Turns on an agent checkpoint
+	// (transcript_harness in the frontmatter). Agent is whatever name the
+	// writer gave itself — "reviewer", "opus" — and is not a harness, so a
+	// span read back under Agent reported a transcript that was there as gone.
+	Harness string `json:"transcript_harness,omitempty"`
 	// Redactions is what Commit masked before writing, so the caller can say
 	// so. Not written to the file: the file carries the marker in place.
 	Redactions []secret.Redaction `json:"-"`

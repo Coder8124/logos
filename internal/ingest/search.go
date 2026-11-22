@@ -3,6 +3,7 @@ package ingest
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/text"
@@ -25,15 +26,22 @@ type TranscriptHit struct {
 // least curated thing in the vault and a default answer must not carry it.
 // Returns the hits (at most limit), the number of transcripts read, and the
 // ones that could not be read, so a skipped file is said and not silent.
-func SearchTranscripts(vaultDir, query string, limit int) (hits []TranscriptHit, searched int, skipped []string) {
-	words := strings.Fields(strings.ToLower(query))
+func SearchTranscripts(vaultDir, project, query string, limit int) (hits []TranscriptHit, searched int, skipped []string) {
+	words := strings.Fields(foldLower(query))
 	if len(words) == 0 {
 		return nil, 0, nil
 	}
 	for _, a := range session.ArchivedTranscripts(vaultDir) {
-		harness := a.Agent
+		if project != "" && a.Scope != project {
+			continue
+		}
+		harness := archiveHarness(a)
 		if harness == "" {
-			harness = "claude-code"
+			// The archive does not record its format and no checkpoint beside
+			// it names one. Parsing it as claude-code would report "0 matches"
+			// for a file that was never read.
+			skipped = append(skipped, fmt.Sprintf("%s (skipped: unknown harness)", a.Folder))
+			continue
 		}
 		s, err := transcript.ReadFile(harness, a.Path)
 		if err != nil {
@@ -42,10 +50,8 @@ func SearchTranscripts(vaultDir, query string, limit int) (hits []TranscriptHit,
 		}
 		searched++
 		for i, t := range s.Turns {
-			if limit > 0 && len(hits) >= limit {
-				continue
-			}
-			hay := strings.ToLower(t.Text + " " + t.Input)
+			full := t.Text + " " + t.Input
+			hay := foldLower(full)
 			ok := true
 			for _, w := range words {
 				if !strings.Contains(hay, w) {
@@ -56,32 +62,70 @@ func SearchTranscripts(vaultDir, query string, limit int) (hits []TranscriptHit,
 			if !ok {
 				continue
 			}
+			masked, _ := redactText("", full)
 			hits = append(hits, TranscriptHit{
 				Folder: a.Folder, Turn: i + 1, Role: t.Role,
-				Snippet: snippetAround(t.Text+" "+t.Input, words[0]),
+				// Masked like a served span: the archive is raw, and a search
+				// snippet is the same text under another name.
+				Snippet: snippetAround(masked, words[0]),
 			})
+			if limit > 0 && len(hits) >= limit {
+				return hits, searched, skipped
+			}
 		}
 	}
 	return hits, searched, skipped
 }
 
+// archiveHarness is the harness whose reader parses an archive: the one a
+// checkpoint recorded, else the checkpoint's agent when that names a harness
+// ingest has a reader for. "" when neither does.
+func archiveHarness(a session.Archived) string {
+	known := func(h string) bool {
+		for _, k := range transcript.Harnesses() {
+			if k == h {
+				return true
+			}
+		}
+		return false
+	}
+	if known(a.Harness) {
+		return a.Harness
+	}
+	if known(a.Agent) {
+		return a.Agent
+	}
+	return ""
+}
+
+// foldLower lowers rune by rune. strings.ToLower can change a string's byte
+// length (the Kelvin sign is three bytes and lowers to one), so an index found
+// in a lowered copy is not an index into the original; a per-rune map keeps the
+// rune count, and snippetAround slices by rune.
+func foldLower(s string) string {
+	return strings.Map(unicode.ToLower, s)
+}
+
 // snippetAround is a window of the turn around the first query word, flattened
-// to one line.
+// to one line. It works in runes so the window cannot split a character or
+// index past the string when case folding changed byte lengths.
 func snippetAround(s, word string) string {
-	flat := untrusted.Inline(s)
-	i := strings.Index(strings.ToLower(flat), word)
+	flat := []rune(untrusted.Inline(s))
+	low := []rune(foldLower(string(flat)))
+	w := []rune(word)
+	i := -1
+	for k := 0; k+len(w) <= len(low); k++ {
+		if string(low[k:k+len(w)]) == word {
+			i = k
+			break
+		}
+	}
 	if i < 0 {
-		return text.Ellipsize(flat, 240)
+		return text.Ellipsize(string(flat), 240)
 	}
 	start := max(0, i-80)
-	end := min(len(flat), i+160)
-	for start > 0 && !utf8Start(flat[start]) {
-		start--
-	}
-	for end < len(flat) && !utf8Start(flat[end]) {
-		end++
-	}
-	out := flat[start:end]
+	end := min(len(flat), i+len(w)+160)
+	out := string(flat[start:end])
 	if start > 0 {
 		out = "…" + out
 	}
@@ -90,8 +134,6 @@ func snippetAround(s, word string) string {
 	}
 	return out
 }
-
-func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 
 // RenderHits quotes hits as data inside the same fence the span uses.
 func RenderHits(query string, hits []TranscriptHit, searched int, skipped []string) string {

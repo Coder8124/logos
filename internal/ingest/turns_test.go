@@ -79,7 +79,7 @@ func TestASpanIsReadFromTheArchiveAndNamesIt(t *testing.T) {
 	dir, ix := openVault(t)
 	commitTurns(t, ix, dir, 4)
 	second := commitTurns(t, ix, dir, 9)
-	claudeJSONL(t, filepath.Join(dir, session.CheckpointDir, "kestrel", session.ConvosDir, turnsSession, "transcript.jsonl"), 12, "archived")
+	claudeJSONL(t, archivePath(dir), 12, "archived")
 
 	sp, _, err := ingest.SpanFor(dir, second.Slug)
 	if err != nil {
@@ -99,10 +99,10 @@ func TestTranscriptSearchIsNeverPartOfADefaultResume(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir, ix := openVault(t)
 	commitTurns(t, ix, dir, 4)
-	claudeJSONL(t, filepath.Join(dir, session.CheckpointDir, "kestrel", session.ConvosDir, turnsSession, "transcript.jsonl"), 6, "zanzibarquokka")
+	claudeJSONL(t, archivePath(dir), 6, "zanzibarquokka")
 
 	// Explicit search finds the word, quoted as data.
-	hits, searched, _ := ingest.SearchTranscripts(dir, "zanzibarquokka line 3", 5)
+	hits, searched, _ := ingest.SearchTranscripts(dir, "", "zanzibarquokka line 3", 5)
 	if searched != 1 || len(hits) != 1 || hits[0].Turn != 3 {
 		t.Fatalf("search = %+v (searched %d)", hits, searched)
 	}

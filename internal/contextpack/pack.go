@@ -1033,16 +1033,17 @@ func (p *Pack) sourceRulings(vault string) {
 	if !counted {
 		return
 	}
-	scope := p.historyScope
-	if scope == "" {
-		scope = p.Continuity()
-	}
-	all, err := session.History(vault, scope, 0)
-	if err != nil || len(all) == 0 {
-		all = cps
-	}
+	// One conversation's folder per host session, not the project's whole
+	// history: a pointer needs one predecessor.
+	convos := map[string][]session.Checkpoint{}
 	for _, c := range cps {
-		ptr := session.SourcePointer(c, all)
+		ptr := ""
+		if c.HostSession != "" {
+			if _, ok := convos[c.HostSession]; !ok {
+				convos[c.HostSession] = session.ConversationCheckpoints(vault, c.HostSession)
+			}
+			ptr = session.SourcePointer(c, convos[c.HostSession])
+		}
 		if ptr == "" {
 			continue
 		}

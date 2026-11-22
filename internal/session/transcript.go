@@ -177,6 +177,10 @@ type Archived struct {
 	Path   string
 	Folder string // the conversation folder's name: <slug>--<id> or the bare id
 	Agent  string // from a checkpoint in the same folder; "" when none names one
+	// Harness is the reader a checkpoint recorded when it counted the turns;
+	// "" when none did (an older checkpoint, or none at all).
+	Harness string
+	Scope   string // the project the conversation is filed under
 }
 
 // ArchivedTranscripts lists every archived transcript in the vault, in a
@@ -191,7 +195,7 @@ func ArchivedTranscripts(vaultDir string) []Archived {
 		return nil
 	}
 	var out []Archived
-	scan := func(scopeDir string) {
+	scan := func(scopeDir, project string) {
 		convos, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
 		if err != nil {
 			return
@@ -205,7 +209,8 @@ func ArchivedTranscripts(vaultDir string) []Archived {
 			if p == "" {
 				continue
 			}
-			out = append(out, Archived{Path: p, Folder: c.Name(), Agent: agentIn(dir)})
+			agent, harness := agentIn(dir)
+			out = append(out, Archived{Path: p, Folder: c.Name(), Agent: agent, Harness: harness, Scope: project})
 		}
 	}
 	for _, p := range projects {
@@ -213,14 +218,14 @@ func ArchivedTranscripts(vaultDir string) []Archived {
 			continue
 		}
 		pdir := filepath.Join(root, p.Name())
-		scan(pdir)
+		scan(pdir, p.Name())
 		nested, err := os.ReadDir(pdir)
 		if err != nil {
 			continue // one unreadable project must not hide the others
 		}
 		for _, n := range nested {
 			if n.IsDir() && n.Name() != ConvosDir {
-				scan(filepath.Join(pdir, n.Name()))
+				scan(filepath.Join(pdir, n.Name()), p.Name())
 			}
 		}
 	}
@@ -230,10 +235,10 @@ func ArchivedTranscripts(vaultDir string) []Archived {
 
 // agentIn is the agent a checkpoint in dir names: the transcript's format is
 // the harness's, and the archive does not record which harness wrote it.
-func agentIn(dir string) string {
+func agentIn(dir string) (agent, harness string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	for _, e := range entries {
 		if e.IsDir() || !IsCheckpointFile(e.Name()) {
@@ -243,9 +248,13 @@ func agentIn(dir string) string {
 		if err != nil {
 			continue
 		}
-		if c := ParseCheckpoint(string(raw)); strings.TrimSpace(c.Agent) != "" {
-			return c.Agent
+		c := ParseCheckpoint(string(raw))
+		if agent == "" {
+			agent = strings.TrimSpace(c.Agent)
+		}
+		if harness == "" {
+			harness = strings.TrimSpace(c.Harness)
 		}
 	}
-	return ""
+	return agent, harness
 }

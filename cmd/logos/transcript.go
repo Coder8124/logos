@@ -10,11 +10,13 @@ import (
 	"github.com/Coder8124/logos/internal/session"
 )
 
-// runTranscript is `logos transcript <session-id>`: print the copy of a host
-// transcript a harvest archived into the vault.
+// runTranscript is `logos transcript <session-id | checkpoint-slug>`. A session
+// id prints the copy of a host transcript a harvest archived into the vault; a
+// checkpoint slug prints the turns that checkpoint's lines came from, read from
+// the vault archive first and then the host's live file (see runTranscriptSpan).
 //
-// Only the vault's copy, never the host's file, even when the host still has
-// it: the point of the archive is a record that does not depend on the host,
+// An id reads only the vault's copy, never the host's file, even when the host
+// still has it: the point of the archive is a record that does not depend on the host,
 // and a command that quietly read ~/.claude when it could would hide the day
 // the archive was missing until the day the host's file was gone too.
 //
@@ -33,7 +35,7 @@ func runTranscript(args []string) error {
 	}
 	id := firstNonFlag(args)
 	if id == "" {
-		return fmt.Errorf("usage: logos transcript <session-id>")
+		return fmt.Errorf("usage: logos transcript <session-id | checkpoint-slug>")
 	}
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {

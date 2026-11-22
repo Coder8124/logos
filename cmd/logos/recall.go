@@ -27,7 +27,20 @@ func recallCmd(args []string) error {
 	if hasFlag(args, "--transcripts") {
 		// Explicit only: archived transcripts are never searched by a plain
 		// recall, a resume or a context.
-		hits, searched, skipped := ingest.SearchTranscripts(vaultPath(), query, flagInt(args, "--limit", 5))
+		proj := ""
+		if !hasFlag(args, "--all-projects") {
+			proj = scope.NormalizeArg(flagStr(args, "--project", ""))
+		}
+		hits, searched, skipped := ingest.SearchTranscripts(vaultPath(), proj, query, flagInt(args, "--limit", 5))
+		if asJSON {
+			if hits == nil {
+				hits = []ingest.TranscriptHit{}
+			}
+			if skipped == nil {
+				skipped = []string{}
+			}
+			return printJSON(map[string]any{"query": query, "searched": searched, "skipped": skipped, "hits": hits})
+		}
 		fmt.Print(ingest.RenderHits(query, hits, searched, skipped))
 		return nil
 	}
