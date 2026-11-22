@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/dream"
+	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/provider"
@@ -79,6 +80,8 @@ func search(query string) error {
 	}
 	defer ix.Close()
 
+	warnIfBehind(ix)
+
 	// No runtime is not a failure: FTS5 is in the index either way, so fall back
 	// to the lexical arm alone. Exact terms — names, error codes, IDs — are found
 	// as well as they ever were; only paraphrase suffers.
@@ -103,9 +106,19 @@ func search(query string) error {
 		return nil
 	}
 	for _, h := range hits {
-		fmt.Printf("%.3f  %-28s %s\n", h.Score, h.Slug, h.Title)
+		fmt.Printf("%.3f  %-28s %s\n", h.Score, ix.DisplayPath(h.Slug), h.Title)
 	}
 	return nil
+}
+
+// warnIfBehind says when the vault holds a note newer than the last index, so
+// a search that comes back empty cannot be mistaken for a word that was never
+// written. On stderr, like the other index notices; it does not rebuild, since
+// a search that silently takes minutes is its own surprise.
+func warnIfBehind(ix *index.Index) {
+	if lag := health.Lag(ix.Vault, ix.DB); lag > 0 {
+		fmt.Fprintf(os.Stderr, "· the vault has notes newer than the index (by %s) — `logos index` to include them\n", health.RoughLag(lag))
+	}
 }
 
 func ask(question string) error {
@@ -119,6 +132,7 @@ func ask(question string) error {
 	if err != nil {
 		return err
 	}
+	warnIfBehind(ix)
 
 	// ask still needs a chat model to synthesise the answer; an empty embed
 	// model (LOGOS_EMBED=off) only sends retrieval down the lexical arm inside
@@ -138,9 +152,9 @@ func ask(question string) error {
 	fmt.Println("─── context ───")
 	for _, h := range hits {
 		if h.Via != "" {
-			fmt.Printf("  %-28s via %s\n", h.Slug, h.Via)
+			fmt.Printf("  %-28s via %s\n", ix.DisplayPath(h.Slug), h.Via)
 		} else {
-			fmt.Printf("  %-28s %.3f\n", h.Slug, h.Score)
+			fmt.Printf("  %-28s %.3f\n", ix.DisplayPath(h.Slug), h.Score)
 		}
 	}
 	return nil
@@ -150,6 +164,24 @@ func ask(question string) error {
 // w: stdout for `logos index`, stderr for a rebuild auto runs ahead of another
 // command whose stdout is its answer. A nil p indexes text only.
 func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string) error {
+	// Before the sync, not after: the vault is truth and the index is its
+	// cache, so a rename is written first and the sync then records the paths
+	// as they now are. Run after, the index held every renamed checkpoint at a
+	// path that no longer existed until some later pass. A checkpoint a
+	// re-file moves into a bare folder later in this pass is named on the next
+	// one. Said with the number, and what was left alone said too: a folder
+	// that stays unnamed looks like a missed one.
+	named, skippedNames, nameErr := ix.SyncConvoNames()
+	if named > 0 {
+		fmt.Fprintf(w, "named %d conversation folder%s after their intent\n", named, plural(named, ""))
+	}
+	for _, sk := range skippedNames {
+		fmt.Fprintln(w, "  left unnamed:", sk)
+	}
+	if nameErr != nil {
+		fmt.Fprintln(os.Stderr, "· could not name conversation folders:", nameErr)
+	}
+
 	rep, err := ix.Sync()
 	if err != nil {
 		return err

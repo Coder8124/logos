@@ -39,3 +39,32 @@ func TestAnArchivedTranscriptIsNeitherACheckpointNorAScope(t *testing.T) {
 		t.Errorf("a prefix of the id found %q; the lookup is exact", got)
 	}
 }
+
+// A bare folder that reappears beside a renamed one — an older Logos on another
+// machine, or a sync client restoring the old name — must not hide the
+// transcript filed in the renamed folder, nor draw a second copy of it.
+func TestABareFolderBesideARenamedOneDoesNotHideItsTranscript(t *testing.T) {
+	v := t.TempDir()
+	convos := filepath.Join(v, CheckpointDir, "kestrel", ConvosDir)
+	named := filepath.Join(convos, "fix-the-index--4b1e9c2a")
+	bare := filepath.Join(convos, "4b1e9c2a")
+	for _, d := range []string{named, bare} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(named, "transcript.jsonl")
+	if err := os.WriteFile(want, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindTranscript(v, "4b1e9c2a"); got != want {
+		t.Errorf("FindTranscript = %q, want the renamed folder's %q", got, want)
+	}
+	dir, err := TranscriptDir(v, "kestrel", "4b1e9c2a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != named {
+		t.Errorf("TranscriptDir = %q; a second copy would be filed beside %q", dir, named)
+	}
+}

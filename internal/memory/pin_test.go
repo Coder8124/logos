@@ -2,6 +2,7 @@ package memory
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -334,5 +335,30 @@ func TestExcludeNeverLeavesAnUnaffectedSliceIntact(t *testing.T) {
 	got := excludeNever(mems)
 	if len(got) != 2 {
 		t.Errorf("nothing to exclude, want both kept, got %+v", got)
+	}
+}
+
+// A memory `correct` replaced is out of recall, so a pin or an exclude on it
+// can change nothing a user will see — yet both printed success. The refusal
+// names the memory that took its place, which is the one they meant.
+func TestPinAndExcludeOnASupersededMemoryNameTheOneThatReplacedIt(t *testing.T) {
+	db := testDB(t)
+	storeVec(t, db, "we deploy on fridays", Fact, 0.5, []float32{1, 0, 0})
+	all, _ := All(db)
+	old := all[0].ID
+	c, err := Correct(db, nil, "", old, &Memory{Text: "we never deploy on fridays", Kind: Fact, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, act := range map[string]func(*sql.DB, int64) error{"pin": Pin, "exclude": Exclude, "unpin": Unpin} {
+		err := act(db, old)
+		if err == nil {
+			t.Errorf("%s on superseded #%d reported success", name, old)
+			continue
+		}
+		if want := fmt.Sprintf("#%d", c.ID); !strings.Contains(err.Error(), "superseded") || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s error should say superseded and name %s, got: %v", name, want, err)
+		}
 	}
 }
