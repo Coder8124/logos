@@ -366,12 +366,7 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 		fmt.Fprintf(os.Stderr, "· could not read %s — its notes are not indexed\n", terminalSafe(u, 400))
 	}
 
-	// The vault was copied or moved since the index was built. Said, because
-	// 306 rows changing underneath an "=306" would otherwise be silent work.
-	if rep.Rerooted > 0 {
-		fmt.Fprintf(w, "· the vault moved: re-pointed %d note%s at %s\n",
-			rep.Rerooted, plural(rep.Rerooted, ""), ix.Vault)
-	}
+	announceRerooted(w, rep, ix.Vault)
 
 	if p == nil {
 		fmt.Fprintf(w, "+%d ~%d -%d =%d · %d notes, %d edges, %d memories · lexical only\n",
@@ -489,4 +484,15 @@ func memoryIDs(ids []int64) string {
 		parts = append(parts, fmt.Sprintf("#%d", id))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// announceRerooted says so when a sync re-pointed notes at a vault that was
+// copied or moved since the index was built. Every command that syncs calls
+// it, not only `logos index`: whichever one runs first after a move does the
+// rewriting, and a later `logos index` would then find nothing left to report.
+func announceRerooted(w io.Writer, rep index.SyncReport, vault string) {
+	if rep.Rerooted > 0 {
+		fmt.Fprintf(w, "· the vault moved: re-pointed %d note%s at %s\n",
+			rep.Rerooted, plural(rep.Rerooted, ""), vault)
+	}
 }

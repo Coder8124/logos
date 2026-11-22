@@ -372,23 +372,87 @@ func TestAMovedVaultShowsEveryNotePathInsideTheVault(t *testing.T) {
 	if got := ix.DisplayPath("notes/a"); got != "notes/a" {
 		t.Errorf("DisplayPath = %q after the vault moved, want notes/a", got)
 	}
+	again, err := ix.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Rerooted != 0 {
+		t.Errorf("a second Sync re-pointed %d notes again; the first should have settled them", again.Rerooted)
+	}
 }
 
 // Before an index has re-rooted a moved vault, a row can still name the old
 // place. Printing a path that climbs out of the vault is worse than printing
-// the slug, which at least names the note.
+// the note's real one, so it is recovered from the tail of the old path — with
+// its underscores, which the slug has folded away — and only a note that is
+// not in this vault at all falls back to the slug.
 func TestDisplayPathNeverClimbsOutOfTheVault(t *testing.T) {
 	v := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(v, "sessions", "p", "_convos"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(v, "sessions", "p", "_convos", "x.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ix, err := Open(v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ix.Close()
-	outside := filepath.Join(filepath.Dir(v), "elsewhere", "notes", "a.md")
-	if _, err := ix.DB.Exec(`INSERT INTO notes (slug, path, title, kind, body, hash, first_seen) VALUES ('notes/a', ?, 't', 'note', 'b', 'h', '2020-01-01')`, outside); err != nil {
+	oldRoot := filepath.Join(filepath.Dir(v), "elsewhere")
+	add := func(slug, path string) {
+		t.Helper()
+		if _, err := ix.DB.Exec(`INSERT INTO notes (slug, path, title, kind, body, hash, first_seen) VALUES (?, ?, 't', 'note', 'b', 'h', '2020-01-01')`, slug, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("sessions/p/-convos/x", filepath.Join(oldRoot, "sessions", "p", "_convos", "x.md"))
+	add("gone/y", filepath.Join(oldRoot, "gone", "y.md"))
+	add("rel/z", "relative/old/z.md")
+
+	if got := ix.DisplayPath("sessions/p/-convos/x"); got != "sessions/p/_convos/x" {
+		t.Errorf("a moved note shows %q, want its real path sessions/p/_convos/x", got)
+	}
+	for _, slug := range []string{"gone/y", "rel/z"} {
+		if got := ix.DisplayPath(slug); got != slug {
+			t.Errorf("DisplayPath(%q) = %q, want the slug for a note that is not in this vault", slug, got)
+		}
+	}
+}
+
+// One vault reached by two spellings is not a move. Counting it as one printed
+// "the vault moved" on every run that alternated between them.
+func TestTwoSpellingsOfOneVaultPathAreNotAMove(t *testing.T) {
+	parent := t.TempDir()
+	real := filepath.Join(parent, "vault")
+	if err := os.MkdirAll(filepath.Join(real, "notes"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := ix.DisplayPath("notes/a"); strings.Contains(got, "..") {
-		t.Errorf("DisplayPath = %q, a path outside the vault", got)
+	body := "---\ntype: note\ntitle: a note\nfirst_seen: 2020-01-01\n---\n\nsomething\n"
+	if err := os.WriteFile(filepath.Join(real, "notes", "a.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The link is to the parent: WalkDir does not follow a symlinked root, so a
+	// link to the vault itself would index nothing and prove nothing.
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(parent, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	for _, dir := range []string{filepath.Join(link, "vault"), real} {
+		ix, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rep, err := ix.Sync()
+		ix.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.Added+rep.Unchanged != 1 {
+			t.Fatalf("opening %s saw %+v, want the one note", dir, rep)
+		}
+		if rep.Rerooted != 0 {
+			t.Errorf("opening %s counted %d notes as moved, want 0", dir, rep.Rerooted)
+		}
 	}
 }
