@@ -39,6 +39,11 @@ func runTranscript(args []string) error {
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
 	}
+	// A checkpoint's slug asks for the turns its lines came from, not the whole
+	// conversation: the id form below stays what it was.
+	if ingest.IsRecordRef(id) {
+		return runTranscriptSpan(v, id)
+	}
 	p := session.FindTranscript(v, id)
 	if p == "" {
 		return fmt.Errorf("no transcript is archived for session %q — Logos keeps one when it reads a session's transcript, unless `logos config auto config archive off` (the id must match exactly)", id)
@@ -58,6 +63,21 @@ func runTranscript(args []string) error {
 	if _, err := io.Copy(os.Stdout, f); err != nil {
 		return fmt.Errorf("printing the archived transcript %s: %w", rel, err)
 	}
+	return nil
+}
+
+// runTranscriptSpan is `logos transcript <checkpoint-slug>`: print only the
+// turns that checkpoint's lines came from. The span goes to stdout in the
+// fenced, flattened form the evidence uses, because a turn is not a line of the
+// host's file and piping a slice of raw JSONL would claim a precision the
+// readers do not have. When the transcript is gone the exit is non-zero and the
+// stdout empty: an empty span on a zero exit reads as "nothing was said".
+func runTranscriptSpan(v, slug string) error {
+	sp, c, err := ingest.SpanFor(v, slug)
+	if err != nil {
+		return err
+	}
+	fmt.Print(sp.Render("checkpoint " + c.Slug))
 	return nil
 }
 

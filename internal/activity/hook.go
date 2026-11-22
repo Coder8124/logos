@@ -244,3 +244,42 @@ func FullSessionID(e Event) string {
 	full, _ := e.Extra["session_id"].(string)
 	return full
 }
+
+// HostSessionFor is the host's own id for the conversation agent is working
+// in on proj, read back from the activity log that agent's hooks wrote: the
+// full id on the newest event it logged for the project. "" when agent is
+// empty or has logged nothing — a guessed id is worse than none.
+//
+// Only an event the agent itself logged counts. Only Claude Code's hooks write
+// this log, so a host with none (opencode, Codex without its hooks) took
+// Claude's newest conversation and filed its checkpoint there (#339); with no
+// event of its own, a host has no conversation id to give.
+func HostSessionFor(vault, proj, agent string) string {
+	if agent == "" {
+		return ""
+	}
+	events, err := Read(vault, Query{Project: proj})
+	if err != nil {
+		return ""
+	}
+	// Read keeps file order within a second, so newest-first puts the first
+	// event written in the newest second ahead of the last one (#329): walk
+	// that second to its end before choosing.
+	var e *Event
+	for i := range events {
+		if !strings.EqualFold(events[i].Agent, agent) {
+			continue
+		}
+		if e != nil && events[i].TS != e.TS {
+			break
+		}
+		e = &events[i]
+	}
+	if e == nil {
+		return ""
+	}
+	if full := FullSessionID(*e); full != "" {
+		return full
+	}
+	return e.Session
+}

@@ -170,3 +170,82 @@ func transcriptIn(dir string) string {
 	}
 	return ""
 }
+
+// Archived is one transcript the vault holds: where it is, the conversation
+// folder it lives in, and the agent named by a checkpoint filed beside it.
+type Archived struct {
+	Path   string
+	Folder string // the conversation folder's name: <slug>--<id> or the bare id
+	Agent  string // from a checkpoint in the same folder; "" when none names one
+}
+
+// ArchivedTranscripts lists every archived transcript in the vault, in a
+// project's scope and in its worktree scopes, sorted by path so a search
+// reports in the same order every run. Only an explicit transcript search
+// calls it: walking every conversation folder is not something a resume or a
+// context should pay for or fill its answer with.
+func ArchivedTranscripts(vaultDir string) []Archived {
+	root := filepath.Join(vaultDir, CheckpointDir)
+	projects, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []Archived
+	scan := func(scopeDir string) {
+		convos, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
+		if err != nil {
+			return
+		}
+		for _, c := range convos {
+			if !c.IsDir() {
+				continue
+			}
+			dir := filepath.Join(scopeDir, ConvosDir, c.Name())
+			p := transcriptIn(dir)
+			if p == "" {
+				continue
+			}
+			out = append(out, Archived{Path: p, Folder: c.Name(), Agent: agentIn(dir)})
+		}
+	}
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		pdir := filepath.Join(root, p.Name())
+		scan(pdir)
+		nested, err := os.ReadDir(pdir)
+		if err != nil {
+			continue // one unreadable project must not hide the others
+		}
+		for _, n := range nested {
+			if n.IsDir() && n.Name() != ConvosDir {
+				scan(filepath.Join(pdir, n.Name()))
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// agentIn is the agent a checkpoint in dir names: the transcript's format is
+// the harness's, and the archive does not record which harness wrote it.
+func agentIn(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() || !IsCheckpointFile(e.Name()) {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if c := ParseCheckpoint(string(raw)); strings.TrimSpace(c.Agent) != "" {
+			return c.Agent
+		}
+	}
+	return ""
+}

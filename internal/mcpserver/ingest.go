@@ -47,6 +47,19 @@ func (s *Session) ingestHarvest(ref string, maxTurns int) (string, error) {
 		return b.String(), nil
 	}
 
+	if ingest.IsRecordRef(ref) && ingest.IsAgentRecord(s.vault, ref) {
+		// An agent's own checkpoint: serve only the turns its lines came from,
+		// to check a ruled-out line against what happened. Read-only — there is
+		// no distilling into a record an agent wrote — so nothing is remembered
+		// as served, and ingest_distil still refuses it.
+		sp, c, err := ingest.SpanFor(s.vault, ref)
+		if err != nil {
+			return "", err
+		}
+		return s.receipt(fmt.Sprintf("served turns %d-%d of the transcript behind %s, read from %s", sp.From, sp.To, c.Slug, sp.Source)) +
+			"\n\n" + sp.Render("checkpoint "+c.Slug), nil
+	}
+
 	if ingest.IsRecordRef(ref) {
 		ev, err := ingest.AutoEvidenceFor(s.vault, ref, maxTurns)
 		if err != nil {
