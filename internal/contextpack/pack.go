@@ -140,6 +140,12 @@ type Pack struct {
 	// still hold, and the reader is the one who can tell — but only if it is
 	// told the file moved.
 	RulingDrift map[string]*gitstate.Drift `json:"ruling_drift,omitempty"`
+	// RulingSources holds, by normalizeKey of the ruling's text, the pointer to
+	// the transcript turns it came from — "source: turns 41-63 of session …".
+	// Kept beside the pack and drawn at render time, never written into a
+	// checkpoint: the dead-end collector re-reads those and would take the
+	// pointer for a new ruling.
+	RulingSources map[string]string `json:"ruling_sources,omitempty"`
 	// Retired is how many rulings were left out because a person retired
 	// them with `logos review --stale` — said, so a handoff that is suddenly
 	// shorter does not read as rulings lost.
@@ -368,6 +374,7 @@ func Build(ix *index.Index, embed *provider.Provider, embedModel string, req Req
 	p.noteDrift(req.Dir)
 	p.applyReviews(reviews)
 	p.markRulings(req.Dir, reviews)
+	p.sourceRulings(ix.Vault)
 	// Uncommitted notes get no such fallback. A checkpoint is a finished record
 	// of where the codebase was; an open note is another agent's live work in
 	// another tree, and presenting that as this session's own progress is
@@ -1003,6 +1010,51 @@ func (p *Pack) markRulings(dir string, reviews map[string]session.Review) {
 			}
 			seen[k] = true
 			p.measureRuling(a, f, c.TS, c.Git.Commit, reviews)
+		}
+	}
+}
+
+// sourceRulings records in RulingSources where in its transcript each handed
+// over dead end came from, for the checkpoints that recorded a turn count.
+//
+// The span starts after the previous checkpoint of the same conversation, which
+// the few checkpoints the pack carries may not include, so the whole history is
+// read when any of them has a count — and only then, so a vault with none pays
+// nothing.
+func (p *Pack) sourceRulings(vault string) {
+	if p.Checkpoint == nil || vault == "" {
+		return
+	}
+	cps := append([]session.Checkpoint{*p.Checkpoint}, p.History...)
+	counted := false
+	for _, c := range cps {
+		counted = counted || (c.Turns > 0 && c.HostSession != "")
+	}
+	if !counted {
+		return
+	}
+	scope := p.historyScope
+	if scope == "" {
+		scope = p.Continuity()
+	}
+	all, err := session.History(vault, scope, 0)
+	if err != nil || len(all) == 0 {
+		all = cps
+	}
+	for _, c := range cps {
+		ptr := session.SourcePointer(c, all)
+		if ptr == "" {
+			continue
+		}
+		for _, f := range c.Failed {
+			k := normalizeKey(f)
+			if _, dup := p.RulingSources[k]; dup {
+				continue
+			}
+			if p.RulingSources == nil {
+				p.RulingSources = map[string]string{}
+			}
+			p.RulingSources[k] = ptr
 		}
 	}
 }

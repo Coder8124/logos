@@ -285,13 +285,18 @@ func (p *Pack) spendCheckpoint(sp *spender) string {
 	inferredFromTranscript(&head, c, !p.NoDistilOffer)
 	list(&tail, "Decided", c.Decisions)
 	// The most valuable lines in the pack: what has already been ruled out.
-	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift)
+	failures(&tail, "Already tried, didn't work", c.Failed, p.RulingDrift, p.RulingSources)
 	list(&tail, "Still open", c.Questions)
 	list(&tail, "Files touched", c.Files)
 	// Predecessors' dead ends, attributed. Cheap — a line each — and the only
 	// thing in an old checkpoint that is still true.
-	if older := p.priorFailures(); len(older) > 0 {
-		list(&tail, "Ruled out earlier in this project", older)
+	if older, srcs := p.priorFailures(); len(older) > 0 {
+		fmt.Fprintf(&tail, "**Ruled out earlier in this project:**\n")
+		for i, it := range older {
+			fmt.Fprintf(&tail, "- %s\n", inline(it))
+			sourceLine(&tail, srcs[i])
+		}
+		tail.WriteString("\n")
 	}
 	if revived := p.revivedLines(); len(revived) > 0 {
 		list(&tail, "Ruled out earlier, and matching this task", revived)
@@ -671,14 +676,14 @@ func itOrThem(n int) string {
 // priorFailures collects what earlier checkpoints ruled out, attributed to
 // whoever ruled it out and skipping anything the current checkpoint already
 // repeats.
-func (p *Pack) priorFailures() []string {
+func (p *Pack) priorFailures() (lines, sources []string) {
 	seen := map[string]bool{}
 	if p.Checkpoint != nil {
 		for _, f := range p.Checkpoint.Failed {
 			seen[normalizeKey(f)] = true
 		}
 	}
-	var out []string
+	var out, srcs []string
 	for _, c := range p.History {
 		for _, f := range c.Failed {
 			k := normalizeKey(f)
@@ -695,9 +700,10 @@ func (p *Pack) priorFailures() []string {
 				line += " — ⚠ " + d.Note()
 			}
 			out = append(out, line)
+			srcs = append(srcs, p.RulingSources[k])
 		}
 	}
-	return out
+	return out, srcs
 }
 
 // revivedLines renders the rulings brought back past History, each with its
@@ -1287,7 +1293,7 @@ func list(b *strings.Builder, heading string, items []string) {
 //
 // A ruling whose named files changed since it was recorded keeps its line and
 // gains a second one saying so (see Pack.RulingDrift).
-func failures(b *strings.Builder, heading string, items []string, drift map[string]*gitstate.Drift) {
+func failures(b *strings.Builder, heading string, items []string, drift map[string]*gitstate.Drift, sources map[string]string) {
 	if len(items) == 0 {
 		return
 	}
@@ -1297,6 +1303,7 @@ func failures(b *strings.Builder, heading string, items []string, drift map[stri
 		if !r.Typed() {
 			fmt.Fprintf(b, "- %s\n", inline(it))
 			driftLine(b, drift[normalizeKey(it)])
+			sourceLine(b, sources[normalizeKey(it)])
 			continue
 		}
 		fmt.Fprintf(b, "- %s", inline(r.Route))
@@ -1311,8 +1318,18 @@ func failures(b *strings.Builder, heading string, items []string, drift map[stri
 		}
 		b.WriteString("\n")
 		driftLine(b, drift[normalizeKey(it)])
+		sourceLine(b, sources[normalizeKey(it)])
 	}
 	b.WriteString("\n")
+}
+
+// sourceLine prints a ruling's pointer to its transcript turns. Built from
+// frontmatter numbers and a slug that SourcePointer already flattened, and
+// drawn here so it is never part of what a checkpoint stores.
+func sourceLine(b *strings.Builder, ptr string) {
+	if ptr != "" {
+		fmt.Fprintf(b, "  %s\n", ptr)
+	}
 }
 
 func driftLine(b *strings.Builder, d *gitstate.Drift) {
