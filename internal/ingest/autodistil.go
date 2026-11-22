@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/session"
@@ -69,14 +68,20 @@ var findTranscript = func(vault, harness, id string) (*transcript.Session, error
 	}
 	for _, p := range paths {
 		if transcriptID(p) == id {
-			var written time.Time
-			if fi, err := os.Stat(transcript.SourceFile(p)); err == nil {
-				written = fi.ModTime()
-			}
-			if why := exclude.CheckFile(vault, p, written); why != "" {
+			if why := exclude.CheckFile(vault, p); why != "" {
 				return nil, &exclude.Skipped{Reason: why}
 			}
-			return transcript.ReadFile(harness, p)
+			s, err := transcript.ReadFile(harness, p)
+			if err != nil {
+				return nil, err
+			}
+			// The file's name and first lines said little; the session now
+			// says where and when it really ran, and a pause is judged on
+			// that span, not on the file's last write.
+			if why := exclude.Check(vault, subjectOf(s)); why != "" {
+				return nil, &exclude.Skipped{Reason: why}
+			}
+			return s, nil
 		}
 	}
 	return nil, fmt.Errorf("%s no longer has transcript %s", harness, id)

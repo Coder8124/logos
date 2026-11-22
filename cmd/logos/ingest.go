@@ -335,12 +335,21 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 	var excluded exclude.Skips
 	vaultDir := vaultPath()
 	// skip reports whether the file is excluded, counting it when it is.
+	// The list is loaded once for the whole scan, not once per transcript.
+	rules, _ := exclude.Load(vaultDir)
 	skip := func(p string) bool {
-		var last time.Time
-		if fi, err := os.Stat(p); err == nil {
-			last = fi.ModTime()
+		if why := rules.CheckFile(p); why != "" {
+			excluded.Add(why)
+			return true
 		}
-		if why := exclude.CheckFile(vaultDir, p, last); why != "" {
+		return false
+	}
+	// afterRead is the second look, once the session says where and when it
+	// really ran: the file's name and last write were all the first look had,
+	// and a pause is judged on the session's own span. A session refused here
+	// is counted as a skip and never reaches a candidate or an archive.
+	afterRead := func(s *transcript.Session) bool {
+		if why := rules.Check(exclude.SubjectOf(s)); why != "" {
 			excluded.Add(why)
 			return true
 		}
@@ -356,6 +365,9 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 		s, err := transcript.ReadFile(harness, explicit)
 		if err != nil {
 			return nil, []string{err.Error()}, excluded, nil
+		}
+		if afterRead(s) {
+			return nil, nil, excluded, nil
 		}
 		return []*transcript.Session{s}, nil, excluded, nil
 	}
@@ -384,6 +396,9 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 			s, err := transcript.ReadFile(h, p)
 			if err != nil {
 				skips = append(skips, fmt.Sprintf("%s: %s: %v", h, filepath.Base(p), err))
+				continue
+			}
+			if afterRead(s) {
 				continue
 			}
 			out = append(out, s)

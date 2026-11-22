@@ -147,8 +147,11 @@ func SweepCounted(vaultDir, project string, now time.Time) (wrote, grew []sessio
 		}
 		return false
 	}
+	// Loaded once for the whole sweep: the list is the same for every
+	// transcript, and re-parsing it per file is a read per scanned session.
+	rules, _ := exclude.Load(vaultDir)
 	allow := func(path string, lastWrite time.Time) bool {
-		if why := exclude.CheckFile(vaultDir, path, lastWrite); why != "" {
+		if why := rules.CheckFileAt(path, lastWrite); why != "" {
 			skips.Add(why)
 			return false
 		}
@@ -233,16 +236,7 @@ func SweepCounted(vaultDir, project string, now time.Time) (wrote, grew []sessio
 }
 
 // subjectOf is what the exclusion list is asked about a session already read.
-func subjectOf(s *transcript.Session) exclude.Subject {
-	sub := exclude.Subject{Cwd: s.Cwd, ID: s.ID}
-	if s.Started > 0 {
-		sub.Start = time.Unix(s.Started, 0)
-	}
-	if s.Ended > 0 {
-		sub.End = time.Unix(s.Ended, 0)
-	}
-	return sub
-}
+func subjectOf(s *transcript.Session) exclude.Subject { return exclude.SubjectOf(s) }
 
 // The swept cache is .logos/swept.json: per project, each transcript the sweep
 // has already judged, with the file time it had then. Most transcripts give no

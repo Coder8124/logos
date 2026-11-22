@@ -238,11 +238,7 @@ func archiveTranscript(vaultDir string, c Candidate, quick bool) Archived {
 	// the import gate the sessions they discover, but this is the one place
 	// every copy passes through, so a path that was not gated upstream (a
 	// harvest handed an explicit file, an MCP call) is still refused here.
-	var written time.Time
-	if fi, err := os.Stat(src); err == nil {
-		written = fi.ModTime()
-	}
-	if why := exclude.CheckFile(vaultDir, src, written); why != "" {
+	if why := exclude.CheckFile(vaultDir, src); why != "" {
 		return refused(why, errors.New(why))
 	}
 	if why := exclude.CheckID(vaultDir, c.SessionID); why != "" {

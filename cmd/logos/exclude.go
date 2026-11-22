@@ -47,7 +47,7 @@ func runExclude(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("excluded project %s — its sessions, and those in any folder under it, are not read\n", stored)
+		fmt.Printf("excluded project %s — its sessions, and those in any folder under it, are not read; no activity rows or saved plans are written for them either\n", stored)
 		k, root := exclude.KeptForProject(vault, stored)
 		fmt.Printf("already kept: %d archived transcript(s), %d checkpoint(s)\n", k.Transcripts, k.Checkpoints)
 		if k.Transcripts+k.Checkpoints > 0 {
@@ -55,12 +55,30 @@ func runExclude(args []string) error {
 		}
 		return nil
 	case sess != "":
+		if erase {
+			// Resolved before anything is written: an id that fits two
+			// conversations erases neither, and adds no exclusion either.
+			if _, err := exclude.Resolve(vault, sess); err != nil {
+				return err
+			}
+		}
 		if err := exclude.AddSession(vault, sess); err != nil {
 			return err
 		}
-		fmt.Printf("excluded session %s — it is not read again\n", sess)
+		fmt.Printf("excluded session %s — it is not read again, and writes no activity rows or saved plans\n", sess)
 		if !erase {
-			k := exclude.KeptForSession(vault, sess)
+			k, err := exclude.KeptForSession(vault, sess)
+			var amb *exclude.Ambiguous
+			if errors.As(err, &amb) {
+				// The exclusion matches by prefix, so it covers every one of
+				// them; only counting and erasing need one answer.
+				fmt.Printf("it covers %d kept conversations: %s\n", len(amb.Matches), strings.Join(amb.Matches, ", "))
+				fmt.Println("exclusion does not delete them; `--erase` with one full id removes that conversation's copies")
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 			fmt.Printf("already kept: %d archived transcript(s), %d checkpoint(s)\n", k.Transcripts, k.Checkpoints)
 			if k.Transcripts+k.Checkpoints > 0 {
 				fmt.Printf("exclusion does not delete them; `logos exclude --session %s --erase` removes them\n", sess)
@@ -103,6 +121,9 @@ func excludeList(vault string) error {
 	if w, ok := r.ActivePause(now); ok {
 		fmt.Printf("paused until %s (%s left) — `logos pause resume` ends it\n",
 			w.Until.Local().Format("15:04"), w.Until.Sub(now).Round(time.Minute))
+	}
+	for _, b := range r.Broken {
+		fmt.Printf("BROKEN %s — until it is fixed nothing is read; correct its times (from=… until=… as RFC 3339) or delete it in %s\n", b, exclude.Path(vault))
 	}
 	if len(r.Projects)+len(r.Sessions) == 0 {
 		fmt.Println("nothing is excluded — `logos exclude --project PATH` or `--session ID` adds one")
@@ -154,7 +175,7 @@ func runPause(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("paused until %s — sessions active before then are not read; `logos pause resume` ends it\n", w.Until.Local().Format("15:04"))
+	fmt.Printf("paused until %s — sessions active before then are not read, and no activity rows or plans are written; `logos pause resume` ends it\n", w.Until.Local().Format("15:04"))
 	return nil
 }
 

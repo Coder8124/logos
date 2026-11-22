@@ -170,3 +170,63 @@ func transcriptIn(dir string) string {
 	}
 	return ""
 }
+
+// KeptSessionIDs lists the host session ids the vault holds anything for: a
+// conversation folder (an archived transcript, or checkpoints filed beside
+// it) or a checkpoint that names its session. It exists so a short id a person
+// typed can be resolved against what is really kept, and refused when it fits
+// two conversations. Distinct by the folder spelling, so an id that appears as
+// both a folder and a checkpoint's host_session is one conversation.
+func KeptSessionIDs(vaultDir string) []string {
+	seen := map[string]string{}
+	add := func(id string) {
+		if key := dropSymbols(id); key != "" {
+			if _, ok := seen[key]; !ok {
+				seen[key] = id
+			}
+		}
+	}
+	root := filepath.Join(vaultDir, CheckpointDir)
+	projects, _ := os.ReadDir(root)
+	scan := func(scopeDir string) {
+		entries, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				add(convoFolderID(e.Name()))
+			}
+		}
+	}
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		pdir := filepath.Join(root, p.Name())
+		scan(pdir)
+		nested, _ := os.ReadDir(pdir)
+		for _, n := range nested {
+			if n.IsDir() && n.Name() != ConvosDir {
+				scan(filepath.Join(pdir, n.Name()))
+			}
+		}
+	}
+	if scopes, err := Scopes(vaultDir); err == nil {
+		for _, sc := range scopes {
+			all, err := History(vaultDir, sc, 0)
+			if err != nil {
+				continue
+			}
+			for _, c := range all {
+				add(c.HostSession)
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for _, id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}

@@ -44,6 +44,7 @@ const (
 	ReasonNoFolder = "no known folder while a project is excluded"
 	ReasonPaused   = "paused"
 	ReasonUnread   = "exclusion list unreadable"
+	ReasonBroken   = "a line of the exclusion list cannot be read"
 )
 
 // minPrefix is how short a stored session id may be and still match the longer
@@ -51,19 +52,27 @@ const (
 // first eight characters; below that a prefix names too many conversations.
 const minPrefix = 8
 
-// keepEnded is how long a pause window outlives its end before the next edit
-// drops it. A window that ended is still the reason a session from inside it
-// stays skipped, so it is not dropped the moment it ends.
-const keepEnded = 30 * 24 * time.Hour
-
 // Window is a pause: no session whose activity overlaps [From, Until] is read.
 type Window struct{ From, Until time.Time }
 
 // Rules is exclude.md read.
+//
+// It is loaded once per operation and asked about every transcript the
+// operation meets, so a sweep of two hundred files parses the list once.
 type Rules struct {
 	Projects []string // absolute, symlinks resolved
 	Sessions []string
 	Pauses   []Window
+
+	// Broken is each pause line that did not parse, as "line N: text". A
+	// pause that cannot be read is somebody's answer that cannot be seen, so
+	// it excludes everything (like an unreadable file) and is shown by --list
+	// and doctor rather than dropped.
+	Broken []string
+
+	// Unread is why the file could not be read at all. Every check then
+	// answers ReasonUnread: a Rules value from a failed Load is safe to use.
+	Unread error
 }
 
 var (
@@ -73,7 +82,8 @@ var (
 )
 
 // Load reads a vault's exclusions. A missing file is a vault with none. An
-// unreadable one is an error, which Check turns into a skip.
+// unreadable one is an error, and the Rules returned with it refuses every
+// check (ReasonUnread), so a caller that ignores the error still fails closed.
 func Load(vault string) (Rules, error) {
 	var r Rules
 	raw, err := os.ReadFile(Path(vault))
@@ -81,27 +91,51 @@ func Load(vault string) (Rules, error) {
 		return r, nil
 	}
 	if err != nil {
+		r.Unread = err
 		return r, err
 	}
-	for _, line := range strings.Split(stripFrontmatter(string(raw)), "\n") {
+	// The frontmatter is not skipped: none of its lines can look like a rule,
+	// and counting from the top of the file keeps a broken line's number the
+	// one an editor shows.
+	for i, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if m := projectLine.FindStringSubmatch(line); m != nil {
-			r.Projects = addUnique(r.Projects, m[1])
+			// Hand-written lines are as likely to say ~/x or a symlinked
+			// spelling as the absolute path the command stores; compared
+			// raw they would match nothing and protect nothing.
+			p, err := Normalize(m[1])
+			if err != nil {
+				p = m[1]
+			}
+			r.Projects = addUnique(r.Projects, p)
 		} else if m := sessionLine.FindStringSubmatch(line); m != nil {
 			r.Sessions = addUnique(r.Sessions, m[1])
-		} else if m := pauseLine.FindStringSubmatch(line); m != nil {
-			from, e1 := time.Parse(time.RFC3339, m[1])
-			until, e2 := time.Parse(time.RFC3339, m[2])
-			if e1 == nil && e2 == nil {
-				r.Pauses = append(r.Pauses, Window{from, until})
-			}
-			// A pause line that does not parse is dropped here and rewritten
-			// away by the next edit; an exclusion that cannot be read as a
-			// window protects nothing, and `--list` shows what did load.
+		} else if w, ok := pauseLineWindow(line); ok {
+			r.Pauses = append(r.Pauses, w)
+		} else if pauseAny.MatchString(line) {
+			r.Broken = append(r.Broken, fmt.Sprintf("line %d: %s", i+1, line))
 		}
 		// Anything else is the user's own prose.
 	}
 	return r, nil
+}
+
+// pauseAny is any line that tries to be a pause, parseable or not.
+var pauseAny = regexp.MustCompile(`^[-*]\s*pause:`)
+
+// pauseLineWindow reads a pause line. ok is false for a line that is not one
+// or whose times do not parse.
+func pauseLineWindow(line string) (Window, bool) {
+	m := pauseLine.FindStringSubmatch(strings.TrimSpace(line))
+	if m == nil {
+		return Window{}, false
+	}
+	from, e1 := time.Parse(time.RFC3339, m[1])
+	until, e2 := time.Parse(time.RFC3339, m[2])
+	if e1 != nil || e2 != nil {
+		return Window{}, false
+	}
+	return Window{from, until}, true
 }
 
 func addUnique(list []string, s string) []string {
@@ -111,16 +145,6 @@ func addUnique(list []string, s string) []string {
 		}
 	}
 	return append(list, s)
-}
-
-func stripFrontmatter(s string) string {
-	if !strings.HasPrefix(s, "---\n") {
-		return s
-	}
-	if end := strings.Index(s[4:], "\n---"); end >= 0 {
-		return s[4+end+4:]
-	}
-	return s
 }
 
 // Normalize is a folder as it is stored and compared: absolute, with symlinks
@@ -171,17 +195,75 @@ type Subject struct {
 	Start, End time.Time
 }
 
-// Check says why a session must not be read, or "" when it may. now is passed
-// so a test can hold the clock.
-func Check(vault string, s Subject) string { return CheckAt(vault, s, time.Now()) }
+// Check says why a session must not be read, or "" when it may. It loads the
+// list for this one question; an operation that asks many loads it once with
+// Load and asks the Rules.
+func Check(vault string, s Subject) string {
+	r, _ := Load(vault)
+	return r.Check(s)
+}
+
+// CheckID is the session half of Check, for a caller that holds an id and
+// nothing else (a host's own session id in a hook payload or a candidate).
+func CheckID(vault, id string) string {
+	r, _ := Load(vault)
+	return r.CheckID(id)
+}
+
+// CheckFile is Rules.CheckFile for one file.
+func CheckFile(vault, path string) string {
+	r, _ := Load(vault)
+	return r.CheckFile(path)
+}
+
+// Check says why a session must not be read, or "".
+func (r Rules) Check(s Subject) string { return r.CheckAt(s, time.Now()) }
 
 // CheckAt is Check with an explicit clock.
-func CheckAt(vault string, s Subject, now time.Time) string {
-	r, err := Load(vault)
-	if err != nil {
-		return ReasonUnread
+func (r Rules) CheckAt(s Subject, now time.Time) string {
+	if why := r.refusesAll(); why != "" {
+		return why
 	}
 	return r.reason(s, now)
+}
+
+// CheckID is the session half of Check.
+func (r Rules) CheckID(id string) string {
+	if why := r.refusesAll(); why != "" {
+		return why
+	}
+	if r.sessionExcluded(id) {
+		return ReasonSession
+	}
+	return ""
+}
+
+// CheckSpan is the check for a caller that has read a session and knows only
+// its id and when it ran, not its folder: the id and the pauses are judged, so
+// a session read before the pause came to cover it is still caught by the
+// time it really spanned.
+func (r Rules) CheckSpan(id string, start, end time.Time) string {
+	if why := r.refusesAll(); why != "" {
+		return why
+	}
+	if r.sessionExcluded(id) {
+		return ReasonSession
+	}
+	return r.pausedAt(start, end, time.Now())
+}
+
+// refusesAll is the reason when the list itself cannot be trusted: a file that
+// cannot be read, or a pause line that cannot be understood. Either is an
+// answer the person gave that Logos cannot see, and reading on regardless is
+// how an excluded conversation gets archived.
+func (r Rules) refusesAll() string {
+	if r.Unread != nil {
+		return ReasonUnread
+	}
+	if len(r.Broken) > 0 {
+		return ReasonBroken
+	}
+	return ""
 }
 
 func (r Rules) sessionExcluded(id string) bool {
@@ -190,24 +272,18 @@ func (r Rules) sessionExcluded(id string) bool {
 		return false
 	}
 	for _, x := range r.Sessions {
-		if x == id || (len(x) >= minPrefix && strings.HasPrefix(id, x)) {
+		if SessionMatches(x, id) {
 			return true
 		}
 	}
 	return false
 }
 
-// CheckID is the session half of Check, for a caller that holds an id and
-// nothing else (a host's own session id in a hook payload or a candidate).
-func CheckID(vault, id string) string {
-	r, err := Load(vault)
-	if err != nil {
-		return ReasonUnread
-	}
-	if r.sessionExcluded(id) {
-		return ReasonSession
-	}
-	return ""
+// SessionMatches says whether a stored session id names id: exactly, or as a
+// prefix of at least minPrefix characters (the short form `logos resume`
+// prints).
+func SessionMatches(stored, id string) bool {
+	return stored == id || (len(stored) >= minPrefix && strings.HasPrefix(id, stored))
 }
 
 func (r Rules) reason(s Subject, now time.Time) string {
@@ -228,7 +304,14 @@ func (r Rules) reason(s Subject, now time.Time) string {
 			}
 		}
 	}
-	start, end := s.Start, s.End
+	return r.pausedAt(s.Start, s.End, now)
+}
+
+// pausedAt is ReasonPaused when [start, end] overlaps a pause. The overlap is
+// of the session's own activity, not of its file's last write: a chat that ran
+// from nine to noon overlaps a pause from ten to eleven though its file was
+// last touched at noon.
+func (r Rules) pausedAt(start, end, now time.Time) string {
 	if start.IsZero() && end.IsZero() {
 		start, end = now, now
 	} else if end.IsZero() {
@@ -339,9 +422,16 @@ subfolders; ` + "`logos exclude --list`" + ` says what is in force.
 
 `
 
+// owned is a line Logos rewrites. A pause line that does not parse is not
+// owned: it is kept exactly as written, so editing the list never turns a
+// broken protection into a missing one.
 func owned(line string) bool {
 	t := strings.TrimSpace(line)
-	return projectLine.MatchString(t) || sessionLine.MatchString(t) || pauseLine.MatchString(t)
+	if projectLine.MatchString(t) || sessionLine.MatchString(t) {
+		return true
+	}
+	_, ok := pauseLineWindow(t)
+	return ok
 }
 
 // edit changes exclude.md in place: the lines Logos owns are rewritten and the
@@ -381,11 +471,9 @@ func edit(vault string, change func(*Rules) error) error {
 	for _, s := range r.Sessions {
 		out += "- session: " + s + "\n"
 	}
-	cut := time.Now().Add(-keepEnded)
+	// Ended pauses are kept: each is still the reason a session from inside
+	// it stays skipped, and nothing but the person decides when that stops.
 	for _, w := range r.Pauses {
-		if w.Until.Before(cut) {
-			continue
-		}
 		out += "- pause: from=" + w.From.UTC().Format(time.RFC3339) + " until=" + w.Until.UTC().Format(time.RFC3339) + "\n"
 	}
 	return vaultpkg.WriteAtomic(Path(vault), []byte(out))
@@ -409,6 +497,12 @@ func AddSession(vault, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" || strings.ContainsAny(id, " \t\r\n/\\") {
 		return fmt.Errorf("%q is not a session id", id)
+	}
+	// Matched by prefix when stored (SessionMatches), so a short one would
+	// exclude every chat that happens to start with it, or, if it matched
+	// nothing, look like a protection it is not.
+	if len(id) < minPrefix {
+		return fmt.Errorf("%q is too short to name one conversation: give at least %d characters of the session id (`logos resume` prints it)", id, minPrefix)
 	}
 	return edit(vault, func(r *Rules) error {
 		r.Sessions = addUnique(r.Sessions, id)

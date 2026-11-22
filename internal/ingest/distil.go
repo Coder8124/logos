@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/text"
@@ -226,11 +225,7 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 
 	// The candidate was queued before the exclusion; serving its turns now is a
 	// read of a conversation the person has since asked not to have read.
-	var written time.Time
-	if fi, err := os.Stat(transcript.SourceFile(c.Source)); err == nil {
-		written = fi.ModTime()
-	}
-	if why := exclude.CheckFile(vaultDir, c.Source, written); why != "" {
+	if why := exclude.CheckFile(vaultDir, c.Source); why != "" {
 		return Evidence{}, &exclude.Skipped{Reason: why}
 	}
 	if why := exclude.CheckID(vaultDir, c.SessionID); why != "" {
@@ -239,6 +234,9 @@ func EvidenceFor(vaultDir, ref string, maxTurns int) (Evidence, error) {
 	s, err := transcript.ReadFile(c.Harness, c.Source)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("reading the source recorded on the candidate (%s): %w", c.Source, err)
+	}
+	if why := exclude.Check(vaultDir, subjectOf(s)); why != "" {
+		return Evidence{}, &exclude.Skipped{Reason: why}
 	}
 	if c.Hash != "" && s.Hash != c.Hash {
 		return Evidence{}, fmt.Errorf("%s has changed since it was harvested — re-run `logos import --from transcripts` to queue the new version", c.Source)

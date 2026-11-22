@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/exclude"
@@ -30,14 +29,17 @@ var newestSession = func(vault, harness string) (*transcript.Session, error) {
 	if err != nil || len(paths) == 0 {
 		return nil, err
 	}
-	var written time.Time
-	if fi, err := os.Stat(transcript.SourceFile(paths[0])); err == nil {
-		written = fi.ModTime()
-	}
-	if why := exclude.CheckFile(vault, paths[0], written); why != "" {
+	if why := exclude.CheckFile(vault, paths[0]); why != "" {
 		return nil, &exclude.Skipped{Reason: why}
 	}
-	return transcript.ReadFile(harness, paths[0])
+	s, err := transcript.ReadFile(harness, paths[0])
+	if err != nil {
+		return nil, err
+	}
+	if why := exclude.Check(vault, exclude.SubjectOf(s)); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
+	return s, nil
 }
 
 // recordUnsaved writes a checkpoint for a session that did work and never saved

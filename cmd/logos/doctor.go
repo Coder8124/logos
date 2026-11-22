@@ -385,6 +385,14 @@ func pauseCheck(vault string, now time.Time) (health.Check, bool) {
 		return health.Check{Name: "reading paused", State: health.Warn,
 			Detail: fmt.Sprintf("exclude.md could not be read, so no session is read: %v", err)}, true
 	}
+	if len(r.Broken) > 0 {
+		// Broken is fatal to reading, not a chore: until it is fixed the
+		// list refuses every session, and the person who wrote the line
+		// believes it protects something.
+		return health.Check{Name: "exclusion list", State: health.Failed,
+			Detail: fmt.Sprintf("%d pause line(s) in exclude.md cannot be read, so no session is read: %s", len(r.Broken), r.Broken[0]),
+			Fix:    "correct the line's times (from=… until=… as RFC 3339) or delete it in " + exclude.Path(vault)}, true
+	}
 	w, ok := r.ActivePause(now)
 	if !ok {
 		return health.Check{}, false

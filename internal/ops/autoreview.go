@@ -60,13 +60,22 @@ var readTranscript = transcript.ReadFile
 // reported, and the rest are still tried: one failure is not a reason to leave
 // the others for a person who turned the switch on to be spared them.
 func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
+	n, _, err := autoReview(db, vault, now)
+	return n, err
+}
+
+// autoReview is AutoReview that also counts the memories it left queued
+// because the transcript they cite is excluded or paused: a person reading
+// "accepted 0" would otherwise take those for ordinary rejections.
+func autoReview(db *sql.DB, vault string, now time.Time) (int, exclude.Skips, error) {
+	var skips exclude.Skips
 	if !auto.On(vault, auto.Review) {
-		return 0, nil
+		return 0, skips, nil
 	}
 	// A proposal whose line the user deleted is one they rejected; accepting
 	// it from a stale cache would overrule them.
 	if _, _, err := memory.ReconcilePending(db); err != nil {
-		return 0, fmt.Errorf("could not read the user's edits to the review queue: %w", err)
+		return 0, skips, fmt.Errorf("could not read the user's edits to the review queue: %w", err)
 	}
 	// A deleted line is logged as the user's rejection now, as it is noticed,
 	// and that is "your last review". Accepts stamped with an earlier clock
@@ -75,13 +84,14 @@ func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
 	now = later(now, time.Now())
 	pending, err := memory.Pending(db)
 	if err != nil {
-		return 0, err
+		return 0, skips, err
 	}
-	turns := map[string]int{} // transcript read once per path, -1 when unreadable
+	rules, _ := exclude.Load(vault) // once: not a parse of the list per queued memory
+	turns := map[string]int{}       // transcript read once per path, -1 when unreadable
 	var accepted int
 	var failed []string
 	for _, m := range pending {
-		if !autoAcceptable(db, vault, m, turns) {
+		if !autoAcceptable(db, vault, rules, &skips, m, turns) {
 			continue
 		}
 		if err := memory.AcceptAuto(db, m.ID, now); err != nil {
@@ -91,16 +101,16 @@ func AutoReview(db *sql.DB, vault string, now time.Time) (int, error) {
 		accepted++
 	}
 	if len(failed) > 0 {
-		return accepted, fmt.Errorf("could not accept %s", strings.Join(failed, "; "))
+		return accepted, skips, fmt.Errorf("could not accept %s", strings.Join(failed, "; "))
 	}
-	return accepted, nil
+	return accepted, skips, nil
 }
 
-func autoAcceptable(db *sql.DB, vault string, m memory.Memory, turns map[string]int) bool {
+func autoAcceptable(db *sql.DB, vault string, rules exclude.Rules, skips *exclude.Skips, m memory.Memory, turns map[string]int) bool {
 	if m.Contests != 0 || strings.Contains(m.Text, secret.Marker) || !decisionOrTrap(m) {
 		return false
 	}
-	if !turnExists(vault, m.Turn, turns) && !(m.Source == memory.SourceCheckpoints && checkpointsExist(vault, m.Turn)) {
+	if !turnExists(rules, skips, m.Turn, turns) && !(m.Source == memory.SourceCheckpoints && checkpointsExist(vault, m.Turn)) {
 		return false
 	}
 	_, contested := memory.ContestedNow(db, m.ID, m.Text)
@@ -118,7 +128,7 @@ func decisionOrTrap(m memory.Memory) bool {
 	return false
 }
 
-func turnExists(vault, ref string, turns map[string]int) bool {
+func turnExists(rules exclude.Rules, skips *exclude.Skips, ref string, turns map[string]int) bool {
 	harness, path, n, ok := parseTurnRef(ref)
 	if !ok {
 		return false
@@ -129,12 +139,12 @@ func turnExists(vault, ref string, turns map[string]int) bool {
 		have = -1
 		// An excluded session's transcript is not opened to check a claim
 		// against it: the memory stays queued for a person, who can look.
-		var written time.Time
-		if fi, err := os.Stat(transcript.SourceFile(path)); err == nil {
-			written = fi.ModTime()
-		}
-		if exclude.CheckFile(vault, path, written) == "" {
-			if ts, err := readTranscript(harness, path); err == nil && ts != nil {
+		if why := rules.CheckFile(path); why != "" {
+			skips.Add(why)
+		} else if ts, err := readTranscript(harness, path); err == nil && ts != nil {
+			if why := rules.Check(exclude.SubjectOf(ts)); why != "" {
+				skips.Add(why)
+			} else {
 				have = len(ts.Turns)
 			}
 		}
@@ -194,7 +204,12 @@ func RunAutoReview(db *sql.DB, vault, project string) string {
 			adopted = line + "\n\n"
 		}
 	}
-	n, err := AutoReview(db, vault, time.Now())
+	n, skips, err := autoReview(db, vault, time.Now())
+	if skips.N() > 0 {
+		// Said every time it happens: the memories stay queued, and a
+		// reviewer who sees them there should know why they were not accepted.
+		adopted += fmt.Sprintf("auto: %s; their memories stay in the review queue\n\n", skips.Line())
+	}
 	if n > 0 {
 		e := auto.Entry{Switch: auto.Review, Project: project, N: n}
 		if rerr := auto.Record(vault, e); rerr != nil {
