@@ -237,6 +237,14 @@ func recordActivity(args []string) error {
 		// printing on every tool call of a session that never asked for it.
 		return nil
 	}
+	// The audit row and the saved plan are what Logos knows of a session, so
+	// a session on the exclusion list leaves neither: excluding a project
+	// that still wrote its commands and plans into the vault would protect
+	// the transcript and leak everything else. Silent here by design (this
+	// runs on every tool call); `logos exclude` says it once.
+	if why := exclude.Check(vault, exclude.Subject{Cwd: where.Cwd, ID: hookSessionID(raw), Start: time.Now(), End: time.Now()}); why != "" {
+		return nil
+	}
 	if err := activity.Append(vault, e); err != nil {
 		return err
 	}
