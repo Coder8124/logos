@@ -2,7 +2,9 @@
 
 **Nine memory systems, thirty-two hand-authored scenarios, one machine, no
 network.** Run 2026-08-29 on an M-series Mac, every system embedding with
-`nomic-embed-text` through the same local Ollama.
+`nomic-embed-text` through the same local Ollama. The logos row is from a
+later run of the same 32 scenarios against logos at 11b4d83 (2026-09-26);
+the other eight systems were not re-run.
 
 Reproduce it:
 
@@ -96,7 +98,7 @@ the machine, so the comparison is like-for-like on the same hardware.
 
 ```
 system                pass  fidelity  carry   leak  signal  tokens  dens/1k
-logos                81.2%    82.8%   89.1%  33.3%   88.9%     253      6.5
+logos                84.4%    85.9%   89.1%  16.7%   88.9%     300      4.8
 mempalace            46.9%    71.9%   82.8%  58.3%   22.2%     308      4.0
 recency-window       46.9%    68.8%   84.4%  83.3%   22.2%     230     11.0
 full-dump            46.9%    68.8%   84.4%  83.3%   22.2%     264     10.9
@@ -111,7 +113,7 @@ By family:
 
 ```
 system              continuity  durability  memory
-logos                      86%        100%     73%
+logos                      86%        100%     80%
 mempalace                  50%          0%     53%
 recency-window             50%          0%     53%
 full-dump                  50%          0%     53%
@@ -128,7 +130,7 @@ none                        0%          0%      0%
 89.1%. Retrieval works. The spread in *pass* comes almost entirely from leakage
 and signal.
 
-**Leakage is.** logos leaks 33.3%; every embedding-based system except MemPalace
+**Leakage is.** logos leaks 16.7%; every embedding-based system except MemPalace
 leaks 83.3% — they return the superseded price alongside the current one,
 because both are semantically close to the question and nothing in a cosine
 score encodes "this one was replaced."
