@@ -226,6 +226,7 @@ func onDisk(t *testing.T, now, start, end time.Time, withTool bool) string {
 	}
 	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
 
 	stamp := func(t time.Time) string { return t.UTC().Format(time.RFC3339) }
@@ -315,6 +316,7 @@ func TestATranscriptJudgedForOneProjectIsStillReadForAnother(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(transcript.LogosClaudeProjectsEnv, t.TempDir())
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, root)
 
 	now := time.Now()

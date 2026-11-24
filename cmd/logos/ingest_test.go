@@ -27,6 +27,7 @@ func scratchIngest(t *testing.T) (vaultDir string) {
 	// helper read the developer's own chat history and queued 200 candidates
 	// from it. An empty directory has no state.vscdb, so the reader finds none.
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	return vaultDir
 }
 

@@ -29,6 +29,7 @@ func TestAKilledSessionIsSweptWhenAMarkerNamesTheProjectUnlikeItsFolder(t *testi
 	root := filepath.Join(t.TempDir(), "projects")
 	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
 	slug := strings.NewReplacer("/", "-", ".", "-", "_", "-").Replace(repo)
 	dir := filepath.Join(root, slug)
@@ -69,6 +70,7 @@ func TestATranscriptInAnotherProjectsFolderWithNoCwdIsNotRead(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "projects")
 	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
 	dir := filepath.Join(root, "-Users-me-code-kestrel")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
