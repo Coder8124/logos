@@ -170,3 +170,151 @@ func transcriptIn(dir string) string {
 	}
 	return ""
 }
+
+// Archived is one transcript the vault holds: where it is, the conversation
+// folder it lives in, and the agent named by a checkpoint filed beside it.
+type Archived struct {
+	Path   string
+	Folder string // the conversation folder's name: <slug>--<id> or the bare id
+	Agent  string // from a checkpoint in the same folder; "" when none names one
+	// Harness is the reader a checkpoint recorded when it counted the turns;
+	// "" when none did (an older checkpoint, or none at all).
+	Harness string
+	Scope   string // the project the conversation is filed under
+}
+
+// ArchivedTranscripts lists every archived transcript in the vault, in a
+// project's scope and in its worktree scopes, sorted by path so a search
+// reports in the same order every run. Only an explicit transcript search
+// calls it: walking every conversation folder is not something a resume or a
+// context should pay for or fill its answer with.
+func ArchivedTranscripts(vaultDir string) []Archived {
+	root := filepath.Join(vaultDir, CheckpointDir)
+	projects, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []Archived
+	scan := func(scopeDir, project string) {
+		convos, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
+		if err != nil {
+			return
+		}
+		for _, c := range convos {
+			if !c.IsDir() {
+				continue
+			}
+			dir := filepath.Join(scopeDir, ConvosDir, c.Name())
+			p := transcriptIn(dir)
+			if p == "" {
+				continue
+			}
+			agent, harness := agentIn(dir)
+			out = append(out, Archived{Path: p, Folder: c.Name(), Agent: agent, Harness: harness, Scope: project})
+		}
+	}
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		pdir := filepath.Join(root, p.Name())
+		scan(pdir, p.Name())
+		nested, err := os.ReadDir(pdir)
+		if err != nil {
+			continue // one unreadable project must not hide the others
+		}
+		for _, n := range nested {
+			if n.IsDir() && n.Name() != ConvosDir {
+				scan(filepath.Join(pdir, n.Name()), p.Name())
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// agentIn is the agent a checkpoint in dir names: the transcript's format is
+// the harness's, and the archive does not record which harness wrote it.
+func agentIn(dir string) (agent, harness string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", ""
+	}
+	for _, e := range entries {
+		if e.IsDir() || !IsCheckpointFile(e.Name()) {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		c := ParseCheckpoint(string(raw))
+		if agent == "" {
+			agent = strings.TrimSpace(c.Agent)
+		}
+		if harness == "" {
+			harness = strings.TrimSpace(c.Harness)
+		}
+	}
+	return agent, harness
+}
+
+// KeptSessionIDs lists the host session ids the vault holds anything for: a
+// conversation folder (an archived transcript, or checkpoints filed beside
+// it) or a checkpoint that names its session. It exists so a short id a person
+// typed can be resolved against what is really kept, and refused when it fits
+// two conversations. Distinct by the folder spelling, so an id that appears as
+// both a folder and a checkpoint's host_session is one conversation.
+func KeptSessionIDs(vaultDir string) []string {
+	seen := map[string]string{}
+	add := func(id string) {
+		if key := dropSymbols(id); key != "" {
+			if _, ok := seen[key]; !ok {
+				seen[key] = id
+			}
+		}
+	}
+	root := filepath.Join(vaultDir, CheckpointDir)
+	projects, _ := os.ReadDir(root)
+	scan := func(scopeDir string) {
+		entries, err := os.ReadDir(filepath.Join(scopeDir, ConvosDir))
+		if err != nil {
+			return
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				add(convoFolderID(e.Name()))
+			}
+		}
+	}
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		pdir := filepath.Join(root, p.Name())
+		scan(pdir)
+		nested, _ := os.ReadDir(pdir)
+		for _, n := range nested {
+			if n.IsDir() && n.Name() != ConvosDir {
+				scan(filepath.Join(pdir, n.Name()))
+			}
+		}
+	}
+	if scopes, err := Scopes(vaultDir); err == nil {
+		for _, sc := range scopes {
+			all, err := History(vaultDir, sc, 0)
+			if err != nil {
+				continue
+			}
+			for _, c := range all {
+				add(c.HostSession)
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for _, id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}

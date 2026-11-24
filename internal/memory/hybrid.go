@@ -267,7 +267,19 @@ func sameStem(a, b string) bool {
 	case "ied|y", "ies|y", "ied|ies":
 		return true
 	}
-	return false
+	// configuration/configured, deploy/deployment, migrate/migration: derived
+	// forms of one word. Held to a longer shared stem than inflection, because
+	// -ion, -ment and -al glue onto short words that are not related
+	// (art/artist, meta/metal, man/manage).
+	return n >= 5 && ta != tb && wordEnding[ta] && wordEnding[tb] && ta+tb != "e"
+}
+
+// wordEnding: the endings sameStem treats as variants of one stem, the plain
+// inflections plus the derivational ones. The empty ending is the stem itself.
+var wordEnding = map[string]bool{
+	"": true, "e": true, "s": true, "es": true, "d": true, "ed": true, "ing": true,
+	"ion": true, "ions": true, "ation": true, "ations": true, "ment": true, "ments": true,
+	"ism": true, "ize": true, "ized": true, "ization": true, "al": true,
 }
 
 // tail is the part of a word past the shared prefix, with a doubled final

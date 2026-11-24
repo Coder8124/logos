@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -51,7 +52,13 @@ const (
 // last written between since and until that may be sessions of project, less
 // those settled says are already recorded. A seam: tests need no real host on
 // this machine.
-var RecentTranscripts = func(project string, since, until time.Time, settled func(path string, lastWrite time.Time) bool) ([]*transcript.Session, []string) {
+//
+// allow is asked last, after the window, the cache and the folder have ruled
+// out everything that was never a candidate, and before the one call that
+// opens the file in full: an exclusion is a promise about what is not read, so
+// it has to come ahead of the read, and it is asked only of the sessions that
+// would have been read so the count it keeps is of those.
+var RecentTranscripts = func(project string, since, until time.Time, settled func(path string, lastWrite time.Time) bool, allow func(path string, lastWrite time.Time) bool) ([]*transcript.Session, []string) {
 	var out []*transcript.Session
 	var problems []string
 	for _, h := range transcript.Harnesses() {
@@ -85,6 +92,9 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 					continue
 				}
 			}
+			if allow != nil && !allow(p, fi.ModTime()) {
+				continue
+			}
 			s, err := transcript.ReadFile(h, p)
 			if err != nil {
 				problems = append(problems, fmt.Sprintf("%s: %v", p, err))
@@ -107,13 +117,21 @@ var RecentTranscripts = func(project string, since, until time.Time, settled fun
 // a line for each transcript it could not read or record; the caller announces
 // all three (invariants 3 and 4).
 func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Checkpoint, problems []string) {
+	wrote, grew, problems, _ = SweepCounted(vaultDir, project, now)
+	return wrote, grew, problems
+}
+
+// SweepCounted is Sweep that also says how many sessions it left unread
+// because the person excluded them or paused logos, so the command that swept
+// can say so (invariant 3).
+func SweepCounted(vaultDir, project string, now time.Time) (wrote, grew []session.Checkpoint, problems []string, skips exclude.Skips) {
 	project = bareProject(project)
 	if project == "" {
-		return nil, nil, nil
+		return nil, nil, nil, skips
 	}
 	history, err := session.History(vaultDir, project, 0)
 	if err != nil {
-		return nil, nil, []string{fmt.Sprintf("reading %s's checkpoints: %v", project, err)}
+		return nil, nil, []string{fmt.Sprintf("reading %s's checkpoints: %v", project, err)}, skips
 	}
 	// A transcript judged by an earlier sweep and not written since is settled
 	// before it is read: one week of a single project's transcripts was 158 MB
@@ -129,18 +147,39 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 		}
 		return false
 	}
-	found, problems := RecentTranscripts(project, now.Add(-sweepWindow), now.Add(-sweepQuiet), settled)
+	// Loaded once for the whole sweep: the list is the same for every
+	// transcript, and re-parsing it per file is a read per scanned session.
+	rules, _ := exclude.Load(vaultDir)
+	allow := func(path string, lastWrite time.Time) bool {
+		if why := rules.CheckFileAt(path, lastWrite); why != "" {
+			skips.Add(why)
+			return false
+		}
+		return true
+	}
+	found, problems := RecentTranscripts(project, now.Add(-sweepWindow), now.Add(-sweepQuiet), settled, allow)
 
+	failed := map[*transcript.Session]bool{}
 	var mine []*transcript.Session
 	for _, s := range found {
 		// The window again, on the session's own end: the file's time only
 		// says it was touched, and a host touches old transcripts.
 		if belongsTo(s, project) && s.Ended >= now.Add(-sweepWindow).Unix() && s.Ended <= now.Add(-sweepQuiet).Unix() {
+			// Again, now the session says where and when it really ran:
+			// the file's name and last write were all the first look had.
+			// A session this refuses has been read by now, so it is dropped
+			// before anything is written from it.
+			if why := exclude.Check(vaultDir, subjectOf(s)); why != "" {
+				skips.Add(why)
+				// Not judged either: lifting the exclusion must let the
+				// next sweep read it, which a cached "settled" would stop.
+				failed[s] = true
+				continue
+			}
 			mine = append(mine, s)
 		}
 	}
 
-	failed := map[*transcript.Session]bool{}
 	for _, s := range mine {
 		rec, done := recordOf(history, s)
 		if done {
@@ -151,6 +190,11 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 			c, err = autoCheckpoint(vaultDir, s, project, s.Ended)
 		} else {
 			c, err = growRecord(vaultDir, history, *rec, s, s.Ended)
+		}
+		if why, ok := exclude.IsSkipped(err); ok {
+			skips.Add(why)
+			failed[s] = true
+			continue
 		}
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s session %s: %v", s.Harness, s.ID, err))
@@ -188,8 +232,11 @@ func Sweep(vaultDir, project string, now time.Time) (wrote, grew []session.Check
 		cache[project] = kept
 		saveSwept(vaultDir, cache)
 	}
-	return wrote, grew, problems
+	return wrote, grew, problems, skips
 }
+
+// subjectOf is what the exclusion list is asked about a session already read.
+func subjectOf(s *transcript.Session) exclude.Subject { return exclude.SubjectOf(s) }
 
 // The swept cache is .logos/swept.json: per project, each transcript the sweep
 // has already judged, with the file time it had then. Most transcripts give no
@@ -280,6 +327,9 @@ func recordOf(history []session.Checkpoint, s *transcript.Session) (*session.Che
 // closing now, and a record dated in the past is written without the git state
 // of a repository that has moved on since (#203).
 func growRecord(vaultDir string, history []session.Checkpoint, rec session.Checkpoint, s *transcript.Session, at int64) (*session.Checkpoint, error) {
+	if why := exclude.Check(vaultDir, subjectOf(s)); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
 	c, ok := autoRecord(s, rec.Project, s.Ended)
 	if !ok || (slices.Equal(c.Files, rec.Files) && slices.Equal(c.Commands, rec.Commands)) {
 		return nil, nil
@@ -405,8 +455,14 @@ func plural(n int) string {
 // archived at shutdown never gives, so it is due whenever a copy exists and
 // it has not been said. Resume is read by a person; a server log is not.
 func ResumeSweep(vaultDir, project string, now time.Time) string {
-	wrote, grew, problems := Sweep(vaultDir, project, now)
+	wrote, grew, problems, skips := SweepCounted(vaultDir, project, now)
 	out := SweepNotice(wrote, grew, problems)
+	if line := skips.Line(); line != "" {
+		// Said even when nothing else was: an excluded session that leaves no
+		// trace reads as a sweep that found nothing, and the person who asked
+		// for the exclusion wants to see it held.
+		out += "_" + line + " — `logos exclude --list` shows why_\n\n"
+	}
 	if archiveNoticeDue(vaultDir, wrote, grew) {
 		if msg := ArchiveNotice(vaultDir); msg != "" {
 			out += "_" + strings.ReplaceAll(msg, "\n", " ") + "_\n\n"

@@ -208,6 +208,8 @@ func usageLine(raw string) string {
 		msg = fmt.Sprintf("ruling   %d ruled-out %s handed back before a retry", e.Rulings, what)
 	case usagepkg.KindAtEdit:
 		msg = fmt.Sprintf("ruling   %d %s naming a file shown as it was edited", e.Rulings, plural(e.Rulings, "ruling"))
+	case usagepkg.KindAtPrompt:
+		msg = fmt.Sprintf("ruling   %d %s shown beside a prompt that restated it", e.Rulings, plural(e.Rulings, "ruling"))
 	case usagepkg.KindAvoided:
 		msg = fmt.Sprintf("ruling   a session ended without touching what %d %s it was shown named", e.Rulings, plural(e.Rulings, "ruling"))
 	case usagepkg.KindProcedure:

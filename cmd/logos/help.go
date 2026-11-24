@@ -46,6 +46,8 @@ Available Commands:
   watch       Follow what agents record as it happens
   project     A project's dossier, or rename one
   config      Settings: announce, auto, think, deny, prompt, key, activity
+  exclude     Never read a project or a chat; erase what was kept of one
+  pause       Stop reading sessions for a while (default 1h)
   index       Rebuild the cache from the vault
   doctor      Check the vault, the index and the hosts
   update      Update logos to the latest release
@@ -143,6 +145,15 @@ MEMORY
     logos review --connections [accept|reject <id>]
                                       the connections a dream proposed overnight
 
+KEEPING SESSIONS OUT
+    logos exclude --project PATH      never read the sessions run in PATH or below it
+    logos exclude --session ID [--erase]
+                                      never read that chat; --erase deletes its kept transcript and checkpoints
+    logos exclude --list              what is excluded, and any pause in force
+    logos exclude --remove PATH|ID    read it again
+    logos pause [30m|2h|1d]           skip sessions active in the next hour (or the given time)
+    logos pause resume                end the pause early
+
 BRINGING IT IN
     logos import                      at a terminal, a menu: tick any of the sources below
     logos import --from claude-mem [--db PATH] [--project P] [--dry-run] [--yes]
@@ -157,7 +168,7 @@ BRINGING IT IN
                                       --path is a file, or for a txcript harness a session id
     logos import --from transcripts status | archive <dir>
                                       candidates by tier; copy the cited transcripts somewhere you keep
-    logos transcript <session-id>     print the copy of a transcript kept in the vault
+    logos transcript <id|slug>        print a kept transcript, or the turns a checkpoint came from
                                       (the exact host session id; the host's own file is never read)
     logos transcript redact           mask secrets in archived copies that were kept raw, and say how many
     logos import --from git [project] [--dir DIR] [--dry-run] [--months N]

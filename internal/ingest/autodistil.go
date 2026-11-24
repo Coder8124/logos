@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -53,14 +54,34 @@ func AutoTranscript(c session.Checkpoint) (harness, id string, ok bool) {
 
 // findTranscript opens the transcript harness wrote under id. A seam: tests
 // need no real host on this machine.
-var findTranscript = func(harness, id string) (*transcript.Session, error) {
+//
+// The exclusion list is asked once the file for id is found and before it is
+// opened: this path serves evidence to an agent and counts turns for the hook,
+// and both would otherwise hand an excluded conversation's text onward.
+var findTranscript = func(vault, harness, id string) (*transcript.Session, error) {
+	if why := exclude.CheckID(vault, id); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
 	paths, err := transcript.Sessions(harness)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range paths {
 		if transcriptID(p) == id {
-			return transcript.ReadFile(harness, p)
+			if why := exclude.CheckFile(vault, p); why != "" {
+				return nil, &exclude.Skipped{Reason: why}
+			}
+			s, err := transcript.ReadFile(harness, p)
+			if err != nil {
+				return nil, err
+			}
+			// The file's name and first lines said little; the session now
+			// says where and when it really ran, and a pause is judged on
+			// that span, not on the file's last write.
+			if why := exclude.Check(vault, subjectOf(s)); why != "" {
+				return nil, &exclude.Skipped{Reason: why}
+			}
+			return s, nil
 		}
 	}
 	return nil, fmt.Errorf("%s no longer has transcript %s", harness, id)
@@ -79,8 +100,8 @@ func transcriptID(path string) string {
 // TranscriptTurns is how many turns the transcript harness wrote under id holds
 // now, for a record built without reading it (the Claude Code hook's) to say
 // how much of it the record covers.
-func TranscriptTurns(harness, id string) (int, error) {
-	s, err := findTranscript(harness, id)
+func TranscriptTurns(vault, harness, id string) (int, error) {
+	s, err := findTranscript(vault, harness, id)
 	if err != nil {
 		return 0, err
 	}
@@ -133,7 +154,7 @@ func AutoEvidenceFor(vaultDir, slug string, maxTurns int) (Evidence, error) {
 	if c.Turns <= 0 {
 		return Evidence{}, fmt.Errorf("%s was written before auto records noted how much of their transcript they cover, so which turns are its own is unknown and nothing is served", slug)
 	}
-	s, err := findTranscript(harness, id)
+	s, err := findTranscript(vaultDir, harness, id)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("reading the transcript %s was built from: %w", slug, err)
 	}

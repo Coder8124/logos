@@ -86,6 +86,45 @@ func (r claudeCodeReader) discover() ([]string, error) {
 	return out, nil
 }
 
+// receiptPaths is discover plus each session's subagent transcripts
+// (<project>/<session>/subagents/*.jsonl). A subagent can call Logos's
+// checkpoint itself; its lines carry the parent's sessionId, so the receipt is
+// attributed to the conversation the user knows. discover stays as it was:
+// subagent files are not sessions to list or resume.
+func (r claudeCodeReader) receiptPaths() ([]string, error) {
+	out, err := r.discover()
+	if err != nil {
+		return nil, err
+	}
+	root := r.root()
+	projects, _ := os.ReadDir(root)
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		sessions, err := os.ReadDir(filepath.Join(root, p.Name()))
+		if err != nil {
+			continue
+		}
+		for _, s := range sessions {
+			if !s.IsDir() {
+				continue
+			}
+			subs, err := os.ReadDir(filepath.Join(root, p.Name(), s.Name(), "subagents"))
+			if err != nil {
+				continue
+			}
+			for _, f := range subs {
+				if !f.IsDir() && strings.HasSuffix(f.Name(), ".jsonl") {
+					out = append(out, filepath.Join(root, p.Name(), s.Name(), "subagents", f.Name()))
+				}
+			}
+		}
+	}
+	sortByMtimeDesc(out)
+	return out, nil
+}
+
 // claudeLine is the subset of a Claude Code transcript line this reader needs.
 type claudeLine struct {
 	Type      string          `json:"type"`

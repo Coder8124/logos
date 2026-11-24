@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -18,12 +19,27 @@ var hooked = map[string]bool{"claude-code": true}
 
 // newestSession reads the most recent transcript a harness has written. A seam:
 // tests need no real Cursor on this machine.
-var newestSession = func(harness string) (*transcript.Session, error) {
+//
+// The vault is asked before the file is opened: this is a read of a transcript
+// nobody named, the newest one the host has, and an excluded or paused session
+// must be refused before its text is parsed. The refusal is an
+// exclude.Skipped error, which is not a failure and is said as a skip.
+var newestSession = func(vault, harness string) (*transcript.Session, error) {
 	paths, err := transcript.Sessions(harness)
 	if err != nil || len(paths) == 0 {
 		return nil, err
 	}
-	return transcript.ReadFile(harness, paths[0])
+	if why := exclude.CheckFile(vault, paths[0]); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
+	s, err := transcript.ReadFile(harness, paths[0])
+	if err != nil {
+		return nil, err
+	}
+	if why := exclude.Check(vault, exclude.SubjectOf(s)); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
+	return s, nil
 }
 
 // recordUnsaved writes a checkpoint for a session that did work and never saved
@@ -46,7 +62,14 @@ func (s *Session) recordUnsaved() {
 		return
 	}
 
-	ts, err := newestSession(harness)
+	ts, err := newestSession(s.vault, harness)
+	if why, ok := exclude.IsSkipped(err); ok {
+		// Said on the host's server log like every other outcome here: a
+		// session that leaves no checkpoint because the person asked for that
+		// should read as kept out, not as a recorder that did nothing.
+		fmt.Fprintf(os.Stderr, "logos: 1 session skipped (%s) — not read, nothing recorded\n", why)
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "logos: could not read %s's transcript to record this session: %v\n", harness, err)
 		return
@@ -74,6 +97,10 @@ func (s *Session) recordUnsaved() {
 		return
 	}
 	c, grew, err := ingest.AutoCheckpoint(s.vault, ts, project)
+	if why, ok := exclude.IsSkipped(err); ok {
+		fmt.Fprintf(os.Stderr, "logos: 1 session skipped (%s) — nothing recorded\n", why)
+		return
+	}
 	// Logged as well as said on stderr: the host has gone, and the next
 	// resume is the first place anybody reads either line.
 	proj, _ := s.resolveContinuity(ts.Project)

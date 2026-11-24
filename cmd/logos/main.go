@@ -248,6 +248,10 @@ func run(cmd string, args []string) (err error) {
 		err = runWatch(args)
 	case cmd == "auto":
 		err = runAuto(args)
+	case cmd == "exclude":
+		err = runExclude(args)
+	case cmd == "pause":
+		err = runPause(args)
 	case cmd == "config":
 		err = configCmd(args)
 	case cmd == "project-name":

@@ -8,6 +8,7 @@ package provider
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,7 +63,7 @@ func New(name, baseURL, apiKey string) *Provider {
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		APIKey:  apiKey,
 		// Local generation on a 24B model genuinely takes a while.
-		http: &http.Client{Timeout: 300 * time.Second},
+		http: client(300 * time.Second),
 	}
 }
 
@@ -76,7 +77,7 @@ func New(name, baseURL, apiKey string) *Provider {
 // it as down for StallCooloff so the calls after it don't each pay again.
 func (p *Provider) Interactive(timeout time.Duration) *Provider {
 	c := *p
-	c.http = &http.Client{Timeout: timeout}
+	c.http = client(timeout)
 	c.stall = &stall{timeout: timeout}
 	return &c
 }
@@ -138,7 +139,7 @@ func Resolve() []Discovered {
 	}
 	// Longer than discovery's probe: a configured runtime may be on another
 	// host, and a slow answer there is not an absent runtime.
-	models, err := listModels(&http.Client{Timeout: 2 * time.Second}, p.BaseURL, p.APIKey)
+	models, err := listModels(client(2*time.Second), p.BaseURL, p.APIKey)
 	if err != nil {
 		return nil
 	}
@@ -160,7 +161,7 @@ func Discover() []Discovered {
 	if Off() {
 		return nil
 	}
-	probe := &http.Client{Timeout: 400 * time.Millisecond}
+	probe := client(400 * time.Millisecond)
 	var out []Discovered
 
 	for _, ep := range LocalEndpoints {
@@ -482,4 +483,44 @@ func (p *Provider) nativeChatStream(model string, messages []Msg, think any, onT
 		}
 	}
 	return full.String(), sc.Err()
+}
+
+// DialLoopback is d.DialContext, except that "localhost" is dialled as
+// 127.0.0.1 and then ::1 without asking a resolver.
+//
+// Every built-in runtime URL says localhost, so every command that looked for a
+// model resolved that name first. Where /etc/hosts does not settle it, that is
+// a DNS query, and a query is a packet aimed off this process at a nameserver
+// that may not be on this machine at all. With no network the offline proof
+// caught one query per command. RFC 6761 makes localhost loopback
+// whatever a resolver says, so asking one bought nothing and cost the promise
+// that nothing leaves the machine. Both families are tried because a runtime
+// may listen on only one of them.
+func DialLoopback(d *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil || !strings.EqualFold(host, "localhost") {
+			return d.DialContext(ctx, network, addr)
+		}
+		c, err4 := d.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", port))
+		if err4 == nil {
+			return c, nil
+		}
+		if c, err6 := d.DialContext(ctx, network, net.JoinHostPort("::1", port)); err6 == nil {
+			return c, nil
+		}
+		return nil, err4
+	}
+}
+
+// localTransport is the transport every runtime client uses: the default one,
+// with DialLoopback in place of its dialer.
+var localTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = DialLoopback(&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second})
+	return t
+}()
+
+func client(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: localTransport}
 }

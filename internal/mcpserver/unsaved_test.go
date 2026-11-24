@@ -43,7 +43,7 @@ func workedIn(harness, project string) *transcript.Session {
 func fakeTranscripts(t *testing.T, s *transcript.Session) {
 	t.Helper()
 	old := newestSession
-	newestSession = func(harness string) (*transcript.Session, error) {
+	newestSession = func(_, harness string) (*transcript.Session, error) {
 		if s == nil || s.Harness != harness {
 			return nil, nil
 		}

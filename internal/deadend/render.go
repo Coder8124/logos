@@ -69,6 +69,9 @@ func Render(proposed string, hits []Ruling) string {
 		if h.Record.Alternative != "" {
 			fmt.Fprintf(&b, "  try instead: %s\n", untrusted.Inline(h.Record.Alternative))
 		}
+		if h.Transcript != "" {
+			fmt.Fprintf(&b, "  %s\n", h.Transcript)
+		}
 		if h.Stale {
 			b.WriteString("  ⚠ possibly superseded — version-bound and old enough that the dependency it names may have moved since\n")
 		}

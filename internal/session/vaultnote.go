@@ -52,6 +52,9 @@ func (c Checkpoint) Markdown(follows string) string {
 	}
 	if c.Turns > 0 {
 		fmt.Fprintf(&b, "transcript_turns: %d\n", c.Turns)
+		if h := strings.TrimSpace(c.Harness); h != "" {
+			fmt.Fprintf(&b, "transcript_harness: %s\n", yamlStr(h))
+		}
 	}
 	if in := c.Inferred; in != nil {
 		fmt.Fprintf(&b, "inferred_by: %s\n", yamlStr(in.By))
@@ -254,6 +257,7 @@ type checkpointFM struct {
 	InferredAt    string `yaml:"inferred_at"`
 	InferredTurns int    `yaml:"inferred_turns"`
 	Turns         int    `yaml:"transcript_turns"`
+	Harness       string `yaml:"transcript_harness"`
 	FirstSeen     string `yaml:"first_seen"`
 	Checkpointed  string `yaml:"checkpointed"`
 	// The observed half, round-tripped so a rebuilt index and a hand-read file
@@ -289,6 +293,7 @@ func ParseCheckpoint(raw string) Checkpoint {
 		AutoClosed:  fm.AutoClosed,
 		Auto:        fm.Auto,
 		Turns:       fm.Turns,
+		Harness:     fm.Harness,
 		Git: gitstate.State{
 			Branch:     fm.Branch,
 			Commit:     fm.Commit,

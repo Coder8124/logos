@@ -5,10 +5,12 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/buildinfo"
 	"github.com/Coder8124/logos/internal/dream"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/health"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/ingest"
@@ -367,8 +369,37 @@ func gatherHealth() health.Report {
 	rep := health.Run(in)
 	if _, err := os.Stat(vault); err == nil {
 		rep.Checks = append(rep.Checks, rawTranscriptsCheck(vault))
+		// Only while one is in force: a pause is a switch someone leaves on by
+		// accident, and a quiet doctor is how it would stay on.
+		if c, ok := pauseCheck(vault, time.Now()); ok {
+			rep.Checks = append(rep.Checks, c)
+		}
 	}
 	return rep
+}
+
+// pauseCheck is the one line doctor shows for a pause in force.
+func pauseCheck(vault string, now time.Time) (health.Check, bool) {
+	r, err := exclude.Load(vault)
+	if err != nil {
+		return health.Check{Name: "reading paused", State: health.Warn,
+			Detail: fmt.Sprintf("exclude.md could not be read, so no session is read: %v", err)}, true
+	}
+	if len(r.Broken) > 0 {
+		// Broken is fatal to reading, not a chore: until it is fixed the
+		// list refuses every session, and the person who wrote the line
+		// believes it protects something.
+		return health.Check{Name: "exclusion list", State: health.Failed,
+			Detail: fmt.Sprintf("%d pause line(s) in exclude.md cannot be read, so no session is read: %s", len(r.Broken), r.Broken[0]),
+			Fix:    "correct the line's times (from=… until=… as RFC 3339) or delete it in " + exclude.Path(vault)}, true
+	}
+	w, ok := r.ActivePause(now)
+	if !ok {
+		return health.Check{}, false
+	}
+	return health.Check{Name: "reading paused", State: health.Warn,
+		Detail: fmt.Sprintf("sessions are not read until %s", w.Until.Local().Format("15:04")),
+		Fix:    "logos pause resume"}, true
 }
 
 // rawTranscriptsCheck counts archived transcript copies that still hold what

@@ -10,11 +10,13 @@ import (
 	"github.com/Coder8124/logos/internal/session"
 )
 
-// runTranscript is `logos transcript <session-id>`: print the copy of a host
-// transcript a harvest archived into the vault.
+// runTranscript is `logos transcript <session-id | checkpoint-slug>`. A session
+// id prints the copy of a host transcript a harvest archived into the vault; a
+// checkpoint slug prints the turns that checkpoint's lines came from, read from
+// the vault archive first and then the host's live file (see runTranscriptSpan).
 //
-// Only the vault's copy, never the host's file, even when the host still has
-// it: the point of the archive is a record that does not depend on the host,
+// An id reads only the vault's copy, never the host's file, even when the host
+// still has it: the point of the archive is a record that does not depend on the host,
 // and a command that quietly read ~/.claude when it could would hide the day
 // the archive was missing until the day the host's file was gone too.
 //
@@ -33,11 +35,16 @@ func runTranscript(args []string) error {
 	}
 	id := firstNonFlag(args)
 	if id == "" {
-		return fmt.Errorf("usage: logos transcript <session-id>")
+		return fmt.Errorf("usage: logos transcript <session-id | checkpoint-slug>")
 	}
 	v := vaultPath()
 	if _, err := os.Stat(v); err != nil {
 		return missingVaultError(v)
+	}
+	// A checkpoint's slug asks for the turns its lines came from, not the whole
+	// conversation: the id form below stays what it was.
+	if ingest.IsRecordRef(id) {
+		return runTranscriptSpan(v, id)
 	}
 	p := session.FindTranscript(v, id)
 	if p == "" {
@@ -58,6 +65,21 @@ func runTranscript(args []string) error {
 	if _, err := io.Copy(os.Stdout, f); err != nil {
 		return fmt.Errorf("printing the archived transcript %s: %w", rel, err)
 	}
+	return nil
+}
+
+// runTranscriptSpan is `logos transcript <checkpoint-slug>`: print only the
+// turns that checkpoint's lines came from. The span goes to stdout in the
+// fenced, flattened form the evidence uses, because a turn is not a line of the
+// host's file and piping a slice of raw JSONL would claim a precision the
+// readers do not have. When the transcript is gone the exit is non-zero and the
+// stdout empty: an empty span on a zero exit reads as "nothing was said".
+func runTranscriptSpan(v, slug string) error {
+	sp, c, err := ingest.SpanFor(v, slug)
+	if err != nil {
+		return err
+	}
+	fmt.Print(sp.Render("checkpoint " + c.Slug))
 	return nil
 }
 

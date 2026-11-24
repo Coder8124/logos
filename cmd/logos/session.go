@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/activity"
 	"github.com/Coder8124/logos/internal/advice"
 	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/ops"
@@ -113,6 +115,12 @@ func runNote(args []string) (err error) {
 	}
 	if raw != nil && auto.On(vaultPath(), auto.Checkpoint) {
 		c, err := autoCheckpoint(vaultPath(), project, raw)
+		if why, ok := exclude.IsSkipped(err); ok {
+			var k exclude.Skips
+			k.Add(why)
+			fmt.Printf("%s — nothing recorded\n", k.Line())
+			return nil
+		}
 		// Logged as well as printed: this prints into a terminal that is
 		// closing, and the next resume is the first place anyone will read it.
 		if err != nil {
@@ -174,7 +182,7 @@ func runCheckpoint(args []string) error {
 	if project == "" {
 		return fmt.Errorf("usage: logos checkpoint [project] [--task ...] [--intent ...] [--next ...] " +
 			"[--decided ...] [--failed ...] [--verified ...] [--blocker ...] [--ran ...] " +
-			"[--question ...] [--file ...] [--handoff <agent>] [--at <time>]\n" +
+			"[--question ...] [--file ...] [--handoff <agent>] [--host-session <id>] [--at <time>]\n" +
 			"       ...or pipe a markdown checkpoint on stdin")
 	}
 	c := &session.Checkpoint{Project: project, Agent: agentName()}
@@ -214,6 +222,8 @@ func runCheckpoint(args []string) error {
 			c.HandoffTo = val()
 		case "--agent":
 			c.Agent = val()
+		case "--host-session":
+			c.HostSession = strings.TrimSpace(val())
 		case "--at":
 			ts, err := parseAt(val(), time.Now())
 			if err != nil {
@@ -285,6 +295,21 @@ func runCheckpoint(args []string) error {
 	if stranded == "" {
 		stranded = session.Split(ix.Vault, c.Project)
 	}
+	// The conversation this checkpoint belongs to, so its lines can be walked
+	// back to the transcript turns they came from. A flag or LOGOS_HOST_SESSION
+	// names it; otherwise it is read from the activity log the host's own hooks
+	// wrote, as the MCP checkpoint does. Not for a dated checkpoint: the
+	// transcript now says nothing about where that moment's lines came from.
+	var turnsNote string
+	if !dated {
+		if c.HostSession == "" {
+			c.HostSession = strings.TrimSpace(os.Getenv("LOGOS_HOST_SESSION"))
+		}
+		if c.HostSession == "" {
+			c.HostSession = activity.HostSessionFor(ix.Vault, c.Project, c.Agent)
+		}
+		turnsNote = ingest.StampTurns(ix.Vault, c, c.Agent)
+	}
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err
 	}
@@ -295,6 +320,12 @@ func runCheckpoint(args []string) error {
 	fmt.Println(written)
 	if dated && len(c.Verified) > 0 {
 		fmt.Println("--verified was not checked against the activity log: it records what ran lately, not on the date given.")
+	}
+	if said := ingest.SpanReceipt(ix.Vault, *c); said != "" {
+		fmt.Println(said)
+	}
+	if turnsNote != "" {
+		fmt.Printf("No transcript turn count was recorded, so these lines cannot be walked back to the conversation: %s\n", turnsNote)
 	}
 	if said := secret.Summary(c.Redactions); said != "" {
 		fmt.Println(said + ".")

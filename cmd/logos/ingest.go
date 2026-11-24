@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/auto"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
@@ -83,7 +84,7 @@ func runIngest(args []string) error {
 	}
 	keep := !dryRun && ingest.KeepsTranscripts(v)
 
-	sessions, readErrs, err := collectSessions(harness, explicit)
+	sessions, readErrs, excluded, err := collectSessions(harness, explicit)
 	if err != nil {
 		return err
 	}
@@ -195,11 +196,16 @@ func runIngest(args []string) error {
 	}
 
 	if ix != nil {
-		if _, err := ix.Sync(); err != nil {
+		rep, err := ix.Sync()
+		if err != nil {
 			return fmt.Errorf("candidates written to the vault but the index did not refresh: %w", err)
 		}
+		announceRerooted(os.Stdout, rep, ix.Vault)
 	}
 
+	if excluded.N() > 0 {
+		fmt.Printf("\n%s — `logos exclude --list` shows why\n", excluded.Line())
+	}
 	switch {
 	case dryRun:
 		fmt.Printf("\n%d transcript(s) read · %d would be queued · %d skipped (other project) · %d unreadable · nothing written\n",
@@ -311,9 +317,11 @@ func ingestDecide(v, ref string, promote bool) error {
 	}
 	fmt.Printf("promoted to checkpoint: %s.md\n", cp.Slug)
 	fmt.Printf("`logos resume %s` picks it up now\n", cp.Project)
-	if _, syncErr := ix.Sync(); syncErr != nil {
+	rep, syncErr := ix.Sync()
+	if syncErr != nil {
 		return fmt.Errorf("checkpoint %s written but the index did not refresh: %w", cp.Slug, syncErr)
 	}
+	announceRerooted(os.Stdout, rep, ix.Vault)
 	if err != nil {
 		fmt.Printf("warning: %v\n", err)
 		fmt.Printf("         run `logos review --candidates --reject %s` or it is offered again\n", shortID(c.SessionID))
@@ -324,16 +332,48 @@ func ingestDecide(v, ref string, promote bool) error {
 // collectSessions reads every discoverable transcript, or one explicit file.
 // The second return is the list of per-file skip reasons — reported, not
 // swallowed.
-func collectSessions(harness, explicit string) ([]*transcript.Session, []string, error) {
+//
+// The exclusion check runs before each file is opened: an excluded session is
+// counted and never read, so its text cannot reach a candidate or an archive.
+func collectSessions(harness, explicit string) ([]*transcript.Session, []string, exclude.Skips, error) {
+	var excluded exclude.Skips
+	vaultDir := vaultPath()
+	// skip reports whether the file is excluded, counting it when it is.
+	// The list is loaded once for the whole scan, not once per transcript.
+	rules, _ := exclude.Load(vaultDir)
+	skip := func(p string) bool {
+		if why := rules.CheckFile(p); why != "" {
+			excluded.Add(why)
+			return true
+		}
+		return false
+	}
+	// afterRead is the second look, once the session says where and when it
+	// really ran: the file's name and last write were all the first look had,
+	// and a pause is judged on the session's own span. A session refused here
+	// is counted as a skip and never reaches a candidate or an archive.
+	afterRead := func(s *transcript.Session) bool {
+		if why := rules.Check(exclude.SubjectOf(s)); why != "" {
+			excluded.Add(why)
+			return true
+		}
+		return false
+	}
 	if explicit != "" {
 		if harness == "" {
-			return nil, nil, fmt.Errorf("--path needs --harness to say how to read the file")
+			return nil, nil, excluded, fmt.Errorf("--path needs --harness to say how to read the file")
+		}
+		if skip(explicit) {
+			return nil, nil, excluded, nil
 		}
 		s, err := transcript.ReadFile(harness, explicit)
 		if err != nil {
-			return nil, []string{err.Error()}, nil
+			return nil, []string{err.Error()}, excluded, nil
 		}
-		return []*transcript.Session{s}, nil, nil
+		if afterRead(s) {
+			return nil, nil, excluded, nil
+		}
+		return []*transcript.Session{s}, nil, excluded, nil
 	}
 
 	harnesses := transcript.Harnesses()
@@ -354,9 +394,15 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 			continue
 		}
 		for _, p := range paths {
+			if skip(p) {
+				continue
+			}
 			s, err := transcript.ReadFile(h, p)
 			if err != nil {
 				skips = append(skips, fmt.Sprintf("%s: %s: %v", h, filepath.Base(p), err))
+				continue
+			}
+			if afterRead(s) {
 				continue
 			}
 			out = append(out, s)
@@ -376,7 +422,7 @@ func collectSessions(harness, explicit string) ([]*transcript.Session, []string,
 		}
 		return a.Path < b.Path
 	})
-	return out, skips, nil
+	return out, skips, excluded, nil
 }
 
 // --- consent marker ---------------------------------------------------------

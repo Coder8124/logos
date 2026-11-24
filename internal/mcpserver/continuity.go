@@ -465,33 +465,7 @@ func (s *Session) agentFor(args map[string]any) string {
 // its hooks) took Claude's newest conversation and filed its checkpoint there
 // (#339); with no event of its own, a host has no conversation id to give.
 func (s *Session) hostSession(proj string) string {
-	if s.clientAgent == "" {
-		return ""
-	}
-	events, err := activity.Read(s.vault, activity.Query{Project: proj})
-	if err != nil {
-		return ""
-	}
-	// Read keeps file order within a second, so newest-first puts the first
-	// event written in the newest second ahead of the last one (#329): walk
-	// that second to its end before choosing.
-	var e *activity.Event
-	for i := range events {
-		if !strings.EqualFold(events[i].Agent, s.clientAgent) {
-			continue
-		}
-		if e != nil && events[i].TS != e.TS {
-			break
-		}
-		e = &events[i]
-	}
-	if e == nil {
-		return ""
-	}
-	if full := activity.FullSessionID(*e); full != "" {
-		return full
-	}
-	return e.Session
+	return activity.HostSessionFor(s.vault, proj, s.clientAgent)
 }
 
 // checkpoint commits the session to the vault. handoffTo is set when the caller
@@ -554,6 +528,10 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	if stranded == "" {
 		stranded = session.Split(s.vault, c.Project)
 	}
+	// The host's transcript turn count, so each line below can be walked back
+	// to the turns it came from. The harness is the client that is checkpointing:
+	// its transcript is the one the host session id names.
+	turnsNote := ingest.StampTurns(s.vault, c, s.clientAgent)
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}
@@ -562,6 +540,12 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	msg := s.receipt(fmt.Sprintf("checkpoint saved to logos — %s.md", c.Slug))
 	if said := secret.Summary(c.Redactions); said != "" {
 		msg += ". " + said + "."
+	}
+	if said := ingest.SpanReceipt(s.vault, *c); said != "" {
+		msg += " " + said
+	}
+	if turnsNote != "" {
+		msg += " No transcript turn count was recorded, so these lines cannot be walked back to the conversation: " + turnsNote + "."
 	}
 	if stranded != "" {
 		msg += " " + session.SplitNotice(named, stranded)

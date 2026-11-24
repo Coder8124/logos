@@ -332,6 +332,7 @@ func TestASessionStartedInASubdirectoryOfTheRepositoryIsSwept(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "projects")
 	t.Setenv(transcript.LogosClaudeProjectsEnv, root)
 	t.Setenv(transcript.LogosCursorStorageEnv, t.TempDir())
+	t.Setenv(transcript.LogosOpencodeDataEnv, t.TempDir())
 	t.Setenv(transcript.LogosCodexSessionsEnv, t.TempDir())
 
 	start, end := now.Add(-3*time.Hour), now.Add(-2*time.Hour)

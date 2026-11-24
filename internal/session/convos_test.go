@@ -117,7 +117,7 @@ func TestACrashMidMigrationLeavesTheOldFlatFileReadable(t *testing.T) {
 	flat := flatten(t, dir, "kestrel", commitIn(t, dir, &Checkpoint{Project: "kestrel", Agent: "a", Task: "keep me", HostSession: "sess-k"}))
 
 	removeFlat = func(string) error { return errors.New("disk went away") }
-	rep, err := MigrateFlat(dir, false)
+	rep, err := MigrateFlat(dir, false, nil)
 	removeFlat = os.Remove
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestACrashMidMigrationLeavesTheOldFlatFileReadable(t *testing.T) {
 		t.Fatalf("a half-moved checkpoint should read as exactly one checkpoint, got %+v", convs)
 	}
 
-	rep, err = MigrateFlat(dir, false)
+	rep, err = MigrateFlat(dir, false, nil)
 	if err != nil || rep.Moved != 1 || len(rep.Failed) != 0 {
 		t.Fatalf("running again did not finish the move: %+v %v", rep, err)
 	}
@@ -158,14 +158,14 @@ func TestMigratingSessionsCountsWhatItMovedAndKeepsACollidingFile(t *testing.T) 
 	torn := filepath.Join(dir, CheckpointDir, "kestrel", "20200101-000000-a.md")
 	os.WriteFile(torn, nil, 0o600)
 
-	dry, _ := MigrateFlat(dir, true)
+	dry, _ := MigrateFlat(dir, true, nil)
 	if dry.Moved != 1 {
 		t.Fatalf("dry run counted %d", dry.Moved)
 	}
 	if _, err := os.Stat(moved); err != nil {
 		t.Fatal("a dry run moved a file")
 	}
-	rep, err := MigrateFlat(dir, false)
+	rep, err := MigrateFlat(dir, false, nil)
 	if err != nil || rep.Moved != 1 || len(rep.Skipped) != 2 || len(rep.Failed) != 0 {
 		t.Fatalf("want 1 moved, 2 skipped (collision, torn), got %+v %v", rep, err)
 	}
@@ -174,7 +174,7 @@ func TestMigratingSessionsCountsWhatItMovedAndKeepsACollidingFile(t *testing.T) 
 			t.Fatalf("%s should have been left alone: %v", p, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, UnattachedFolder, filepath.Base(moved))); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, CheckpointDir, "kestrel", ConvosDir, "plain--"+strings.TrimSuffix(filepath.Base(moved), ".md"), filepath.Base(moved))); err != nil {
 		t.Fatal("a checkpoint with no host session did not move to _unattached")
 	}
 }

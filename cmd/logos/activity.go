@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Coder8124/logos/internal/activity"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
@@ -234,6 +235,14 @@ func recordActivity(args []string) error {
 	if _, err := os.Stat(vault); err != nil {
 		// No vault means Logos is not set up here. That is not an error worth
 		// printing on every tool call of a session that never asked for it.
+		return nil
+	}
+	// The audit row and the saved plan are what Logos knows of a session, so
+	// a session on the exclusion list leaves neither: excluding a project
+	// that still wrote its commands and plans into the vault would protect
+	// the transcript and leak everything else. Silent here by design (this
+	// runs on every tool call); `logos exclude` says it once.
+	if why := exclude.Check(vault, exclude.Subject{Cwd: where.Cwd, ID: hookSessionID(raw), Start: time.Now(), End: time.Now()}); why != "" {
 		return nil
 	}
 	if err := activity.Append(vault, e); err != nil {
@@ -500,6 +509,17 @@ const kindAutoCheckpoint = "auto-checkpoint"
 // holds what ran, not what it showed, and a guess in those fields would be
 // trusted like an agent's.
 func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, error) {
+	// Before the log or the transcript is touched: an excluded chat leaves no
+	// checkpoint at all, and a session whose folder the payload does not name
+	// is skipped while a project exclusion exists, since it cannot be told
+	// apart from the excluded one.
+	var hook struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(raw, &hook)
+	if why := exclude.Check(vault, exclude.Subject{Cwd: hook.Cwd, ID: hookSessionID(raw), Start: time.Now(), End: time.Now()}); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
+	}
 	end, err := activity.FromHook("SessionEnd", raw, project)
 	if err != nil || end.Session == "" {
 		return nil, err
@@ -550,7 +570,7 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 	// where this record's turns end. Without one the record is still written,
 	// and is only not offered for reading — said, so it does not read as a
 	// reading resume forgot to offer.
-	if n, err := ingest.TranscriptTurns(end.Agent, hookSessionID(raw)); err == nil {
+	if n, err := ingest.TranscriptTurns(vault, end.Agent, hookSessionID(raw)); err == nil {
 		c.Turns = n
 	} else {
 		fmt.Fprintf(os.Stderr, "logos: the auto record will not be offered for reading: counting its transcript: %v\n", err)
