@@ -240,3 +240,21 @@ func TestEnterEnterInTheConfigMenuOnlyLooks(t *testing.T) {
 		}
 	}
 }
+
+func TestAFormThatNeverExitsRunsLastAndTheMenuSaysSo(t *testing.T) {
+	playMenus(t, screenPlay{0, picked, []int{0, rowOf(t, "watch", "--log"), rowOf(t, "watch", "--log --compliance")}})
+	ran, runOne := recorder()
+	out := captureStdout(t, func() {
+		if err := runFlagMenu("watch", flagMenus["watch"], runOne); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// bare watch follows until Ctrl-C; first, it kept every other ticked form
+	// from running until the person gave up on the terminal.
+	if want := []string{"watch --log", "watch --log --compliance", "watch"}; !reflect.DeepEqual(*ran, want) {
+		t.Errorf("ran %v, want %v — the form that never exits must come last", *ran, want)
+	}
+	if !strings.Contains(out, "logos watch") || !strings.Contains(out, "Ctrl-C") || !strings.Contains(out, "last") {
+		t.Errorf("the menu did not say why logos watch moved to the end:\n%s", out)
+	}
+}

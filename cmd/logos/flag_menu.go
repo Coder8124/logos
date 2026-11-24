@@ -133,6 +133,29 @@ func flagRuns(rows []flagRow, checked []bool, sel int) [][]string {
 	return runs
 }
 
+// followsUntilInterrupted is a form that prints until the person presses
+// Ctrl-C instead of finishing: bare `logos watch`. Every other form of every
+// menu returns on its own.
+func followsUntilInterrupted(cmd string, args []string) bool {
+	return cmd == "watch" && len(args) == 0
+}
+
+// followLast moves a form that never exits behind the ones that do. Run in
+// menu order, `logos watch` came first and sat silent, so the other ticked
+// forms never ran and the terminal read as stalled.
+func followLast(cmd string, runs [][]string) [][]string {
+	out := make([][]string, 0, len(runs))
+	var follows [][]string
+	for _, r := range runs {
+		if followsUntilInterrupted(cmd, r) {
+			follows = append(follows, r)
+		} else {
+			out = append(out, r)
+		}
+	}
+	return append(out, follows...)
+}
+
 // runFlagMenu is a bare command at a terminal: a checklist of its flags, then
 // each chosen form run through runOne as if typed. The command line is
 // printed before it runs, so the menu teaches the flag it saved typing. One
@@ -167,6 +190,7 @@ func runFlagMenu(cmd string, rows []flagRow, runOne func(string, []string) error
 		return nil
 	}
 	runs := flagRuns(rows, checked, sel)
+	runs = followLast(cmd, runs)
 	var failed []string
 	for i, args := range runs {
 		line := strings.TrimSpace("logos " + cmd + " " + strings.Join(args, " "))
@@ -177,6 +201,9 @@ func runFlagMenu(cmd string, rows []flagRow, runOne func(string, []string) error
 			fmt.Printf("── %d of %d: %s\n\n", i+1, len(runs), line)
 		} else {
 			fmt.Printf("── %s\n\n", line)
+		}
+		if len(runs) > 1 && followsUntilInterrupted(cmd, args) {
+			fmt.Printf("logos %s follows until Ctrl-C, so it runs last of the %d ticked forms; Ctrl-C ends it.\n\n", cmd, len(runs))
 		}
 		if err := runOne(cmd, args); err != nil {
 			if len(runs) == 1 {
