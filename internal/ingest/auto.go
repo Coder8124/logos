@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/secret"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
@@ -41,6 +42,12 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (c *
 	if s == nil {
 		return nil, false, nil
 	}
+	// The caller read this session to hand it here, so this cannot stop the
+	// read; it stops everything written from it. An excluded session leaves no
+	// checkpoint, and the caller learns why rather than seeing a success.
+	if why := exclude.Check(vaultDir, subjectOf(s)); why != "" {
+		return nil, false, &exclude.Skipped{Reason: why}
+	}
 	history, err := session.History(vaultDir, project, 0)
 	if err != nil {
 		return nil, false, err
@@ -63,6 +70,9 @@ func AutoCheckpoint(vaultDir string, s *transcript.Session, project string) (c *
 func autoCheckpoint(vaultDir string, s *transcript.Session, project string, at int64) (*session.Checkpoint, error) {
 	if s == nil {
 		return nil, nil
+	}
+	if why := exclude.Check(vaultDir, subjectOf(s)); why != "" {
+		return nil, &exclude.Skipped{Reason: why}
 	}
 	c, ok := autoRecord(s, project, at)
 	if !ok {

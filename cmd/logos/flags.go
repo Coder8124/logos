@@ -83,6 +83,7 @@ var commandFlags = map[string]flagSpec{
 	"deny":     {bare: []string{"--undo"}},
 	"note":     {valued: []string{"--at"}},
 	"reflect":  {},
+	"exclude":  {valued: []string{"--project", "--session", "--remove"}, bare: []string{"--list", "--erase"}},
 	"watch":    {},
 	"index":    {bare: []string{"--watch", "--auto"}},
 	"migrate":  {bare: []string{"--dry-run", "--yes", "-y"}},

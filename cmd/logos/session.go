@@ -16,6 +16,7 @@ import (
 	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/claims"
 	"github.com/Coder8124/logos/internal/contextpack"
+	"github.com/Coder8124/logos/internal/exclude"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/ops"
@@ -114,6 +115,12 @@ func runNote(args []string) (err error) {
 	}
 	if raw != nil && auto.On(vaultPath(), auto.Checkpoint) {
 		c, err := autoCheckpoint(vaultPath(), project, raw)
+		if why, ok := exclude.IsSkipped(err); ok {
+			var k exclude.Skips
+			k.Add(why)
+			fmt.Printf("%s — nothing recorded\n", k.Line())
+			return nil
+		}
 		// Logged as well as printed: this prints into a terminal that is
 		// closing, and the next resume is the first place anyone will read it.
 		if err != nil {

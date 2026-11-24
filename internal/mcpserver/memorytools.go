@@ -366,7 +366,7 @@ func (s *Session) citeTurn() string {
 	if s.vault == "" || s.clientAgent == "" || !auto.On(s.vault, auto.Review) {
 		return ""
 	}
-	ts, err := newestSession(s.clientAgent)
+	ts, err := newestSession(s.vault, s.clientAgent)
 	if err != nil || ts == nil || len(ts.Turns) == 0 || !ranDuring(ts, s.startedAt.Unix()) {
 		return ""
 	}

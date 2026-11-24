@@ -21,7 +21,7 @@ func recordFrom(t *testing.T, s *transcript.Session) (vault string, c session.Ch
 		t.Fatalf("recorded %v, %v", rec, err)
 	}
 	was := findTranscript
-	findTranscript = func(harness, id string) (*transcript.Session, error) {
+	findTranscript = func(_, harness, id string) (*transcript.Session, error) {
 		if harness == s.Harness && id == s.ID {
 			return s, nil
 		}
@@ -132,7 +132,7 @@ func TestAReadingOfARecordIsServedOnlyTheTurnsThatRecordCovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	was := findTranscript
-	findTranscript = func(string, string) (*transcript.Session, error) { return s, nil }
+	findTranscript = func(string, string, string) (*transcript.Session, error) { return s, nil }
 	t.Cleanup(func() { findTranscript = was })
 
 	ev, err := AutoEvidenceFor(vault, first[0].Slug, 0)

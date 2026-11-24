@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 	// Every resume sweeps transcripts, and the developer's own would be filed
 	// into the test's vault whenever a project name matched a folder they
 	// worked in. A test that wants a sweep supplies its own transcripts.
-	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool) ([]*transcript.Session, []string) {
+	ingest.RecentTranscripts = func(string, time.Time, time.Time, func(string, time.Time) bool, func(string, time.Time) bool) ([]*transcript.Session, []string) {
 		return nil, nil
 	}
 	if args, ok := os.LookupEnv(runMainEnv); ok {

@@ -27,7 +27,7 @@ func onMachine(t *testing.T, found ...*transcript.Session) {
 	t.Helper()
 	was := RecentTranscripts
 	t.Cleanup(func() { RecentTranscripts = was })
-	RecentTranscripts = func(_ string, since, until time.Time, _ func(string, time.Time) bool) ([]*transcript.Session, []string) {
+	RecentTranscripts = func(_ string, since, until time.Time, _, _ func(string, time.Time) bool) ([]*transcript.Session, []string) {
 		return found, nil
 	}
 }
