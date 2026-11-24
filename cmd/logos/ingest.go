@@ -196,9 +196,11 @@ func runIngest(args []string) error {
 	}
 
 	if ix != nil {
-		if _, err := ix.Sync(); err != nil {
+		rep, err := ix.Sync()
+		if err != nil {
 			return fmt.Errorf("candidates written to the vault but the index did not refresh: %w", err)
 		}
+		announceRerooted(os.Stdout, rep, ix.Vault)
 	}
 
 	if excluded.N() > 0 {
@@ -315,9 +317,11 @@ func ingestDecide(v, ref string, promote bool) error {
 	}
 	fmt.Printf("promoted to checkpoint: %s.md\n", cp.Slug)
 	fmt.Printf("`logos resume %s` picks it up now\n", cp.Project)
-	if _, syncErr := ix.Sync(); syncErr != nil {
+	rep, syncErr := ix.Sync()
+	if syncErr != nil {
 		return fmt.Errorf("checkpoint %s written but the index did not refresh: %w", cp.Slug, syncErr)
 	}
+	announceRerooted(os.Stdout, rep, ix.Vault)
 	if err != nil {
 		fmt.Printf("warning: %v\n", err)
 		fmt.Printf("         run `logos review --candidates --reject %s` or it is offered again\n", shortID(c.SessionID))

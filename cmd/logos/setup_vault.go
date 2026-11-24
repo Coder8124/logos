@@ -299,6 +299,7 @@ func indexVault(dir string) error {
 	if err != nil {
 		return err
 	}
+	announceRerooted(os.Stdout, rep, ix.Vault)
 	// provider.Resolve rather than findProvider: the latter prints a banner of
 	// its own, which would interrupt this report mid-table. Resolve, not
 	// Discover, so a LOGOS_RUNTIME on another host is the one embedded with.

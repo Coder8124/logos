@@ -68,6 +68,10 @@ type Index struct {
 
 type SyncReport struct {
 	Added, Updated, Removed, Unchanged int
+	// Rerooted counts unchanged notes whose stored path named a location the
+	// vault no longer lives at (it was copied or moved) and was rewritten to
+	// the current one. Counted so the caller can say it happened.
+	Rerooted int
 	// Skipped counts files the walk found but did not index: symlinks,
 	// derived ledgers, and files that could not be read. They are reported rather than silently
 	// dropped, because "the index is missing a note" is otherwise invisible.
@@ -395,6 +399,19 @@ func (ix *Index) rel(path string) string {
 	return path
 }
 
+// sameFile is whether two spellings name one file on disk.
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(ai, bi)
+}
+
 // DisplayPath is the vault-relative path of a note without ".md", for showing
 // a user. The slug folds "_" into "-" so it can be a link key, which makes it
 // a path that does not exist on disk; anything a person may copy prints this
@@ -404,7 +421,30 @@ func (ix *Index) DisplayPath(slug string) string {
 	if err := ix.DB.QueryRow(`SELECT path FROM notes WHERE slug = ?`, slug).Scan(&p); err != nil || p == "" {
 		return slug
 	}
-	return strings.TrimSuffix(ix.rel(p), ".md")
+	// Rel's error is the escape too: a relative row against an absolute vault
+	// (or another drive) cannot be related, and ix.rel would hand the raw path back.
+	r, relErr := filepath.Rel(ix.Vault, p)
+	if relErr == nil && !escapesVault(filepath.ToSlash(r)) {
+		return strings.TrimSuffix(filepath.ToSlash(r), ".md")
+	}
+	// A row written when the vault lived elsewhere and not yet rewritten by an
+	// index. The vault-relative tail of the old path is still in it, so the
+	// longest tail that exists under this vault is the note, spelled exactly
+	// (underscores and all, which the slug cannot give back).
+	parts := strings.Split(filepath.ToSlash(p), "/")
+	for i := 1; i < len(parts); i++ {
+		tail := strings.Join(parts[i:], "/")
+		if _, err := os.Stat(filepath.Join(ix.Vault, filepath.FromSlash(tail))); err == nil {
+			return strings.TrimSuffix(tail, ".md")
+		}
+	}
+	return slug
+}
+
+// escapesVault is whether a slash-separated path made relative to the vault
+// still points outside it.
+func escapesVault(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, "../")
 }
 
 // Sync reads every note in the vault and reconciles it against the cache. Only
@@ -545,8 +585,8 @@ func (ix *Index) Sync() (SyncReport, error) {
 		n := vault.Parse(ix.Vault, path, string(raw))
 		seen[n.Slug] = true
 
-		var existing string
-		err = tx.QueryRow("SELECT hash FROM notes WHERE slug = ?", n.Slug).Scan(&existing)
+		var existing, storedPath string
+		err = tx.QueryRow("SELECT hash, path FROM notes WHERE slug = ?", n.Slug).Scan(&existing, &storedPath)
 		switch {
 		case err == sql.ErrNoRows:
 			rep.Added++
@@ -554,6 +594,21 @@ func (ix *Index) Sync() (SyncReport, error) {
 			return rep, err
 		case existing == n.Hash:
 			rep.Unchanged++
+			// Unchanged content does not mean an unchanged place: a vault that
+			// was copied or moved keeps every row's old absolute path, and
+			// skipping the row here left search printing "../../.." for it.
+			if storedPath != n.Path {
+				if _, err := tx.Exec("UPDATE notes SET path = ? WHERE slug = ?", n.Path, n.Slug); err != nil {
+					return rep, err
+				}
+				// The same file under another spelling of the vault's path
+				// (/tmp against /private/tmp, a relative against an absolute
+				// open) is a rewrite worth making and not a move worth
+				// announcing; only a path that is not this file counts.
+				if !sameFile(storedPath, n.Path) {
+					rep.Rerooted++
+				}
+			}
 			continue
 		default:
 			rep.Updated++
