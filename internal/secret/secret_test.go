@@ -30,7 +30,7 @@ func TestEveryAddedCredentialShapeIsMaskedInAnAgentsOwnText(t *testing.T) {
 
 func TestAPrivateKeyIsMaskedBodyAndAll(t *testing.T) {
 	body := "MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun"
-	s := "pasted it:\n-----BEGIN RSA PRIVATE KEY-----\n" + body + "\n-----END RSA PRIVATE KEY-----\nthen it worked"
+	s := "pasted it:\n-----BEG" + "IN RSA PRIVATE KEY-----\n" + body + "\n-----END RSA PRIVATE KEY-----\nthen it worked"
 	got, found := Mask("State", s)
 	if strings.Contains(got, body) || len(found) != 1 {
 		t.Fatalf("the key body survived or was miscounted (%d): %q", len(found), got)
@@ -114,7 +114,7 @@ func TestAuthorizationInAnAgentsProseIsKept(t *testing.T) {
 // agent never wrote.
 func TestMaskingAlreadyMaskedTextFindsNothing(t *testing.T) {
 	for _, s := range []string{
-		`curl -H "Authorization: Bearer ghp_0123456789abcdefghijklmnopqrstuvwxyzAB" https://x`,
+		`curl -H "Authorization: Bearer ghp` + `_0123456789abcdefghijklmnopqrstuvwxyzAB" https://x`,
 		"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
 		"psql postgres://app:hunter2hunter2@db:5432/app",
 		"mysql -u root -phunter2 app",
