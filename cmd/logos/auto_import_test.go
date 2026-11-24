@@ -47,7 +47,10 @@ var twoObservations = [][4]string{
 }
 
 func TestTheImportSwitchOffNeverStartsAnImport(t *testing.T) {
-	standIn(t, "shop")
+	v := standIn(t, "shop")
+	if err := auto.Set(v, string(auto.Import), false); err != nil {
+		t.Fatal(err)
+	}
 	_, launched := claudeMemAt(t, twoObservations)
 	resumeShop(t)
 	if *launched != 0 {

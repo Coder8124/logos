@@ -453,7 +453,7 @@ func runResume(args []string) error {
 	// handoff it is missing from. The SessionStart hook runs this command, so
 	// every Claude Code session start sweeps too.
 	if auto.On(ix.Vault, auto.Checkpoint) {
-		say(ingest.SweepNotice(ingest.Sweep(ix.Vault, project, time.Now())))
+		say(ingest.ResumeSweep(ix.Vault, project, time.Now()))
 	}
 
 	// One conversation rather than the whole project: named on the command

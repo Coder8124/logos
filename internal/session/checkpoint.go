@@ -105,8 +105,15 @@ type Checkpoint struct {
 	// Redactions is what Commit masked before writing, so the caller can say
 	// so. Not written to the file: the file carries the marker in place.
 	Redactions []secret.Redaction `json:"-"`
-	Slug       string             `json:"slug,omitempty"` // vault slug, set once written
-	TS         int64              `json:"ts,omitempty"`
+	// Archive is what keeping this record's transcript did, for the caller to
+	// say ("transcript archived (41 KB), 2 secrets redacted"). Not written to
+	// the file: the copy is its own file in the conversation's folder.
+	Archive string `json:"-"`
+	// ArchiveKept is whether that kept a copy, so the one-time notice about
+	// keeping copies is said only once there is one.
+	ArchiveKept bool   `json:"-"`
+	Slug        string `json:"slug,omitempty"` // vault slug, set once written
+	TS          int64  `json:"ts,omitempty"`
 }
 
 // Inference is a distillation of an auto record's transcript. By and At say

@@ -33,8 +33,8 @@ func harvestAutoRecord(t *testing.T, keep bool) (receipt, vaultDir string) {
 	if err := os.WriteFile(ingest.ConsentPath(s.vault), []byte(`{"granted":"2026-10-01T00:00:00Z"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if keep {
-		if _, err := ingest.SetKeepTranscripts(s.vault, true, time.Now()); err != nil {
+	if !keep {
+		if _, err := ingest.SetKeepTranscripts(s.vault, false, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -51,17 +51,17 @@ func harvestAutoRecord(t *testing.T, keep bool) (receipt, vaultDir string) {
 	return first, s.vault
 }
 
-func TestTheHarvestReceiptNamesTheArchivedTranscriptSizeWhenKeepingIsOn(t *testing.T) {
+func TestTheHarvestReceiptNamesTheArchivedTranscriptSizeAndWhatWasRedacted(t *testing.T) {
 	receipt, v := harvestAutoRecord(t, true)
-	if !strings.Contains(receipt, "raw transcript archived (") || !strings.Contains(receipt, " B)") {
-		t.Errorf("the receipt does not name the raw copy and its size: %s", receipt)
+	if !strings.Contains(receipt, "transcript archived (") || !strings.Contains(receipt, " B)") || !strings.Contains(receipt, "secrets redacted") {
+		t.Errorf("the receipt does not name the redacted copy and its size: %s", receipt)
 	}
 	if session.FindTranscript(v, "lost-1") == "" {
 		t.Error("the receipt said archived but no transcript is in the vault")
 	}
 }
 
-// Off is the default, and off is today's behaviour exactly: the same receipt,
+// Off is what a user who switched archiving off gets, and it is today's behaviour exactly: the same receipt,
 // and nothing of the transcript in the vault.
 func TestNothingIsArchivedWhenKeepingTranscriptsIsOff(t *testing.T) {
 	receipt, v := harvestAutoRecord(t, false)

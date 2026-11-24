@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/transcript"
 )
@@ -110,7 +111,7 @@ func TestAMissingHostTranscriptIsReportedNotSilentlySkipped(t *testing.T) {
 	if !strings.Contains(ar.Err.Error(), gone) {
 		t.Errorf("the error %q does not name the file that is missing", ar.Err)
 	}
-	if r := ar.Receipt(); !strings.HasPrefix(r, "raw transcript not archived: ") {
+	if r := ar.Receipt(); !strings.HasPrefix(r, "transcript not archived: ") {
 		t.Errorf("receipt %q does not say the transcript was not archived", r)
 	}
 	if _, err := os.Stat(filepath.Join(v, "sessions")); !os.IsNotExist(err) {
@@ -144,42 +145,39 @@ func TestReceiptNamesTheArchivedTranscriptSize(t *testing.T) {
 	v := t.TempDir()
 	src := hostTranscript(t, strings.Repeat("y", 41983))
 	r := ingest.ArchiveTranscript(v, ingest.Candidate{Harness: "codex", SessionID: "s1", Source: src, Project: "kestrel"}).Receipt()
-	if r != "raw transcript archived (41 KB)" {
+	if r != "transcript archived (41 KB), 0 secrets redacted" {
 		t.Errorf("receipt = %q", r)
 	}
 }
 
-// Keeping is off for every user who never asked for it — including one who
-// granted ingest before the setting existed — and turning it on keeps the
-// grant it narrows.
-func TestKeepingTranscriptsIsOffUntilTurnedOnAndKeepsTheGrant(t *testing.T) {
+// Keeping is on for every user who never said otherwise, a user who granted
+// ingest before the setting existed included, and turning it off in either
+// direction leaves the grant it never depended on alone.
+func TestKeepingTranscriptsIsOnUntilTurnedOffAndLeavesTheGrantAlone(t *testing.T) {
 	v := t.TempDir()
-	if ingest.KeepsTranscripts(v) {
-		t.Fatal("keeping is on in a vault with no marker")
-	}
-	if _, err := ingest.SetKeepTranscripts(v, true, time.Now()); err == nil {
-		t.Fatal("keeping was turned on without the ingest grant")
+	if !ingest.KeepsTranscripts(v) {
+		t.Fatal("keeping is off in a vault nobody configured")
 	}
 	grantIngest(t, v)
-	if ingest.KeepsTranscripts(v) {
-		t.Fatal("a grant from before the setting existed turned keeping on")
+	if !ingest.KeepsTranscripts(v) {
+		t.Fatal("a grant from before the setting existed turned keeping off")
 	}
-	if changed, err := ingest.SetKeepTranscripts(v, true, time.Now()); err != nil || !changed {
-		t.Fatalf("turning keeping on = %v, %v", changed, err)
+	if changed, err := ingest.SetKeepTranscripts(v, true, time.Now()); err != nil || changed {
+		t.Fatalf("turning on what is already on = %v, %v; want no change", changed, err)
 	}
-	if changed, _ := ingest.SetKeepTranscripts(v, true, time.Now()); changed {
-		t.Error("turning keeping on twice reported a change, so the warning would repeat")
+	if changed, err := ingest.SetKeepTranscripts(v, false, time.Now()); err != nil || !changed || ingest.KeepsTranscripts(v) {
+		t.Fatalf("turning keeping off = %v, %v; keeps=%v", changed, err, ingest.KeepsTranscripts(v))
 	}
-	if !ingest.KeepsTranscripts(v) || !ingest.HasConsent(v) {
-		t.Fatalf("after turning keeping on: keeps=%v, consent=%v", ingest.KeepsTranscripts(v), ingest.HasConsent(v))
+	if changed, _ := ingest.SetKeepTranscripts(v, false, time.Now()); changed {
+		t.Error("turning keeping off twice reported a change, so the warning would repeat")
 	}
 	b, _ := os.ReadFile(ingest.ConsentPath(v))
 	var m map[string]string
 	if err := json.Unmarshal(b, &m); err != nil || m["granted"] != "2026-10-01T00:00:00Z" {
 		t.Errorf("the marker lost or changed its grant: %s", b)
 	}
-	if changed, err := ingest.SetKeepTranscripts(v, false, time.Now()); err != nil || !changed || ingest.KeepsTranscripts(v) {
-		t.Errorf("turning keeping off = %v, %v; keeps=%v", changed, err, ingest.KeepsTranscripts(v))
+	if changed, err := ingest.SetKeepTranscripts(v, true, time.Now()); err != nil || !changed || !ingest.KeepsTranscripts(v) {
+		t.Errorf("turning keeping back on = %v, %v; keeps=%v", changed, err, ingest.KeepsTranscripts(v))
 	}
 }
 
@@ -282,5 +280,22 @@ func TestAMissingTranscriptsReasonDoesNotNameTheFile(t *testing.T) {
 	b := ingest.ArchiveTranscript(v, ingest.Candidate{Harness: "claude-code", SessionID: "s2", Source: "/gone/b.jsonl", Project: "kestrel"})
 	if a.Why == "" || a.Why != b.Why {
 		t.Errorf("two missing files group as %q and %q, want one shared reason", a.Why, b.Why)
+	}
+}
+
+// Someone who turned redaction off and is then told their copies are masked
+// commits secrets to git on Logos's word.
+func TestTheNoticesSayACopyIsRawWhenRedactIsOff(t *testing.T) {
+	v := t.TempDir()
+	if err := auto.Set(v, "redact", false); err != nil {
+		t.Fatal(err)
+	}
+	for name, msg := range map[string]string{"notice": ingest.ArchiveNotice(v), "warning": ingest.KeepTranscriptsWarning(v)} {
+		if strings.Contains(msg, "masked,") || strings.Contains(msg, "with secrets and") {
+			t.Errorf("the %s claims masking with redact off: %q", name, msg)
+		}
+		if !strings.Contains(msg, "raw") {
+			t.Errorf("the %s does not say the copy is raw: %q", name, msg)
+		}
 	}
 }

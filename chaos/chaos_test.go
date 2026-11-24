@@ -29,6 +29,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Coder8124/logos/internal/auto"
 )
 
 var (
@@ -74,6 +76,16 @@ func newVault(t *testing.T) string {
 	dir := filepath.Join(t.TempDir(), "vault")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	// Dream and import are on by default, and resume launches them as detached
+	// processes that outlive the command. One still writing into the vault
+	// when the test returns fails TempDir's cleanup ("directory not empty"), and
+	// under the egress proxy its traffic lands on whichever command runs next.
+	// The tier measures the command it ran, so nothing may outlive it.
+	for _, s := range []string{"dream", "import"} {
+		if err := auto.Set(dir, s, false); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return dir
 }

@@ -22,10 +22,9 @@ func reviewVault(t *testing.T, on bool) (*sql.DB, string) {
 	t.Helper()
 	vault := t.TempDir()
 	db := openIndexAt(t, vault)
-	if on {
-		if err := auto.Set(vault, string(auto.Review), true); err != nil {
-			t.Fatal(err)
-		}
+	// Set either way: the switch defaults on, so "off" has to be said.
+	if err := auto.Set(vault, string(auto.Review), on); err != nil {
+		t.Fatal(err)
 	}
 	old := readTranscript
 	readTranscript = func(harness, path string) (*transcript.Session, error) {
@@ -277,5 +276,33 @@ func TestASweepThatNoticesAHandRejectionStillCountsItsAcceptsAsUnreviewed(t *tes
 	}
 	if len(ms) != 1 {
 		t.Fatalf("the accept is not counted since the last review (at %d): %+v", last, ms)
+	}
+}
+
+// The sweep adopts a line the user deleted from the queue before it reads the
+// queue. That adoption threw its count away, so resume rejected a proposal and
+// said nothing — and `logos review`, reconciling after it, found nothing left
+// to announce either.
+func TestResumeSaysAProposalDeletedFromTheQueueFileWasRejected(t *testing.T) {
+	db, vault := reviewVault(t, true)
+	propose(t, db, "The staging cluster runs in eu-west-1", memory.Fact, liveTurn)
+	path := filepath.Join(vault, memory.Dir, memory.PendingFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(l, "eu-west-1") {
+			kept = append(kept, l)
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lead := RunAutoReview(db, vault, "shop")
+	if !strings.Contains(lead, "1 proposal rejected") {
+		t.Errorf("resume adopted the deletion without saying so:\n%q", lead)
 	}
 }

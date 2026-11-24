@@ -52,6 +52,11 @@ func captureStderr(t *testing.T, fn func()) string {
 // wrong answer; the command has to say the index is what is empty.
 func TestSearchOnADeletedIndexSaysTheIndexIsMissing(t *testing.T) {
 	standIn(t, "shop")
+	// The warning is what a vault with the index switch off sees; on, the
+	// index is rebuilt instead (TestTheIndexSwitchRebuildsADeletedIndex...).
+	if err := auto.Set(vaultPath(), string(auto.Index), false); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(vaultPath(), "cache.md"), []byte("# Cache\n\nThe cart cache expires.\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +244,11 @@ func TestTheMCPServerRebuildsAMissingIndexInAProcessOfItsOwn(t *testing.T) {
 // missing — but it may not call the index empty while it answers from it.
 func TestAnUnbuiltIndexThatHoldsAMemoryIsNotCalledEmpty(t *testing.T) {
 	standIn(t, "shop")
+	// The warning is what a vault with the index switch off sees; on, the
+	// index is rebuilt instead (TestTheIndexSwitchRebuildsADeletedIndex...).
+	if err := auto.Set(vaultPath(), string(auto.Index), false); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("LOGOS_EMBED", "off")
 	deleteIndex(t)
 	captureStderr(t, func() {

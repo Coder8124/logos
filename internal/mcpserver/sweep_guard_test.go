@@ -112,3 +112,21 @@ func TestTheCheckpointSwitchOffStopsTheResumeSweep(t *testing.T) {
 		t.Errorf("the sweep wrote a checkpoint with the switch off: %+v", c)
 	}
 }
+
+// The sweep runs before a conversation is looked up, so by the time a resume
+// fails on a name that matches nothing, a session has been recorded and the
+// one-time archive notice may be spent. Dropping that text with the error is
+// work done out of sight.
+func TestAResumeThatFindsNoConversationStillSaysWhatItsSweepRecorded(t *testing.T) {
+	sweepable(t, "shop")
+	srv := &Server{DB: testDB(t), vault: t.TempDir()}
+	s := &Session{Server: srv}
+
+	_, err := s.resumeConversation("shop", "a conversation nobody had")
+	if err == nil {
+		t.Fatal("resuming a conversation that matches nothing succeeded")
+	}
+	if !strings.Contains(err.Error(), "Recorded 1 earlier session that ended without a checkpoint") {
+		t.Errorf("the failed resume dropped what its sweep recorded:\n%v", err)
+	}
+}

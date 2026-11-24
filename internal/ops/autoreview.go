@@ -172,17 +172,30 @@ func AutoAcceptedSinceReview(db *sql.DB) (int, error) {
 // opens with says what it accepted, and a failure returned as a line to print,
 // since resume has nobody to return an error to but the reader.
 func RunAutoReview(db *sql.DB, vault, project string) string {
+	// The user's edits to the queue file are adopted here, ahead of the
+	// sweep, because the sweep's own reconcile has no one to tell: a deletion
+	// it adopted was a rejection resume never mentioned.
+	var adopted string
+	if auto.On(vault, auto.Review) {
+		restored, rejected, err := memory.ReconcilePending(db)
+		if err != nil {
+			return fmt.Sprintf("auto: the review switch could not read the user's edits to the review queue: %v\n\n", err)
+		}
+		if line := QueueAdoption(restored, rejected); line != "" {
+			adopted = line + "\n\n"
+		}
+	}
 	n, err := AutoReview(db, vault, time.Now())
 	if n > 0 {
 		e := auto.Entry{Switch: auto.Review, Project: project, N: n}
 		if rerr := auto.Record(vault, e); rerr != nil {
-			return fmt.Sprintf("auto: accepted %d from the review queue, and could not log it: %v\n\n", n, rerr)
+			return adopted + fmt.Sprintf("auto: accepted %d from the review queue, and could not log it: %v\n\n", n, rerr)
 		}
 	}
 	if err != nil {
-		return fmt.Sprintf("auto: the review switch %v\n\n", err)
+		return adopted + fmt.Sprintf("auto: the review switch %v\n\n", err)
 	}
-	return ""
+	return adopted
 }
 
 func later(a, b time.Time) time.Time {

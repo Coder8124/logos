@@ -24,8 +24,8 @@ func runAuto(args []string) error {
 	if len(args) > 0 {
 		verb = strings.ToLower(args[0])
 	}
-	// Bare is status, not on: somebody asking what auto is would otherwise turn
-	// on dream, which spends a local model's time and is off until asked for.
+	// Bare is status, not on or off: somebody asking what auto is would
+	// otherwise change what runs unattended by asking.
 	if verb == "" {
 		verb, args = "status", []string{"status"}
 	}
@@ -82,7 +82,7 @@ func printAutoSwitches(w io.Writer, vault string) error {
 	}
 	switch {
 	case c.Master == nil:
-		fmt.Fprintln(w, "auto: not set — Logos does what it did before the switch; `logos config auto on` or `off` decides")
+		fmt.Fprintln(w, "auto: not set — every switch is on until turned off; `logos config auto off` turns off all but redact")
 	case *c.Master:
 		fmt.Fprintln(w, "auto: on")
 	default:

@@ -17,6 +17,9 @@ func TestAProposalCitesTheTurnItWasMadeInOnlyWhenTheReviewSwitchIsOn(t *testing.
 	ts.Path = "/t/cursor-session.jsonl"
 	fakeTranscripts(t, ts)
 
+	if err := auto.Set(vault, string(auto.Review), false); err != nil {
+		t.Fatal(err)
+	}
 	if got := sess.citeTurn(); got != "" {
 		t.Errorf("switch off, and the proposal cited %q", got)
 	}

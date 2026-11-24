@@ -91,6 +91,7 @@ func main() {
 	}
 
 	noteRenamed(os.Stderr, cmd, args)
+	noteAutoDefaults(os.Stderr, cmd, args)
 
 	if err := runTyped(cmd, args, run); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

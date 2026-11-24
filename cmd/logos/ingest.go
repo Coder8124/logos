@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Coder8124/logos/internal/auto"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/session"
@@ -19,9 +20,10 @@ import (
 
 // runIngest is `logos ingest`: read other coding agents' transcripts on this
 // machine and turn each into a checkpoint *candidate* in the vault. It never
-// replays a transcript and never copies one in — only a distillate plus a
-// pointer back to the source — unless the user turned on keeping with
-// --keep-transcripts (see ingest.KeepsTranscripts). See internal/ingest.
+// replays a transcript. It writes a distillate plus a pointer back to the
+// source, and keeps a redacted copy of the transcript in the vault unless
+// keeping is turned off (--no-keep-transcripts, or `logos config auto config
+// archive off`; see ingest.KeepsTranscripts). See internal/ingest.
 func runIngest(args []string) error {
 	if len(args) >= 1 && args[0] == "review" {
 		return runIngestReview(args[1:])
@@ -74,7 +76,7 @@ func runIngest(args []string) error {
 		}
 		switch {
 		case changed && keepOn:
-			fmt.Println(ingest.KeepTranscriptsWarning)
+			fmt.Println(ingest.KeepTranscriptsWarning(v))
 		case changed:
 			fmt.Println("Harvests no longer keep a copy of the transcript; copies already in the vault stay where they are.")
 		}
@@ -91,6 +93,8 @@ func runIngest(args []string) error {
 	harvestOnly := 0
 	archived, unchanged := 0, 0
 	var archivedBytes int64
+	var maskedSecrets, keptPrivate, replacedRaw int
+	noticed := false
 	// Grouped by reason: a machine with two hundred Cursor chats would
 	// otherwise print the same sentence two hundred times, and a list nobody
 	// reads is as quiet as no list. Counted, so the total still adds up.
@@ -122,6 +126,12 @@ func runIngest(args []string) error {
 		var ar ingest.Archived
 		if keep {
 			ar = ingest.ArchiveTranscript(v, c)
+			if !noticed && ar.Err == nil {
+				noticed = true
+				if msg := ingest.ArchiveNotice(v); msg != "" {
+					fmt.Println(msg)
+				}
+			}
 		}
 		switch {
 		case !keep:
@@ -137,7 +147,17 @@ func runIngest(args []string) error {
 		default:
 			archived++
 			archivedBytes += ar.Bytes
-			fmt.Printf("  archived  %s  %s  (raw, %s)\n", orUnattributed(c.Project), ar.Path, ingest.Size(ar.Bytes))
+			maskedSecrets += ar.Secrets
+			keptPrivate += ar.Private
+			how := ingest.Size(ar.Bytes)
+			switch {
+			case ar.Raw:
+				how = "raw, " + how
+			case ar.Replaced:
+				how += ", replaced the earlier raw copy"
+				replacedRaw++
+			}
+			fmt.Printf("  archived  %s  %s  (%s)\n", orUnattributed(c.Project), ar.Path, how)
 		}
 		res, err := ingest.Put(v, c)
 		if err != nil {
@@ -191,8 +211,12 @@ func runIngest(args []string) error {
 			fmt.Printf("%d secret-shaped token(s) redacted before writing\n", redacted)
 		}
 		if n := archived + unchanged + countOf(notArchived); n > 0 {
-			fmt.Printf("%d raw transcript(s) archived into the vault (%s) · %d already archived, unchanged · %d not archived\n",
+			fmt.Printf("%d transcript(s) archived into the vault (%s) · %d already archived, unchanged · %d not archived\n",
 				archived, ingest.Size(archivedBytes), unchanged, countOf(notArchived))
+			if archived > 0 && maskedSecrets+keptPrivate > 0 || replacedRaw > 0 {
+				fmt.Printf("%d secret(s) and %d <private> span(s) masked in the copies · %d earlier raw copies replaced\n",
+					maskedSecrets, keptPrivate, replacedRaw)
+			}
 		}
 		if queued > 0 {
 			fmt.Println("review them:  logos review --candidates")
@@ -382,8 +406,10 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 	if !assumeYes {
 		fmt.Println("`logos import --from transcripts` reads other coding agents' session transcripts from disk")
 		fmt.Println("(Claude Code under ~/.claude/projects, Codex under ~/.codex/sessions, and")
-		fmt.Println("others via txcript). Only a checkpoint candidate is written to the vault —")
-		fmt.Println("never the transcript itself. This is asked once.")
+		fmt.Println("others via txcript). A checkpoint candidate is written to the vault, and a copy")
+		fmt.Println("of each transcript is kept beside it with secrets and <private> spans masked")
+		fmt.Println("(`logos config auto config archive off` stops the copy; `redact off` keeps it")
+		fmt.Println("raw). This is asked once.")
 		// Through the prompts' shared reader: reached from the import menu,
 		// a reader of its own would lose a y typed right after the Enter.
 		if !confirmNo("\nallow ingest to read transcripts on this machine?") {
@@ -399,6 +425,15 @@ func ensureIngestConsent(vaultDir string, assumeYes bool) error {
 		return fmt.Errorf("recording ingest consent: %w", err)
 	}
 	fmt.Println("consent recorded in .logos/ingest-consent.json")
+	// Granted by reading the wording that says transcripts are kept, so the
+	// one-time notice has nothing left to tell this user. --yes never showed
+	// the wording, so it still gets the notice on the first archive.
+	if assumeYes {
+		return nil
+	}
+	if err := auto.MarkSaid(vaultDir, ingest.ArchiveNoticeTopic); err != nil {
+		fmt.Fprintf(os.Stderr, "logos: could not record that keeping transcripts was said: %v\n", err)
+	}
 	return nil
 }
 

@@ -10,8 +10,14 @@
 // Three states per switch, as with the activity log, because there are three
 // different users. One who turned a switch off by hand meant it, and `logos
 // auto on` must not undo that. One who said `auto on` or `auto off` meant all
-// of it. One who never answered gets exactly what Logos did before the switch
-// existed, so upgrading changes nothing anybody relied on.
+// of it. One who never answered gets the default, and the default is on.
+//
+// On is the default for every switch because nobody ever turns one on: a
+// switch that shipped off was a feature that shipped dark, so Logos looked like
+// it did less than it does, and the dream, the index rebuild and the import
+// that would have helped never ran for the people they were written for. The
+// switches exist to turn things off. What is never automatic is not a switch
+// at all but Fixed, which no setting changes.
 package auto
 
 import (
@@ -43,35 +49,50 @@ const (
 	Index         Switch = "index"
 	Review        Switch = "review"
 	Import        Switch = "import"
+	// Archive keeps a copy of each transcript Logos reads, in the vault, so the
+	// conversation outlives the host's own pruning. Redact decides whether
+	// that copy has its secrets and <private> spans masked on the way in.
+	Archive Switch = "archive"
+	Redact  Switch = "redact"
 )
 
 type spec struct {
 	name Switch
 	what string
-	// today is what the behaviour did before it had a switch, which is what a
-	// vault nobody has asked still does.
-	today bool
+	// def is what a vault nobody has asked gets. It is on for every switch:
+	// see the package comment.
+	def bool
 }
 
 var specs = []spec{
 	{Checkpoint, "write a checkpoint for a session that ended without one", true},
 	{Distil, "offer an unclosed session's transcript to the next agent to read", true},
 	{RulingsAtEdit, "show the rulings on a file when an agent is about to edit it", true},
-	// Off until asked: a dream spends a local model's time, and nobody who
-	// installed Logos before this switch agreed to that.
-	{Dream, "run logos memory dream in the background once a day, at session start", false},
-	// Off until asked: before the switch a missing index was said, not
-	// rebuilt. A hook never rebuilds (LOGOS_HOOK), since a large vault can
-	// outlast its timeout, so `auto on` turning this on costs no hook its work.
-	{Index, "rebuild a missing index from the vault, text only, before the command that found it", false},
-	// Off until asked: it accepts memories nobody looked at. And rarely fires
-	// when on, by design: a contested proposal is never accepted for the user,
-	// and under the default an agent's proposal queues only when it is
-	// contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
-	// Off until asked: an import writes another tool's summaries into memory,
-	// and the first `logos import` asked before writing any.
-	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", false},
-	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", false},
+	// A dream spends a local model's time, and with no model configured it is
+	// a silent no-op, so on costs nobody who has no model anything.
+	{Dream, "run logos memory dream in the background once a day, at session start", true},
+	// On, though before this a missing index was said, not rebuilt: the
+	// rebuild is text only and cheap, and a deleted index answering "nothing
+	// matches" reads as a vault that lost everything. A hook never rebuilds
+	// (LOGOS_HOOK), since a large vault can outlast its timeout, so on costs no
+	// hook its work.
+	{Index, "rebuild a missing index from the vault, text only, before the command that found it", true},
+	// On, and rarely fires, by design: a contested proposal is never accepted
+	// for the user, and under the default an agent's proposal queues only when
+	// it is contested — so what it accepts comes from LOGOS_REVIEW_ALL queues.
+	// An import writes another tool's summaries into memory, and the first
+	// `logos import` asked before writing any; on only re-imports a store
+	// that was already imported by hand.
+	{Import, "re-import claude-mem's store at session start when it has changed, skipping what Logos has already seen", true},
+	{Review, "accept a queued memory that cites a live transcript turn, holds no redaction, contests nothing, and is a decision or a procedure with a trap (rarely fires: contested ones always wait for you)", true},
+	// Without a copy
+	// a host that prunes or rotates its sessions takes the only record of what
+	// they said, and nobody who never heard of this switch will ever turn it on.
+	{Archive, "keep a copy of each transcript Logos reads in the vault, so it outlives the host's own pruning", true},
+	// On for the same reason, and because the copy is the one place a pasted
+	// secret would otherwise land in a folder that is often under version
+	// control. Off keeps the copy raw, byte for byte.
+	{Redact, "mask secrets and <private> spans in the archived copy of a transcript", true},
 }
 
 // Switches lists every switch, in the order status prints them.
@@ -127,8 +148,12 @@ func fixedWhy(name string) (string, bool) {
 // `auto off`; Hand holds the switches set one at a time. Problems are lines the
 // file holds that mean nothing, each one said by status rather than dropped.
 type Config struct {
-	Master   *bool
-	Hand     map[Switch]bool
+	Master *bool
+	Hand   map[Switch]bool
+	// Said holds the notices already shown for this vault ("said: <topic>"
+	// lines). They live here and not in the index so that deleting the index
+	// cannot make Logos repeat a notice, or forget one it owes (invariant 1).
+	Said     map[string]bool
 	Problems []string
 }
 
@@ -137,11 +162,14 @@ func (c Config) On(s Switch) bool {
 	if v, ok := c.Hand[s]; ok {
 		return v
 	}
-	if c.Master != nil {
+	// Redact is not automatic behaviour but the condition the archive is kept
+	// on, so `auto off` does not reach it: with archive still on by hand, or
+	// by the old keep_transcripts opt-in, it would have kept raw secrets.
+	if c.Master != nil && s != Redact {
 		return *c.Master
 	}
 	sp, _ := known(s)
-	return sp.today
+	return sp.def
 }
 
 // Why says what decided a switch, for status.
@@ -149,6 +177,8 @@ func (c Config) Why(s Switch) string {
 	switch {
 	case hasKey(c.Hand, s):
 		return "set by hand"
+	case s == Redact:
+		return "default; only turned off by hand"
 	case c.Master != nil && *c.Master:
 		return "auto on"
 	case c.Master != nil:
@@ -161,6 +191,7 @@ func hasKey(m map[Switch]bool, s Switch) bool { _, ok := m[s]; return ok }
 
 var (
 	masterLine = regexp.MustCompile(`^auto:\s*(\S+)\s*$`)
+	saidLine   = regexp.MustCompile(`^said:\s*([A-Za-z][\w-]*)\b.*$`)
 	switchLine = regexp.MustCompile(`^[-*]\s*([A-Za-z][\w-]*)\s*:\s*(\S+)\s*$`)
 )
 
@@ -177,7 +208,7 @@ func parseValue(v string) (bool, bool) {
 // Load reads a vault's switches. A missing file is a vault nobody has asked,
 // not an error. An unreadable one is an error, which status reports.
 func Load(vault string) (Config, error) {
-	c := Config{Hand: map[Switch]bool{}}
+	c := Config{Hand: map[Switch]bool{}, Said: map[string]bool{}}
 	raw, err := os.ReadFile(Path(vault))
 	if errors.Is(err, os.ErrNotExist) {
 		return c, nil
@@ -194,6 +225,10 @@ func Load(vault string) (Config, error) {
 				continue
 			}
 			c.Master = &v
+			continue
+		}
+		if m := saidLine.FindStringSubmatch(line); m != nil {
+			c.Said[strings.ToLower(m[1])] = true
 			continue
 		}
 		m := switchLine.FindStringSubmatch(line)
@@ -243,10 +278,12 @@ func stripFrontmatter(s string) string {
 // read is somebody's answer that cannot be seen, so every switch reads as off
 // until it can: guessing the defaults is how a user who turned everything off
 // finds it running. Status reports the read failure.
+//
+// Redact is the exception and reads as on: off there is the unsafe answer.
 func On(vault string, s Switch) bool {
 	c, err := Load(vault)
 	if err != nil {
-		return false
+		return s == Redact
 	}
 	return c.On(s)
 }
@@ -257,6 +294,22 @@ func On(vault string, s Switch) bool {
 func SetMaster(vault string, on bool) error {
 	return edit(vault, func(c *Config) error {
 		c.Master = &on
+		return nil
+	})
+}
+
+// Said reports whether the notice named topic was already shown in this vault.
+func Said(vault, topic string) bool {
+	c, err := Load(vault)
+	return err == nil && c.Said[strings.ToLower(topic)]
+}
+
+// MarkSaid records that a notice was shown, as a line in auto.md. Written
+// after the notice is printed, so a crash between the two repeats a notice
+// rather than losing one.
+func MarkSaid(vault, topic string) error {
+	return edit(vault, func(c *Config) error {
+		c.Said[strings.ToLower(topic)] = true
 		return nil
 	})
 }
@@ -315,6 +368,7 @@ the ` + "`auto:`" + ` line; ` + "`logos config auto status`" + ` says what each 
 func render(raw string, c Config) string {
 	lines := strings.Split(raw, "\n")
 	seen := map[Switch]bool{}
+	saidSeen := map[string]bool{}
 	sawMaster := false
 	inFront := strings.HasPrefix(raw, "---\n")
 	for i, line := range lines {
@@ -325,6 +379,10 @@ func render(raw string, c Config) string {
 			continue
 		}
 		t := strings.TrimSpace(line)
+		if m := saidLine.FindStringSubmatch(t); m != nil {
+			saidSeen[strings.ToLower(m[1])] = true
+			continue
+		}
 		if masterLine.MatchString(t) && c.Master != nil {
 			lines[i] = "auto: " + onOff(*c.Master)
 			sawMaster = true
@@ -343,6 +401,16 @@ func render(raw string, c Config) string {
 	out := strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"
 	if c.Master != nil && !sawMaster {
 		out += "\nauto: " + onOff(*c.Master) + "\n"
+	}
+	var told []string
+	for topic := range c.Said {
+		if !saidSeen[topic] {
+			told = append(told, "said: "+topic)
+		}
+	}
+	sort.Strings(told)
+	if len(told) > 0 {
+		out += "\n" + strings.Join(told, "\n") + "\n"
 	}
 	var missing []string
 	for s, v := range c.Hand {

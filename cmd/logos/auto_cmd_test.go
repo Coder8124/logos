@@ -8,8 +8,8 @@ import (
 	"github.com/Coder8124/logos/internal/auto"
 )
 
-// Asking what auto is must not answer by turning on dream, which spends a
-// local model's time and is off until somebody says otherwise.
+// Asking what auto is must not answer by changing what runs unattended: every
+// switch is already on, and a bare command that wrote auto.md would pin it.
 func TestABareLogosAutoShowsTheSwitchesAndChangesNothing(t *testing.T) {
 	standIn(t, "shop")
 	out := captureStdout(t, func() {

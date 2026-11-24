@@ -7,12 +7,37 @@ import (
 	"testing"
 )
 
-func TestAVaultNobodyAskedDoesWhatLogosDidBeforeTheSwitches(t *testing.T) {
+func TestAVaultNobodyAskedHasEverySwitchOn(t *testing.T) {
 	vault := t.TempDir()
 	for _, sp := range specs {
-		if got := On(vault, sp.name); got != sp.today {
-			t.Errorf("%s is %v in a vault with no auto.md; before the switch it was %v", sp.name, got, sp.today)
+		if !On(vault, sp.name) {
+			t.Errorf("%s is off in a vault with no auto.md; nobody turns a switch on, so it ships on", sp.name)
 		}
+	}
+	for _, f := range Fixed {
+		if _, ok := known(Switch(f.Name)); ok {
+			t.Errorf("%s is never automatic yet it is a switch", f.Name)
+		}
+	}
+}
+
+func TestASwitchTurnedOffByHandStaysOffAfterTheUpgrade(t *testing.T) {
+	vault := t.TempDir()
+	// An auto.md written when dream and import were off by default and the
+	// user said so: the file is all the upgrade has to go on.
+	if err := os.WriteFile(Path(vault), []byte("- dream: off\n- import: off\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for sw, want := range map[Switch]bool{Dream: false, Import: false, Index: true, Review: true} {
+		if got := On(vault, sw); got != want {
+			t.Errorf("%s = %v after the upgrade, want %v", sw, got, want)
+		}
+	}
+	if err := SetMaster(vault, false); err != nil {
+		t.Fatal(err)
+	}
+	if On(vault, Index) || On(vault, Dream) {
+		t.Error("auto off did not turn everything off")
 	}
 }
 
@@ -41,7 +66,10 @@ func TestAutoOffTurnsOffEverySwitchNotSetByHand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range Switches() {
-		want := s == Distil
+		// Redact is what an archive is kept under, not something Logos does on
+		// its own: auto off turning it off kept raw secrets wherever archive
+		// was still on by hand.
+		want := s == Distil || s == Redact
 		if On(vault, s) != want {
 			t.Errorf("after auto off, %s is %v; want %v", s, On(vault, s), want)
 		}
@@ -138,6 +166,13 @@ func TestAnAutoFileThatCannotBeReadRunsNothing(t *testing.T) {
 		t.Skip("running as a user who can read a 0000 file")
 	}
 	for _, s := range Switches() {
+		if s == Redact {
+			// Off is the unsafe answer here: it is what keeps a copy raw.
+			if !On(vault, s) {
+				t.Error("an auto.md nobody could read turned redaction off")
+			}
+			continue
+		}
 		if On(vault, s) {
 			t.Errorf("%s ran under an auto.md nobody could read", s)
 		}
@@ -165,5 +200,26 @@ func TestASwitchWrittenTwiceByHandIsChangedEverywhere(t *testing.T) {
 	if c.On(Dream) || c.Master == nil || *c.Master {
 		raw, _ := os.ReadFile(Path(vault))
 		t.Errorf("auto config changed the first line and left the one that counts:\n%s", raw)
+	}
+}
+
+// A notice that said it was shown but forgot on the next write would repeat on
+// every command, which reads as a broken product.
+func TestASaidNoticeSurvivesSwitchesBeingChangedAfterIt(t *testing.T) {
+	v := t.TempDir()
+	if Said(v, "archive") {
+		t.Fatal("a vault nobody told anything counts as told")
+	}
+	if err := MarkSaid(v, "archive"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(v, string(Dream), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMaster(v, false); err != nil {
+		t.Fatal(err)
+	}
+	if !Said(v, "archive") {
+		t.Error("a switch change erased the record that the notice was shown")
 	}
 }
