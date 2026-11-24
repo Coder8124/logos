@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,9 +177,17 @@ func lockConvoFolders(vaultDir string) (*vault.Guard, error) {
 // name and recreating it after the move; auto-records keeps a grow or distil
 // of an auto record from having its folder moved mid-rewrite.
 func NameConvoFolders(vaultDir string) (named int, skipped []string, err error) {
+	named, skipped, errs := nameConvoFolders(vaultDir, false)
+	return named, skipped, errors.Join(errs...)
+}
+
+// nameConvoFolders is NameConvoFolders that keeps going after a folder that
+// will not rename, one error per folder, and that can count without renaming:
+// a dry run says "would name N" from the same decisions the real run makes.
+func nameConvoFolders(vaultDir string, dryRun bool) (named int, skipped []string, errs []error) {
 	scopes, err := Scopes(vaultDir)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, []error{err}
 	}
 	for _, scope := range scopes {
 		dir := filepath.Join(vaultDir, CheckpointDir, filepath.FromSlash(safeScope(scope)))
@@ -211,9 +220,10 @@ func NameConvoFolders(vaultDir string) (named int, skipped []string, err error) 
 			if id != name {
 				continue // already named
 			}
-			ok, why, e := nameOne(vaultDir, dir, name)
+			ok, why, e := nameOne(vaultDir, dir, name, dryRun)
 			if e != nil {
-				return named, skipped, fmt.Errorf("naming conversation folder %s after its intent: %w", shown, e)
+				errs = append(errs, fmt.Errorf("naming conversation folder %s after its intent: %w", shown, e))
+				continue
 			}
 			if why != "" {
 				skipped = append(skipped, shown+": "+why)
@@ -223,13 +233,16 @@ func NameConvoFolders(vaultDir string) (named int, skipped []string, err error) 
 			}
 		}
 	}
-	return named, skipped, nil
+	return named, skipped, errs
 }
 
 // nameOne renames one bare folder under the locks, re-reading everything the
 // unlocked scan in NameConvoFolders only guessed: a checkpoint filed in the
 // meantime may already have created a slugged sibling.
-func nameOne(vaultDir, scopeDir, name string) (renamed bool, why string, err error) {
+func nameOne(vaultDir, scopeDir, name string, dryRun bool) (renamed bool, why string, err error) {
+	if dryRun {
+		return nameOneLocked(scopeDir, name, true)
+	}
 	ar, err := lockAutoRecords(vaultDir)
 	if err != nil {
 		return false, "", err
@@ -240,6 +253,10 @@ func nameOne(vaultDir, scopeDir, name string) (renamed bool, why string, err err
 		return false, "", err
 	}
 	defer cf.Unlock()
+	return nameOneLocked(scopeDir, name, false)
+}
+
+func nameOneLocked(scopeDir, name string, dryRun bool) (renamed bool, why string, err error) {
 	if have := convoFoldersFor(scopeDir, name); len(have) != 1 || have[0] != name {
 		if len(have) > 1 {
 			return false, "another folder now stands for this conversation, left both", nil
@@ -256,6 +273,9 @@ func nameOne(vaultDir, scopeDir, name string) (renamed bool, why string, err err
 	}
 	if _, e := os.Lstat(filepath.Join(scopeDir, ConvosDir, target)); e == nil {
 		return false, target + " already exists, not renamed over it", nil
+	}
+	if dryRun {
+		return true, "", nil
 	}
 	if e := os.Rename(filepath.Join(scopeDir, ConvosDir, name), filepath.Join(scopeDir, ConvosDir, target)); e != nil {
 		return false, "", e

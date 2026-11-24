@@ -762,9 +762,18 @@ func Refile(vaultDir string) (refiled, rejoined int, err error) {
 			// Compared by the folder's id part, not its name: a folder
 			// called <slug>--<id> is the right home for id's checkpoints,
 			// and comparing names would "misfile" every one of them.
-			if parts := strings.Split(en.Rel, "/"); len(parts) == 3 && parts[0] == ConvosDir &&
-				convoFolderID(parts[1]) == convoFolder(c.HostSession) {
-				continue // already filed where its own frontmatter says it belongs
+			//
+			// A checkpoint with no host_session that `logos migrate sessions`
+			// gave a folder of its own sits in the folder keyed by its stem
+			// (filingHost, normalised as convoFolder does); pulling it back
+			// into _unattached would undo the migration on the next index.
+			if parts := strings.Split(en.Rel, "/"); len(parts) == 3 && parts[0] == ConvosDir {
+				id := convoFolderID(parts[1])
+				// Hostless: _unattached is where a new one goes, the stem's
+				// folder is where a migrated one sits; both are home.
+				if id == convoFolder(c.HostSession) || id == convoFolder(filingHost(c, strings.TrimSuffix(en.Name, ".md"))) {
+					continue // already filed where its own frontmatter says it belongs
+				}
 			}
 			wantRel := filepath.ToSlash(filepath.Join(ConvosDir, convoFolderFor(dir, c), en.Name))
 			newPath := filepath.Join(dir, filepath.FromSlash(wantRel))
@@ -854,12 +863,23 @@ func fullIDsByCut(cps []Checkpoint) map[string]string {
 	return out
 }
 
+// frontmatterEnd is the index of the newline before a note's closing "---".
+// Edits to a frontmatter key search s[:end+1] only: the body is someone's
+// text and may quote any line.
+func frontmatterEnd(s string) (int, bool) {
+	end := strings.Index(s, "\n---")
+	if !strings.HasPrefix(s, "---\n") || end < 0 {
+		return 0, false
+	}
+	return end, true
+}
+
 // replaceHostSession rewrites the host_session line inside the frontmatter
 // only, so a body that happens to quote the line is left alone.
 func replaceHostSession(raw []byte, from, to string) ([]byte, bool) {
 	s := string(raw)
-	end := strings.Index(s, "\n---")
-	if !strings.HasPrefix(s, "---\n") || end < 0 {
+	end, ok := frontmatterEnd(s)
+	if !ok {
 		return nil, false
 	}
 	line := "\nhost_session: " + yamlStr(from) + "\n"
