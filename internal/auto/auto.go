@@ -42,13 +42,14 @@ func Path(vault string) string { return filepath.Join(vault, File) }
 type Switch string
 
 const (
-	Checkpoint    Switch = "checkpoint"
-	Distil        Switch = "distil"
-	RulingsAtEdit Switch = "rulings-at-edit"
-	Dream         Switch = "dream"
-	Index         Switch = "index"
-	Review        Switch = "review"
-	Import        Switch = "import"
+	Checkpoint      Switch = "checkpoint"
+	Distil          Switch = "distil"
+	RulingsAtEdit   Switch = "rulings-at-edit"
+	RulingsAtPrompt Switch = "rulings-at-prompt"
+	Dream           Switch = "dream"
+	Index           Switch = "index"
+	Review          Switch = "review"
+	Import          Switch = "import"
 	// Archive keeps a copy of each transcript Logos reads, in the vault, so the
 	// conversation outlives the host's own pruning. Redact decides whether
 	// that copy has its secrets and <private> spans masked on the way in.
@@ -68,6 +69,7 @@ var specs = []spec{
 	{Checkpoint, "write a checkpoint for a session that ended without one", true},
 	{Distil, "offer an unclosed session's transcript to the next agent to read", true},
 	{RulingsAtEdit, "show the rulings on a file when an agent is about to edit it", true},
+	{RulingsAtPrompt, "show a ruling when a prompt restates an approach already ruled out in its project", true},
 	// A dream spends a local model's time, and with no model configured it is
 	// a silent no-op, so on costs nobody who has no model anything.
 	{Dream, "run logos memory dream in the background once a day, at session start", true},

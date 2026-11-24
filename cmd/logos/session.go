@@ -308,7 +308,7 @@ func runCheckpoint(args []string) error {
 		if c.HostSession == "" {
 			c.HostSession = activity.HostSessionFor(ix.Vault, c.Project, c.Agent)
 		}
-		turnsNote = ingest.StampTurns(c, c.Agent)
+		turnsNote = ingest.StampTurns(ix.Vault, c, c.Agent)
 	}
 	if err := session.Commit(ix.DB, ix.Vault, c); err != nil {
 		return err

@@ -118,7 +118,7 @@ func runUsage(args []string) error {
 	if project != "" {
 		who = project
 	}
-	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.Avoided == 0 && t.Procedures == 0 {
+	if t.Packs == 0 && t.DeadEndChecks == 0 && t.AtEdit == 0 && t.AtPrompt == 0 && t.Avoided == 0 && t.Procedures == 0 {
 		if week {
 			fmt.Printf("· nothing recorded for %s in the last 7 days — `logos stats --usage` without --week shows the whole ledger\n", who)
 			printUnreadable(bad, v)
@@ -152,6 +152,10 @@ func runUsage(args []string) error {
 	if t.AtEdit > 0 {
 		fmt.Printf("· %d ruling%s shown at edit time, to an agent opening a file the ruling names\n",
 			t.AtEdit, pluralS(t.AtEdit))
+	}
+	if t.AtPrompt > 0 {
+		fmt.Printf("· %d ruling%s shown at the prompt, beside a prompt that restated it\n",
+			t.AtPrompt, pluralS(t.AtPrompt))
 	}
 
 	if t.Avoided > 0 {

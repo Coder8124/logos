@@ -54,7 +54,7 @@ func avoidedReceipt(vault string, db *sql.DB, project, sessionID string, events 
 			for _, r := range e.Refs {
 				already[r] = true
 			}
-		case e.Kind == usagepkg.KindPack:
+		case e.Kind == usagepkg.KindPack, e.Kind == usagepkg.KindAtPrompt:
 			used[i] = true
 			for _, r := range e.Refs {
 				shown[r] = true

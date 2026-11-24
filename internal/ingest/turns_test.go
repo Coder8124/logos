@@ -157,7 +157,7 @@ func TestRecordedTurnsSurviveDeletingTheIndexAndReindexing(t *testing.T) {
 func TestACheckpointWhoseTranscriptCannotBeFoundRecordsNoTurnsNotAGuess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	c := &session.Checkpoint{Project: "kestrel", Agent: "claude-code", HostSession: turnsSession}
-	reason := ingest.StampTurns(c, "claude-code")
+	reason := ingest.StampTurns(t.TempDir(), c, "claude-code")
 	if c.Turns != 0 || reason == "" {
 		t.Fatalf("turns = %d, reason = %q; want zero turns and a reason", c.Turns, reason)
 	}

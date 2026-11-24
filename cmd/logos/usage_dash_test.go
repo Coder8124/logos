@@ -221,3 +221,13 @@ func TestARestoreWithNoTranscriptCountsAsNoBaselineAndSaysSo(t *testing.T) {
 		t.Errorf("the panel does not say a restore had no baseline:\n%s", out)
 	}
 }
+
+// The prompt hook's showings were counted as activity, so the panel stopped
+// saying "nothing recorded", and then printed no line for them.
+func TestTheSavedPanelSaysHowManyRulingsWereShownAtThePrompt(t *testing.T) {
+	d := sampleDash()
+	d.saved = usagepkg.Totals{AtPrompt: 2}
+	if out := strings.Join(d.savedPanel(80), "\n"); !strings.Contains(out, "2 rulings shown at the prompt") {
+		t.Errorf("the panel does not say what the prompt hook did:\n%s", out)
+	}
+}

@@ -531,7 +531,7 @@ func (s *Session) checkpoint(args map[string]any, handoffTo string) (string, err
 	// The host's transcript turn count, so each line below can be walked back
 	// to the turns it came from. The harness is the client that is checkpointing:
 	// its transcript is the one the host session id names.
-	turnsNote := ingest.StampTurns(c, s.clientAgent)
+	turnsNote := ingest.StampTurns(s.vault, c, s.clientAgent)
 	if err := session.Commit(s.DB, s.vault, c); err != nil {
 		return "", err
 	}

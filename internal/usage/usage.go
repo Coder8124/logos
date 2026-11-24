@@ -45,10 +45,11 @@ const Dir = "usage"
 
 // Event kinds.
 const (
-	KindPack    = "pack"     // a context pack was handed to an agent
-	KindDeadEnd = "dead-end" // a recorded dead end was handed back before a retry
-	KindAtEdit  = "at-edit"  // a ruling naming a file was shown as that file was edited
-	KindAvoided = "avoided"  // a session ended without touching what a ruling it was shown names
+	KindPack     = "pack"      // a context pack was handed to an agent
+	KindDeadEnd  = "dead-end"  // a recorded dead end was handed back before a retry
+	KindAtEdit   = "at-edit"   // a ruling naming a file was shown as that file was edited
+	KindAtPrompt = "at-prompt" // a ruling a prompt restated was shown beside the prompt
+	KindAvoided  = "avoided"   // a session ended without touching what a ruling it was shown names
 	// A procedure's evidence is earned here, not in its text: the text is
 	// what its uid is derived from, so rewriting "evidence: once" would make
 	// it a different memory, and the ledger is already the vault's record of
@@ -294,6 +295,9 @@ type Totals struct {
 	// AtEdit is how many rulings an edit hook put in front of an agent as it
 	// opened a file they name — kept apart from Rulings, which an agent asked for.
 	AtEdit int
+	// AtPrompt is how many rulings the prompt hook showed beside a prompt
+	// that restated them — like AtEdit, shown unasked.
+	AtPrompt int
 	// Restores is how many packs were a resume, and Handoffs how many of those
 	// handed over a checkpoint another agent wrote — see Handoff.
 	Restores int
@@ -340,6 +344,8 @@ func Sum(events []Event, project string) Totals {
 			t.Rulings += e.Rulings
 		case KindAtEdit:
 			t.AtEdit += e.Rulings
+		case KindAtPrompt:
+			t.AtPrompt += e.Rulings
 		case KindProcedure:
 			t.Procedures += len(e.Refs)
 		case KindProven:

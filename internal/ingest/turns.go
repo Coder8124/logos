@@ -59,7 +59,7 @@ func TranscriptRef(c session.Checkpoint) (harness, id string, ok bool) {
 // transcript, or an unknown harness, c.Turns is left zero and the reason is
 // returned for the caller to say; the checkpoint is still written, only not
 // walkable back. An empty reason means there was nothing to look for.
-func StampTurns(c *session.Checkpoint, harness string) (reason string) {
+func StampTurns(vault string, c *session.Checkpoint, harness string) (reason string) {
 	c.Turns, c.Harness = 0, ""
 	if c.HostSession == "" {
 		return ""
@@ -67,7 +67,7 @@ func StampTurns(c *session.Checkpoint, harness string) (reason string) {
 	if strings.TrimSpace(harness) == "" {
 		return "the host that wrote it is not named"
 	}
-	n, err := TranscriptTurns(harness, c.HostSession)
+	n, err := TranscriptTurns(vault, harness, c.HostSession)
 	if err != nil {
 		return err.Error()
 	}
@@ -156,7 +156,7 @@ func ReadSpan(vaultDir string, c session.Checkpoint, others []session.Checkpoint
 			shortErr = err
 		}
 	}
-	s, err := findTranscript(harness, id)
+	s, err := findTranscript(vaultDir, harness, id)
 	if err != nil {
 		why = append(why, err.Error())
 	} else if sp, err := read(s, "the host's live file"); err == nil {
