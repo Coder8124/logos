@@ -246,7 +246,7 @@ var toolDefs = []map[string]any{
 		"annotations": reads(),
 		"description": "List queued sessions, or fetch one session's commands, files and turns to distil." + relay,
 		"inputSchema": obj(map[string]any{
-			"session":   str("a session id prefix or auto record path; omit to list the queue"),
+			"session":   str("session id prefix or checkpoint path (an agent checkpoint serves its own turns); omit to list the queue"),
 			"max_turns": intSchema("default 120; elided turns cannot be cited"),
 		}),
 	},

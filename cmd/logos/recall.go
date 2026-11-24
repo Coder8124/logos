@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Coder8124/logos/internal/ingest"
 	"github.com/Coder8124/logos/internal/ops"
 	"github.com/Coder8124/logos/internal/provider"
 	"github.com/Coder8124/logos/internal/scope"
@@ -19,9 +20,29 @@ func recallCmd(args []string) error {
 	if err := checkCommandFlags("recall", args); err != nil {
 		return err
 	}
-	query := strings.TrimSpace(strings.Join(dropFlag(dropFlag(positionals(args, "--all-projects"), "--project"), "--limit"), " "))
+	query := strings.TrimSpace(strings.Join(dropFlag(dropFlag(positionals(args, "--all-projects", "--transcripts"), "--project"), "--limit"), " "))
 	if query == "" {
-		return fmt.Errorf("usage: logos memory recall <query> [--project <name>] [--all-projects] [--limit N] [--json]")
+		return fmt.Errorf("usage: logos memory recall <query> [--project <name>] [--all-projects] [--limit N] [--transcripts] [--json]")
+	}
+	if hasFlag(args, "--transcripts") {
+		// Explicit only: archived transcripts are never searched by a plain
+		// recall, a resume or a context.
+		proj := ""
+		if !hasFlag(args, "--all-projects") {
+			proj = scope.NormalizeArg(flagStr(args, "--project", ""))
+		}
+		hits, searched, skipped := ingest.SearchTranscripts(vaultPath(), proj, query, flagInt(args, "--limit", 5))
+		if asJSON {
+			if hits == nil {
+				hits = []ingest.TranscriptHit{}
+			}
+			if skipped == nil {
+				skipped = []string{}
+			}
+			return printJSON(map[string]any{"query": query, "searched": searched, "skipped": skipped, "hits": hits})
+		}
+		fmt.Print(ingest.RenderHits(query, hits, searched, skipped))
+		return nil
 	}
 	project := ""
 	if !hasFlag(args, "--all-projects") {

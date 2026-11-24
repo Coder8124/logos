@@ -157,7 +157,7 @@ BRINGING IT IN
                                       --path is a file, or for a txcript harness a session id
     logos import --from transcripts status | archive <dir>
                                       candidates by tier; copy the cited transcripts somewhere you keep
-    logos transcript <session-id>     print the copy of a transcript kept in the vault
+    logos transcript <id|slug>        print a kept transcript, or the turns a checkpoint came from
                                       (the exact host session id; the host's own file is never read)
     logos transcript redact           mask secrets in archived copies that were kept raw, and say how many
     logos import --from git [project] [--dir DIR] [--dry-run] [--months N]

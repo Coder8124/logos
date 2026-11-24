@@ -324,6 +324,17 @@ logos import --from transcripts --dry-run   # what is there, from Claude Code an
 logos import --from transcripts             # turn it into candidates you review before promoting
 ```
 
+Every checkpoint also records how many turns the host's transcript held when it
+was written, so each line in it can be walked back to the conversation it came
+from. `logos transcript <checkpoint-slug>` prints only the turns since the
+previous checkpoint of the same session, from the vault's archive first and the
+host's own file second, and says which it read. If both are gone it says "the
+transcript is gone" and exits non-zero. A resume or `before_you_try` that shows
+a ruled-out line adds `source: turns 41-63 of session abcdef12, logos transcript
+<slug>` when the turns are known. `logos recall --transcripts <query>` is a
+keyword search over archived transcripts; it runs only when asked and its
+results are quoted as untrusted data.
+
 Nothing is promoted without you: ingest fills a review queue, and the facts in it
 enter the vault only when you accept them. `logos setup` says how many sessions
 it found, on the machines that have any.
@@ -651,6 +662,8 @@ logos show [project] [--history|--plans|--graph|--projects|--continuity|--since-
                                                 one project on one screen, and its views
 logos stats [--usage|--memory]                  patterns, usage, what your memory leans on
 logos memory [add|correct|forget|log|recall|dream|loop|...]  persistent memory and its timeline
+logos transcript <checkpoint-slug>              the transcript turns a checkpoint came from
+logos recall --transcripts <query>              keyword search over archived transcripts
 logos review [--candidates|--connections]       accept or reject what waits for your yes
 logos import --from claude-mem|claude-md|cursor-rules|claude-auto-memory|transcripts|git
 logos watch [--log]                             follow what agents record as it happens

@@ -87,6 +87,11 @@ type Ruling struct {
 	// idea, or both. A match is a claim, and how it was made is part of how
 	// far to trust it.
 	Method string `json:"method,omitempty"`
+	// Transcript says which transcript turns the ruling came from, when its
+	// checkpoint recorded them. Rendered from frontmatter at read time and
+	// never stored in a note or body: Collect re-reads those, and a pointer
+	// written there would come back as a new ruling.
+	Transcript string `json:"transcript,omitempty"`
 }
 
 // The values of Ruling.Method.
@@ -185,6 +190,7 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 		// was confirmed at. An unreadable file leaves the rulings as recorded.
 		reviews, _ := session.Reviews(vaultDir, proj)
 		for _, c := range history {
+			pointer := session.SourcePointer(c, history)
 			for _, f := range c.Failed {
 				// Checkpoints written before checkpoint dropped placeholders
 				// still carry "none this session" on disk.
@@ -200,6 +206,7 @@ func Collect(vaultDir string, db *sql.DB, project string) ([]Ruling, error) {
 					Text: rec.Route, Project: proj, Agent: c.Agent,
 					When: c.TS, Slug: c.Slug, Source: FromCheckpoint, Commit: commit,
 					Record: rec, Stale: PossiblySuperseded(rec.Scope, c.TS, time.Now()),
+					Transcript: pointer,
 				})
 			}
 		}
