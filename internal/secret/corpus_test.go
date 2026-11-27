@@ -208,3 +208,49 @@ func TestOnlyTheFlyTokenPrefixesFlyUsesAreMasked(t *testing.T) {
 		}
 	}
 }
+
+// The keyword-context rules upstream (algolia, datadog, okta, cloudflare,
+// twitter) are left out of gitleaks.go on the claim that the entropy check
+// already owns them. This holds the claim to what is true: a mixed-alphabet
+// value beside a name with key, token or secret in it is masked by MaskAll.
+// A pure-hex value is not, on purpose (it is the shape of a git hash), and
+// Mask, which does no entropy check, masks neither.
+func TestKeywordContextProviderKeysAreMaskedByTheEntropyCheck(t *testing.T) {
+	v := "Zq8Xv3Lm0Rt7" + "Yp2Kd9Wn4Bc6Hs1Jf5Ga"
+	for _, name := range []string{"ALGOLIA_API_KEY", "DATADOG_API_KEY", "TWITTER_API_KEY", "TWITTER_BEARER_TOKEN", "OKTA_API_TOKEN", "CLOUDFLARE_API_TOKEN"} {
+		in := name + "=" + v
+		if out, _ := MaskAll("t", in); strings.Contains(out, v) {
+			t.Errorf("MaskAll left the value of %s: %q", name, out)
+		}
+	}
+}
+
+func TestAVaultTokenLongerThanTheOldBoundIsMaskedWhole(t *testing.T) {
+	body := strings.Repeat("Ab3dEf6hIj", 16)
+	for _, p := range []string{"hvs.", "hvb."} {
+		out, _ := Mask("t", "VAULT_TOKEN="+p+body+"_"+body[:10]+" ok")
+		if strings.Contains(out, "Ab3d") || !strings.HasSuffix(out, Marker+" ok") {
+			t.Errorf("%s token was not masked to its end: %q", p, out)
+		}
+	}
+}
+
+func TestBothHalvesOfASidekiqEnterpriseURLAreMasked(t *testing.T) {
+	in := "source \"https://" + "1a2b3c4d:5e6f7a8b@gems.contribsys.com/\""
+	for name, mask := range map[string]func(string, string) (string, []Redaction){"Mask": Mask, "MaskAll": MaskAll} {
+		out, _ := mask("t", in)
+		if strings.Contains(out, "1a2b3c4d") || strings.Contains(out, "5e6f7a8b") || !strings.Contains(out, "@gems.contribsys.com") {
+			t.Errorf("%s: want both halves masked and the host kept, got %q", name, out)
+		}
+	}
+}
+
+func TestAMapboxPublicTokenBesideItsNameIsMaskedAndAHexHashIsNot(t *testing.T) {
+	tok := "pk." + strings.Repeat("a1b2c3d4e5", 6) + "." + strings.Repeat("f6g7h8", 3) + "i9j0"
+	if out, _ := Mask("t", "MAPBOX_TOKEN="+tok); strings.Contains(out, "a1b2c3d4e5") {
+		t.Errorf("mapbox token survived: %q", out)
+	}
+	if out, _ := Mask("t", "commit "+strings.Repeat("a1b2c3d4e5", 4)); strings.Contains(out, Marker) {
+		t.Errorf("a 40-hex git hash was masked: %q", out)
+	}
+}

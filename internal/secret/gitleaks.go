@@ -7,18 +7,40 @@ package secret
 // rules/*.go), v8.x series, under its MIT licence; the notice is in NOTICE
 // beside this file and must travel with any copy of these patterns.
 //
-// They were written out from knowledge of that rule set, without network
-// access, so they are an adaptation and not a byte-for-byte copy: Go's regexp
-// is RE2, which has no lookaround, so a rule that leaned on one is rewritten
-// to need none, and a rule whose only anchor was a lookaround is left out.
-// Only rules with a distinctive prefix or a named-provider context are here.
-// Gitleaks' generic-api-key is not: that job is the entropy check in
-// secret.go, which runs on values beside `key`, `token`, `secret` and
-// `password` and is what catches a token with no known shape.
+// The rule set was diffed against upstream config/gitleaks.toml at commit
+// 5f6ec56 (2026-10-23). The patterns are an adaptation and not a byte-for-byte
+// copy: Go's regexp is RE2, which has no lookaround, so a rule that leaned on
+// one is rewritten to need none, and upstream's trailing
+// `(?:[\x60'"\s;]|\\[nr]|$)` terminator becomes \b or a capture group. A rule
+// whose only anchor was a lookaround is left out. Only rules with a
+// distinctive prefix or a named-provider context are here. Gitleaks'
+// generic-api-key is not: that job is the entropy check in secret.go, which
+// runs on values beside `key`, `token`, `secret` and `password` and is what
+// catches a token with no known shape.
 //
 // Nothing here reads a file or the network at runtime.
 //
-// Rules considered and left out, because they masked ordinary text in the
+// Intentionally not ported, and why:
+//   - the keyword-context rules for services with no token prefix (algolia,
+//     datadog, okta, cloudflare, twitter-api-key and the like): their value is
+//     a bare 32-40 character hex or alphanumeric string, the shape of a git
+//     hash without its keyword. The entropy check masks a mixed-alphabet value
+//     beside a key/token/secret name under MaskAll; a pure-hex value it
+//     deliberately does not (see corpus_test.go).
+//   - kubernetes-secret-yaml, curl-auth-header, curl-auth-user: they span
+//     lines, and masking works a line at a time. An Authorization header inside
+//     a curl command is already masked by secret.go; curl -u user:password is
+//     not.
+//   - hashicorp-tf-password, pkcs12-file: upstream gates them on a file path,
+//     which a transcript line does not have, and a bare "password" context
+//     would mask ordinary configuration prose.
+//   - jwt-base64 and sidekiq-secret: no distinctive prefix of their own.
+//   - sourcegraph-access-token's bare 40-hex alternative: a git hash.
+//   - private-key and slack-webhook-url live in secret.go (privateKeyBlock and
+//     lineShapes); so does the Sidekiq Enterprise URL, because it must run
+//     before the URL-password pass.
+//
+// Also considered and left out, because they masked ordinary text in the
 // corpus (testdata/ordinary.txt) or have no shape distinctive enough:
 //   - hashicorp-vault-legacy `s.` + 24 alphanumerics: matches any short
 //     dotted identifier ending in a 24-letter word.
@@ -70,6 +92,12 @@ var tokenRules = []tokenRule{
 	{"github-app-token", []string{"ghu_", "ghs_"}, `\b(?:ghu|ghs)_[0-9a-zA-Z]{36}\b`, 0},
 	{"github-refresh-token", []string{"ghr_"}, `\bghr_[0-9a-zA-Z]{36}\b`, 0},
 	// GitLab
+	// The routable forms carry a dotted routing suffix, so the fixed-length
+	// rules below stop short of it (their \b cannot follow a dot-less 20).
+	{"gitlab-pat-routable", []string{"glpat-"}, `\bglpat-[0-9a-zA-Z_-]{27,}\.[0-9a-z]{9}\b`, 0},
+	{"gitlab-runner-authentication-token-routable", []string{"glrt-"}, `\bglrt-t\d_[0-9a-zA-Z_-]{27,}\.[0-9a-z]{9}\b`, 0},
+	{"gitlab-feature-flag-client-token", []string{"glffct-"}, `\bglffct-[0-9a-zA-Z_-]{20}\b`, 0},
+	{"gitlab-session-cookie", []string{"_gitlab_session="}, `_gitlab_session=([0-9a-z]{32})\b`, 1},
 	{"gitlab-pat", []string{"glpat-"}, `\bglpat-[0-9a-zA-Z_-]{20}\b`, 0},
 	{"gitlab-pipeline-trigger-token", []string{"glptt-"}, `\bglptt-[0-9a-f]{40}\b`, 0},
 	{"gitlab-runner-registration-token", []string{"gr1348941"}, `\bGR1348941[0-9a-zA-Z_-]{20}\b`, 0},
@@ -83,10 +111,12 @@ var tokenRules = []tokenRule{
 	{"gitlab-agent-token", []string{"glagent-"}, `\bglagent-[0-9a-zA-Z_-]{50}\b`, 0},
 	// Slack (the webhook URL is a lineShape in secret.go)
 	{"slack-bot-token", []string{"xoxb-"}, `\bxoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*`, 0},
+	// The older, shorter bot token shape, still issued by legacy apps.
+	{"slack-legacy-bot-token", []string{"xoxb-"}, `\bxoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}`, 0},
 	{"slack-user-token", []string{"xoxp-", "xoxe-"}, `\bxox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}`, 0},
-	{"slack-app-token", []string{"xapp-"}, `\bxapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+`, 0},
-	{"slack-config-access-token", []string{"xoxe.xox"}, `\bxoxe\.xox[bp]-\d-[A-Z0-9]{163,166}`, 0},
-	{"slack-config-refresh-token", []string{"xoxe-"}, `\bxoxe-\d-[A-Z0-9]{146}`, 0},
+	{"slack-app-token", []string{"xapp-"}, `(?i)\bxapp-\d-[a-z0-9]+-\d+-[a-z0-9]+`, 0},
+	{"slack-config-access-token", []string{"xoxe.xox"}, `(?i)\bxoxe\.xox[bp]-\d-[a-z0-9]{163,166}`, 0},
+	{"slack-config-refresh-token", []string{"xoxe-"}, `(?i)\bxoxe-\d-[a-z0-9]{146}`, 0},
 	{"slack-legacy-token", []string{"xoxo-", "xoxs-"}, `\bxox[os]-\d+-\d+-\d+-[a-fA-F\d]+`, 0},
 	{"slack-legacy-workspace-token", []string{"xoxa-", "xoxr-"}, `\bxox[ar]-(?:\d-)?[0-9a-zA-Z]{8,48}`, 0},
 	// Stripe, Square, Twilio, SendGrid, Mailgun, Mailchimp, Braintree, PayPal-adjacent
@@ -130,7 +160,7 @@ var tokenRules = []tokenRule{
 	// Cloud and platform hosts
 	{"digitalocean-pat", []string{"dop_v1_"}, `\bdop_v1_[a-f0-9]{64}\b`, 0},
 	{"digitalocean-oauth-token", []string{"doo_v1_"}, `\bdoo_v1_[a-f0-9]{64}\b`, 0},
-	{"digitalocean-refresh-token", []string{"dor_v1_"}, `\bdor_v1_[a-f0-9]{64}\b`, 0},
+	{"digitalocean-refresh-token", []string{"dor_v1_"}, `(?i)\bdor_v1_[a-f0-9]{64}\b`, 0},
 	{"heroku-api-key-v2", []string{"hrku-"}, `\bHRKU-AA[0-9a-zA-Z_-]{58}\b`, 0},
 	{"heroku-api-key", []string{"heroku"}, ctx("heroku") + `([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})\b`, 1},
 	{"cloudflare-origin-ca-key", []string{"v1.0-"}, `\bv1\.0-[a-f0-9]{24}-[a-f0-9]{146}\b`, 0},
@@ -148,7 +178,10 @@ var tokenRules = []tokenRule{
 	// Secrets and infrastructure tooling
 	{"doppler-api-token", []string{"dp."}, `\bdp\.(?:pt|st|sa|ct|scim|audit)\.[a-zA-Z0-9]{40,44}\b`, 0},
 	{"hashicorp-tf-api-token", []string{".atlasv1."}, `\b[a-zA-Z0-9]{14}\.atlasv1\.[a-zA-Z0-9_=-]{60,70}`, 0},
-	{"vault-service-token", []string{"hvs.", "hvb.", "hvr."}, `\bhv[sbr]\.[\w-]{90,130}\b`, 0},
+	// No upper bound and no trailing \b: a bound that the token exceeds would
+	// make \b fail and the whole token go unmasked, not just its tail.
+	{"vault-batch-token", []string{"hvb."}, `\bhvb\.[\w-]{90,}`, 0},
+	{"vault-service-token", []string{"hvs.", "hvr."}, `\bhv[sr]\.[\w-]{90,}`, 0},
 	{"pulumi-api-token", []string{"pul-"}, `\bpul-[a-f0-9]{40}\b`, 0},
 	{"infracost-api-token", []string{"ico-"}, `\bico-[a-zA-Z0-9]{32}\b`, 0},
 	{"age-secret-key", []string{"age-secret-key-1"}, `\bAGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}`, 0},
@@ -158,7 +191,9 @@ var tokenRules = []tokenRule{
 	{"grafana-service-account-token", []string{"glsa_"}, `\bglsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}\b`, 0},
 	{"sentry-user-token", []string{"sntryu_"}, `\bsntryu_[a-f0-9]{64}\b`, 0},
 	{"sentry-org-token", []string{"sntrys_"}, `\bsntrys_eyJ[A-Za-z0-9+/=_-]{40,}`, 0},
-	{"newrelic-user-api-key", []string{"nrak-", "nrii-", "nrjs-"}, `\bNR(?:AK|II|JS)-[A-Za-z0-9]{27}\b`, 0},
+	{"newrelic-user-api-key", []string{"nrak-"}, `\bNRAK-[A-Za-z0-9]{27}\b`, 0},
+	{"newrelic-insert-key", []string{"nrii-"}, `(?i)\bNRII-[a-z0-9-]{32}`, 0},
+	{"newrelic-browser-api-token", []string{"nrjs-"}, `(?i)\bNRJS-[a-f0-9]{19}\b`, 0},
 	{"dynatrace-api-token", []string{"dt0c01."}, `\bdt0c01\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{64}\b`, 0},
 	{"sonar-api-token", []string{"sqp_", "squ_", "sqa_"}, `\bsq[pua]_[a-f0-9]{40}\b`, 0},
 	// Collaboration and productivity
@@ -186,6 +221,35 @@ var tokenRules = []tokenRule{
 	{"discord-webhook", []string{"discord"}, `https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d{17,20}/[A-Za-z0-9_-]{60,}`, 0},
 	// Bearer-shaped
 	{"jwt", []string{"eyj"}, `\beyJ[a-zA-Z0-9]{16,}\.eyJ[a-zA-Z0-9/\\_-]{16,}\.(?:[a-zA-Z0-9/\\_-]{10,}={0,2})?`, 0},
+	// Added after diffing against upstream (see the header): rules whose shape
+	// is distinctive on its own, or whose provider name is part of the match.
+	{"1password-secret-key", []string{"a3-"}, `\bA3-[A-Z0-9]{6}-(?:[A-Z0-9]{11}|[A-Z0-9]{6}-[A-Z0-9]{5})-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\b`, 0},
+	{"1password-service-account-token", []string{"ops_"}, `\bops_eyJ[a-zA-Z0-9+/]{250,}={0,3}`, 0},
+	{"artifactory-reference-token", []string{"cmvmd"}, `\bcmVmd[A-Za-z0-9]{59}\b`, 0},
+	{"aws-amazon-bedrock-api-key-long-lived", []string{"absk"}, `\bABSK[A-Za-z0-9+/]{109,}={0,2}`, 0},
+	// The short-lived key is a presigned request whose fixed first bytes
+	// spell "bedrock.amazonaws.com"; the rest of it is the credential.
+	{"aws-amazon-bedrock-api-key-short-lived", []string{"bedrock-api-key-"}, `bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t[A-Za-z0-9+/=%_-]*`, 0},
+	{"authress-service-client-access-key", []string{"sc_", "ext_", "scauth_", "authress_"}, `\b(?:sc|ext|scauth|authress)_(?i:[a-z0-9]{5,30}\.[a-z0-9]{4,6}\.)acc[_-](?i:[a-z0-9-]{10,32}\.[a-z0-9+/_=-]{30,120})`, 0},
+	{"clickhouse-cloud-api-secret-key", []string{"4b1d"}, `\b4b1d[A-Za-z0-9]{38}\b`, 0},
+	{"databricks-api-token", []string{"dapi"}, `\bdapi[a-f0-9]{32}(?:-\d)?\b`, 0},
+	{"facebook-page-access-token", []string{"eaam", "eaac"}, `\bEAA[MC][a-zA-Z0-9]{100,}`, 0},
+	{"flutterwave-encryption-key", []string{"flwseck_test"}, `\bFLWSECK_TEST-(?i:[a-h0-9]{12})\b`, 0},
+	{"flutterwave-public-key", []string{"flwpubk_test"}, `\bFLWPUBK_TEST-(?i:[a-h0-9]{32})-X\b`, 0},
+	{"grafana-api-key", []string{"eyjrijoi"}, `\beyJrIjoi[A-Za-z0-9]{70,}={0,3}`, 0},
+	{"harness-api-key", []string{"pat.", "sat."}, `\b(?:pat|sat)\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{20}\b`, 0},
+	{"intra42-client-secret", []string{"s-s4t2ud-", "s-s4t2af-"}, `\bs-s4t2(?:ud|af)-(?i:[a-f0-9]{64})\b`, 0},
+	{"maxmind-license-key", []string{"_mmk"}, `\b[A-Za-z0-9]{6}_[A-Za-z0-9]{29}_mmk\b`, 0},
+	{"microsoft-teams-webhook", []string{"webhook.office.com"}, `(?i)https://[a-z0-9]+\.webhook\.office\.com/webhookb2/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}/IncomingWebhook/[a-z0-9]{32}/[a-z0-9]{8}-(?:[a-z0-9]{4}-){3}[a-z0-9]{12}`, 0},
+	{"settlemint-application-access-token", []string{"sm_aat_"}, `\bsm_aat_[a-zA-Z0-9]{16}\b`, 0},
+	{"settlemint-personal-access-token", []string{"sm_pat_"}, `\bsm_pat_[a-zA-Z0-9]{16}\b`, 0},
+	{"settlemint-service-access-token", []string{"sm_sat_"}, `\bsm_sat_[a-zA-Z0-9]{16}\b`, 0},
+	// Only the sgp_ forms: upstream's bare 40-hex alternative is a git hash.
+	{"sourcegraph-access-token", []string{"sgp_"}, `\bsgp_(?:(?:[a-fA-F0-9]{16}|local)_)?[a-fA-F0-9]{40}\b`, 0},
+	{"mapbox-api-token", []string{"mapbox"}, ctx("mapbox[\\w-]*") + `(pk\.[a-z0-9]{60}\.[a-z0-9]{22})\b`, 1},
+	{"twitter-bearer-token", []string{"twitter"}, ctx("twitter[\\w-]*") + `(A{22}[a-z0-9%]{80,100})\b`, 1},
+	{"freemius-secret-key", []string{"secret_key"}, `(?i)["']secret_key["']\s*=>\s*["'](sk_[^\s"']{29})["']`, 1},
+	{"nuget-config-password", []string{"<add key="}, `(?i)<add key="(?:ClearText)?Password"\s*value="([^"]{8,})"\s*/>`, 1},
 	// Context-keyed hex tokens
 	{"twilio-account-sid", []string{"twilio"}, ctx("twilio[\\w-]*") + `(AC[0-9a-f]{32})\b`, 1},
 }

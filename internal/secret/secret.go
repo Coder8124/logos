@@ -133,6 +133,7 @@ var lineShapes = []struct {
 	repl   string
 }{
 	{"Slack webhook URL", "hooks.slack.com", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8,}/B[A-Za-z0-9_]{8,}/[A-Za-z0-9_]{20,}`), Marker},
+	{"Sidekiq Enterprise URL", "contribsys.com", regexp.MustCompile(`(?i)(\bhttps?://)[a-f0-9]{8}:[a-f0-9]{8}(@(?:gems|enterprise)\.contribsys\.com)`), "${1}" + Marker + "${2}"},
 	{"Telegram bot token", ":", regexp.MustCompile(`\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b`), Marker},
 	{"AWS secret access key", "secret", regexp.MustCompile(`(?i)(aws_?secret_?(?:access_?)?key["']?\s*[:=]\s*["']?)[A-Za-z0-9/+=]{40}`), "${1}" + Marker},
 }
@@ -204,17 +205,20 @@ func mask(field, s string, entropy bool) (string, []Redaction) {
 		} else {
 			line = replaceCounting(authHeaderInline, line, "Authorization: "+Marker, field, "Authorization header", &found, nil)
 		}
-		if strings.Contains(line, "://") {
-			line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found, nil)
-		}
-		if (strings.Contains(line, "mysql") || strings.Contains(line, "mariadb")) && mysqlCommand.MatchString(line) {
-			line = replaceCounting(mysqlPassword, line, "${1}-p"+Marker, field, "mysql -p password", &found, nil)
-		}
+		// Before the URL-password pass: a Sidekiq Enterprise URL carries its
+		// credential in both halves of user:password, and that pass would mask
+		// only the second and leave the first.
 		for _, ls := range lineShapes {
 			if !strings.Contains(lower, ls.needs) {
 				continue
 			}
 			line = replaceCounting(ls.re, line, ls.repl, field, ls.reason, &found, nil)
+		}
+		if strings.Contains(line, "://") {
+			line = replaceCounting(urlPassword, line, "${1}"+Marker+"@", field, "password in a URL", &found, nil)
+		}
+		if (strings.Contains(line, "mysql") || strings.Contains(line, "mariadb")) && mysqlCommand.MatchString(line) {
+			line = replaceCounting(mysqlPassword, line, "${1}-p"+Marker, field, "mysql -p password", &found, nil)
 		}
 		hits := scanner().scan(line)
 		line = maskTokenRules(line, &hits, field, &found)
