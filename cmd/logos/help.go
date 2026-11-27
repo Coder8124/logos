@@ -117,6 +117,12 @@ LOOKING
                                       the last 30 days, a row a day: checkpoints written, handoffs
                                       across agents and within one, and an estimated time saved
                                       (the size handed over, typed at --wpm words a minute, 40)
+    logos stats --usage [project] --sessions [--days N]
+                                      what a restore did, measured from your agents' transcripts:
+                                      what each sitting took to reach its first edit from a restore
+                                      and without one, how often you came back because the last
+                                      attempt had not worked, and corrections that repeat what
+                                      Logos already held (the last 30 days; --days N looks further)
     logos stats --usage off | on      stop or resume counting (LOGOS_USAGE=off for one process)
     logos stats --memory              composition, growth, and what your memory leans on
     logos watch                       captures, rulings handed back and memory changes as they happen

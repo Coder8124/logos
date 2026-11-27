@@ -218,7 +218,8 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 				cwdApplied = true
 			}
 		}
-		if ts := parseRFC3339(ln.Timestamp); ts > 0 {
+		ts := parseRFC3339(ln.Timestamp)
+		if ts > 0 {
 			if s.Started == 0 || ts < s.Started {
 				s.Started = ts
 			}
@@ -234,11 +235,10 @@ func (claudeCodeReader) read(path string) (*Session, error) {
 		}
 		turns, malformed := claudeTurns(ln.Type, msg, toolName, toolInput)
 		s.Skipped += malformed
-		if ln.IsMeta || ln.IsCompactSummary {
-			for i := range turns {
-				if turns[i].Role == "user" {
-					turns[i].Role = "host"
-				}
+		for i := range turns {
+			turns[i].TS = ts
+			if (ln.IsMeta || ln.IsCompactSummary) && turns[i].Role == "user" {
+				turns[i].Role = "host"
 			}
 		}
 		s.Turns = append(s.Turns, turns...)

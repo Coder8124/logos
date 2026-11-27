@@ -313,7 +313,7 @@ func (s *Session) resume(projectArg, agent string, budget int, since contextpack
 	if pack.Checkpoint == nil {
 		// Say so plainly. An agent that assumes there was a checkpoint and
 		// finds none will invent continuity that never existed.
-		out += "\n_No checkpoint has been written for this project yet — " +
+		out += "\n_" + session.NoCheckpointYet + " — " +
 			"this is context, not a handoff. Call checkpoint before you stop._\n"
 		// "Nothing recorded" is true of this name and false of the vault. An
 		// agent told only the first stops; one told what exists recovers in a

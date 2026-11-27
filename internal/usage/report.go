@@ -83,6 +83,31 @@ func SelfTest(e Event) bool {
 // doctorAgent is the name internal/health's probe signs its checkpoint with.
 const doctorAgent = "logos-doctor"
 
+// HandedOver is the host sessions a resume handed a checkpoint to, each with
+// every time it did, oldest first, keyed by the short id the ledger files a
+// session under. Every time, because a session left open is handed a
+// checkpoint again each time it is reopened, and which of its sittings began
+// from one is a question about when.
+//
+// It knows only the resumes a hook made, since a hook is told its host's
+// session and a server is not: a resume an agent called over MCP is in the
+// ledger with no session beside it, and is found in that session's transcript
+// instead. A pack names its writer only when it carried a checkpoint, so a
+// resume that found nothing to hand over is not here.
+func HandedOver(events []Event) map[string][]int64 {
+	out := map[string][]int64{}
+	for _, e := range events {
+		if !isResume(e) || e.Session == "" || e.From == "" || SelfTest(e) {
+			continue
+		}
+		out[e.Session] = append(out[e.Session], e.TS)
+	}
+	for _, at := range out {
+		sort.Slice(at, func(i, j int) bool { return at[i] < at[j] })
+	}
+	return out
+}
+
 // Day is one calendar day, in the reader's time zone.
 type Day struct {
 	Date string // 2006-01-02
