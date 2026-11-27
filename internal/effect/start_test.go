@@ -87,6 +87,22 @@ func TestASessionNobodyWroteInIsNotMeasured(t *testing.T) {
 	}
 }
 
+func TestAnEditBeforeThePersonFirstWroteDoesNotDropTheSitting(t *testing.T) {
+	s := sessionOf(
+		tool("Write", "scaffold.go", 990),
+		user("fix the cart", 1000),
+		tool("Read", "cart.go", 1010),
+		tool("Edit", "cart.go", 1060),
+	)
+	st, ok := whole(s)
+	if !ok || !st.Edited || st.EditAt != 1060 || st.Lookups != 1 {
+		t.Errorf("got ok %v, edited %v at %d after %d lookups; the edit before the person wrote is not theirs, so the first is at 1060 after 1", ok, st.Edited, st.EditAt, st.Lookups)
+	}
+	if got := Sittings(s, Break); len(got) != 1 {
+		t.Errorf("got %d sittings, want the one the person sat down to", len(got))
+	}
+}
+
 func TestAFailedEditIsNotTheFirstEdit(t *testing.T) {
 	failed := tool("Edit", "cart.go", 1010)
 	failed.Status = "error"

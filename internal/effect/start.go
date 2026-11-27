@@ -171,6 +171,13 @@ func measure(s *transcript.Session, from, to int) (Start, bool) {
 				continue
 			}
 			if isEdit(t) {
+				// An edit before the person's first turn is the host's or a
+				// hook's, not the work they asked for. Returning here dropped
+				// the whole stretch as one nobody wrote in, and with it the
+				// session's replies and corrections.
+				if !asked {
+					continue
+				}
 				st.Edited, st.EditAt = true, t.TS
 				return st, asked
 			}
