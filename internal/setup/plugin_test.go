@@ -165,3 +165,32 @@ func TestTheHostCLIDoesNotInheritAVaultOverrideFromTheShellSetupRanIn(t *testing
 		t.Errorf("claude was run with this shell's vault overrides:\n%s", calls)
 	}
 }
+
+// A child forked in the instant the group is signalled can join the group
+// after the signal was delivered and so survive a single kill. One attempt
+// loses that race only about half the time, so the step is timed out several
+// times: the test then fails on the old code almost always and, on the fixed
+// code, never.
+func TestATimedOutStepKillsAChildForkedAsTheKillLanded(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin")
+	marks := t.TempDir()
+	stub := "#!/bin/sh\nwhile :; do (sleep 0.4; : > " + marks + "/m.$$) & done\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := pluginStepTimeout
+	pluginStepTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { pluginStepTimeout = prev })
+
+	for attempt := 0; attempt < 6; attempt++ {
+		err := RunPluginSteps(UpdatePluginSteps())
+		if err == nil || !strings.Contains(err.Error(), "did not finish") {
+			t.Fatalf("RunPluginSteps = %v; want the timeout back", err)
+		}
+	}
+	time.Sleep(600 * time.Millisecond)
+	if m, _ := filepath.Glob(filepath.Join(marks, "m.*")); len(m) > 0 {
+		t.Errorf("%d children forked as the kill landed outlived the step", len(m))
+	}
+}
