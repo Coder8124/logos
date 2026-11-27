@@ -10,6 +10,7 @@ import (
 )
 
 const excludeUsage = `usage: logos exclude --project PATH        never read the sessions run in PATH (and below it)
+       logos exclude --project PATH --erase  also delete what is already kept of it
        logos exclude --session ID          never read that one chat
        logos exclude --session ID --erase  also delete what is already kept of it
        logos exclude --list                what is excluded, and any pause
@@ -40,18 +41,21 @@ func runExclude(args []string) error {
 		return nil
 	case project != "" && sess != "":
 		return errors.New("name a project or a session, not both\n" + excludeUsage)
-	case erase && sess == "":
-		return errors.New("--erase removes one chat's kept copies, so it needs --session ID\n" + excludeUsage)
+	case erase && sess == "" && project == "":
+		return errors.New("--erase removes kept copies, so it needs --session ID or --project PATH\n" + excludeUsage)
 	case project != "":
 		stored, err := exclude.AddProject(vault, project)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("excluded project %s — its sessions, and those in any folder under it, are not read; no activity rows or saved plans are written for them either\n", stored)
-		k, root := exclude.KeptForProject(vault, stored)
+		if erase {
+			return eraseProject(vault, stored)
+		}
+		k, _ := exclude.KeptForProject(vault, stored)
 		fmt.Printf("already kept: %d archived transcript(s), %d checkpoint(s)\n", k.Transcripts, k.Checkpoints)
 		if k.Transcripts+k.Checkpoints > 0 {
-			fmt.Printf("exclusion does not delete them; to remove them, delete %s and run `logos index`\n", root)
+			fmt.Printf("exclusion does not delete them; `logos exclude --project %s --erase` removes them\n", stored)
 		}
 		return nil
 	case sess != "":
@@ -90,12 +94,24 @@ func runExclude(args []string) error {
 	return errors.New(excludeUsage)
 }
 
-// eraseSession removes the vault files first and syncs the index second, so a
-// crash between the two leaves a stale cache the next index fixes. The sync
-// runs even when the removal failed part way, so the cache matches what is
-// left, and the failure is still returned.
+// eraseSession removes the vault files first and syncs the index second.
 func eraseSession(vault, id string) error {
 	k, eraseErr := exclude.Erase(vault, id)
+	return finishErase(k, eraseErr, "session "+id)
+}
+
+// eraseProject is eraseSession for every kept transcript and checkpoint of a
+// project, worktree scopes included.
+func eraseProject(vault, dir string) error {
+	k, _, eraseErr := exclude.EraseProject(vault, dir)
+	return finishErase(k, eraseErr, "project "+dir)
+}
+
+// finishErase syncs the index after a vault erase, so a crash between the two
+// leaves a stale cache the next index fixes. The sync runs even when the
+// removal failed part way, so the cache matches what is left, and the failure
+// is still returned.
+func finishErase(k exclude.Kept, eraseErr error, what string) error {
 	ix, err := openIndexQuiet()
 	if err != nil {
 		return errors.Join(eraseErr, fmt.Errorf("the vault is changed but the index could not be opened: %w (run `logos index`)", err))
@@ -108,7 +124,7 @@ func eraseSession(vault, id string) error {
 		fmt.Printf("erased before failing: %d archived transcript(s), %d checkpoint(s)\n", k.Transcripts, k.Checkpoints)
 		return eraseErr
 	}
-	fmt.Printf("erased %d archived transcript(s) and %d checkpoint(s) of session %s\n", k.Transcripts, k.Checkpoints, id)
+	fmt.Printf("erased %d archived transcript(s) and %d checkpoint(s) of %s\n", k.Transcripts, k.Checkpoints, what)
 	return nil
 }
 

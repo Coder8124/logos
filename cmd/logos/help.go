@@ -146,7 +146,8 @@ MEMORY
                                       the connections a dream proposed overnight
 
 KEEPING SESSIONS OUT
-    logos exclude --project PATH      never read the sessions run in PATH or below it
+    logos exclude --project PATH [--erase]
+                                      never read PATH or below it; --erase deletes its kept transcripts and checkpoints
     logos exclude --session ID [--erase]
                                       never read that chat; --erase deletes its kept transcript and checkpoints
     logos exclude --list              what is excluded, and any pause in force
