@@ -18,7 +18,6 @@
 package chaos
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -315,8 +314,8 @@ func TestFullDisk(t *testing.T) {
 	if err := os.MkdirAll(vault, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, vault, "memory", "add", "the first fact, written with room to spare"); err != nil {
-		t.Fatalf("seeding on a small disk: %v", err)
+	if out, err := run(t, vault, "memory", "add", "the first fact, written with room to spare"); err != nil {
+		t.Fatalf("seeding on a small disk: %v\n%s", err, out)
 	}
 
 	// Fill the remaining space. Block size matters: 1MB blocks stop with most of
@@ -402,27 +401,70 @@ func TestReadOnlyVault(t *testing.T) {
 	}
 }
 
-// smallDisk mounts a scratch disk image and returns its mount point.
+// A volume left mounted by an earlier run that was killed or timed out (its
+// deferred detach never ran) holds the name /Volumes/logoschaos. The full-disk
+// tests used to assume that name, so they seeded into the old, already-full
+// volume and failed with "seeding on a small disk: exit status 1" — about one
+// full tier in five, never alone, because only a long run gets killed.
+func TestASmallDiskIsTheOneJustMadeEvenWhenAnOldOneHasItsName(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses hdiutil; macOS only")
+	}
+	img := filepath.Join(t.TempDir(), "squatter.dmg")
+	if out, err := exec.Command("hdiutil", "create", "-size", "8m", "-fs", "HFS+",
+		"-volname", "logoschaos", "-quiet", img).CombinedOutput(); err != nil {
+		t.Skipf("cannot create a disk image here: %v\n%s", err, out)
+	}
+	attach, err := exec.Command("hdiutil", "attach", img, "-nobrowse").CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot attach the disk image: %v\n%s", err, attach)
+	}
+	squatter := ""
+	for _, line := range strings.Split(string(attach), "\n") {
+		if i := strings.Index(line, "/Volumes/"); i >= 0 {
+			squatter = strings.TrimSpace(line[i:])
+		}
+	}
+	if squatter == "" {
+		t.Fatalf("no mount point in hdiutil's output:\n%s", attach)
+	}
+	defer exec.Command("hdiutil", "detach", squatter, "-force", "-quiet").Run()
+	if err := os.WriteFile(filepath.Join(squatter, "left-by-an-old-run"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mount, cleanup := smallDisk(t, 8)
+	defer cleanup()
+	if _, err := os.Stat(filepath.Join(mount, "left-by-an-old-run")); err == nil {
+		t.Errorf("smallDisk returned %s, the old run's volume, not the disk it made", mount)
+	}
+}
+
+// smallDisk mounts a scratch disk image and returns its mount point. It mounts
+// at a directory of its own rather than under /Volumes, where a volume an
+// earlier run left behind can hold the name (see the test above).
 func smallDisk(t *testing.T, megabytes int) (string, func()) {
 	t.Helper()
-	img := filepath.Join(t.TempDir(), "scratch.dmg")
+	dir := t.TempDir()
+	img := filepath.Join(dir, "scratch.dmg")
 	out, err := exec.Command("hdiutil", "create", "-size", fmt.Sprintf("%dm", megabytes),
 		"-fs", "HFS+", "-volname", "logoschaos", "-quiet", img).CombinedOutput()
 	if err != nil {
 		t.Skipf("cannot create a disk image here: %v\n%s", err, out)
 	}
-	attach, err := exec.Command("hdiutil", "attach", img, "-nobrowse", "-quiet").CombinedOutput()
+	mount := filepath.Join(dir, "mnt")
+	if err := os.Mkdir(mount, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	attach, err := exec.Command("hdiutil", "attach", img, "-nobrowse", "-quiet", "-mountpoint", mount).CombinedOutput()
 	if err != nil {
 		t.Skipf("cannot attach the disk image: %v\n%s", err, attach)
 	}
-	mount := "/Volumes/logoschaos"
-	sc := bufio.NewScanner(bytes.NewReader(attach))
-	for sc.Scan() {
-		if i := strings.Index(sc.Text(), "/Volumes/"); i >= 0 {
-			mount = strings.TrimSpace(sc.Text()[i:])
-		}
-	}
 	return mount, func() {
-		exec.Command("hdiutil", "detach", mount, "-force", "-quiet").Run()
+		// A detach that fails leaves a mount behind every run; say so rather
+		// than let them pile up unseen, as seven once did.
+		if out, err := exec.Command("hdiutil", "detach", mount, "-force", "-quiet").CombinedOutput(); err != nil {
+			t.Errorf("could not detach the scratch disk at %s: %v\n%s", mount, err, out)
+		}
 	}
 }
