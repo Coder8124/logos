@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/Coder8124/logos/internal/gitstate"
+	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
 	"github.com/Coder8124/logos/internal/session"
 )
@@ -69,5 +71,52 @@ func TestReviewStaleOffersWhatDriftedAndItsAnswersStick(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("answered items were offered again: %+v", again)
+	}
+}
+
+// The review menu reads the shared keyboard, so an answer typed right after
+// the menu choice is already in its buffer; a stale prompt reading os.Stdin
+// directly never saw it and the answer was lost.
+func TestAnswerTypedAheadThroughTheReviewMenuReachesTheStalePrompt(t *testing.T) {
+	repo, vault, db := editRepo(t)
+	if err := memory.Init(db); err != nil {
+		t.Fatal(err)
+	}
+	memory.SetVault(db, vault)
+	t.Cleanup(func() { memory.SetVault(db, "") })
+	_, anchor := gitstate.Head(repo)
+
+	project := projectFor(repo)
+	ruling := "streaming the export — internal/parse/reader.go loads the whole file. " + strings.Repeat("measured at 2GB and 4GB. ", 60)
+	if err := session.Commit(db, vault, &session.Checkpoint{
+		Project: project, Agent: "claude", Task: "import", Next: "split it",
+		Git: gitstate.State{Commit: anchor}, Failed: []string{ruling},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commitTo(t, repo, "internal/parse/reader.go", "read in chunks\n")
+
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(prev) })
+	wasKb := keyboard
+	t.Cleanup(func() { keyboard = wasKb })
+	// "r" is the answer the menu's read already took off the terminal.
+	keyboard = keysOf("r\n")
+
+	if err := runReviewStale(&index.Index{Vault: vault, DB: db}); err != nil {
+		t.Fatal(err)
+	}
+	left, err := gatherStale(vault, db, project, project, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("the typed-ahead answer never reached the stale prompt: %d still offered", len(left))
 	}
 }
