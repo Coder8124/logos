@@ -248,6 +248,9 @@ func recordActivity(args []string) error {
 	if err := activity.Append(vault, e); err != nil {
 		return err
 	}
+	if event == "UserPromptSubmit" {
+		archiveAtPrompt(vault, e, raw)
+	}
 	if event == "Stop" && hasFlag(args, "--ask-checkpoint") {
 		askForCheckpoint(vault, e, raw)
 	}
@@ -595,4 +598,47 @@ func autoCheckpoint(vault, project string, raw []byte) (*session.Checkpoint, err
 		fmt.Fprintf(os.Stderr, "logos: auto checkpoint written but not marked in the activity log: %v\n", err)
 	}
 	return &written, nil
+}
+
+// archiveAtPrompt keeps the session's transcript as of this prompt, so a host
+// killed before SessionEnd still leaves the vault's copy current to its last
+// prompt. Once per prompt, not per tool call, to bound the cost.
+//
+// A hook must stay silent and never fail, and stderr is discarded by
+// plugin/hooks/record.sh, so a refusal (an unredactable transcript, a vault
+// that cannot be written) is a warning row in the activity log: the one place
+// that survives the redirect, as with the plan-save failure above. Success
+// says nothing; the next session-end or resume receipt reports the archive.
+func archiveAtPrompt(vault string, e activity.Event, raw []byte) {
+	var p struct {
+		Path string `json:"transcript_path"`
+	}
+	if json.Unmarshal(raw, &p) != nil || p.Path == "" || hookSessionID(raw) == "" {
+		return
+	}
+	a, attempted := ingest.ArchiveAtPrompt(vault, p.Path)
+	if !attempted || a.Err == nil {
+		return
+	}
+	summary := "transcript not archived at this prompt: " + a.Why
+	// The too-big refusal repeats on every prompt until the session ends; one
+	// row per session says it, fifty rows bury the log.
+	if a.Why == ingest.WhyTooBigForAHook {
+		if prior, err := sessionEvents(vault, e.Project, e.Session); err == nil {
+			for _, x := range prior {
+				if x.Kind == activity.KindWarn && x.Summary == summary {
+					return
+				}
+			}
+		}
+	}
+	_ = activity.Append(vault, activity.Event{
+		TS:      e.TS,
+		Kind:    activity.KindWarn,
+		Project: e.Project,
+		Session: e.Session,
+		Agent:   e.Agent,
+		Summary: summary,
+		Extra:   fullSessionID(e),
+	})
 }

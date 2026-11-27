@@ -479,3 +479,61 @@ func Size(n int64) string {
 func sameFile(a, b os.FileInfo) bool {
 	return a != nil && b != nil && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
+
+// ArchiveAtPrompt keeps the transcript of a Claude Code session as of the
+// prompt that was just submitted. Archiving only at session end and in the
+// resume sweep left a host that was killed — a closed terminal, a crash, a
+// laptop lid — with a vault copy as old as the last resume, and the
+// conversation a user most wants back is that one.
+//
+// attempted is false when keeping is off or the path is not a transcript this
+// can read, so the caller knows whether a refusal is worth a warning. The copy
+// is the quick path (the copy itself is the cursor, only the tail is
+// redacted), so a prompt costs the new bytes, not the transcript. It is filed
+// under the project and id the full reader derives (transcript.ClaudeHead),
+// never the hook's --project: that one names the directory the hook ran in,
+// which a worktree or a cd makes a different folder from the one the
+// session-end copy uses.
+func ArchiveAtPrompt(vaultDir, path string) (a Archived, attempted bool) {
+	if path == "" || !filepath.IsAbs(path) || !strings.EqualFold(filepath.Ext(path), ".jsonl") || !KeepsTranscripts(vaultDir) {
+		return Archived{}, false
+	}
+	id, cwd, project, ok := transcript.ClaudeHead(path)
+	if !ok {
+		return refused("no working directory in the transcript's first lines", errors.New("the transcript names no working directory near its start, so there is no project to file the copy under")), true
+	}
+	// The hook already gated on the payload's cwd; this is the transcript's
+	// own, which is what the sweep gates on.
+	if why := exclude.Check(vaultDir, exclude.Subject{Cwd: cwd, ID: id, Start: time.Now(), End: time.Now()}); why != "" {
+		return refused(why, errors.New(why)), true
+	}
+	// Redacting runs at roughly 3 MB/s, and the hook is killed at 5 s. A
+	// session whose first copy is 90 MB (the plugin was installed mid-session,
+	// or keeping was just turned on) would be started and killed on every
+	// prompt, never landing a copy and burning the hook each time. What is not
+	// yet in the vault is bounded instead; the session-end copy and the resume
+	// sweep, which have no such clock, take the rest.
+	if fi, err := os.Stat(path); err == nil {
+		var held int64
+		if p := session.FindTranscript(vaultDir, id); p != "" {
+			if ci, err := os.Stat(p); err == nil {
+				held = ci.Size()
+			}
+		}
+		if fi.Size()-held > PromptArchiveBudget {
+			return refused(WhyTooBigForAHook, errors.New(WhyTooBigForAHook)), true
+		}
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	return archiveTranscript(vaultDir, Candidate{Harness: "claude-code", SessionID: id, Source: abs, Project: project}, true), true
+}
+
+// PromptArchiveBudget is how many not-yet-archived bytes a prompt will take on.
+const PromptArchiveBudget = 8 << 20
+
+// WhyTooBigForAHook is the refusal for a transcript with more than
+// PromptArchiveBudget bytes still to copy.
+const WhyTooBigForAHook = "more than 8 MB of it is not archived yet, too much for a prompt hook's few seconds; session end or the next resume copies it"

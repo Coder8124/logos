@@ -481,3 +481,55 @@ func FirstCwd(path string) string {
 	}
 	return ""
 }
+
+// ClaudeHead is the session id, working directory and project the full reader
+// would give a Claude Code transcript, found from its first lines alone.
+//
+// The prompt-time archive runs inside a hook with a few seconds to live, on a
+// file that can be tens of megabytes, and all it needs from the transcript is
+// which conversation folder to file the copy under. Parsing every turn for
+// that would spend the hook's budget on a question the first lines answer.
+// The rules are the reader's own, line for line: the first user or assistant
+// line's sessionId, the first such line that carries a cwd, the slug as the
+// project fallback, the file stem as the id fallback. If they ever drifted the
+// prompt copy and the session-end copy would be two folders for one
+// conversation, so TestThePromptCopyAndTheSessionEndCopyAreOneFile compares
+// them against the real reader.
+//
+// ok is false when the head names no cwd within headLines lines: the reader
+// would keep looking further down, and guessing the project from the slug
+// instead could file the copy somewhere the session-end copy never goes.
+func ClaudeHead(path string) (id, cwd, project string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", "", false
+	}
+	defer f.Close()
+	id = strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	idSeen := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1024*1024), 16*1024*1024)
+	for n := 0; n < headLines && sc.Scan(); n++ {
+		raw := strings.TrimSpace(sc.Text())
+		if raw == "" {
+			continue
+		}
+		var ln claudeLine
+		if json.Unmarshal([]byte(raw), &ln) != nil || (ln.Type != "user" && ln.Type != "assistant") {
+			continue
+		}
+		if !idSeen && ln.SessionID != "" {
+			id, idSeen = ln.SessionID, true
+		}
+		if ln.Cwd != "" {
+			if p := projectFromDir(ln.Cwd); p != "" {
+				return id, ln.Cwd, p, true
+			}
+		}
+	}
+	return id, "", "", false
+}
+
+// headLines bounds ClaudeHead. A real transcript carries a cwd on its first
+// content line; a file without one in this many is not one to guess about.
+const headLines = 200
