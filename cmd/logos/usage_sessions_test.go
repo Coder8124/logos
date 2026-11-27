@@ -474,3 +474,49 @@ func TestADifferenceIsWordedAsFewerOrMore(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageSessionsCountsARepeatOfAMemoryThatACorrectionHasSinceReplaced(t *testing.T) {
+	vault := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vault)
+	t.Setenv("LOGOS_EMBED", "off")
+	day := time.Now().Add(-3 * 24 * time.Hour).Unix()
+
+	ix, err := index.Open(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	old := memory.Memory{
+		Text: "Logos is installed through Homebrew, never built from source", Kind: memory.Preference, Created: day - 86400,
+	}
+	if _, err := memory.Store(ix.DB, nil, "", &old); err != nil {
+		t.Fatal(err)
+	}
+	// Today's correction replaces the memory the session below was handed.
+	if _, err := memory.Correct(ix.DB, nil, "", old.ID, &memory.Memory{
+		Text: "Logos is installed through Homebrew or npm, never built from source",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	s := began("aaaa0000-1111-2222", day, 6, 2, 3)
+	s.Turns = append(s.Turns,
+		transcript.Turn{Role: "user", Text: "no, use homebrew, not a source build", TS: day + 400},
+	)
+	transcriptsAre(t, s)
+
+	out := captureStdout(t, func() {
+		if err := runUsage([]string{"--sessions"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "1 of 1 restate something Logos already held when the session began") {
+		t.Errorf("a repeat of a memory since replaced was not counted as held:\n%s", out)
+	}
+}

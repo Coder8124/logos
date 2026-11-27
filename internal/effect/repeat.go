@@ -29,6 +29,10 @@ type Known struct {
 	Text    string
 	Project string // "" for one that applies to every project
 	Since   int64  // when Logos first held it
+	// Until is when it stopped being held — replaced by a correction, usually
+	// — and 0 for one still held, or one superseded at a time nobody recorded,
+	// which is taken as held from Since on.
+	Until int64
 }
 
 // Held is what Logos knew, ready to be asked about.
@@ -73,6 +77,12 @@ func (h Held) restated(text, project string, before int64) *Known {
 	best, bestScore, bestFit := -1, 0.0, 0.0
 	for i, k := range h.items {
 		if k.Since <= 0 || k.Since >= before {
+			continue
+		}
+		// Replaced before the sitting began, it was no longer anything the
+		// agent was handed. Replaced during or after — often by this very
+		// correction — it was held, and is the thing being repeated.
+		if k.Until > 0 && k.Until <= before {
 			continue
 		}
 		if k.Project != "" && (project == "" || !h.same(k.Project, project)) {

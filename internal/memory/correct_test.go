@@ -297,3 +297,39 @@ func TestACorrectionThatLosesTheRaceForItsTextLeavesNoTrace(t *testing.T) {
 		}
 	}
 }
+
+// A reader asking what was held on some past day needs the memory a correction
+// has since replaced: it was the vault's belief until then. All hides it on
+// purpose, so the past-looking reader gets its own call, with the moment the
+// memory was let go.
+func TestAMemoryReplacedByACorrectionIsStillListedWithWhenItWasReplaced(t *testing.T) {
+	db, _ := vaultDB(t)
+	old := Memory{Text: "Staging runs on port 8080", Kind: Fact, Source: "manual", Created: 1000}
+	if _, err := Store(db, nil, "", &old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Correct(db, nil, "", old.ID, &Memory{Text: "Staging runs on port 9090 since the proxy moved", Source: "manual"}); err != nil {
+		t.Fatal(err)
+	}
+
+	live, _ := All(db)
+	for _, m := range live {
+		if m.ID == old.ID {
+			t.Fatalf("All returned the replaced memory; the fixture no longer shows what AllEver is for")
+		}
+	}
+	ever, gone, err := AllEver(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ever) != 2 {
+		t.Fatalf("AllEver returned %d memories, want the replaced one and its replacement", len(ever))
+	}
+	at, ok := gone[old.ID]
+	if !ok || at <= 1000 {
+		t.Errorf("replaced memory #%d has supersession time %d (present %v), want the time of the correction", old.ID, at, ok)
+	}
+	if len(gone) != 1 {
+		t.Errorf("gone lists %d memories, want only the replaced one: %v", len(gone), gone)
+	}
+}

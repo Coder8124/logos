@@ -1258,6 +1258,58 @@ func All(db *sql.DB) ([]Memory, error) {
 	return out, rows.Err()
 }
 
+// AllEver is All with the superseded memories kept in, for a reader asking what
+// was held at some past moment rather than what is held now: a memory a
+// correction has since replaced was still the vault's belief the day before.
+// Quarantined ones stay out — nothing was relying on them. The map holds one
+// entry for each superseded memory, valued with when the log says it was
+// superseded, or 0 where the log has no such line.
+func AllEver(db *sql.DB) ([]Memory, map[int64]int64, error) {
+	rows, err := db.Query(
+		`SELECT id, text, kind, salience, confidence, project, source, agent, created, last_used, uses, superseded_by, superseded, pin, commit_sha, uid FROM memories WHERE quarantined = 0 ORDER BY created ASC, id ASC`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var out []Memory
+	gone := map[int64]int64{}
+	for rows.Next() {
+		var m Memory
+		var kind string
+		var superseded int64
+		if err := rows.Scan(&m.ID, &m.Text, &kind, &m.Salience, &m.Confidence, &m.Project, &m.Source, &m.Agent, &m.Created, &m.LastUsed, &m.Uses, &m.SupersededBy, &superseded, &m.Pin, &m.Commit, &m.Uid); err != nil {
+			return nil, nil, err
+		}
+		m.Kind = Kind(kind)
+		if superseded != 0 {
+			gone[m.ID] = 0
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	rows.Close()
+	if len(gone) == 0 {
+		return out, gone, nil
+	}
+	logged, err := db.Query(`SELECT mem_id, MIN(ts) FROM memory_log WHERE event = ? GROUP BY mem_id`, EvSuperseded)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer logged.Close()
+	for logged.Next() {
+		var id, ts int64
+		if err := logged.Scan(&id, &ts); err != nil {
+			return nil, nil, err
+		}
+		if _, ok := gone[id]; ok {
+			gone[id] = ts
+		}
+	}
+	return out, gone, logged.Err()
+}
+
 // HasProject reports whether any memory — including a superseded or
 // quarantined one — is filed under this exact project name. It is how a caller
 // tells "this project has recorded nothing about that" apart from "there is no

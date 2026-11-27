@@ -211,3 +211,19 @@ func TestAPasteWithNoWordsBesideItIsTheSameTurnForSittingsAndReplies(t *testing.
 		t.Errorf("got %d sittings; the person came back after a break with a paste, and Replies counted that turn as theirs", n)
 	}
 }
+
+func TestAMemoryReplacedAfterTheSittingBeganWasStillHeldByIt(t *testing.T) {
+	replaced := brew
+	replaced.Until = 1030 // a correction, made after the person's turn, replaced it
+	cs := corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{replaced}, nil))
+	if len(cs) != 1 || cs[0].Known == nil {
+		t.Errorf("a memory replaced only after the sitting began was not counted as held: %+v", cs)
+	}
+
+	before := brew
+	before.Until = 800 // replaced before the session began: not something it was handed
+	cs = corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{before}, nil))
+	if len(cs) != 1 || cs[0].Known != nil {
+		t.Errorf("a memory replaced before the sitting began was counted as held: %+v", cs)
+	}
+}

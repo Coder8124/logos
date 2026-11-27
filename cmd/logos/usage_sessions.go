@@ -437,8 +437,8 @@ func printTranscriptProblems(problems []string) {
 // it is about, and "turn" is long enough to count as a shared word.
 var turnCitation = regexp.MustCompile(`\s*[\[(]?\bturns? \d+(?:(?:,| and|,? &) ?\d+)*[\])]?`)
 
-// heldBy gathers what Logos held and when it first held it: every active
-// memory, and what each checkpoint recorded as decided or as asked for. The
+// heldBy gathers what Logos held and when it first held it, and when it let
+// go: every memory, superseded ones included, and what each checkpoint recorded as decided or as asked for. The
 // note is why memories could not be read, when they could not — said beside
 // the count it weakens, since a rate over half the record reads the same as a
 // rate over all of it.
@@ -455,14 +455,18 @@ func heldBy(v string) (effect.Held, string) {
 		// built before anything was remembered has no table to read.
 		err := memory.Init(ix.DB)
 		var mems []memory.Memory
+		var gone map[int64]int64
 		if err == nil {
-			mems, err = memory.All(ix.DB)
+			// The superseded ones too: a correction usually replaces the very
+			// memory it repeats, and counting only what is live now would
+			// drop exactly the repeats the correction itself caused.
+			mems, gone, err = memory.AllEver(ix.DB)
 		}
 		if err != nil {
 			note = "reading memories: " + err.Error()
 		}
 		for _, m := range mems {
-			known = append(known, effect.Known{Ref: fmt.Sprintf("memory %d", m.ID), Text: m.Text, Project: m.Project, Since: m.Created})
+			known = append(known, effect.Known{Ref: fmt.Sprintf("memory %d", m.ID), Text: m.Text, Project: m.Project, Since: m.Created, Until: gone[m.ID]})
 		}
 	}
 	scopes, err := session.Scopes(v)
