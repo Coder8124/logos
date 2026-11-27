@@ -52,6 +52,36 @@ func TestAStopAfterUncheckpointedWorkAsksTheAgentToCheckpointOnce(t *testing.T) 
 	}
 }
 
+// The ask was once per conversation, ever: a long session that answered it
+// went on to make hundreds more edits and commands and stopped without being
+// asked again — 8 of 35 working sessions in one vault's log, one with 511
+// calls after its last checkpoint. A stretch of new work since the last
+// checkpoint is asked about again; a stop with only a little is not, so every
+// short turn after a checkpoint does not end in a block.
+func TestALongStretchOfWorkAfterACheckpointIsAskedForAnotherOne(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	edit := `{"session_id":"s-long","tool_name":"Edit","tool_input":{"file_path":"cart.go"}}`
+	hookEvent(t, "PostToolUse", edit)
+	if out := stopHook(t, `{"session_id":"s-long"}`); !strings.Contains(out, `"decision":"block"`) {
+		t.Fatalf("the first stop after uncheckpointed work did not ask:\n%s", out)
+	}
+	hookEvent(t, "PostToolUse", `{"session_id":"s-long","tool_name":"mcp__plugin_logos_logos__checkpoint","tool_input":{"project":"shop"}}`)
+
+	for i := 0; i < reaskAfterWork-1; i++ {
+		hookEvent(t, "PostToolUse", edit)
+	}
+	if out := stopHook(t, `{"session_id":"s-long"}`); strings.TrimSpace(out) != "" {
+		t.Fatalf("a stop after a little work since the checkpoint was blocked:\n%s", out)
+	}
+	hookEvent(t, "PostToolUse", edit)
+	if out := stopHook(t, `{"session_id":"s-long"}`); !strings.Contains(out, `"decision":"block"`) {
+		t.Fatalf("a stop after %d calls of work since the last checkpoint was not asked again:\n%s", reaskAfterWork, out)
+	}
+	if out := stopHook(t, `{"session_id":"s-long"}`); strings.TrimSpace(out) != "" {
+		t.Errorf("a stop straight after the second ask, with no new work, was blocked again:\n%s", out)
+	}
+}
+
 // Claude Code sets stop_hook_active while the model is already continuing
 // because a stop hook blocked; blocking then is how a hook loops forever.
 func TestAStopTheHostSaysIsAlreadyContinuingIsNotBlocked(t *testing.T) {

@@ -291,10 +291,16 @@ func recordActivity(args []string) error {
 	return nil
 }
 
-// kindCheckpointAsked marks that the Stop hook already asked this session for
-// a checkpoint. It lives in the log the question was decided from, so the
-// once-per-session rule needs no second store.
+// kindCheckpointAsked marks that the Stop hook asked this session for a
+// checkpoint. It lives in the log the question was decided from, so knowing
+// how much work came after the last ask needs no second store.
 const kindCheckpointAsked = "checkpoint-asked"
+
+// reaskAfterWork is how many edits and commands after a checkpoint, or after
+// an ask, it takes for the Stop hook to ask again. Asking once per conversation
+// left long sessions stopping on hundreds of unsaved calls (8 of 35 in one
+// vault's log); asking after every work call would block every short turn.
+const reaskAfterWork = 25
 
 // fullSessionID keeps only the host's uncut conversation id from e.Extra.
 func fullSessionID(e activity.Event) map[string]any {
@@ -305,9 +311,9 @@ func fullSessionID(e activity.Event) map[string]any {
 }
 
 // askForCheckpoint prints Claude Code's stop-hook decision to block the stop
-// once, when this session changed files or ran commands after its last
-// checkpoint. A session that ends without one hands nothing to the next, and
-// most hosts never show the user a hook's warning, so the model is the only
+// when this session changed files or ran commands after its last checkpoint
+// and has not been asked about that work yet. A session that ends without one
+// hands nothing to the next, and most hosts never show the user a hook's warning, so the model is the only
 // one who can still be asked.
 func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
 	var p struct {
@@ -323,19 +329,24 @@ func askForCheckpoint(vault string, stop activity.Event, raw []byte) {
 	if err != nil {
 		return
 	}
-	work := false
+	// Work is counted from the later of the last checkpoint and the last ask.
+	// Before either, one edit is enough to ask: the session has handed off
+	// nothing. After one, it takes reaskAfterWork calls, so a model that
+	// declined is not asked again until there is new work to hand off, and a
+	// short turn after a checkpoint does not end in a block.
+	work, settled := 0, false
 	for _, e := range events {
 		switch {
 		case e.Kind == kindCheckpointAsked:
-			return
+			work, settled = 0, true
 		case e.Kind != activity.KindTool:
 		case isCheckpointCall(e):
-			work = false
+			work, settled = 0, true
 		case isWork(e.Tool):
-			work = true
+			work++
 		}
 	}
-	if !work {
+	if work == 0 || (settled && work < reaskAfterWork) {
 		return
 	}
 	// Recorded before asking: if this write fails, not asking is the safe

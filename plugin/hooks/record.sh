@@ -42,8 +42,8 @@ project=$(logos_project "${CLAUDE_PROJECT_DIR:-$PWD}")
 #
 # Stop is the one event whose stdout is kept: Claude Code reads a stop hook's
 # decision from it, and logos prints one only to ask a session that did
-# uncheckpointed work for a checkpoint, once. A logos too old for the flag
-# records the event and prints nothing.
+# uncheckpointed work for a checkpoint, once per stretch of new work. A logos
+# too old for the flag records the event and prints nothing.
 if [ "$event" = "Stop" ]; then
   "${LOGOS[@]}" activity record --event "$event" --project "$project" --ask-checkpoint 2>/dev/null || true
   exit 0
