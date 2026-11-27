@@ -73,7 +73,6 @@ func usageSessions(v, project string, days int) error {
 		if len(sittings) == 0 {
 			continue // nobody wrote in it: a subagent's transcript, a headless run
 		}
-		perHarness[s.Harness]++
 		// A sitting belongs to the window it began in, whenever its session
 		// did: a session left open since the spring is read for the sittings,
 		// the rework and the corrections of this month, each dated on its own.
@@ -105,7 +104,14 @@ func usageSessions(v, project string, days int) error {
 				inWindow = append(inWindow, c)
 			}
 		}
-		repeats.Add(inWindow)
+		// A session counts where it has something in the window: a sitting
+		// that began in it, or a turn written in it by a sitting that began
+		// before. One whose every sitting is older is read and left out —
+		// counted, it would make the header say more was measured than is.
+		if began[s.Harness+"\x00"+s.ID] || len(replies) > 0 || len(inWindow) > 0 {
+			perHarness[s.Harness]++
+			repeats.Add(inWindow)
+		}
 	}
 
 	who := "every project"

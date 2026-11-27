@@ -372,6 +372,23 @@ func TestUsageSessionsFilesASessionStartedInASubdirectoryUnderItsProject(t *test
 	}
 }
 
+func TestUsageSessionsDoesNotCountASessionWhoseSittingsAreAllOlderThanTheWindow(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	now := time.Now()
+	transcriptsAre(t,
+		began("eeee0000-1111-2222", now.Add(-24*time.Hour).Unix(), 5, 1, 2),
+		began("ffff0000-1111-2222", now.Add(-90*24*time.Hour).Unix(), 5, 1, 2),
+	)
+	out := captureStdout(t, func() {
+		if err := runUsage([]string{"--sessions"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "read from the transcripts of 1 session you wrote in: claude-code 1") {
+		t.Errorf("a session from three months ago was counted in the last thirty days:\n%s", out)
+	}
+}
+
 func TestUsageSessionsWithNoTranscriptsSaysSo(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", t.TempDir())
 	transcriptsAre(t)
