@@ -168,12 +168,14 @@ func TestTheHostCLIDoesNotInheritAVaultOverrideFromTheShellSetupRanIn(t *testing
 }
 
 // A child forked in the instant the group is signalled can join the group
-// after the signal was delivered and so survive a single kill. One attempt
-// loses that race only about half the time, so the step is timed out several
-// times: the test then fails on the old code almost always and, on the fixed
-// code, never. Linux makes fork atomic with a group signal (a child forked as
-// the group is signalled gets the signal too), so the race exists only on
-// macOS and the test can tell the two codes apart only there.
+// after the signal was delivered and so survive a single kill, or, when the
+// kill emptied the group, land in a group macOS has already deleted and that
+// no later kill can find. One forking loop lost that race only rarely, so the
+// stub forks from nine and the step is timed out twelve times: the test then
+// fails on the old code almost always and, on the fixed code, never. Linux
+// makes fork atomic with a group signal (a child forked as the group is
+// signalled gets the signal too), so the race exists only on macOS and the
+// test can tell the two codes apart only there.
 func TestATimedOutStepKillsAChildForkedAsTheKillLanded(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the fork-versus-group-kill race is macOS's; Linux delivers the signal to the new child")
@@ -181,7 +183,8 @@ func TestATimedOutStepKillsAChildForkedAsTheKillLanded(t *testing.T) {
 	bin := t.TempDir()
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin")
 	marks := t.TempDir()
-	stub := "#!/bin/sh\nwhile :; do (sleep 0.4; : > " + marks + "/m.$$) & done\n"
+	forker := "while :; do (sleep 0.4; : > " + marks + "/m.$$) & done"
+	stub := "#!/bin/sh\nfor i in 1 2 3 4 5 6 7 8; do (" + forker + ") & done\n" + forker + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +192,7 @@ func TestATimedOutStepKillsAChildForkedAsTheKillLanded(t *testing.T) {
 	pluginStepTimeout = 150 * time.Millisecond
 	t.Cleanup(func() { pluginStepTimeout = prev })
 
-	for attempt := 0; attempt < 6; attempt++ {
+	for attempt := 0; attempt < 12; attempt++ {
 		err := RunPluginSteps(UpdatePluginSteps())
 		if err == nil || !strings.Contains(err.Error(), "did not finish") {
 			t.Fatalf("RunPluginSteps = %v; want the timeout back", err)

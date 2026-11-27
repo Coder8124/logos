@@ -29,6 +29,13 @@ func killTree(cmd *exec.Cmd) error {
 		return nil
 	}
 	pgid := cmd.Process.Pid
+	if err := syscall.Kill(-pgid, syscall.SIGSTOP); err != nil {
+		return cmd.Process.Kill()
+	}
+	for i := 0; i < stopPasses; i++ {
+		time.Sleep(2 * time.Millisecond)
+		_ = syscall.Kill(-pgid, syscall.SIGSTOP) // an error here means the group is already gone
+	}
 	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
 		return cmd.Process.Kill()
 	}
@@ -41,3 +48,12 @@ func killTree(cmd *exec.Cmd) error {
 	}
 	return nil
 }
+
+// stopPasses is how many times the group is stopped before it is killed.
+// Killing first is what let a child escape: a parent killed in the middle of a
+// fork can empty the group, which macOS then deletes, and the child it was
+// making lands in a group no kill(-pgid) can find. A stopped process cannot
+// fork, and it keeps the group alive while it waits, so stopping first, and
+// again for any child forked as a stop landed, leaves nothing for
+// the kill to miss.
+const stopPasses = 3
