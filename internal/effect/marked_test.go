@@ -77,7 +77,7 @@ func TestTheListsAreScoredAgainstTurnsAPersonMarked(t *testing.T) {
 					found["rework"][h+"\t"+s.ID+"\t"+strconv.Itoa(r.Turn)] = r.Rework
 				}
 			}
-			for _, c := range Corrections(s, Hold(nil, nil)) {
+			for _, c := range corrections(s, Hold(nil, nil)) {
 				found["correction"][h+"\t"+s.ID+"\t"+strconv.Itoa(c.Turn)] = "cue"
 			}
 		}

@@ -122,7 +122,7 @@ func Sittings(s *transcript.Session, gap int64) []Start {
 	from, after := 0, int64(0)
 	var last int64 // when the person or the agent last wrote
 	for i, t := range s.Turns {
-		person := t.Role == "user" && ingest.PersonsText(t.Text) != ""
+		person := t.Role == "user" && wrote(t.Text)
 		if !person && t.Role != "assistant" && t.Role != "tool" {
 			continue // the host's own text is not anyone being at the session
 		}
@@ -138,6 +138,16 @@ func Sittings(s *transcript.Session, gap int64) []Start {
 	return out
 }
 
+// wrote reports whether a user turn is the person at the session: lines of
+// their own, or a paste the host marks, which is what they showed the agent
+// when they had nothing to add. One test for every reader here — Replies
+// counted a bare paste as a turn of theirs while the sitting it fell in
+// did not, so a sitting could be missing the very turn that was counted
+// as a reply in it.
+func wrote(text string) bool {
+	return len(ingest.PersonsLines(text)) > 0 || len(ingest.PastedLines(text)) > 0
+}
+
 // measure reads how the sitting in turns from up to to began, and false for a
 // stretch no person wrote in.
 func measure(s *transcript.Session, from, to int) (Start, bool) {
@@ -149,10 +159,10 @@ func measure(s *transcript.Session, from, to int) (Start, bool) {
 	for _, t := range s.Turns[from:to] {
 		switch t.Role {
 		case "user":
-			words := len(strings.Fields(ingest.PersonsText(t.Text)))
-			if words == 0 {
+			if !wrote(t.Text) {
 				continue
 			}
+			words := len(strings.Fields(ingest.PersonsText(t.Text)))
 			if !asked {
 				asked, st.AskedAt = true, t.TS
 				if st.Began == 0 {

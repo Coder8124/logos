@@ -66,7 +66,7 @@ func correcting(text string) *transcript.Session {
 }
 
 func TestACorrectionAboutSomethingHeldIsARepeat(t *testing.T) {
-	cs := Corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{brew}, nil))
+	cs := corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{brew}, nil))
 	if len(cs) != 1 || cs[0].Known == nil || cs[0].Known.Ref != "memory 12" {
 		t.Fatalf("got %+v, want one correction restating memory 12", cs)
 	}
@@ -74,7 +74,7 @@ func TestACorrectionAboutSomethingHeldIsARepeat(t *testing.T) {
 		t.Errorf("correction is dated and placed by its own turn, got %+v", cs[0])
 	}
 
-	cs = Corrections(correcting("no, pin the version in the lockfile instead"), Hold([]Known{brew}, nil))
+	cs = corrections(correcting("no, pin the version in the lockfile instead"), Hold([]Known{brew}, nil))
 	if len(cs) != 1 || cs[0].Known != nil {
 		t.Errorf("a correction about something new was matched to a memory: %+v", cs)
 	}
@@ -86,7 +86,7 @@ func TestTheFirstRequestIsNeverACorrection(t *testing.T) {
 		user("stop and use homebrew, not source", 1001), // still nothing to call back from
 		tool("Bash", "brew install logos", 1010),
 	)
-	if cs := Corrections(s, Hold([]Known{brew}, nil)); len(cs) != 0 {
+	if cs := corrections(s, Hold([]Known{brew}, nil)); len(cs) != 0 {
 		t.Errorf("before the agent had done anything there was nothing to correct, got %+v", cs)
 	}
 }
@@ -94,12 +94,15 @@ func TestTheFirstRequestIsNeverACorrection(t *testing.T) {
 func TestOnlyWhatWasHeldWhenTheSessionBeganCanBeRepeated(t *testing.T) {
 	late := brew
 	late.Since = 1015 // stored mid-session, after the agent was already running
-	if cs := Corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{late}, nil)); cs[0].Known != nil {
+	if cs := corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{late}, nil)); cs[0].Known != nil {
 		t.Error("a memory stored after the session began was counted as known to it")
 	}
 	undated := correcting("no, use homebrew, not a source build")
 	undated.Started = 0
-	if cs := Corrections(undated, Hold([]Known{brew}, nil)); cs[0].Known != nil {
+	for i := range undated.Turns {
+		undated.Turns[i].TS = 0 // a host that keeps no time anywhere, as Cursor's
+	}
+	if cs := corrections(undated, Hold([]Known{brew}, nil)); cs[0].Known != nil {
 		t.Error("a session with no start time cannot be said to have begun after anything")
 	}
 }
@@ -108,30 +111,30 @@ func TestOneProjectsMemoryDoesNotAnswerForAnother(t *testing.T) {
 	elsewhere := brew
 	elsewhere.Project = "kestrel"
 	text := "no, use homebrew, not a source build"
-	if cs := Corrections(correcting(text), Hold([]Known{elsewhere}, nil)); cs[0].Known != nil {
+	if cs := corrections(correcting(text), Hold([]Known{elsewhere}, nil)); cs[0].Known != nil {
 		t.Error("a memory filed under kestrel matched a correction made in shop")
 	}
 	here := brew
 	here.Project = "shop/worktree-2"
 	sameRepo := func(a, b string) bool { return a == "shop/worktree-2" && b == "shop" }
-	if cs := Corrections(correcting(text), Hold([]Known{here}, sameRepo)); cs[0].Known == nil {
+	if cs := corrections(correcting(text), Hold([]Known{here}, sameRepo)); cs[0].Known == nil {
 		t.Error("the caller's own rule for one project under two names was not used")
 	}
 
 	// Cursor names no project: only what applies everywhere may match.
 	nowhere := correcting(text)
 	nowhere.Project = ""
-	if cs := Corrections(nowhere, Hold([]Known{here}, sameRepo)); cs[0].Known != nil {
+	if cs := corrections(nowhere, Hold([]Known{here}, sameRepo)); cs[0].Known != nil {
 		t.Error("a session with no project was matched to a project's memory by guessing")
 	}
-	if cs := Corrections(nowhere, Hold([]Known{brew}, nil)); cs[0].Known == nil {
+	if cs := corrections(nowhere, Hold([]Known{brew}, nil)); cs[0].Known == nil {
 		t.Error("a memory that applies everywhere applies to a session with no project too")
 	}
 }
 
 func TestOneSharedWordIsNotARepeat(t *testing.T) {
 	cookies := Known{Ref: "memory 3", Text: "session cookies expire after a day", Since: 500}
-	cs := Corrections(correcting("stop capturing session activity in the hook"), Hold([]Known{cookies}, nil))
+	cs := corrections(correcting("stop capturing session activity in the hook"), Hold([]Known{cookies}, nil))
 	if len(cs) != 1 || cs[0].Known != nil {
 		t.Errorf("\"session\" alone joined two different subjects: %+v", cs)
 	}
@@ -139,7 +142,7 @@ func TestOneSharedWordIsNotARepeat(t *testing.T) {
 
 func TestTheBestMatchIsTheOneNamed(t *testing.T) {
 	loose := Known{Ref: "memory 1", Text: "Homebrew formula updates land weekly; source tarballs, release notes, checksums and signatures follow", Since: 100}
-	cs := Corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{loose, brew}, nil))
+	cs := corrections(correcting("no, use homebrew, not a source build"), Hold([]Known{loose, brew}, nil))
 	if cs[0].Known == nil || cs[0].Known.Ref != "memory 12" {
 		t.Errorf("got %+v, want the memory the correction is most about", cs[0].Known)
 	}
@@ -164,5 +167,47 @@ func TestRepeatsCountsAndWithholdsARateItCannotSupport(t *testing.T) {
 	}
 	if rate, ok := r.Rate(); !ok || rate != 0.2 {
 		t.Errorf("2 of %d: got %v, %v", r.Corrections, rate, ok)
+	}
+}
+
+// corrections reads a session the way a report does: by the sittings it breaks
+// into.
+func corrections(s *transcript.Session, held Held) []Correction {
+	return Corrections(s, held, Sittings(s, Break))
+}
+
+func TestAMemorySavedBetweenTwoSittingsIsHeldWhenTheLaterOneCorrects(t *testing.T) {
+	saved := brew
+	saved.Since = 5000 // after the session began, before the person came back
+	s := sessionOf(
+		user("upgrade logos", 1000),
+		tool("Bash", "go install ./cmd/logos", 1010),
+		user("thanks", 1020),
+		user("upgrade logos again", 9000), // hours later: a second sitting
+		tool("Bash", "go install ./cmd/logos", 9010),
+		user("no, use homebrew, not a source build", 9020),
+	)
+	if n := len(Sittings(s, Break)); n != 2 {
+		t.Fatalf("the fixture has %d sittings, want 2", n)
+	}
+	cs := corrections(s, Hold([]Known{saved}, nil))
+	if len(cs) != 1 || cs[0].Known == nil {
+		t.Errorf("a memory saved before the sitting began was not counted as held by it: %+v", cs)
+	}
+}
+
+func TestAPasteWithNoWordsBesideItIsTheSameTurnForSittingsAndReplies(t *testing.T) {
+	pasted := user(`<pasted_content id="1">panic: nil pointer in cart.go:12</pasted_content>`, 9000)
+	s := sessionOf(
+		user("fix the cart", 1000),
+		tool("Edit", "cart.go", 1010),
+		pasted,
+		tool("Edit", "cart.go", 9100),
+	)
+	if len(Replies(s)) != 1 {
+		t.Fatal("the fixture's paste was not a reply")
+	}
+	if n := len(Sittings(s, Break)); n != 2 {
+		t.Errorf("got %d sittings; the person came back after a break with a paste, and Replies counted that turn as theirs", n)
 	}
 }

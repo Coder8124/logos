@@ -131,9 +131,12 @@ type Correction struct {
 }
 
 // Corrections lists the corrections in a session, each matched against what
-// was held when the session began — not when the turn was written: a memory
-// stored halfway through reached no agent that was already running.
-func Corrections(s *transcript.Session, held Held) []Correction {
+// was held when the sitting it fell in began — not when the turn was written:
+// a memory stored halfway through reached no agent that was already running.
+// The sitting, not the session: one left open for weeks is handed what was
+// recorded since each time it is picked up again, and a memory saved after the
+// session began and before a later sitting did reach that sitting.
+func Corrections(s *transcript.Session, held Held, sittings []Start) []Correction {
 	var out []Correction
 	asked, acted := false, false
 	for i, t := range s.Turns {
@@ -141,10 +144,10 @@ func Corrections(s *transcript.Session, held Held) []Correction {
 		case "assistant", "tool":
 			acted = acted || asked
 		case "user":
-			text := ingest.PersonsText(t.Text)
-			if text == "" {
+			if !wrote(t.Text) {
 				continue
 			}
+			text := ingest.PersonsText(t.Text)
 			// The first thing a person says is a request, however it is
 			// phrased: there is nothing yet to call the agent back from.
 			if !asked || !acted {
@@ -158,11 +161,23 @@ func Corrections(s *transcript.Session, held Held) []Correction {
 			if c.At == 0 {
 				c.At = s.Started
 			}
-			c.Known = held.restated(text, s.Project, s.Started)
+			c.Known = held.restated(text, s.Project, heldSince(s, sittings, i))
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// heldSince is when the sitting that turn i fell in began, which is when what
+// Logos held was last handed to the agent; the session's start where the turn
+// is in no sitting or the host keeps no time.
+func heldSince(s *transcript.Session, sittings []Start, turn int) int64 {
+	for _, st := range sittings {
+		if turn >= st.First && turn < st.End && st.Began > 0 {
+			return st.Began
+		}
+	}
+	return s.Started
 }
 
 // opening is how much of a turn is read for a cue. A correction leads with

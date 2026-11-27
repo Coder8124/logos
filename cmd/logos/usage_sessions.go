@@ -94,7 +94,7 @@ func usageSessions(v, project string, days int) error {
 		rework.Add(replies)
 		reworkRestored.Add(afterRestore)
 		var inWindow []effect.Correction
-		for _, c := range effect.Corrections(s, held) {
+		for _, c := range effect.Corrections(s, held, sittings) {
 			if c.At >= from.Unix() {
 				inWindow = append(inWindow, c)
 			}
