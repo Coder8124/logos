@@ -26,6 +26,7 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 	// last segment, or a project by name. Asked for nothing, the project of
 	// the directory they are standing in, which in a repository is the
 	// question — and only then the vault's busiest note.
+	defaulted := focus == ""
 	if focus == "" {
 		if p := projectHere(); p != "" {
 			if slug, ok := graph.Resolve(ix.DB, p); ok {
@@ -46,6 +47,12 @@ func runGraph(focus string, hops int, similarity, list bool) error {
 	// for a wikilink target and wrong for the thing asked about: `graph
 	// nonexistent` and an empty vault both drew "missing deg 0" and exited 0.
 	if len(g.Nodes) == 0 || (len(g.Nodes) == 1 && len(g.Edges) == 0 && g.Nodes[0].Kind == "missing") {
+		// A default the user never typed must not be reported as a note they
+		// asked for and could not have; only a name they gave is an error.
+		if defaulted {
+			fmt.Println("nothing to graph yet — today's daily note does not exist; name a note: logos show --graph <note>")
+			return nil
+		}
 		return fmt.Errorf("no note or entity %q in the vault — nothing to graph", focus)
 	}
 

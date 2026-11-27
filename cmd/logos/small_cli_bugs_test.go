@@ -78,7 +78,24 @@ func TestGraphOfAFocusThatIsNotInTheVaultSaysSo(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Errorf("an unknown focus should be refused by name, got %v", err)
 	}
-	if err := runGraph("", 2, false, false); err == nil {
-		t.Errorf("an empty vault drew a graph of today's missing daily note")
+}
+
+// #388: with no target, graph defaulted to today's daily note and failed naming
+// a note the user never asked for; an empty vault has nothing to graph yet,
+// which is not an error. A name the user did give still is one.
+func TestGraphWithNoTargetOnAnEmptyVaultSaysThereIsNothingToGraphYet(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	t.Setenv("LOGOS_EMBED", "off")
+
+	var err error
+	out := captureStdout(t, func() { err = runGraph("", 2, false, false) })
+	if err != nil {
+		t.Fatalf("an empty vault with no target should not fail, got %v", err)
+	}
+	if !strings.Contains(out, "nothing to graph yet") || !strings.Contains(out, "logos show --graph <note>") {
+		t.Errorf("should say there is nothing to graph and what to do, got %q", out)
+	}
+	if err := runGraph("daily/2026-11-16", 2, false, false); err == nil {
+		t.Errorf("an explicitly named missing note must still be refused")
 	}
 }
