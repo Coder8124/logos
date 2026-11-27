@@ -224,8 +224,8 @@ func (ix *Index) SyncNotes() (restored, rescued, empty int, err error) {
 //
 // Returns how many proposals it put back, and how many it rescued out of a
 // cache that was their only copy.
-func (ix *Index) SyncPending() (restored, rescued int, err error) {
-	return memory.ImportPending(ix.DB, ix.Vault)
+func (ix *Index) SyncPending() (restored, rescued, rejected int, err error) {
+	return memory.ImportPendingReport(ix.DB, ix.Vault)
 }
 
 // SyncLog restores the memory timeline from the vault.

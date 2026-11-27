@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/Coder8124/logos/internal/auto"
 	"strings"
 	"testing"
 
@@ -17,12 +16,6 @@ func queueForReview(t *testing.T, project, fact string) {
 	vault := t.TempDir()
 	t.Setenv("LOGOS_VAULT", vault)
 	t.Setenv("LOGOS_RUNTIME", "")
-	// The index here is written by commands, never synced, so the index
-	// switch (on by default) would rebuild it and read pending.md as truth
-	// before the hand edit could be announced.
-	if err := auto.Set(vault, string(auto.Index), false); err != nil {
-		t.Fatal(err)
-	}
 	old := provider.LocalEndpoints
 	provider.LocalEndpoints = nil
 	t.Cleanup(func() { provider.LocalEndpoints = old })
