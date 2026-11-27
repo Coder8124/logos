@@ -274,6 +274,14 @@ Two benchmarks, both reproducible from this repo, both run entirely locally.
 **Retrieval.** 96.0% recall@5 / 99.2% recall@10 on the full 500-question
 LongMemEval-S. Hybrid beats vector-only by 8.9 points.
 
+**Question answering.** Logos 0.5.8 retrieving, and a local model (flint,
+through Ollama) reading and judging, scored 81.8% (95% CI 78–85) on the 367
+LongMemEval-S questions outside temporal-reasoning, which this run left out.
+The judge gave a verdict on 363 of the 367. Multi-session is the weakest type
+at 68.3%: every evidence session was retrieved for 76.0% of those questions,
+and at least one for 99.2%. This run comes from a separate harness that is not
+yet public, so unlike the other two it cannot be rerun from this repo.
+
 **Continuity.** A suite built here, because nothing existing measured handoff:
 32 hand-authored scenarios, nine memory systems, one machine, same embedding
 model throughout.

@@ -30,7 +30,10 @@ follow them — measure the same thing in different clothes: *given a long
 history, can the system find the fact that answers a question.* logos scores
 well on that (96.0% recall@5 on the full 500-question LongMemEval-S, hybrid
 retrieval beating vector-only by 8.9 points) and so does everything else worth
-comparing against. Recall is close to solved at this scale.
+comparing against. Recall is close to solved at this scale. (Answered end to
+end by a local reader and judge, logos 0.5.8 scores 81.8%, 95% CI 78–85, on the
+367 LongMemEval-S questions outside temporal-reasoning; that run comes from a
+harness not yet public.)
 
 The thing that is not solved, and that nobody measures, is **handoff**: an agent
 stops mid-task, and a different agent — often a different product, on a
