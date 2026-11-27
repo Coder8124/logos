@@ -172,9 +172,10 @@ func TestTheHostCLIDoesNotInheritAVaultOverrideFromTheShellSetupRanIn(t *testing
 // kill emptied the group, land in a group macOS has already deleted and that
 // no later kill can find. One forking loop lost that race only rarely, so the
 // stub forks from nine and the step is timed out twelve times: the test then
-// fails on the old code almost always and, on the fixed code, never. Linux makes fork atomic with a group signal (a child forked as
-// the group is signalled gets the signal too), so the race exists only on
-// macOS and the test can tell the two codes apart only there.
+// fails on the old code almost always and, on the fixed code, never. Linux
+// makes fork atomic with a group signal (a child forked as the group is
+// signalled gets the signal too), so the race exists only on macOS and the
+// test can tell the two codes apart only there.
 func TestATimedOutStepKillsAChildForkedAsTheKillLanded(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the fork-versus-group-kill race is macOS's; Linux delivers the signal to the new child")
