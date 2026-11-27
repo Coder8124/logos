@@ -40,7 +40,6 @@ func (p *Pack) Render() string {
 	working := p.wantWorking()
 	proj := p.wantProject()
 	loops := p.wantLoops()
-	notes, noteSlugs := p.wantNotes()
 
 	// 2. Spend, smallest and most fixed first, so the elastic section inherits
 	//    everything the others did not need.
@@ -50,7 +49,13 @@ func (p *Pack) Render() string {
 	keptProj := sp.take(secProject, proj)
 	keptMems := p.spendMemories(sp)
 	keptLoops := sp.take(secLoops, loops)
+	// Notes are gathered last because excerpting needs the room they are
+	// actually left with, which only exists once the other sections have spent.
+	notes, noteSlugs, saved := p.wantNotes(sp.allowance(secNotes))
 	keptNotes := sp.take(secNotes, notes)
+	// take counts what it was handed as the uncut cost; an excerpt was cut by
+	// this pack, so what it cut is still part of what no budget would have cost.
+	sp.offered += saved
 
 	// 3. Render in the order an agent should read it.
 	var b strings.Builder
@@ -964,18 +969,38 @@ func (p *Pack) wantProject() []string {
 // wantNotes returns vault prose chunks and their slugs in the same order. Every
 // chunk carries its slug so the consumer can cite the note rather than restate
 // it as if it were its own knowledge.
-func (p *Pack) wantNotes() ([]string, []string) {
-	want := make([]string, 0, len(p.Notes))
+func (p *Pack) wantNotes(allowance int) ([]string, []string, int) {
+	type entry struct{ head, body string }
+	entries := make([]entry, 0, len(p.Notes))
+	costs := make([]int, 0, len(p.Notes))
 	slugs := make([]string, 0, len(p.Notes))
 	for _, h := range p.Notes {
 		head := fmt.Sprintf("### %s  `%s`", inline(h.Title), inline(h.Slug))
 		if h.Via != "" {
 			head += fmt.Sprintf("\n_reached through the graph from %s — not a direct match_", inline(h.Via))
 		}
-		want = append(want, head+"\n\n"+block(strings.TrimSpace(h.Body)))
+		body := strings.TrimSpace(h.Body)
+		entries = append(entries, entry{head, body})
+		costs = append(costs, estimate(head+"\n\n"+block(body)))
 		slugs = append(slugs, h.Slug)
 	}
-	return want, slugs
+	ceiling := excerptCaps(costs, allowance)
+	terms := textmatch.Subject(p.Task + " " + p.Hint)
+	want := make([]string, 0, len(entries))
+	saved := 0
+	for i, e := range entries {
+		chunk := e.head + "\n\n" + block(e.body)
+		if ceiling > 0 && costs[i] > ceiling {
+			// Leave room for the head and the excerpt line, which are ours.
+			ex, cut := excerptBody(e.body, terms, ceiling-estimate(e.head)-40)
+			if cut {
+				chunk = e.head + "\n" + excerptLine(estimate(ex), estimate(e.body), p.Notes[i].Slug) + "\n\n" + block(ex)
+				saved += costs[i] - estimate(chunk)
+			}
+		}
+		want = append(want, chunk)
+	}
+	return want, slugs, saved
 }
 
 // wantMemories renders what the assistant has been told, with the provenance
