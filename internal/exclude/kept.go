@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/scope"
@@ -16,28 +17,92 @@ import (
 // person's record is theirs to ask for by name.
 type Kept struct{ Transcripts, Checkpoints int }
 
-// KeptForProject counts the archived transcripts and checkpoints filed under
-// the project a folder belongs to, worktree scopes included.
-func KeptForProject(vault, dir string) (Kept, string) {
+// projectRoot is the vault folder a project's sessions are filed under, and
+// "" for a folder that names no project.
+func projectRoot(vault, dir string) string {
 	proj, _, _ := strings.Cut(session.SafeScope(scope.Name(dir)), "/")
-	var k Kept
 	if proj == "" {
-		return k, ""
+		return ""
 	}
-	root := filepath.Join(vault, session.CheckpointDir, proj)
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	return filepath.Join(vault, session.CheckpointDir, proj)
+}
+
+// walkKept visits every archived transcript and checkpoint under a project's
+// folder, worktree scopes included, and nothing else. Counting and erasing
+// both go through it, so what is reported as kept and what is removed can
+// never disagree about which files belong to the project. A visit that fails
+// stops the walk and its error is returned.
+func walkKept(root string, visit func(path string, transcript bool) error) error {
+	if root == "" {
+		return nil
+	}
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 		switch {
 		case session.IsTranscriptFile(d.Name()):
-			k.Transcripts++
+			return visit(p, true)
 		case session.IsCheckpointFile(d.Name()):
+			return visit(p, false)
+		}
+		return nil
+	})
+}
+
+// KeptForProject counts the archived transcripts and checkpoints filed under
+// the project a folder belongs to, worktree scopes included.
+func KeptForProject(vault, dir string) (Kept, string) {
+	root := projectRoot(vault, dir)
+	var k Kept
+	_ = walkKept(root, func(_ string, transcript bool) error {
+		if transcript {
+			k.Transcripts++
+		} else {
 			k.Checkpoints++
 		}
 		return nil
 	})
 	return k, root
+}
+
+// EraseProject removes what KeptForProject counts and nothing more: working
+// notes, the review queue and any file it does not recognise stay. A folder
+// is removed only once it is empty. The caller syncs the index afterwards
+// (vault first, index second). A removal that fails returns the counts so far
+// with the error, never a success-shaped result.
+func EraseProject(vault, dir string) (Kept, string, error) {
+	root := projectRoot(vault, dir)
+	var k Kept
+	parents := map[string]bool{}
+	err := walkKept(root, func(p string, transcript bool) error {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("could not remove %s: %w", p, err)
+		}
+		if transcript {
+			k.Transcripts++
+		} else {
+			k.Checkpoints++
+		}
+		parents[filepath.Dir(p)] = true
+		return nil
+	})
+	// Deepest first, and os.Remove refuses a folder that still holds anything,
+	// so a folder with a file we do not own survives.
+	dirs := make([]string, 0, len(parents))
+	for d := range parents {
+		dirs = append(dirs, d)
+	}
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	for _, d := range dirs {
+		for strings.HasPrefix(d, root) {
+			if os.Remove(d) != nil || d == root {
+				break
+			}
+			d = filepath.Dir(d)
+		}
+	}
+	return k, root, err
 }
 
 // Ambiguous is the error for a short session id that fits more than one kept
