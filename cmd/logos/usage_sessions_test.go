@@ -389,6 +389,29 @@ func TestUsageSessionsDoesNotCountASessionWhoseSittingsAreAllOlderThanTheWindow(
 	}
 }
 
+func TestDaysWithoutSessionsIsRefusedNotIgnored(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	err := runUsage([]string{"--month", "--days", "90"})
+	if err == nil || !strings.Contains(err.Error(), "--days sets how far back --sessions reads") {
+		t.Errorf("--days beside --month was accepted and ignored: %v", err)
+	}
+}
+
+func TestTheNoSessionHintNamesEveryHostItReads(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	transcriptsAre(t)
+	out := captureStdout(t, func() {
+		if err := runUsage([]string{"--sessions"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, h := range transcript.Harnesses() {
+		if !strings.Contains(out, h) {
+			t.Errorf("the hint does not name %q:\n%s", h, out)
+		}
+	}
+}
+
 func TestUsageSessionsWithNoTranscriptsSaysSo(t *testing.T) {
 	t.Setenv("LOGOS_VAULT", t.TempDir())
 	transcriptsAre(t)

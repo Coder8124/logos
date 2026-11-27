@@ -76,6 +76,12 @@ func runUsage(args []string) error {
 			}
 		}
 	}
+	// --days is the sessions report's window. Left alone beside --month it
+	// would be read and ignored, and the person would take a month for the
+	// ninety days they asked for.
+	if hasFlag(args, "--days") && !hasFlag(args, "--sessions") {
+		return fmt.Errorf("--days sets how far back --sessions reads; the other reports have a fixed window: logos stats --usage --sessions --days 90")
+	}
 	usd := 0.0
 	if hasFlag(args, "--usd") {
 		v, err := strconv.ParseFloat(strings.TrimPrefix(rate, "$"), 64)

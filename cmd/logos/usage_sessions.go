@@ -126,7 +126,7 @@ func usageSessions(v, project string, days int) error {
 		who, days, from.Format(since), now.Format("2 Jan 2006"))
 	if repeats.Sessions == 0 {
 		fmt.Printf("\n· no session for %s in the last %d days in the transcripts your agents keep\n", who, days)
-		fmt.Println("  (read from Claude Code, Codex and Cursor where they are installed; --days N looks further back)")
+		fmt.Printf("  (read from %s where they are installed; --days N looks further back)\n", strings.Join(transcript.Harnesses(), ", "))
 		printTranscriptProblems(problems)
 		return nil
 	}
