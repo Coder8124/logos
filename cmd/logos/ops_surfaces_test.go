@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"github.com/Coder8124/logos/internal/auto"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,18 +34,18 @@ func noRuntime(t *testing.T) {
 func recallFixture(t *testing.T) string {
 	t.Helper()
 	vault := t.TempDir()
-	// The index here is written by commands, never synced, so the index
-	// switch (on by default) would rebuild it and read pending.md as truth
-	// before the hand edit could be announced.
-	if err := auto.Set(vault, string(auto.Index), false); err != nil {
-		t.Fatal(err)
-	}
 	ix, err := index.Open(vault)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ix.Close()
 	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	// An indexed vault: this test compares what each surface says about the
+	// hand edit, and a vault never indexed has the CLI's switch rebuild it and
+	// say so on stderr instead (TestAHandEditIsAnnouncedOnceWhenTheSwitchRebuildsTheIndex).
+	if _, err := ix.Sync(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{
@@ -216,5 +215,57 @@ func TestAFailedVaultWriteIsInTheOutcomeOnEverySurface(t *testing.T) {
 				t.Errorf("the credential the write redacted went unmentioned once the vault failed:\n%s", out)
 			}
 		})
+	}
+}
+
+// A vault only commands have written has an index no sync has finished on, so
+// the next command's index switch rebuilds it — and that rebuild is the first
+// thing to read the hand-edited queue. It adopted the edit without a word, and
+// the command's own announcement then found the file already ours.
+func TestAHandEditIsAnnouncedOnceWhenTheSwitchRebuildsTheIndex(t *testing.T) {
+	noRuntime(t)
+	t.Setenv("LOGOS_EMBED", "off")
+	vault := t.TempDir()
+	t.Setenv("LOGOS_VAULT", vault)
+	ix, err := index.Open(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Init(ix.DB); err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range []string{"the CFO is Priya", "billing runs on the first"} {
+		if _, err := memory.Store(ix.DB, nil, "", &memory.Memory{
+			Text: fact, Kind: memory.Fact, Source: "mcp", Project: "kestrel", Quarantined: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ix.Close()
+	path := filepath.Join(vault, memory.Dir, memory.PendingFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.SplitAfter(string(raw), "\n") {
+		if !strings.Contains(line, "the CFO is Priya") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout string
+	stderr := captureStderr(t, func() {
+		stdout = captureStdout(t, func() {
+			if err := recallCmd([]string{"staging port", "--project", "kestrel"}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	})
+	if got := strings.Count(stdout+stderr, "1 proposal rejected"); got != 1 {
+		t.Errorf("the rejected proposal was announced %d times, want once:\nstdout: %s\nstderr: %s", got, stdout, stderr)
 	}
 }

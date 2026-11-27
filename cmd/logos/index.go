@@ -244,9 +244,16 @@ func indexPass(ix *index.Index, w io.Writer, p *provider.Provider, embed string)
 
 	// The review queue, after the memories, so an accepted proposal is
 	// already an active memory before the queue is consulted about its id.
-	if queued, rescued, err := ix.SyncPending(); err != nil {
+	if queued, rescued, rejected, err := ix.SyncPending(); err != nil {
 		fmt.Fprintln(os.Stderr, "· could not restore the review queue:", err)
 	} else {
+		// A line the user deleted from pending.md is a rejection, and a rebuild
+		// reads the file before any later command can: left unsaid here it is
+		// never said, the next command finding the file already adopted.
+		if rejected > 0 {
+			fmt.Fprintf(w, "adopted your edit to %s: %d %s rejected\n",
+				memory.PendingFile, rejected, plural(rejected, "proposal"))
+		}
 		if queued > 0 {
 			fmt.Fprintf(w, "restored %d memor%s awaiting review — run `logos review`\n",
 				queued, pluralY(queued))

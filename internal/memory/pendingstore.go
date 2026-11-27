@@ -266,8 +266,17 @@ func renderPending(pend []Memory) string {
 // caller that reported a rescue as a restore would tell the user their queue had
 // been recovered on a run where it was merely, finally, written down.
 func ImportPending(db *sql.DB, dir string) (int, int, error) {
+	restored, rescued, _, err := ImportPendingReport(db, dir)
+	return restored, rescued, err
+}
+
+// ImportPendingReport is ImportPending that also says how many queued proposals
+// the file rejected. A rebuild is often the first thing to read a queue the user
+// edited by hand, and a count dropped there leaves the rejection with no
+// announcement anywhere: the next command finds the file already adopted.
+func ImportPendingReport(db *sql.DB, dir string) (restored, rescued, rejected int, err error) {
 	if err := Init(db); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	// The same lock the writers take. This reads the file and then rejects every
 	// queued row missing from it, which is the destructive half — running it
@@ -278,7 +287,7 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 	// it has not bound to a store yet.
 	g, err := vault.Lock(dir, "memory-pending")
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	defer g.Unlock()
 
@@ -293,35 +302,34 @@ func ImportPending(db *sql.DB, dir string) (int, int, error) {
 		// next `rm -rf .logos` took them without a word. This is the only moment
 		// the rescue is still possible: the cache is still the only copy.
 		rescued, err := rescuePendingLocked(db, dir)
-		return 0, rescued, err
+		return 0, rescued, 0, err
 	}
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	if looksTruncated(string(raw)) {
-		return 0, 0, fmt.Errorf(
+		return 0, 0, 0, fmt.Errorf(
 			"refusing to import an incomplete review queue (%s ends mid-record); "+
 				"restore the file or delete the partial line to accept it as-is", PendingFile)
 	}
 
-	restored, _, err := adoptPendingLocked(db, raw)
+	restored, rejected, err = adoptPendingLocked(db, raw)
 	if err != nil {
-		return restored, 0, err
+		return restored, 0, rejected, err
 	}
 	pendingStamps.Adopted(db, raw)
 	// Proposals a failed write left only in the cache, which the adopt kept.
 	// Written out now, for the reason the absent-file branch gives.
-	var rescued int
 	if err := db.QueryRow(
 		"SELECT COUNT(*) FROM memories WHERE quarantined = 1 AND superseded = 0 AND unflushed = 1").Scan(&rescued); err != nil {
-		return restored, 0, err
+		return restored, 0, rejected, err
 	}
 	if rescued > 0 {
 		if err := flushPendingLocked(db, dir); err != nil {
-			return restored, 0, err
+			return restored, 0, rejected, err
 		}
 	}
-	return restored, rescued, nil
+	return restored, rescued, rejected, nil
 }
 
 // adoptPendingLocked makes the queue in the cache match the file: every line is
