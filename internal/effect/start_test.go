@@ -135,6 +135,11 @@ func TestResumeIsReadFromItsAnswerAndIsNotALookup(t *testing.T) {
 		}
 	}
 
+	quoting := resume("ok", "## Where the last agent stopped\nruled out: a note that says "+session.NoCheckpointYet+" is not a handoff")
+	if st, _ := whole(sessionOf(user("carry on", 1000), quoting, tool("Edit", "a.go", 1100))); st.Restore != Restored {
+		t.Errorf("a checkpoint whose text quotes the no-checkpoint sentence was counted %q", st.Restore)
+	}
+
 	other := transcript.Turn{Role: "tool", Tool: "mcp__github__resume", Status: "ok", Text: "resumed"}
 	if st, _ := whole(sessionOf(user("go on", 1), other, tool("Edit", "a.go", 2))); st.Restore != Cold || st.Lookups != 1 {
 		t.Errorf("another server's resume was taken for Logos's: %+v", st)
@@ -172,6 +177,12 @@ func TestAShellCommandThatWritesAFileIsAnEdit(t *testing.T) {
 		"git log --format=%an->%s":                             false,
 		"sed -n 1,20p main.go":                                 false,
 		"grep -rn steel .":                                     false,
+		"grep -rn apply_patch .":                               false,
+		"perl -Mstrict -e 'print 1' main.pl":                   false,
+		"git apply --check fix.patch":                          false,
+		"patch -p1 --dry-run < fix.patch":                      false,
+		"cd repo && git apply -v fix.patch":                    true,
+		"sudo tee /etc/hosts":                                  true,
 		"":                                                     false,
 	} {
 		if got := shellWrites(cmd); got != want {

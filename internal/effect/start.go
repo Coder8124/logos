@@ -202,11 +202,21 @@ func resumeCall(t transcript.Turn) (string, bool) {
 		return Cold, true
 	case strings.TrimSpace(t.Text) == "":
 		return Unclear, true
-	case strings.Contains(t.Text, session.NoCheckpointYet):
+	case saysNoCheckpoint(t.Text):
 		return Cold, true
 	}
 	return Restored, true
 }
+
+// noCheckpointLine is the line resume ends a checkpoint-less answer with, in
+// the form Logos prints it: italic, and followed by what it means.
+var noCheckpointLine = regexp.MustCompile(`(?m)^_` + regexp.QuoteMeta(session.NoCheckpointYet) + ` — this is context`)
+
+// saysNoCheckpoint reports whether a resume's answer is Logos saying there was
+// no checkpoint. Not a search for the sentence anywhere in it: a note, a
+// decision or a dead end in the vault can quote it, and a resume that handed a
+// checkpoint over would then be counted as cold.
+func saysNoCheckpoint(answer string) bool { return noCheckpointLine.MatchString(answer) }
 
 // isEdit reports whether a tool turn changed a file: an edit tool that did not
 // fail, or a shell command that plainly writes one.
@@ -222,7 +232,16 @@ func isEdit(t transcript.Turn) bool {
 
 var (
 	quotedSpan = regexp.MustCompile(`'[^']*'|"(?:[^"\\]|\\.)*"`)
-	writeVerb  = regexp.MustCompile(`(?:^|[\s;&|(])(?:apply_patch|git\s+apply|patch\s+-p|sed\s+(?:-[a-zA-Z]*i|--in-place)|perl\s+-[a-zA-Z]*i|tee\s)`)
+	// segments split a command at what ends one: a verb is only a verb where a
+	// command starts, and "grep -rn apply_patch" has no command named that.
+	segments  = regexp.MustCompile(`[;&|(\n]+`)
+	writeVerb = regexp.MustCompile(`^\s*(?:(?:sudo|xargs|time|nohup|env)\s+)*(apply_patch|git\s+apply|patch|sed|perl|tee)(?:\s(.*))?$`)
+	// inPlace is -i as a flag of its own, alone or in a cluster that ends in
+	// it (-pi, -ni) or with a backup suffix (-i.bak): not the i inside
+	// "perl -Mstrict".
+	inPlace    = regexp.MustCompile(`(?:^|\s)(?:--in-place\S*|-[a-zA-Z]*i(?:\.\S*)?)(?:\s|$)`)
+	patchP     = regexp.MustCompile(`(?:^|\s)-p\d*(?:\s|$)`)
+	dryRun     = regexp.MustCompile(`(?:^|\s)--(?:check|dry-run)\b`)
 	redirectTo = regexp.MustCompile(`(?:^|[^0-9&>-])>>?\s*([^\s&>|;]+)`)
 )
 
@@ -243,8 +262,10 @@ func shellWrites(cmd string) bool {
 		}
 	}
 	cmd = quotedSpan.ReplaceAllString(cmd, `""`)
-	if writeVerb.MatchString(cmd) {
-		return true
+	for _, seg := range segments.Split(cmd, -1) {
+		if writesAsVerb(seg) {
+			return true
+		}
 	}
 	for _, m := range redirectTo.FindAllStringSubmatch(cmd, -1) {
 		if !strings.HasPrefix(m[1], "/dev/") {
@@ -252,6 +273,28 @@ func shellWrites(cmd string) bool {
 		}
 	}
 	return false
+}
+
+// writesAsVerb reports whether one command of a pipeline or list is a verb
+// that writes a file. A patch run only to check that it applies, or to rehearse
+// it, writes nothing.
+func writesAsVerb(seg string) bool {
+	m := writeVerb.FindStringSubmatch(seg)
+	if m == nil {
+		return false
+	}
+	verb, args := strings.Join(strings.Fields(m[1]), " "), m[2]
+	switch verb {
+	case "apply_patch":
+		return true
+	case "git apply":
+		return !dryRun.MatchString(" " + args)
+	case "patch":
+		return patchP.MatchString(" "+args) && !dryRun.MatchString(" "+args)
+	case "sed", "perl":
+		return inPlace.MatchString(" " + args)
+	}
+	return strings.TrimSpace(args) != "" // tee
 }
 
 // Enough is how many edited sittings each arm needs before their medians are
