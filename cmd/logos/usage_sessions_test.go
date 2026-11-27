@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/Coder8124/logos/internal/effect"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/transcript"
 	usagepkg "github.com/Coder8124/logos/internal/usage"
@@ -341,6 +344,31 @@ func TestUsageSessionsNamesTheCorrectionsThatRepeatWhatLogosHeld(t *testing.T) {
 		if strings.Contains(out, said) {
 			t.Errorf("a line of the conversation was printed (%q):\n%s", said, out)
 		}
+	}
+}
+
+func TestUsageSessionsFilesASessionStartedInASubdirectoryUnderItsProject(t *testing.T) {
+	t.Setenv("LOGOS_VAULT", t.TempDir())
+	repo := t.TempDir()
+	sub := filepath.Join(repo, "services", "cart")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, scope.MarkerFile), []byte("storefront\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Add(-24 * time.Hour).Unix()
+	s := began("dddd0000-1111-2222", day, 5, 1, 2)
+	s.Project, s.Cwd = "cart", sub // what the host records: the folder it ran in
+	transcriptsAre(t, s)
+
+	out := captureStdout(t, func() {
+		if err := runUsage([]string{"storefront", "--sessions"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "read from the transcripts of 1 session") {
+		t.Errorf("a session started under storefront's marker was not storefront's:\n%s", out)
 	}
 }
 

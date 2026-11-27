@@ -14,6 +14,7 @@ import (
 	"github.com/Coder8124/logos/internal/effect"
 	"github.com/Coder8124/logos/internal/index"
 	"github.com/Coder8124/logos/internal/memory"
+	"github.com/Coder8124/logos/internal/scope"
 	"github.com/Coder8124/logos/internal/session"
 	"github.com/Coder8124/logos/internal/text"
 	"github.com/Coder8124/logos/internal/transcript"
@@ -60,6 +61,11 @@ func usageSessions(v, project string, days int) error {
 	perHarness := map[string]int{}
 	began := map[string]bool{} // the sessions with a sitting in the window
 	for _, s := range sessions {
+		// The project the vault files this session's work under, which is not
+		// the folder name the transcript carries: a session started in
+		// shop/cart is shop's, as the sweep files it. The corrections are
+		// matched on the same name, so what was held for shop reaches it.
+		s.Project = projectOf(s)
 		if project != "" && !usagepkg.SameProject(s.Project, project) {
 			continue
 		}
@@ -127,6 +133,19 @@ func usageSessions(v, project string, days int) error {
 	printTranscriptProblems(problems)
 	printUnreadable(bad, v)
 	return nil
+}
+
+// projectOf is the project a session's work belongs to: where its directory
+// resolves to by marker or repository root, as ingest's sweep reads it, and
+// the transcript's own folder name when the directory is not known. A git
+// worktree is named by its own folder, as the sweep names it: it reaches its
+// repository's project only through a .logos-project marker the checkout
+// carries.
+func projectOf(s *transcript.Session) string {
+	if s.Cwd != "" {
+		return scope.Name(s.Cwd)
+	}
+	return s.Project
 }
 
 // startSlack is how long after the person's first turn a hook's resume can be
