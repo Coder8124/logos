@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/Coder8124/logos/internal/deadend"
@@ -203,7 +202,9 @@ func runReviewStale(ix *index.Index) error {
 		fmt.Printf("nothing recorded on %s names a file that changed since — no rulings or memories to review\n", project)
 		return nil
 	}
-	kept, retired, confirmed, err := reviewStale(bufio.NewReader(os.Stdin), items, ix.Vault, ix.DB, scope, head)
+	// keyboard, not a reader of its own: reached from the review menu, the
+	// answer typed right after the choice may already sit in its buffer.
+	kept, retired, confirmed, err := reviewStale(keyboard, items, ix.Vault, ix.DB, scope, head)
 	fmt.Printf("%d kept, %d retired, %d re-confirmed, %d not reached\n", kept, retired, confirmed, len(items)-kept-retired-confirmed)
 	return err
 }
