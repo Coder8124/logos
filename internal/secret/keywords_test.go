@@ -109,9 +109,10 @@ func leadsWithLiteral(re *syntax.Regexp) bool {
 // that shape (fly's fm2r_ was one). Rules that open on a class rather than a
 // literal have no prefix to check and are covered by their own sample.
 func TestEveryRuleKeywordCoversEveryLiteralPrefixItsPatternCanMatch(t *testing.T) {
-	// The only rule whose keyword is not at the front of its pattern: the
-	// legacy OpenAI key is sk- then twenty characters then T3BlbkFJ.
-	midPattern := map[string]bool{"openai-api-key": true, "discord-webhook": true}
+	// Rules whose keyword is not at the front of its pattern: the legacy
+	// OpenAI key is sk- then twenty characters then T3BlbkFJ, and a webhook
+	// URL is named by its host, which follows the scheme.
+	midPattern := map[string]bool{"openai-api-key": true, "discord-webhook": true, "microsoft-teams-webhook": true}
 	for _, r := range tokenRules {
 		re, err := syntax.Parse(r.pattern, syntax.Perl)
 		if err != nil {
